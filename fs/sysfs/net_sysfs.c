@@ -162,13 +162,7 @@ static DEVICE_ATTR(tx_errors, 0444, statistic_show, NULL);
 static DEVICE_ATTR(tx_dropped, 0444, statistic_show, NULL);
 
 static struct attribute *net_attributes[] = {
-    &dev_attr_address.attr,
-    &dev_attr_mtu.attr,
-    &dev_attr_operstate.attr,
-    &dev_attr_flags.attr,
-    &dev_attr_type.attr,
-    &dev_attr_ifindex.attr,
-    NULL,
+    &dev_attr_address.attr, &dev_attr_mtu.attr, &dev_attr_operstate.attr, &dev_attr_flags.attr, &dev_attr_type.attr, &dev_attr_ifindex.attr, NULL,
 };
 
 static struct attribute *statistics_attributes[] = {

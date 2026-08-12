@@ -29,8 +29,8 @@ static bool input_is_keyboard(const input_dev_t *input)
      * input_id builtin uses to distinguish a keyboard from a mouse whose
      * buttons are also reported through EV_KEY.
      */
-    return input_test_bit(KEY_Q, input->keybit) && input_test_bit(KEY_A, input->keybit) && input_test_bit(KEY_Z, input->keybit)
-           && input_test_bit(KEY_ENTER, input->keybit) && input_test_bit(KEY_SPACE, input->keybit);
+    return input_test_bit(KEY_Q, input->keybit) && input_test_bit(KEY_A, input->keybit) && input_test_bit(KEY_Z, input->keybit) && input_test_bit(KEY_ENTER, input->keybit)
+           && input_test_bit(KEY_SPACE, input->keybit);
 }
 
 static bool input_is_mouse(const input_dev_t *input)
@@ -181,8 +181,7 @@ static struct attribute_group input_id_group = {
 };
 
 static struct attribute *input_capability_attributes[] = {
-    &dev_attr_ev.attr,  &dev_attr_key.attr, &dev_attr_rel.attr, &dev_attr_abs.attr, &dev_attr_msc.attr,
-    &dev_attr_led.attr, &dev_attr_snd.attr, &dev_attr_sw.attr,  &dev_attr_ff.attr,  NULL,
+    &dev_attr_ev.attr, &dev_attr_key.attr, &dev_attr_rel.attr, &dev_attr_abs.attr, &dev_attr_msc.attr, &dev_attr_led.attr, &dev_attr_snd.attr, &dev_attr_sw.attr, &dev_attr_ff.attr, NULL,
 };
 
 static struct attribute_group input_capability_group = {

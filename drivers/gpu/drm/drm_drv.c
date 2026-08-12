@@ -225,10 +225,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         dev->mode_config.poll_enabled               = true;
     }
 
-    if (dev->driver) {
-        DRM_INFO("Initialized %s %d.%d.%d %s\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel,
-                 dev->driver->date);
-    }
+    if (dev->driver) { DRM_INFO("Initialized %s %d.%d.%d %s\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel, dev->driver->date); }
 
     /* Register under /sys/class/drm/ (one entry per GPU) */
     if (drm_class_registered && dev->primary) {

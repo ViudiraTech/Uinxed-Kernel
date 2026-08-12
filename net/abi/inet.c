@@ -216,13 +216,12 @@ static int inet6_is_mapped(const struct in6_addr *address)
 
 static uint32_t inet6_mapped_ipv4(const struct in6_addr *address)
 {
-    return ((uint32_t)address->s6_addr[12] << 24) | ((uint32_t)address->s6_addr[13] << 16) | ((uint32_t)address->s6_addr[14] << 8)
-           | address->s6_addr[15];
+    return ((uint32_t)address->s6_addr[12] << 24) | ((uint32_t)address->s6_addr[13] << 16) | ((uint32_t)address->s6_addr[14] << 8) | address->s6_addr[15];
 }
 
 /* Parse a sockaddr into the transport's native address/port form (v4 or mapped v6). */
-static int inet_address(inet_core_socket_t *sock, const struct sockaddr *addr, uint32_t length, uint32_t *address, uint16_t *port,
-                        ipv6_address_t *address6, uint32_t *scope_id, int binding, int *native6)
+static int inet_address(inet_core_socket_t *sock, const struct sockaddr *addr, uint32_t length, uint32_t *address, uint16_t *port, ipv6_address_t *address6, uint32_t *scope_id, int binding,
+                        int *native6)
 {
     if (!addr || length < sizeof(sa_family_t)) return -EINVAL;
     if (sock->family == AF_INET) {
@@ -337,8 +336,7 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
         sock->endpoint.tcp = tcp_open_family((uint16_t)family);
     else if (type == SOCK_RAW)
         sock->endpoint.icmp = icmp_open();
-    if ((type == SOCK_DGRAM && !sock->endpoint.udp) || (type == SOCK_STREAM && !sock->endpoint.tcp)
-        || (type == SOCK_RAW && !sock->endpoint.icmp)) {
+    if ((type == SOCK_DGRAM && !sock->endpoint.udp) || (type == SOCK_STREAM && !sock->endpoint.tcp) || (type == SOCK_RAW && !sock->endpoint.icmp)) {
         plogk("inet: Endpoint open failed (family=%u type=%u)\n", (unsigned)family, (unsigned)type);
         free(sock);
         return -ENOMEM;
@@ -490,8 +488,7 @@ static int core_listen(void *context, int backlog)
     if (sock->type != SOCK_STREAM) return -EOPNOTSUPP;
     tcp_endpoint_info_t info;
     if (!tcp_get_info(sock->endpoint.tcp, &info) && !info.local_port) {
-        int bind_status = sock->family == AF_INET6 ? tcp_bind6(sock->endpoint.tcp, &sock->local_address6, 0) :
-                                                     tcp_bind(sock->endpoint.tcp, sock->local_address, 0);
+        int bind_status = sock->family == AF_INET6 ? tcp_bind6(sock->endpoint.tcp, &sock->local_address6, 0) : tcp_bind(sock->endpoint.tcp, sock->local_address, 0);
         if (bind_status) return bind_status;
         if (!tcp_get_info(sock->endpoint.tcp, &info)) sock->local_port = info.local_port;
     }
@@ -616,8 +613,7 @@ static int core_sendto(void *context, const void *buf, size_t len, int flags, co
             native6  = 1;
         }
     }
-    int ret          = native6 ? udp_send6(sock->endpoint.udp, buf, len, &address6, port, (uint8_t)sock->ipv6_unicast_hops) :
-                                 udp_send(sock->endpoint.udp, buf, len, address, port);
+    int ret          = native6 ? udp_send6(sock->endpoint.udp, buf, len, &address6, port, (uint8_t)sock->ipv6_unicast_hops) : udp_send(sock->endpoint.udp, buf, len, address, port);
     sock->local_port = udp_local_port(sock->endpoint.udp);
     return ret;
 }
@@ -726,8 +722,7 @@ static int core_getsockname(void *context, struct sockaddr *addr, uint32_t *addr
 static int core_getpeername(void *context, struct sockaddr *addr, uint32_t *addrlen)
 {
     inet_core_socket_t *sock = context;
-    if ((!sock->remote_address && ipv6_address_is_unspecified(&sock->remote_address6)) || (!sock->remote_port && sock->type != SOCK_RAW))
-        return -ENOTCONN;
+    if ((!sock->remote_address && ipv6_address_is_unspecified(&sock->remote_address6)) || (!sock->remote_port && sock->type != SOCK_RAW)) return -ENOTCONN;
     uint32_t required = inet_socket_address_size(sock);
     if (*addrlen < required) return -EINVAL;
     if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&sock->remote_address6))
@@ -1034,7 +1029,7 @@ static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
             uint32_t           address;
             uint16_t           port;
             inet_core_socket_t ipv4 = {.family = AF_INET};
-            ret = inet_address(&ipv4, (const struct sockaddr *)&ifr->ifr_addr, sizeof(ifr->ifr_addr), &address, &port, NULL, NULL, 1, NULL);
+            ret                     = inet_address(&ipv4, (const struct sockaddr *)&ifr->ifr_addr, sizeof(ifr->ifr_addr), &address, &port, NULL, NULL, 1, NULL);
             if (!ret) ret = netdev_configure_ipv4(dev, address, dev->ipv4_netmask, dev->ipv4_gateway);
             break;
         }
@@ -1045,8 +1040,7 @@ static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
             uint32_t           netmask;
             uint16_t           port;
             inet_core_socket_t ipv4 = {.family = AF_INET};
-            ret = inet_address(&ipv4, (const struct sockaddr *)&ifr->ifr_netmask, sizeof(ifr->ifr_netmask), &netmask, &port, NULL, NULL, 1,
-                               NULL);
+            ret                     = inet_address(&ipv4, (const struct sockaddr *)&ifr->ifr_netmask, sizeof(ifr->ifr_netmask), &netmask, &port, NULL, NULL, 1, NULL);
             if (!ret) ret = netdev_configure_ipv4(dev, dev->ipv4_address, netmask, dev->ipv4_gateway);
             break;
         }
@@ -1086,14 +1080,12 @@ static size_t core_proc_read(enum inet_proc_file file, char *buf, size_t capacit
     }
     netdev_stats_t stats;
     netdev_get_stats(dev, &stats);
-    int n
-        = snprintf(buf, capacity,
-                   "Inter-|   Receive                                                |  Transmit\n"
-                   " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n"
-                   "%6s: %llu %llu %llu %llu 0 0 0 0 %llu %llu %llu %llu 0 0 0 0\n",
-                   dev->name, (unsigned long long)stats.rx_bytes, (unsigned long long)stats.rx_packets, (unsigned long long)stats.rx_errors,
-                   (unsigned long long)stats.rx_dropped, (unsigned long long)stats.tx_bytes, (unsigned long long)stats.tx_packets,
-                   (unsigned long long)stats.tx_errors, (unsigned long long)stats.tx_dropped);
+    int n = snprintf(buf, capacity,
+                     "Inter-|   Receive                                                |  Transmit\n"
+                     " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n"
+                     "%6s: %llu %llu %llu %llu 0 0 0 0 %llu %llu %llu %llu 0 0 0 0\n",
+                     dev->name, (unsigned long long)stats.rx_bytes, (unsigned long long)stats.rx_packets, (unsigned long long)stats.rx_errors, (unsigned long long)stats.rx_dropped,
+                     (unsigned long long)stats.tx_bytes, (unsigned long long)stats.tx_packets, (unsigned long long)stats.tx_errors, (unsigned long long)stats.tx_dropped);
     netdev_put(dev);
     if (n < 0) return 0;
     return (size_t)n < capacity ? (size_t)n : capacity;

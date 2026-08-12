@@ -110,8 +110,8 @@ static int usb_storage_bulk_exact(usb_endpoint_t *endpoint, void *buffer, size_t
 /* Reset the mass-storage interface and clear both bulk endpoint halts. */
 static int usb_storage_reset(usb_storage_device_t *storage)
 {
-    int status     = usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_RESET, 0,
-                                     storage->interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    int status     = usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_RESET, 0, storage->interface->descriptor.interface_number, NULL, 0,
+                                     USB_CTRL_TIMEOUT_MS);
     int in_status  = usb_clear_halt(storage->bulk_in);
     int out_status = usb_clear_halt(storage->bulk_out);
     if (status != EOK) return status;
@@ -120,8 +120,7 @@ static int usb_storage_reset(usb_storage_device_t *storage)
 }
 
 /* Run a full CBW/CSW command cycle; caller must hold the storage lock. */
-static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun, const void *command, uint8_t command_length, void *data,
-                                      uint32_t data_length, bool input)
+static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun, const void *command, uint8_t command_length, void *data, uint32_t data_length, bool input)
 {
     usb_msc_cbw_t cbw;
     usb_msc_csw_t csw;
@@ -165,8 +164,7 @@ static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun
     }
     if (status != EOK) goto recover;
     if (csw.signature != USB_MSC_CSW_SIGNATURE || csw.tag != tag || csw.residue > data_length || csw.status > 2) {
-        plogk("usb-storage: %s: CSW protocol error sig=0x%08x tag=0x%08x residue=%u\n", storage->interface->device->path, csw.signature, csw.tag,
-              csw.residue);
+        plogk("usb-storage: %s: CSW protocol error sig=0x%08x tag=0x%08x residue=%u\n", storage->interface->device->path, csw.signature, csw.tag, csw.residue);
         status = -EPROTO;
         goto recover;
     }
@@ -235,8 +233,7 @@ static int usb_storage_capacity(usb_storage_lun_t *lun)
     if (status != EOK) return status;
     uint64_t last_lba16  = usb_scsi_be64(response16);
     uint32_t sector_size = usb_scsi_be32(response16 + 8);
-    if (last_lba16 == UINT64_MAX || !sector_size || (sector_size & (sector_size - 1)) || sector_size < 512 || sector_size > 65536)
-        return -EINVAL;
+    if (last_lba16 == UINT64_MAX || !sector_size || (sector_size & (sector_size - 1)) || sector_size < 512 || sector_size > 65536) return -EINVAL;
     lun->sector_count = last_lba16 + 1;
     lun->sector_size  = sector_size;
     return EOK;
@@ -413,8 +410,8 @@ static void usb_storage_unregister_lun(usb_storage_lun_t *lun)
 int usb_storage_probe(usb_interface_t *interface)
 {
 #if CONFIG_USB_STORAGE
-    if (!interface || interface->driver_data || interface->descriptor.interface_class != USB_CLASS_MASS_STORAGE
-        || interface->descriptor.interface_subclass != USB_MSC_SUBCLASS_SCSI || interface->descriptor.interface_protocol != USB_MSC_PROTOCOL_BOT)
+    if (!interface || interface->driver_data || interface->descriptor.interface_class != USB_CLASS_MASS_STORAGE || interface->descriptor.interface_subclass != USB_MSC_SUBCLASS_SCSI
+        || interface->descriptor.interface_protocol != USB_MSC_PROTOCOL_BOT)
         return -ENODEV;
     usb_endpoint_t *bulk_in  = usb_find_endpoint(interface, USB_ENDPOINT_XFER_BULK, true);
     usb_endpoint_t *bulk_out = usb_find_endpoint(interface, USB_ENDPOINT_XFER_BULK, false);
@@ -432,8 +429,8 @@ int usb_storage_probe(usb_interface_t *interface)
     storage->connected  = true;
 
     uint8_t max_lun = 0;
-    if (usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_MAX_LUN, 0,
-                        interface->descriptor.interface_number, &max_lun, sizeof(max_lun), USB_CTRL_TIMEOUT_MS)
+    if (usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_MAX_LUN, 0, interface->descriptor.interface_number, &max_lun, sizeof(max_lun),
+                        USB_CTRL_TIMEOUT_MS)
         != EOK)
         max_lun = 0;
     if (max_lun >= USB_MSC_MAX_LUNS) max_lun = USB_MSC_MAX_LUNS - 1;
@@ -445,8 +442,7 @@ int usb_storage_probe(usb_interface_t *interface)
         usb_storage_mode_sense(lun);
         if (usb_storage_register_lun(lun) != EOK) continue;
         storage->lun_count++;
-        plogk("usb-storage: %s: %llu sectors, %u-byte logical blocks%s.\n", lun->name, (unsigned long long)lun->sector_count, lun->sector_size,
-              lun->read_only ? ", read-only" : "");
+        plogk("usb-storage: %s: %llu sectors, %u-byte logical blocks%s.\n", lun->name, (unsigned long long)lun->sector_count, lun->sector_size, lun->read_only ? ", read-only" : "");
     }
     if (!storage->lun_count) {
         storage->connected = false;

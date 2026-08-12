@@ -20,8 +20,7 @@ uint32_t usb_scsi_be32(const uint8_t *buffer)
 }
 
 /* Fill a Bulk-Only Transport command wrapper from a SCSI command. */
-int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length, uint32_t transfer_length,
-                      bool input)
+int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length, uint32_t transfer_length, bool input)
 {
     if (!cbw || !command || !command_length || command_length > sizeof(cbw->command) || lun > 15) {
         plogk("usb_storage: build_cbw: invalid argument (command_length=%u, lun=%u)\n", (unsigned)command_length, (unsigned)lun);

@@ -165,10 +165,7 @@ static bool tty_prepare_interruptible_wait(tty_core_t *tty, wait_queue_t *queue)
 void tty_core_auto_acquire(tty_core_t *tty, uint64_t flags)
 {
     process_t *current = process_current();
-    if (!tty || !current || !current->task || (flags & (O_NOCTTY | O_PATH)) || (flags & O_ACCMODE) == O_WRONLY || current->sid <= 0
-        || current->sid != (pid_t)current->task->pid) {
-        return;
-    }
+    if (!tty || !current || !current->task || (flags & (O_NOCTTY | O_PATH)) || (flags & O_ACCMODE) == O_WRONLY || current->sid <= 0 || current->sid != (pid_t)current->task->pid) { return; }
 
     tty_core_t *ctty = process_ctty_get(current);
     if (ctty) {
@@ -312,10 +309,7 @@ retry_character:;
         }
 
         if (tty->termios.c_lflag & ISIG) {
-            int signal = tty_cc_matches(&tty->termios, VINTR, ch) ? SIGINT :
-                         tty_cc_matches(&tty->termios, VQUIT, ch) ? SIGQUIT :
-                         tty_cc_matches(&tty->termios, VSUSP, ch) ? SIGTSTP :
-                                                                    0;
+            int signal = tty_cc_matches(&tty->termios, VINTR, ch) ? SIGINT : tty_cc_matches(&tty->termios, VQUIT, ch) ? SIGQUIT : tty_cc_matches(&tty->termios, VSUSP, ch) ? SIGTSTP : 0;
             if (signal) {
                 tcflag_t lflag = tty->termios.c_lflag;
                 bool     flush = !(lflag & NOFLSH);
@@ -700,10 +694,7 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             struct vt_mode mode;
             if (copy_from_user(&mode, user_arg, sizeof(mode))) return -EFAULT;
             if (mode.mode != VT_AUTO && mode.mode != VT_PROCESS) return -EINVAL;
-            if (mode.mode == VT_PROCESS
-                && (mode.relsig <= 0 || mode.relsig > SIGRTMAX || mode.acqsig <= 0 || mode.acqsig > SIGRTMAX || mode.frsig < 0
-                    || mode.frsig > SIGRTMAX))
-                return -EINVAL;
+            if (mode.mode == VT_PROCESS && (mode.relsig <= 0 || mode.relsig > SIGRTMAX || mode.acqsig <= 0 || mode.acqsig > SIGRTMAX || mode.frsig < 0 || mode.frsig > SIGRTMAX)) return -EINVAL;
             mode.waitv = mode.waitv ? 1 : 0;
             spin_lock(&tty->lock);
             tty->vt_mode      = mode;
@@ -746,10 +737,7 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             value = (int)(uintptr_t)user_arg;
             if (value != TCIFLUSH && value != TCOFLUSH && value != TCIOFLUSH) return -EINVAL;
             if (value != TCOFLUSH) tty_core_flush_input(tty);
-            if (tty->ops.event)
-                tty->ops.event(tty->context, value == TCOFLUSH ? TIOCPKT_FLUSHWRITE :
-                                             value == TCIFLUSH ? TIOCPKT_FLUSHREAD :
-                                                                 TIOCPKT_FLUSHREAD | TIOCPKT_FLUSHWRITE);
+            if (tty->ops.event) tty->ops.event(tty->context, value == TCOFLUSH ? TIOCPKT_FLUSHWRITE : value == TCIFLUSH ? TIOCPKT_FLUSHREAD : TIOCPKT_FLUSHREAD | TIOCPKT_FLUSHWRITE);
             return 0;
         case TCXONC :
             value = (int)(uintptr_t)user_arg;
@@ -772,8 +760,7 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
         case TIOCGPGRP : {
             if (!current) return -ENOTTY;
             int64_t session = tty->session;
-            if (session != current->sid && tty->session == 0 && current->task && current->sid == (pid_t)current->task->pid
-                && current->uid == 0) {
+            if (session != current->sid && tty->session == 0 && current->task && current->sid == (pid_t)current->task->pid && current->uid == 0) {
                 /*
                  * Unattached tty claimed by a root session leader (this
                  * kernel has no getty; the shell respawned via setsid).
@@ -792,8 +779,7 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             if (!current) return -ESRCH;
             if (copy_from_user(&value, user_arg, sizeof(value))) return -EFAULT;
             int64_t session = tty->session;
-            if (session != current->sid && tty->session == 0 && current->task && current->sid == (pid_t)current->task->pid
-                && current->uid == 0) {
+            if (session != current->sid && tty->session == 0 && current->task && current->sid == (pid_t)current->task->pid && current->uid == 0) {
                 /* Unattached tty claimed by a root session leader. */
                 int result = process_ctty_acquire(current, tty, false, NULL, NULL);
                 if (result) return result;

@@ -111,13 +111,11 @@ static int extfs_valid_dirent(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_
 {
     uint32_t remaining = sb->block_size - offset;
     if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) {
-        plogk("extfs: Drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode,
-              de->rec_len);
+        plogk("extfs: Drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode, de->rec_len);
         return 0;
     }
     if (de->name_len > de->rec_len - 8) {
-        plogk("extfs: Drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode,
-              de->name_len);
+        plogk("extfs: Drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode, de->name_len);
         return 0;
     }
     if (de->inode > sb->es->s_inodes_count) {
@@ -266,8 +264,7 @@ static int extfs_mount(const char *src, vfs_node_t node)
         }
     }
 
-    plogk("extfs: Mounted ext%d volume '%.16s', block size %u, %u groups.\n", extfs_detect_version(sb->es), sb->es->s_volume_name,
-          sb->block_size, sb->groups_count);
+    plogk("extfs: Mounted ext%d volume '%.16s', block size %u, %u groups.\n", extfs_detect_version(sb->es), sb->es->s_volume_name, sb->block_size, sb->groups_count);
 
     return EOK;
 }

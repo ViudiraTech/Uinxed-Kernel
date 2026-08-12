@@ -39,8 +39,7 @@ int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
     }
 
     plogk("virtgpu: Display info: %d scanout(s)\n", vgdev->num_scanouts);
-    for (i = 0; i < vgdev->num_scanouts && i < 16; i++)
-        plogk("virtgpu:   Scanout[%d]: %ux%u\n", i, vgdev->scanouts[i].width, vgdev->scanouts[i].height);
+    for (i = 0; i < vgdev->num_scanouts && i < 16; i++) plogk("virtgpu:   Scanout[%d]: %ux%u\n", i, vgdev->scanouts[i].width, vgdev->scanouts[i].height);
     return 0;
 }
 
@@ -255,20 +254,18 @@ int virtgpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev, struct virt
     return ret;
 }
 
-int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj,
-                                         const struct drm_virtgpu_3d_transfer *xf)
+int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_3d_transfer *xf)
 {
     struct virtio_gpu_transfer_to_host_2d cmd;
     struct virtio_gpu_ctrl_hdr            resp;
 
-    if (!vgdev || !obj || !xf || !xf->box.w || !xf->box.h || xf->box.z || xf->box.d > 1 || xf->box.x >= obj->width || xf->box.y >= obj->height
-        || xf->box.w > obj->width - xf->box.x || xf->box.h > obj->height - xf->box.y || xf->level || xf->stride || xf->layer_stride) {
+    if (!vgdev || !obj || !xf || !xf->box.w || !xf->box.h || xf->box.z || xf->box.d > 1 || xf->box.x >= obj->width || xf->box.y >= obj->height || xf->box.w > obj->width - xf->box.x
+        || xf->box.h > obj->height - xf->box.y || xf->level || xf->stride || xf->layer_stride) {
         plogk("virtgpu: Transfer_to_host_2d_rect: invalid transfer box.\n");
         return -EINVAL;
     }
     if ((uint64_t)xf->offset + (uint64_t)(xf->box.h - 1) * obj->stride + (uint64_t)xf->box.w * 4 > obj->base.size) {
-        plogk("virtgpu: Transfer_to_host_2d_rect: transfer out of bounds (offset=%u, size=%u)\n", (unsigned)xf->offset,
-              (unsigned)obj->base.size);
+        plogk("virtgpu: Transfer_to_host_2d_rect: transfer out of bounds (offset=%u, size=%u)\n", (unsigned)xf->offset, (unsigned)obj->base.size);
         return -EINVAL;
     }
 
@@ -380,8 +377,7 @@ int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_i
 
 /* Data transfer (3D) */
 
-int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id,
-                            const struct drm_virtgpu_3d_transfer *xf, bool to_host)
+int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id, const struct drm_virtgpu_3d_transfer *xf, bool to_host)
 {
     struct virtio_gpu_transfer_3d cmd;
     struct virtio_gpu_ctrl_hdr    resp;
@@ -535,8 +531,7 @@ int virtgpu_cmd_ctx_destroy(struct virtio_gpu_device *vgdev, uint32_t ctx_id)
     return ret;
 }
 
-int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, struct virtio_gpu_object *obj, int32_t x, int32_t y,
-                              int32_t hot_x, int32_t hot_y)
+int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, struct virtio_gpu_object *obj, int32_t x, int32_t y, int32_t hot_x, int32_t hot_y)
 {
     struct virtio_gpu_update_cursor cmd;
     memset(&cmd, 0, sizeof(cmd));
@@ -587,8 +582,7 @@ int virtgpu_cmd_ctx_detach_resource(struct virtio_gpu_device *vgdev, uint32_t ct
 
 /* 3D command submission */
 
-int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx, const void *cmd_data,
-                          uint32_t size, struct virtio_gpu_fence *fence)
+int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx, const void *cmd_data, uint32_t size, struct virtio_gpu_fence *fence)
 {
     struct virtio_gpu_submit_3d *cmd;
     struct virtio_gpu_ctrl_hdr   resp;

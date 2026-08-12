@@ -109,9 +109,8 @@ int module_set_signature_verifier(module_signature_verifier_t verifier);
 #define __module_used             __attribute__((used))
 #define __module_section(name)    __attribute__((section(name)))
 
-#define __MODULE_INFO(tag, info, counter) \
-    static const char __MODULE_JOIN(__modinfo_, counter)[] __module_used __module_section(".modinfo") = #tag "=" info
-#define MODULE_INFO(tag, info) __MODULE_INFO(tag, info, __COUNTER__)
+#define __MODULE_INFO(tag, info, counter) static const char __MODULE_JOIN(__modinfo_, counter)[] __module_used __module_section(".modinfo") = #tag "=" info
+#define MODULE_INFO(tag, info)            __MODULE_INFO(tag, info, __COUNTER__)
 
 #define MODULE_NAME(name)        MODULE_INFO(name, name)
 #define MODULE_LICENSE(license)  MODULE_INFO(license, license)
@@ -124,19 +123,17 @@ int module_set_signature_verifier(module_signature_verifier_t verifier);
 #define MODULE_IMPORT_NS(ns)     MODULE_INFO(import_ns, __MODULE_STRING(ns))
 #define MODULE_DEPENDS(value)    MODULE_INFO(depends, value)
 
-#define __EXPORT_SYMBOL(symbol, namespace_value, export_flags)                                            \
-    static const char __kstrtab_##symbol[] __module_used __module_section("__ksymtab_strings") = #symbol; \
-    static const struct kernel_symbol __ksymtab_##symbol __module_used __module_section("__ksymtab")      \
-        = {(uintptr_t) & (symbol), __kstrtab_##symbol, namespace_value, export_flags, 0}
+#define __EXPORT_SYMBOL(symbol, namespace_value, export_flags)                                                  \
+    static const char __kstrtab_##symbol[] __module_used __module_section("__ksymtab_strings")       = #symbol; \
+    static const struct kernel_symbol __ksymtab_##symbol __module_used __module_section("__ksymtab") = {(uintptr_t) & (symbol), __kstrtab_##symbol, namespace_value, export_flags, 0}
 #define EXPORT_SYMBOL(symbol)            __EXPORT_SYMBOL(symbol, NULL, 0)
 #define EXPORT_SYMBOL_GPL(symbol)        __EXPORT_SYMBOL(symbol, NULL, KERNEL_SYMBOL_GPL_ONLY)
 #define EXPORT_SYMBOL_NS(symbol, ns)     __EXPORT_SYMBOL(symbol, __MODULE_STRING(ns), 0)
 #define EXPORT_SYMBOL_NS_GPL(symbol, ns) __EXPORT_SYMBOL(symbol, __MODULE_STRING(ns), KERNEL_SYMBOL_GPL_ONLY)
 
-#define __MODULE_PARAM(name, kind, permissions)                                                       \
-    static const char __param_str_##name[] __module_used __module_section("__param_strings") = #name; \
-    static const struct kernel_param __param_##name __module_used __module_section("__param")         \
-        = {__param_str_##name, &(name), MODULE_PARAM_##kind, permissions}
+#define __MODULE_PARAM(name, kind, permissions)                                                        \
+    static const char __param_str_##name[] __module_used __module_section("__param_strings")  = #name; \
+    static const struct kernel_param __param_##name __module_used __module_section("__param") = {__param_str_##name, &(name), MODULE_PARAM_##kind, permissions}
 #define module_param(name, type, permissions) __MODULE_PARAM(name, type, permissions)
 #define MODULE_PARAM_byte                     MODULE_PARAM_BYTE
 #define MODULE_PARAM_short                    MODULE_PARAM_SHORT

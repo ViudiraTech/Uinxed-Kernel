@@ -112,17 +112,14 @@ void tpm_vfs_init(void)
 
     if (!tpm_get_device()) return;
 
-    if (devtmpfs_register_char_device("/dev/tpm0", MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), file_stream, &tpm_ops)
-        == 0) {
+    if (devtmpfs_register_char_device("/dev/tpm0", MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), file_stream, &tpm_ops) == 0) {
         vfs_node_t node = vfs_open("/dev/tpm0");
         if (node) {
             node->mode = 0600;
             vfs_close(node);
         }
     }
-    if (devtmpfs_register_char_device("/dev/tpmrm0", MKDEV(TPM_DEV_MAJOR, TPMRM0_MINOR), MKDEV(TPM_DEV_MAJOR, TPMRM0_MINOR), file_stream,
-                                      &tpm_ops)
-        == 0) {
+    if (devtmpfs_register_char_device("/dev/tpmrm0", MKDEV(TPM_DEV_MAJOR, TPMRM0_MINOR), MKDEV(TPM_DEV_MAJOR, TPMRM0_MINOR), file_stream, &tpm_ops) == 0) {
         vfs_node_t node = vfs_open("/dev/tpmrm0");
         if (node) {
             node->mode = 0600;

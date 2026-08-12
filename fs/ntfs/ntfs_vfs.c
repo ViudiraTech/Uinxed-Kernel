@@ -212,8 +212,7 @@ typedef struct {
 /* little-endian accessors */
 static inline u64 le64(const u8 *p)
 {
-    return (u64)p[0] | ((u64)p[1] << 8) | ((u64)p[2] << 16) | ((u64)p[3] << 24) | ((u64)p[4] << 32) | ((u64)p[5] << 40) | ((u64)p[6] << 48)
-           | ((u64)p[7] << 56);
+    return (u64)p[0] | ((u64)p[1] << 8) | ((u64)p[2] << 16) | ((u64)p[3] << 24) | ((u64)p[4] << 32) | ((u64)p[5] << 40) | ((u64)p[6] << 48) | ((u64)p[7] << 56);
 }
 static inline u32 le32(const u8 *p)
 {
@@ -290,15 +289,12 @@ static int ntfs_record_layout(ntfs_mount_t *mnt, u8 *record, u32 record_size, u1
 {
     u32 usa_end;
 
-    if (!mnt || !record || !usa_offset || !usa_count || !mnt->sector_size || record_size < mnt->sector_size || record_size % mnt->sector_size)
-        return -EINVAL;
+    if (!mnt || !record || !usa_offset || !usa_count || !mnt->sector_size || record_size < mnt->sector_size || record_size % mnt->sector_size) return -EINVAL;
 
     *usa_offset = le16(record + 4);
     *usa_count  = le16(record + 6);
     usa_end     = (u32)*usa_offset + (u32)*usa_count * sizeof(u16);
-    if (*usa_offset < 8 || (*usa_offset & 1) || *usa_count != record_size / mnt->sector_size + 1 || usa_end > record_size
-        || usa_end > mnt->sector_size - sizeof(u16))
-        return -EIO;
+    if (*usa_offset < 8 || (*usa_offset & 1) || *usa_count != record_size / mnt->sector_size + 1 || usa_end > record_size || usa_end > mnt->sector_size - sizeof(u16)) return -EIO;
     return 0;
 }
 
@@ -492,13 +488,10 @@ static int ntfs_utf16_from_utf8(const char *source, u16 **name, u8 *name_length,
             if (!byte || (byte & 0xc0) != 0x80) goto invalid;
             codepoint = (codepoint << 6) | (byte & 0x3f);
         }
-        if ((continuation == 2 && codepoint < 0x800) || (continuation == 3 && codepoint < 0x10000) || codepoint > 0x10ffff
-            || (codepoint >= 0xd800 && codepoint <= 0xdfff))
-            goto invalid;
+        if ((continuation == 2 && codepoint < 0x800) || (continuation == 3 && codepoint < 0x10000) || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) goto invalid;
         if (codepoint < 0x20
             || (filename
-                && (codepoint == '"' || codepoint == '*' || codepoint == '/' || codepoint == ':' || codepoint == '<' || codepoint == '>'
-                    || codepoint == '?' || codepoint == '\\' || codepoint == '|')))
+                && (codepoint == '"' || codepoint == '*' || codepoint == '/' || codepoint == ':' || codepoint == '<' || codepoint == '>' || codepoint == '?' || codepoint == '\\' || codepoint == '|')))
             goto invalid;
         if (codepoint < 0x10000) {
             if (count == 255) goto too_long;
@@ -528,8 +521,7 @@ static int ntfs_name_from_utf8(const char *source, u16 **name, u8 *name_length)
 }
 
 /* Insert an entry into a resident $I30 index root. */
-static int ntfs_index_root_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
-                                  u32 file_attributes, u64 data_size, u64 allocated_size)
+static int ntfs_index_root_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size, u64 allocated_size)
 {
     attr_rec_t *attribute = NULL;
     u32         attribute_offset;
@@ -579,9 +571,7 @@ static int ntfs_index_root_insert(ntfs_mount_t *mnt, u8 *record, u64 file_refere
     total_size      = le32(header + 4);
     allocation_size = le32(header + 8);
     if (header[12] & INDEX_ENTRY_NODE) return -EOPNOTSUPP;
-    if (first_offset < 16 || total_size < first_offset || allocation_size < total_size || total_size > value_length - 0x10
-        || allocation_size > value_length - 0x10)
-        return -EIO;
+    if (first_offset < 16 || total_size < first_offset || allocation_size < total_size || total_size > value_length - 0x10 || allocation_size > value_length - 0x10) return -EIO;
 
     for (u32 position = first_offset; position + 16 <= total_size;) {
         u8 *entry       = header + position;
@@ -613,8 +603,8 @@ static int ntfs_index_root_insert(ntfs_mount_t *mnt, u8 *record, u64 file_refere
 
     key_size   = (u16)(sizeof(fname_attr_t) + (u32)name_length * sizeof(u16));
     entry_size = align8(16 + key_size);
-    if (entry_size > mnt->mft_size - bytes_in_use || attribute_length > UINT32_MAX - entry_size || value_length > UINT32_MAX - entry_size
-        || total_size > UINT32_MAX - entry_size || allocation_size > UINT32_MAX - entry_size)
+    if (entry_size > mnt->mft_size - bytes_in_use || attribute_length > UINT32_MAX - entry_size || value_length > UINT32_MAX - entry_size || total_size > UINT32_MAX - entry_size
+        || allocation_size > UINT32_MAX - entry_size)
         return -ENOSPC;
 
     memmove(record + insert_offset + entry_size, record + insert_offset, bytes_in_use - insert_offset);
@@ -723,8 +713,7 @@ static int ntfs_index_root_remove(ntfs_mount_t *mnt, u8 *record, u64 file_refere
 }
 
 /* Replace a file-name attribute value in a record. */
-static int ntfs_file_name_replace(ntfs_mount_t *mnt, u8 *record, u64 parent_reference, const u16 *old_name, u8 old_length, const u16 *new_name,
-                                  u8 new_length)
+static int ntfs_file_name_replace(ntfs_mount_t *mnt, u8 *record, u64 parent_reference, const u16 *old_name, u8 old_length, const u16 *new_name, u8 new_length)
 {
     u32 bytes_in_use;
     u32 offset;
@@ -745,8 +734,7 @@ static int ntfs_file_name_replace(ntfs_mount_t *mnt, u8 *record, u64 parent_refe
             u32 value_length = le32((u8 *)&attribute->d.res.value_length);
             if (value_offset > length || value_length < sizeof(fname_attr_t) || value_length > length - value_offset) return -EIO;
             fname_attr_t *file_name = (fname_attr_t *)((u8 *)attribute + value_offset);
-            if ((le64((u8 *)&file_name->parent_dir) & 0x0000ffffffffffffULL) == (parent_reference & 0x0000ffffffffffffULL)
-                && file_name->name_len == old_length) {
+            if ((le64((u8 *)&file_name->parent_dir) & 0x0000ffffffffffffULL) == (parent_reference & 0x0000ffffffffffffULL) && file_name->name_len == old_length) {
                 int equal = 1;
                 for (u32 i = 0; i < old_length; i++) {
                     if (le16((u8 *)file_name->name + i * sizeof(u16)) != old_name[i]) {
@@ -780,12 +768,10 @@ static int ntfs_file_name_replace(ntfs_mount_t *mnt, u8 *record, u64 parent_refe
     return -ENOENT;
 }
 
-static u32 ntfs_resident_attribute(u8 *record, u32 offset, u32 type, u16 instance, const u16 *attribute_name, u8 attribute_name_length,
-                                   const u8 *value, u32 value_length);
+static u32 ntfs_resident_attribute(u8 *record, u32 offset, u32 type, u16 instance, const u16 *attribute_name, u8 attribute_name_length, const u8 *value, u32 value_length);
 
 /* Append a file-name attribute to a record. */
-static int ntfs_file_name_add(ntfs_mount_t *mnt, u8 *record, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes,
-                              u64 data_size)
+static int ntfs_file_name_add(ntfs_mount_t *mnt, u8 *record, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size)
 {
     u8  value[sizeof(fname_attr_t) + 255 * sizeof(u16)];
     u32 bytes_in_use;
@@ -816,8 +802,7 @@ static int ntfs_file_name_add(ntfs_mount_t *mnt, u8 *record, u64 parent_referenc
     file_name->name_type = 1;
     for (u32 i = 0; i < name_length; i++) put_le16((u8 *)file_name->name + i * sizeof(u16), name[i]);
     u16 instance = le16(record + 0x28);
-    u32 end
-        = ntfs_resident_attribute(record, offset, AT_FILE_NAME, instance, NULL, 0, value, sizeof(fname_attr_t) + (u32)name_length * sizeof(u16));
+    u32 end      = ntfs_resident_attribute(record, offset, AT_FILE_NAME, instance, NULL, 0, value, sizeof(fname_attr_t) + (u32)name_length * sizeof(u16));
     put_le32(record + end, AT_END);
     put_le32(record + 0x18, end + 8);
     put_le16(record + 0x28, instance + 1);
@@ -845,8 +830,7 @@ static int ntfs_file_name_remove(ntfs_mount_t *mnt, u8 *record, u64 parent_refer
             u32 value_length = le32((u8 *)&attribute->d.res.value_length);
             if (value_offset > length || value_length < sizeof(fname_attr_t) || value_length > length - value_offset) return -EIO;
             fname_attr_t *file_name = (fname_attr_t *)((u8 *)attribute + value_offset);
-            if ((le64((u8 *)&file_name->parent_dir) & 0x0000ffffffffffffULL) == (parent_reference & 0x0000ffffffffffffULL)
-                && file_name->name_len == name_length) {
+            if ((le64((u8 *)&file_name->parent_dir) & 0x0000ffffffffffffULL) == (parent_reference & 0x0000ffffffffffffULL) && file_name->name_len == name_length) {
                 int equal = 1;
                 for (u32 i = 0; i < name_length; i++)
                     if (le16((u8 *)file_name->name + i * sizeof(u16)) != name[i]) equal = 0;
@@ -898,9 +882,7 @@ static int ntfs_mft_bitmap_read_byte(ntfs_mount_t *mnt, attr_rec_t *attribute, u
         u16 mapping_offset = le16((u8 *)&attribute->d.nres.mapping_pairs_off);
         u64 data_size      = le64((u8 *)&attribute->d.nres.data_size);
         if (length < 64 || mapping_offset < 64 || mapping_offset >= length || byte_offset >= data_size) return -EIO;
-        return read_by_runlist(mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), byte_offset, value, 1, data_size) == 1 ?
-                   0 :
-                   -EIO;
+        return read_by_runlist(mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), byte_offset, value, 1, data_size) == 1 ? 0 : -EIO;
     }
     u16 value_offset = le16((u8 *)&attribute->d.res.value_offset);
     u32 value_length = le32((u8 *)&attribute->d.res.value_length);
@@ -963,11 +945,7 @@ static int ntfs_mft_bitmap_set(ntfs_mount_t *mnt, u64 record_number, int allocat
         u32 length         = le32((u8 *)&attribute->length);
         u16 mapping_offset = le16((u8 *)&attribute->d.nres.mapping_pairs_off);
         u64 data_size      = le64((u8 *)&attribute->d.nres.data_size);
-        status
-            = write_by_runlist(mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), record_number / 8, &bitmap, 1, data_size)
-                      == 1 ?
-                  0 :
-                  -EIO;
+        status             = write_by_runlist(mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), record_number / 8, &bitmap, 1, data_size) == 1 ? 0 : -EIO;
     } else {
         u16 value_offset                                      = le16((u8 *)&attribute->d.res.value_offset);
         *((u8 *)attribute + value_offset + record_number / 8) = bitmap;
@@ -979,8 +957,7 @@ out:
 }
 
 /* Write a resident attribute at an offset, returning the next offset. */
-static u32 ntfs_resident_attribute(u8 *record, u32 offset, u32 type, u16 instance, const u16 *attribute_name, u8 attribute_name_length,
-                                   const u8 *value, u32 value_length)
+static u32 ntfs_resident_attribute(u8 *record, u32 offset, u32 type, u16 instance, const u16 *attribute_name, u8 attribute_name_length, const u8 *value, u32 value_length)
 {
     u16 value_offset = (u16)align8(24 + (u32)attribute_name_length * sizeof(u16));
     u32 length       = align8(value_offset + value_length);
@@ -999,8 +976,7 @@ static u32 ntfs_resident_attribute(u8 *record, u32 offset, u32 type, u16 instanc
 }
 
 /* Build a new MFT record for a file or directory. */
-static int ntfs_build_file_record(ntfs_mount_t *mnt, u8 *record, u64 record_number, u16 sequence, u64 parent_reference, const u16 *name,
-                                  u8 name_length, int directory)
+static int ntfs_build_file_record(ntfs_mount_t *mnt, u8 *record, u64 record_number, u16 sequence, u64 parent_reference, const u16 *name, u8 name_length, int directory)
 {
     static const u16 i30[]        = {'$', 'I', '3', '0'};
     u8               standard[48] = {0};
@@ -1040,8 +1016,7 @@ static int ntfs_build_file_record(ntfs_mount_t *mnt, u8 *record, u64 record_numb
     file_name->name_len  = name_length;
     file_name->name_type = 1;
     for (u32 i = 0; i < name_length; i++) put_le16((u8 *)file_name->name + i * sizeof(u16), name[i]);
-    offset = ntfs_resident_attribute(record, offset, AT_FILE_NAME, 1, NULL, 0, file_name_value,
-                                     sizeof(fname_attr_t) + (u32)name_length * sizeof(u16));
+    offset = ntfs_resident_attribute(record, offset, AT_FILE_NAME, 1, NULL, 0, file_name_value, sizeof(fname_attr_t) + (u32)name_length * sizeof(u16));
     if (directory) {
         put_le32(index_root, AT_FILE_NAME);
         put_le32(index_root + 4, 1);
@@ -1063,8 +1038,8 @@ static int ntfs_build_file_record(ntfs_mount_t *mnt, u8 *record, u64 record_numb
 }
 
 /* Build a symlink MFT record carrying a reparse-point attribute. */
-static int ntfs_build_symlink_record(ntfs_mount_t *mnt, u8 *record, u64 record_number, u16 sequence, u64 parent_reference, const u16 *name,
-                                     u8 name_length, const u16 *target, u8 target_length, int relative)
+static int ntfs_build_symlink_record(ntfs_mount_t *mnt, u8 *record, u64 record_number, u16 sequence, u64 parent_reference, const u16 *name, u8 name_length, const u16 *target, u8 target_length,
+                                     int relative)
 {
     u8  reparse[20 + 255 * 4];
     u32 reparse_size = 20 + (u32)target_length * 4;
@@ -1177,9 +1152,7 @@ static int mft_bootstrap_runlist(ntfs_mount_t *mnt)
     if (!mnt || mnt->mft_runlist || !mnt->mft_size || mnt->mft_lcn < 0) return mnt && mnt->mft_runlist ? 0 : -EINVAL;
     record = malloc(mnt->mft_size);
     if (!record) return -ENOMEM;
-    if (dev_read(mnt, (u64)mnt->mft_lcn << mnt->cluster_bits, record, mnt->mft_size) < 0 || ntfs_record_unpack(mnt, record, mnt->mft_size) < 0
-        || le32(record) != MFT_MAGIC)
-        goto out;
+    if (dev_read(mnt, (u64)mnt->mft_lcn << mnt->cluster_bits, record, mnt->mft_size) < 0 || ntfs_record_unpack(mnt, record, mnt->mft_size) < 0 || le32(record) != MFT_MAGIC) goto out;
 
     offset = le16(record + 0x14);
     while (offset + 16 <= mnt->mft_size) {
@@ -1213,8 +1186,7 @@ static int mft_bootstrap_runlist(ntfs_mount_t *mnt)
             memcpy(runlist, (u8 *)attribute + mapping_offset, runlist_size);
             run_count = runlist_parse(runlist, (int)runlist_size, vcn, lcn, run, 256);
             data_size = le64((u8 *)&attribute->d.nres.data_size);
-            if (run_count <= 0 || data_size < mnt->mft_size
-                || (u64)run[run_count - 1] + (u64)vcn[run_count - 1] < (data_size + mnt->cluster_size - 1) / mnt->cluster_size) {
+            if (run_count <= 0 || data_size < mnt->mft_size || (u64)run[run_count - 1] + (u64)vcn[run_count - 1] < (data_size + mnt->cluster_size - 1) / mnt->cluster_size) {
                 free(runlist);
                 goto out;
             }
@@ -1233,6 +1205,7 @@ out:
 }
 
 /* disk I/O helpers */
+
 /* Read and unpack one MFT record. */
 static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
 {
@@ -1242,14 +1215,11 @@ static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
     if (mft_no && !mnt->mft_runlist && mft_bootstrap_runlist(mnt) < 0) return -EIO;
     logical_offset = mft_no * mnt->mft_size;
     if (mnt->mft_runlist) {
-        if (read_by_runlist(mnt, mnt->mft_runlist, (int)mnt->mft_runlist_size, logical_offset, buf, mnt->mft_size, mnt->mft_data_size)
-            != (int)mnt->mft_size)
-            return -EIO;
+        if (read_by_runlist(mnt, mnt->mft_runlist, (int)mnt->mft_runlist_size, logical_offset, buf, mnt->mft_size, mnt->mft_data_size) != (int)mnt->mft_size) return -EIO;
     } else {
         u64 byte_offset = ((u64)mnt->mft_lcn << mnt->cluster_bits) + logical_offset;
         if (dev_read(mnt, byte_offset, buf, mnt->mft_size) < 0) {
-            plogk("ntfs: Drive %u: failed to read MFT record %llu at byte %llu\n", mnt->dev.drive, (unsigned long long)mft_no,
-                  (unsigned long long)byte_offset);
+            plogk("ntfs: Drive %u: failed to read MFT record %llu at byte %llu\n", mnt->dev.drive, (unsigned long long)mft_no, (unsigned long long)byte_offset);
             return -EIO;
         }
     }
@@ -1274,9 +1244,7 @@ static int mft_write(ntfs_mount_t *mnt, u64 mft_no, const u8 *buf)
     status = ntfs_record_pack(mnt, record, mnt->mft_size);
     if (status == 0) {
         if (mnt->mft_runlist) {
-            if (write_by_runlist(mnt, mnt->mft_runlist, (int)mnt->mft_runlist_size, byte_off, record, mnt->mft_size, mnt->mft_data_size)
-                != (s64)mnt->mft_size)
-                status = -EIO;
+            if (write_by_runlist(mnt, mnt->mft_runlist, (int)mnt->mft_runlist_size, byte_off, record, mnt->mft_size, mnt->mft_data_size) != (s64)mnt->mft_size) status = -EIO;
         } else {
             byte_off += (u64)mnt->mft_lcn << mnt->cluster_bits;
             if (dev_write(mnt, byte_off, record, mnt->mft_size) < 0) status = -EIO;
@@ -1284,9 +1252,7 @@ static int mft_write(ntfs_mount_t *mnt, u64 mft_no, const u8 *buf)
         if (status == 0 && mnt->mftmirr_lcn > 0) {
             u64 mirror_records = mnt->cluster_size / mnt->mft_size;
             if (mirror_records < 4) mirror_records = 4;
-            if (mft_no < mirror_records
-                && dev_write(mnt, ((u64)mnt->mftmirr_lcn << mnt->cluster_bits) + mft_no * mnt->mft_size, record, mnt->mft_size) < 0)
-                status = -EIO;
+            if (mft_no < mirror_records && dev_write(mnt, ((u64)mnt->mftmirr_lcn << mnt->cluster_bits) + mft_no * mnt->mft_size, record, mnt->mft_size) < 0) status = -EIO;
         }
     }
     if (status != EOK) plogk("ntfs: Drive %u: MFT record %llu write failed: %d\n", mnt->dev.drive, (unsigned long long)mft_no, status);
@@ -1379,10 +1345,8 @@ static int ntfs_load_upcase(ntfs_mount_t *mnt)
                 u16 mapping_offset = le16((u8 *)&attribute->d.nres.mapping_pairs_off);
                 u64 data_size      = le64((u8 *)&attribute->d.nres.data_size);
                 u16 flags          = le16((u8 *)&attribute->flags);
-                if (length < 64 || mapping_offset < 64 || mapping_offset >= length || data_size != table_size
-                    || (flags & (ATTR_IS_COMPRESSED | ATTR_IS_ENCRYPTED | ATTR_IS_SPARSE))
-                    || read_by_runlist(mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), 0, raw, table_size, data_size)
-                           != (int)table_size)
+                if (length < 64 || mapping_offset < 64 || mapping_offset >= length || data_size != table_size || (flags & (ATTR_IS_COMPRESSED | ATTR_IS_ENCRYPTED | ATTR_IS_SPARSE))
+                    || read_by_runlist(mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), 0, raw, table_size, data_size) != (int)table_size)
                     goto out;
             } else {
                 u16 value_offset = le16((u8 *)&attribute->d.res.value_offset);
@@ -1556,6 +1520,7 @@ static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size
 }
 
 /* runlist parser */
+
 /* Decode a runlist into vcn/lcn/run triples, handling sparse runs. */
 static int runlist_parse(u8 *rl, int len, s64 *vcn, s64 *lcn, s64 *run, int max)
 {
@@ -1692,8 +1657,7 @@ static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8
             if (to_read > max_cl) to_read = max_cl;
             s64 byte_off = (found_lcn << mnt->cluster_bits) + cl_off;
             if (dev_read(mnt, (u64)byte_off, buf + done, (size_t)to_read) < 0) {
-                plogk("ntfs: Drive %u: block read failed at byte %llu (%llu bytes)\n", mnt->dev.drive, (unsigned long long)byte_off,
-                      (unsigned long long)(size - done));
+                plogk("ntfs: Drive %u: block read failed at byte %llu (%llu bytes)\n", mnt->dev.drive, (unsigned long long)byte_off, (unsigned long long)(size - done));
                 return done > 0 ? (int)done : -EIO;
             }
             done += (size_t)to_read;
@@ -1732,8 +1696,7 @@ static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, c
             }
         }
         if (run_lcn < 0 || run_lcn >= mnt->nr_clusters) {
-            plogk("ntfs: Drive %u: write target LCN %lld out of range (nr_clusters=%llu)\n", mnt->dev.drive, (long long)run_lcn,
-                  (unsigned long long)mnt->nr_clusters);
+            plogk("ntfs: Drive %u: write target LCN %lld out of range (nr_clusters=%llu)\n", mnt->dev.drive, (long long)run_lcn, (unsigned long long)mnt->nr_clusters);
             return done ? (s64)done : -EIO;
         }
 
@@ -1783,9 +1746,7 @@ static int bitmap_find_free(ntfs_mount_t *mnt, u64 count, s64 *extent_lcn, s64 *
 
     if (!mnt || !mnt->bitmap_runlist || !count || !extent_lcn || !extent_length || !extent_count) return -EINVAL;
     for (u64 cluster = 0; cluster < (u64)mnt->nr_clusters && remaining; cluster++) {
-        if (!(cluster & 7)
-            && read_by_runlist(mnt, mnt->bitmap_runlist, (int)mnt->bitmap_runlist_size, cluster >> 3, &byte, 1, mnt->bitmap_data_size) != 1)
-            return -EIO;
+        if (!(cluster & 7) && read_by_runlist(mnt, mnt->bitmap_runlist, (int)mnt->bitmap_runlist_size, cluster >> 3, &byte, 1, mnt->bitmap_data_size) != 1) return -EIO;
         if (byte & (1U << (cluster & 7))) continue;
         if (extents && extent_lcn[extents - 1] + extent_length[extents - 1] == (s64)cluster) {
             extent_length[extents - 1]++;
@@ -1818,9 +1779,7 @@ static int bitmap_change_extents(ntfs_mount_t *mnt, const s64 *extent_lcn, const
 
     if (!mnt || !extent_lcn || !extent_length || extent_count < 0) return -EINVAL;
     for (int extent = 0; extent < extent_count; extent++) {
-        if (extent_lcn[extent] < 0 || extent_length[extent] <= 0 || extent_lcn[extent] >= mnt->nr_clusters
-            || extent_length[extent] > mnt->nr_clusters - extent_lcn[extent])
-            return -EIO;
+        if (extent_lcn[extent] < 0 || extent_length[extent] <= 0 || extent_lcn[extent] >= mnt->nr_clusters || extent_length[extent] > mnt->nr_clusters - extent_lcn[extent]) return -EIO;
         if ((u64)extent_length[extent] > UINT64_MAX - cluster_count) return -EOVERFLOW;
         cluster_count += (u64)extent_length[extent];
     }
@@ -1836,10 +1795,7 @@ static int bitmap_change_extents(ntfs_mount_t *mnt, const s64 *extent_lcn, const
             u32 slot    = 0;
             while (slot < byte_count && bytes[slot].offset != offset) slot++;
             if (slot == byte_count) {
-                if (read_by_runlist(mnt, mnt->bitmap_runlist, (int)mnt->bitmap_runlist_size, offset, &bytes[slot].before, 1,
-                                    mnt->bitmap_data_size)
-                    != 1)
-                    goto out;
+                if (read_by_runlist(mnt, mnt->bitmap_runlist, (int)mnt->bitmap_runlist_size, offset, &bytes[slot].before, 1, mnt->bitmap_data_size) != 1) goto out;
                 bytes[slot].offset = offset;
                 bytes[slot].after  = bytes[slot].before;
                 byte_count++;
@@ -1851,18 +1807,14 @@ static int bitmap_change_extents(ntfs_mount_t *mnt, const s64 *extent_lcn, const
         }
     }
     for (; committed < byte_count; committed++) {
-        if (write_by_runlist(mnt, mnt->bitmap_runlist, (int)mnt->bitmap_runlist_size, bytes[committed].offset, &bytes[committed].after, 1,
-                             mnt->bitmap_data_size)
-            != 1)
-            goto rollback;
+        if (write_by_runlist(mnt, mnt->bitmap_runlist, (int)mnt->bitmap_runlist_size, bytes[committed].offset, &bytes[committed].after, 1, mnt->bitmap_data_size) != 1) goto rollback;
     }
     status = 0;
     goto out;
 rollback:
     while (committed) {
         committed--;
-        write_by_runlist(mnt, mnt->bitmap_runlist, (int)mnt->bitmap_runlist_size, bytes[committed].offset, &bytes[committed].before, 1,
-                         mnt->bitmap_data_size);
+        write_by_runlist(mnt, mnt->bitmap_runlist, (int)mnt->bitmap_runlist_size, bytes[committed].offset, &bytes[committed].before, 1, mnt->bitmap_data_size);
     }
 out:
     free(bytes);
@@ -1897,8 +1849,7 @@ static int ntfs_index_reclaim_stage(ntfs_mount_t *mnt, const s64 *lcn, const s64
     if (!mnt || !lcn || !length || count <= 0 || count > 256) return -EINVAL;
     if (mnt->index_reclaim_count) return -EBUSY;
     for (int extent = 0; extent < count; extent++) {
-        if (lcn[extent] < 0 || length[extent] <= 0 || lcn[extent] >= mnt->nr_clusters || length[extent] > mnt->nr_clusters - lcn[extent])
-            return -EIO;
+        if (lcn[extent] < 0 || length[extent] <= 0 || lcn[extent] >= mnt->nr_clusters || length[extent] > mnt->nr_clusters - lcn[extent]) return -EIO;
         mnt->index_reclaim_lcn[extent]    = lcn[extent];
         mnt->index_reclaim_length[extent] = length[extent];
     }
@@ -1922,8 +1873,7 @@ static void ntfs_index_reclaim_abort(ntfs_mount_t *mnt)
 }
 
 /* Move index entries out of a full index root into a nonresident allocation. */
-static int ntfs_index_root_promote(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
-                                   u32 file_attributes, u64 data_size, u64 allocated_size)
+static int ntfs_index_root_promote(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size, u64 allocated_size)
 {
     static const u16 i30[] = {'$', 'I', '3', '0'};
     ntfs_mount_t     temporary_mount;
@@ -1965,8 +1915,7 @@ static int ntfs_index_root_promote(ntfs_mount_t *mnt, u8 *record, u64 file_refer
     memcpy(temporary, record, mnt->mft_size);
     memcpy(&temporary_mount, mnt, sizeof(temporary_mount));
     temporary_mount.mft_size = capacity;
-    status = ntfs_index_root_insert(&temporary_mount, temporary, file_reference, parent_reference, name, name_length, file_attributes, data_size,
-                                    allocated_size);
+    status                   = ntfs_index_root_insert(&temporary_mount, temporary, file_reference, parent_reference, name, name_length, file_attributes, data_size, allocated_size);
     if (status < 0) goto out;
     attr_rec_t *temp_root   = (attr_rec_t *)(temporary + root_offset);
     u8         *temp_header = (u8 *)temp_root + le16((u8 *)&temp_root->d.res.value_offset) + 0x10;
@@ -2057,8 +2006,7 @@ out:
     return status;
 }
 
-static u32 ntfs_index_entry_build(u8 *entry, u32 capacity, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
-                                  u32 file_attributes, u64 data_size, u64 allocated_size)
+static u32 ntfs_index_entry_build(u8 *entry, u32 capacity, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size, u64 allocated_size)
 {
     u16 key_length   = sizeof(fname_attr_t) + (size_t)name_length * 2;
     u32 entry_length = align8(16 + key_length);
@@ -2134,13 +2082,12 @@ static int ntfs_index_root_insert_child(ntfs_mount_t *mnt, u8 *record, u64 old_c
     return 0;
 }
 
-static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block, u64 child_vcn, u32 insert_offset, u64 file_reference,
-                                       u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size,
-                                       u64 allocated_size);
+static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block, u64 child_vcn, u32 insert_offset, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
+                                       u32 file_attributes, u64 data_size, u64 allocated_size);
 
 /* Insert an entry into the nonresident $I30 index allocation. */
-static int ntfs_index_allocation_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
-                                        u32 file_attributes, u64 data_size, u64 allocated_size)
+static int ntfs_index_allocation_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size,
+                                        u64 allocated_size)
 {
     attr_rec_t *allocation = NULL;
     attr_rec_t *root       = NULL;
@@ -2165,14 +2112,11 @@ static int ntfs_index_allocation_insert(ntfs_mount_t *mnt, u8 *record, u64 file_
     if (mapping_offset < 64 || mapping_offset >= allocation_length || stream_size < mnt->indx_size) return -EIO;
     u16 root_value_offset = le16((u8 *)&root->d.res.value_offset);
     u32 root_value_length = le32((u8 *)&root->d.res.value_length);
-    if (root_value_offset > le32((u8 *)&root->length) || root_value_length < 40
-        || root_value_length > le32((u8 *)&root->length) - root_value_offset)
-        return -EIO;
+    if (root_value_offset > le32((u8 *)&root->length) || root_value_length < 40 || root_value_length > le32((u8 *)&root->length) - root_value_offset) return -EIO;
     u8 *root_header = (u8 *)root + root_value_offset + 0x10;
     u32 root_first = le32(root_header), root_total = le32(root_header + 4);
     u64 child_vcn = UINT64_MAX;
-    if (!(root_header[12] & INDEX_ENTRY_NODE) || root_first < 16 || root_total < root_first + 24 || root_total > root_value_length - 0x10)
-        return -EIO;
+    if (!(root_header[12] & INDEX_ENTRY_NODE) || root_first < 16 || root_total < root_first + 24 || root_total > root_value_length - 0x10) return -EIO;
     for (u32 position = root_first; position + 24 <= root_total;) {
         u8 *entry      = root_header + position;
         u16 length     = le16(entry + 8);
@@ -2202,9 +2146,7 @@ static int ntfs_index_allocation_insert(ntfs_mount_t *mnt, u8 *record, u64 file_
     if (block_offset > stream_size || mnt->indx_size > stream_size - block_offset) return -EIO;
     block = malloc(mnt->indx_size);
     if (!block) return -ENOMEM;
-    if (read_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block, mnt->indx_size,
-                        stream_size)
-            != (int)mnt->indx_size
+    if (read_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block, mnt->indx_size, stream_size) != (int)mnt->indx_size
         || ntfs_record_unpack(mnt, block, mnt->indx_size) < 0 || le32(block) != INDX_MAGIC)
         goto out;
     u8 *header = block + 0x18;
@@ -2238,8 +2180,7 @@ static int ntfs_index_allocation_insert(ntfs_mount_t *mnt, u8 *record, u64 file_
     u16 key_length   = sizeof(fname_attr_t) + (size_t)name_length * 2;
     u32 entry_length = align8(16 + key_length);
     if (entry_length > capacity - total || insert > mnt->indx_size - entry_length) {
-        status = ntfs_index_allocation_split(mnt, record, block, child_vcn, insert, file_reference, parent_reference, name, name_length,
-                                             file_attributes, data_size, allocated_size);
+        status = ntfs_index_allocation_split(mnt, record, block, child_vcn, insert, file_reference, parent_reference, name, name_length, file_attributes, data_size, allocated_size);
         goto out;
     }
     memmove(block + insert + entry_length, block + insert, 0x18 + total - insert);
@@ -2258,27 +2199,21 @@ static int ntfs_index_allocation_insert(ntfs_mount_t *mnt, u8 *record, u64 file_
     put_le32(header + 4, total + entry_length);
     status = ntfs_record_pack(mnt, block, mnt->indx_size);
     if (status < 0) goto out;
-    status = write_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block, mnt->indx_size,
-                              stream_size)
-                     == (s64)mnt->indx_size ?
-                 0 :
-                 -EIO;
+    status = write_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block, mnt->indx_size, stream_size) == (s64)mnt->indx_size ? 0 : -EIO;
 out:
     free(block);
     return status;
 }
 
 /* Split a full index block into two blocks and link them into the root. */
-static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block, u64 child_vcn, u32 insert_offset, u64 file_reference,
-                                       u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size,
-                                       u64 allocated_size)
+static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block, u64 child_vcn, u32 insert_offset, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
+                                       u32 file_attributes, u64 data_size, u64 allocated_size)
 {
     u8 *header = block + 0x18;
     u32 first = le32(header), total = le32(header + 4);
     u32 area_offset = 0x18 + first, old_size = total - first;
     u8  new_entry[16 + sizeof(fname_attr_t) + (size_t)255 * 2 + 8];
-    u32 new_length = ntfs_index_entry_build(new_entry, sizeof(new_entry), file_reference, parent_reference, name, name_length, file_attributes,
-                                            data_size, allocated_size);
+    u32 new_length = ntfs_index_entry_build(new_entry, sizeof(new_entry), file_reference, parent_reference, name, name_length, file_attributes, data_size, allocated_size);
     u8 *all = NULL, *left = NULL, *right = NULL, *original = NULL, *record_copy = NULL;
     s64 old_vcn[256], old_lcn[256], old_run[256], new_lcn[256], new_run[256];
     int old_count, new_count, status = -EIO;
@@ -2385,8 +2320,7 @@ static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block,
             status = -ENOSPC;
             goto out;
         }
-        memmove(record_copy + allocation_offset + new_allocation_length, record_copy + allocation_offset + allocation_length,
-                used - allocation_offset - allocation_length);
+        memmove(record_copy + allocation_offset + new_allocation_length, record_copy + allocation_offset + allocation_length, used - allocation_offset - allocation_length);
         memset(record_copy + allocation_offset + allocation_length, 0, new_allocation_length - allocation_length);
         put_le32(record_copy + 0x18, used + new_allocation_length - allocation_length);
         allocation = (attr_rec_t *)(record_copy + allocation_offset);
@@ -2421,10 +2355,8 @@ static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block,
             status = -ENOSPC;
             goto out;
         }
-        memmove(record_copy + bitmap_offset + new_bitmap_length, record_copy + bitmap_offset + index_bitmap_length,
-                used - bitmap_offset - index_bitmap_length);
-        memset(record_copy + bitmap_offset + bitmap_value_offset + bitmap_value_length, 0,
-               new_bitmap_length - bitmap_value_offset - bitmap_value_length);
+        memmove(record_copy + bitmap_offset + new_bitmap_length, record_copy + bitmap_offset + index_bitmap_length, used - bitmap_offset - index_bitmap_length);
+        memset(record_copy + bitmap_offset + bitmap_value_offset + bitmap_value_length, 0, new_bitmap_length - bitmap_value_offset - bitmap_value_length);
         put_le32(record_copy + 0x18, used - index_bitmap_length + new_bitmap_length);
         index_bitmap = (attr_rec_t *)(record_copy + bitmap_offset);
         put_le32((u8 *)&index_bitmap->length, new_bitmap_length);
@@ -2469,14 +2401,12 @@ static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block,
     put_le32(right + 0x20, mnt->indx_size - 0x18);
     memcpy(right + 0x40, all + right_offset, right_size);
     if (ntfs_record_pack(mnt, left, mnt->indx_size) < 0 || ntfs_record_pack(mnt, right, mnt->indx_size) < 0) goto out;
-    if (write_by_runlist(mnt, mapping, mapping_size, stream_size, right, mnt->indx_size, stream_size + mnt->indx_size) != (s64)mnt->indx_size)
-        goto out;
+    if (write_by_runlist(mnt, mapping, mapping_size, stream_size, right, mnt->indx_size, stream_size + mnt->indx_size) != (s64)mnt->indx_size) goto out;
     status = bitmap_change_extents(mnt, new_lcn, new_run, new_count, 1);
     if (status < 0) goto out;
     bitmap_committed = 1;
     left_committed   = 1;
-    if (write_by_runlist(mnt, mapping, mapping_size, child_vcn * ntfs_index_vcn_size(mnt), left, mnt->indx_size, stream_size + mnt->indx_size)
-        != (s64)mnt->indx_size) {
+    if (write_by_runlist(mnt, mapping, mapping_size, child_vcn * ntfs_index_vcn_size(mnt), left, mnt->indx_size, stream_size + mnt->indx_size) != (s64)mnt->indx_size) {
         status = -EIO;
         goto out;
     }
@@ -2486,8 +2416,7 @@ out:
     if (status < 0 && left_committed) {
         attr_rec_t *rollback_allocation = (attr_rec_t *)(record + rollback_allocation_offset);
         if (rollback_mapping_offset >= 64 && rollback_mapping_offset < rollback_allocation_length)
-            write_by_runlist(mnt, (u8 *)rollback_allocation + rollback_mapping_offset,
-                             (int)(rollback_allocation_length - rollback_mapping_offset), child_vcn * ntfs_index_vcn_size(mnt), original,
+            write_by_runlist(mnt, (u8 *)rollback_allocation + rollback_mapping_offset, (int)(rollback_allocation_length - rollback_mapping_offset), child_vcn * ntfs_index_vcn_size(mnt), original,
                              mnt->indx_size, rollback_stream_size);
     }
     if (status < 0 && bitmap_committed) bitmap_change_extents(mnt, new_lcn, new_run, new_count, 0);
@@ -2500,8 +2429,7 @@ out:
 }
 
 /* Insert a directory entry, promoting to a nonresident index when full. */
-static int ntfs_directory_index_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
-                                       u32 file_attributes, u64 data_size, u64 allocated_size)
+static int ntfs_directory_index_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size, u64 allocated_size)
 {
     u32 used = le32(record + 0x18);
     if (!mnt || !record || used > mnt->mft_size) return -EINVAL;
@@ -2515,14 +2443,10 @@ static int ntfs_directory_index_insert(ntfs_mount_t *mnt, u8 *record, u64 file_r
             u32 value_length = le32((u8 *)&attribute->d.res.value_length);
             if (value_offset > length || value_length < 32 || value_length > length - value_offset) return -EIO;
             u8 *header = (u8 *)attribute + value_offset + 0x10;
-            if (header[12] & INDEX_ENTRY_NODE)
-                return ntfs_index_allocation_insert(mnt, record, file_reference, parent_reference, name, name_length, file_attributes, data_size,
-                                                    allocated_size);
-            int status = ntfs_index_root_insert(mnt, record, file_reference, parent_reference, name, name_length, file_attributes, data_size,
-                                                allocated_size);
+            if (header[12] & INDEX_ENTRY_NODE) return ntfs_index_allocation_insert(mnt, record, file_reference, parent_reference, name, name_length, file_attributes, data_size, allocated_size);
+            int status = ntfs_index_root_insert(mnt, record, file_reference, parent_reference, name, name_length, file_attributes, data_size, allocated_size);
             if (status != -ENOSPC) return status;
-            return ntfs_index_root_promote(mnt, record, file_reference, parent_reference, name, name_length, file_attributes, data_size,
-                                           allocated_size);
+            return ntfs_index_root_promote(mnt, record, file_reference, parent_reference, name, name_length, file_attributes, data_size, allocated_size);
         }
         offset += length;
     }
@@ -2720,8 +2644,7 @@ static int ntfs_index_collect_header(ntfs_index_item_t **items, u32 *count, u32 
 }
 
 /* Flatten every entry of a directory index into an item list. */
-static int ntfs_directory_index_collect(ntfs_mount_t *mnt, u8 *record, ntfs_index_item_t **result, u32 *result_count,
-                                        ntfs_index_attributes_t *result_attributes)
+static int ntfs_directory_index_collect(ntfs_mount_t *mnt, u8 *record, ntfs_index_item_t **result, u32 *result_count, ntfs_index_attributes_t *result_attributes)
 {
     ntfs_index_attributes_t attributes;
     ntfs_index_item_t      *items    = NULL;
@@ -2749,9 +2672,7 @@ static int ntfs_directory_index_collect(ntfs_mount_t *mnt, u8 *record, ntfs_inde
         u32 allocation_length = le32((u8 *)&attributes.allocation->length);
         u16 mapping_offset    = le16((u8 *)&attributes.allocation->d.nres.mapping_pairs_off);
         u64 stream_size       = le64((u8 *)&attributes.allocation->d.nres.data_size);
-        if (allocation_length < 64 || mapping_offset < 64 || mapping_offset >= allocation_length || !mnt->indx_size
-            || stream_size % mnt->indx_size)
-            goto corrupt;
+        if (allocation_length < 64 || mapping_offset < 64 || mapping_offset >= allocation_length || !mnt->indx_size || stream_size % mnt->indx_size) goto corrupt;
         block = malloc(mnt->indx_size);
         if (!block) {
             status = -ENOMEM;
@@ -2764,9 +2685,7 @@ static int ntfs_directory_index_collect(ntfs_mount_t *mnt, u8 *record, ntfs_inde
             if (status < 0) goto out;
             if (!allocated) continue;
             u64 logical_offset = index * (u64)mnt->indx_size;
-            if (read_by_runlist(mnt, (u8 *)attributes.allocation + mapping_offset, (int)(allocation_length - mapping_offset), logical_offset,
-                                block, mnt->indx_size, stream_size)
-                    != (int)mnt->indx_size
+            if (read_by_runlist(mnt, (u8 *)attributes.allocation + mapping_offset, (int)(allocation_length - mapping_offset), logical_offset, block, mnt->indx_size, stream_size) != (int)mnt->indx_size
                 || ntfs_record_unpack(mnt, block, mnt->indx_size) < 0 || le32(block) != INDX_MAGIC) {
                 status = -EIO;
                 goto out;
@@ -2802,8 +2721,7 @@ static int ntfs_directory_index_set_reparse_tag(ntfs_mount_t *mnt, u8 *record, u
     u32 allocation_length = le32((u8 *)&attributes.allocation->length);
     u16 mapping_offset    = le16((u8 *)&attributes.allocation->d.nres.mapping_pairs_off);
     u64 stream_size       = le64((u8 *)&attributes.allocation->d.nres.data_size);
-    if (allocation_length < 64 || mapping_offset < 64 || mapping_offset >= allocation_length || !mnt->indx_size || stream_size % mnt->indx_size)
-        return -EIO;
+    if (allocation_length < 64 || mapping_offset < 64 || mapping_offset >= allocation_length || !mnt->indx_size || stream_size % mnt->indx_size) return -EIO;
     block = malloc(mnt->indx_size);
     if (!block) return -ENOMEM;
     for (u64 index = 0; index < stream_size / mnt->indx_size; index++) {
@@ -2812,9 +2730,7 @@ static int ntfs_directory_index_set_reparse_tag(ntfs_mount_t *mnt, u8 *record, u
         if (status < 0) goto out;
         if (!allocated) continue;
         u64 logical_offset = index * (u64)mnt->indx_size;
-        if (read_by_runlist(mnt, (u8 *)attributes.allocation + mapping_offset, (int)(allocation_length - mapping_offset), logical_offset, block,
-                            mnt->indx_size, stream_size)
-                != (int)mnt->indx_size
+        if (read_by_runlist(mnt, (u8 *)attributes.allocation + mapping_offset, (int)(allocation_length - mapping_offset), logical_offset, block, mnt->indx_size, stream_size) != (int)mnt->indx_size
             || ntfs_record_unpack(mnt, block, mnt->indx_size) < 0 || le32(block) != INDX_MAGIC) {
             status = -EIO;
             goto out;
@@ -2842,15 +2758,14 @@ static int ntfs_directory_index_set_reparse_tag(ntfs_mount_t *mnt, u8 *record, u
                 goto out;
             }
             fname_attr_t *file_name = (fname_attr_t *)(entry + 16);
-            int equal = (le64(entry) & 0x0000ffffffffffffULL) == (file_reference & 0x0000ffffffffffffULL) && file_name->name_len == name_length;
+            int           equal     = (le64(entry) & 0x0000ffffffffffffULL) == (file_reference & 0x0000ffffffffffffULL) && file_name->name_len == name_length;
             for (u32 character = 0; equal && character < name_length; character++)
                 if (le16((u8 *)file_name->name + (size_t)character * 2) != name[character]) equal = 0;
             if (equal) {
                 put_le32((u8 *)&file_name->rp_tag, IO_REPARSE_TAG_SYMLINK);
                 status = ntfs_record_pack(mnt, block, mnt->indx_size);
                 if (status < 0) goto out;
-                status = write_by_runlist(mnt, (u8 *)attributes.allocation + mapping_offset, (int)(allocation_length - mapping_offset),
-                                          logical_offset, block, mnt->indx_size, stream_size)
+                status = write_by_runlist(mnt, (u8 *)attributes.allocation + mapping_offset, (int)(allocation_length - mapping_offset), logical_offset, block, mnt->indx_size, stream_size)
                                  == (s64)mnt->indx_size ?
                              0 :
                              -EIO;
@@ -2970,8 +2885,7 @@ static int ntfs_index_try_collapse(ntfs_mount_t *mnt, u8 *record)
     root_value_offset = le16((u8 *)&attributes.root->d.res.value_offset);
     used              = le32(copy + 0x18);
     if (new_root_length > root_length && new_root_length - root_length > mnt->mft_size - used) goto corrupt;
-    memmove(copy + attributes.root_offset + new_root_length, copy + attributes.root_offset + root_length,
-            used - attributes.root_offset - root_length);
+    memmove(copy + attributes.root_offset + new_root_length, copy + attributes.root_offset + root_length, used - attributes.root_offset - root_length);
     if (new_root_length < root_length) memset(copy + used - (root_length - new_root_length), 0, root_length - new_root_length);
     put_le32(copy + 0x18, used - root_length + new_root_length);
     attributes.root = (attr_rec_t *)(copy + attributes.root_offset);
@@ -3066,14 +2980,11 @@ static int ntfs_directory_index_remove(ntfs_mount_t *mnt, u8 *record, u64 file_r
     u32 vcn_size          = ntfs_index_vcn_size(mnt);
     if (!vcn_size || child_vcn > UINT64_MAX / vcn_size) return -EIO;
     u64 block_offset = child_vcn * vcn_size;
-    if (mapping_offset < 64 || mapping_offset >= allocation_length || block_offset > stream_size || mnt->indx_size > stream_size - block_offset)
-        return -EIO;
+    if (mapping_offset < 64 || mapping_offset >= allocation_length || block_offset > stream_size || mnt->indx_size > stream_size - block_offset) return -EIO;
     u8 *block = malloc(mnt->indx_size);
     if (!block) return -ENOMEM;
     int status = -EIO;
-    if (read_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block, mnt->indx_size,
-                        stream_size)
-            != (int)mnt->indx_size
+    if (read_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block, mnt->indx_size, stream_size) != (int)mnt->indx_size
         || ntfs_record_unpack(mnt, block, mnt->indx_size) < 0 || le32(block) != INDX_MAGIC)
         goto out;
     u8 *header = block + 0x18;
@@ -3094,11 +3005,7 @@ static int ntfs_directory_index_remove(ntfs_mount_t *mnt, u8 *record, u64 file_r
         put_le32(header + 4, total - successor_length);
         status = ntfs_record_pack(mnt, block, mnt->indx_size);
         if (status < 0) goto out;
-        status = write_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block,
-                                  mnt->indx_size, stream_size)
-                         == (s64)mnt->indx_size ?
-                     0 :
-                     -EIO;
+        status = write_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block, mnt->indx_size, stream_size) == (s64)mnt->indx_size ? 0 : -EIO;
         if (status < 0) goto out;
         status = ntfs_index_root_replace_key(mnt, record, root_match_offset, saved);
         goto out;
@@ -3113,7 +3020,7 @@ static int ntfs_directory_index_remove(ntfs_mount_t *mnt, u8 *record, u64 file_r
         }
         if (key_length < sizeof(fname_attr_t) || key_length > length - 16) goto out;
         fname_attr_t *file_name = (fname_attr_t *)(entry + 16);
-        int equal = (le64(entry) & 0x0000ffffffffffffULL) == (file_reference & 0x0000ffffffffffffULL) && file_name->name_len == name_length;
+        int           equal     = (le64(entry) & 0x0000ffffffffffffULL) == (file_reference & 0x0000ffffffffffffULL) && file_name->name_len == name_length;
         for (u32 i = 0; equal && i < name_length; i++)
             if (le16((u8 *)file_name->name + (size_t)i * 2) != name[i]) equal = 0;
         if (equal) {
@@ -3122,11 +3029,7 @@ static int ntfs_directory_index_remove(ntfs_mount_t *mnt, u8 *record, u64 file_r
             put_le32(header + 4, total - length);
             status = ntfs_record_pack(mnt, block, mnt->indx_size);
             if (status < 0) goto out;
-            status = write_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block,
-                                      mnt->indx_size, stream_size)
-                             == (s64)mnt->indx_size ?
-                         0 :
-                         -EIO;
+            status = write_by_runlist(mnt, (u8 *)allocation + mapping_offset, allocation_length - mapping_offset, block_offset, block, mnt->indx_size, stream_size) == (s64)mnt->indx_size ? 0 : -EIO;
             goto out;
         }
         position += length;
@@ -3141,8 +3044,7 @@ out:
 }
 
 /* Extend a nonresident data attribute, allocating clusters as needed. */
-static size_t ntfs_nonresident_grow(ntfs_handle_t *h, u8 *mft, attr_rec_t *attribute, u32 length, u16 mapping_offset, u64 offset,
-                                    const u8 *buffer, size_t size, u64 data_size, u64 initialized_size)
+static size_t ntfs_nonresident_grow(ntfs_handle_t *h, u8 *mft, attr_rec_t *attribute, u32 length, u16 mapping_offset, u64 offset, const u8 *buffer, size_t size, u64 data_size, u64 initialized_size)
 {
     s64 vcn[256], lcn[256], run[256];
     s64 new_lcn[256], new_length[256];
@@ -3163,12 +3065,8 @@ static size_t ntfs_nonresident_grow(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
 
     /* Extending inside the already allocated last cluster needs no new run. */
     if (required_count <= allocated_count) {
-        if ((offset > initialized_size
-             && zero_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), initialized_size,
-                                offset - initialized_size, allocated_size)
-                    < 0)
-            || write_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), offset, buffer, size, allocated_size)
-                   != (s64)size)
+        if ((offset > initialized_size && zero_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), initialized_size, offset - initialized_size, allocated_size) < 0)
+            || write_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), offset, buffer, size, allocated_size) != (s64)size)
             return 0;
         put_le64((u8 *)&attribute->d.nres.data_size, write_end);
         put_le64((u8 *)&attribute->d.nres.init_size, write_end);
@@ -3207,10 +3105,7 @@ static size_t ntfs_nonresident_grow(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
     memcpy(new_cache, mapping, (size_t)encoded_size);
 
     if (zero_extents(h->mnt, new_lcn, new_length, extent_count) < 0
-        || (offset > initialized_size
-            && zero_by_runlist(h->mnt, mapping, encoded_size, initialized_size, offset - initialized_size,
-                               required_count << h->mnt->cluster_bits)
-                   < 0)
+        || (offset > initialized_size && zero_by_runlist(h->mnt, mapping, encoded_size, initialized_size, offset - initialized_size, required_count << h->mnt->cluster_bits) < 0)
         || write_by_runlist(h->mnt, mapping, encoded_size, offset, buffer, size, required_count << h->mnt->cluster_bits) != (s64)size) {
         free(new_cache);
         free(mapping);
@@ -3253,8 +3148,7 @@ static size_t ntfs_nonresident_grow(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
 }
 
 /* Convert a resident data attribute to a nonresident runlist-backed one. */
-static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attribute, u32 old_length, u16 value_offset, u32 value_length,
-                                    u64 offset, const u8 *buffer, size_t size)
+static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attribute, u32 old_length, u16 value_offset, u32 value_length, u64 offset, const u8 *buffer, size_t size)
 {
     s64 extent_lcn[256], extent_length[256];
     s64 runs[256];
@@ -3271,9 +3165,7 @@ static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
     u8 *mapping;
     u8 *new_cache;
 
-    if (!h->mnt->bitmap_runlist || !cluster_count || bytes_in_use > bytes_allocated || bytes_allocated > h->mnt->mft_size
-        || attribute_off + old_length > bytes_in_use)
-        return 0;
+    if (!h->mnt->bitmap_runlist || !cluster_count || bytes_in_use > bytes_allocated || bytes_allocated > h->mnt->mft_size || attribute_off + old_length > bytes_in_use) return 0;
     if (bitmap_find_free(h->mnt, cluster_count, extent_lcn, extent_length, &extent_count) < 0) return 0;
     for (int extent = 0; extent < extent_count; extent++) runs[extent] = extent_length[extent];
 
@@ -3297,10 +3189,7 @@ static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
     memcpy(new_cache, mapping, (size_t)encoded_size);
 
     if (zero_extents(h->mnt, extent_lcn, extent_length, extent_count) < 0
-        || (value_length
-            && write_by_runlist(h->mnt, mapping, encoded_size, 0, (u8 *)attribute + value_offset, value_length,
-                                cluster_count << h->mnt->cluster_bits)
-                   != value_length)
+        || (value_length && write_by_runlist(h->mnt, mapping, encoded_size, 0, (u8 *)attribute + value_offset, value_length, cluster_count << h->mnt->cluster_bits) != value_length)
         || write_by_runlist(h->mnt, mapping, encoded_size, offset, buffer, size, cluster_count << h->mnt->cluster_bits) != (s64)size) {
         free(new_cache);
         free(mapping);
@@ -3351,6 +3240,7 @@ static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
 }
 
 /* directory entry helpers */
+
 /* Materialize one directory index entry as a VFS child node. */
 static void add_dir_entry(vfs_node_t parent, ntfs_mount_t *mnt, u8 *entry, u32 entry_len)
 {
@@ -3555,6 +3445,7 @@ static int ntfs_load_file_runlist(ntfs_handle_t *h, vfs_node_t node)
 }
 
 /* VFS callbacks */
+
 /* Mount an NTFS volume from its boot sector and MFT. */
 static int ntfs_vfs_mount(const char *src, vfs_node_t node)
 {
@@ -3773,8 +3664,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
             u64 write_end = (u64)offset + size;
 
             if (flags & (ATTR_IS_COMPRESSED | ATTR_IS_ENCRYPTED | ATTR_IS_SPARSE)) {
-                plogk("ntfs: Drive %u: write to record %llu with unsupported attribute flags 0x%04x\n", h->mnt->dev.drive,
-                      (unsigned long long)h->mft_no, flags);
+                plogk("ntfs: Drive %u: write to record %llu with unsupported attribute flags 0x%04x\n", h->mnt->dev.drive, (unsigned long long)h->mft_no, flags);
                 free(mft);
                 return 0;
             }
@@ -3786,8 +3676,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
                 s64 written;
 
                 if (length < 64 || le64((u8 *)&attribute->d.nres.lowest_vcn) != 0) {
-                    plogk("ntfs: Drive %u: corrupt non-resident attribute in record %llu (corrupt runlist)\n", h->mnt->dev.drive,
-                          (unsigned long long)h->mft_no);
+                    plogk("ntfs: Drive %u: corrupt non-resident attribute in record %llu (corrupt runlist)\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
                     free(mft);
                     return 0;
                 }
@@ -3800,21 +3689,17 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
                     return 0;
                 }
                 if (write_end > data_size) {
-                    size_t grown
-                        = ntfs_nonresident_grow(h, mft, attribute, length, mapping_offset, offset, addr, size, data_size, initialized_size);
+                    size_t grown = ntfs_nonresident_grow(h, mft, attribute, length, mapping_offset, offset, addr, size, data_size, initialized_size);
                     free(mft);
                     return grown;
                 }
 
                 if (write_end > initialized_size && offset > initialized_size
-                    && zero_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), initialized_size,
-                                       offset - initialized_size, data_size)
-                           < 0) {
+                    && zero_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), initialized_size, offset - initialized_size, data_size) < 0) {
                     free(mft);
                     return 0;
                 }
-                written
-                    = write_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), offset, addr, size, data_size);
+                written = write_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), offset, addr, size, data_size);
                 if (written != (s64)size) {
                     free(mft);
                     return 0;
@@ -3949,9 +3834,7 @@ static int ntfs_vfs_resize_locked(ntfs_handle_t *h, u64 size)
         u64 data_size      = le64((u8 *)&attribute->d.nres.data_size);
         u64 allocated_size = le64((u8 *)&attribute->d.nres.alloc_size);
         u64 initialized    = le64((u8 *)&attribute->d.nres.init_size);
-        if (mapping_offset < 64 || mapping_offset >= length || size > data_size || initialized > data_size
-            || allocated_size % h->mnt->cluster_size)
-            break;
+        if (mapping_offset < 64 || mapping_offset >= length || size > data_size || initialized > data_size || allocated_size % h->mnt->cluster_size) break;
 
         s64 vcn[256], lcn[256], run[256];
         s64 kept_lcn[256], kept_run[256], free_lcn[256], free_run[256];
@@ -3994,10 +3877,7 @@ static int ntfs_vfs_resize_locked(ntfs_handle_t *h, u64 size)
                 break;
             }
             u64 retained_size = required_count << h->mnt->cluster_bits;
-            if (retained_size > size
-                && zero_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), size, retained_size - size,
-                                   allocated_size)
-                       < 0) {
+            if (retained_size > size && zero_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), size, retained_size - size, allocated_size) < 0) {
                 free(new_cache);
                 break;
             }
@@ -4119,6 +3999,7 @@ static int ntfs_vfs_resize(void *file, u64 size)
     return status;
 #endif
 }
+
 /* Read a symlink target from the record's reparse-point attribute. */
 static size_t ntfs_vfs_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 {
@@ -4147,9 +4028,7 @@ static size_t ntfs_vfs_readlink(vfs_node_t n, void *a, size_t o, size_t s)
             if (le32(value) != IO_REPARSE_TAG_SYMLINK || le16(value + 4) != value_length - 8) break;
             u16 substitute_offset = le16(value + 8);
             u16 substitute_length = le16(value + 10);
-            if ((substitute_offset & 1) || (substitute_length & 1) || substitute_offset > value_length - 20
-                || substitute_length > value_length - 20 - substitute_offset)
-                break;
+            if ((substitute_offset & 1) || (substitute_length & 1) || substitute_offset > value_length - 20 || substitute_length > value_length - 20 - substitute_offset) break;
             u16  *target = utf16_from(value + 20, substitute_offset, substitute_length / 2);
             char *utf8   = utf8_from_utf16(target, substitute_length / 2);
             free(target);
@@ -4218,8 +4097,7 @@ static int ntfs_namespace_create_locked(ntfs_handle_t *parent, const char *sourc
     if (status < 0) goto out;
     status = ntfs_mft_bitmap_set(mnt, record_number, 1);
     if (status < 0) goto out;
-    status
-        = ntfs_directory_index_insert(mnt, parent_record, child_reference, parent_reference, name, name_length, directory ? 0x10 : 0x20, 0, 0);
+    status = ntfs_directory_index_insert(mnt, parent_record, child_reference, parent_reference, name, name_length, directory ? 0x10 : 0x20, 0, 0);
     if (status < 0) {
         ntfs_mft_bitmap_set(mnt, record_number, 0);
         goto out;
@@ -4338,8 +4216,7 @@ static int ntfs_namespace_hardlink_locked(ntfs_handle_t *parent, ntfs_handle_t *
     put_le16(target_record + 0x12, links + 1);
     status = mft_write(mnt, target->mft_no, target_record);
     if (status < 0) goto out;
-    status = ntfs_directory_index_insert(mnt, parent_record, target_reference, parent_reference, name, name_length, target->file_attr,
-                                         target->file_size, target->file_size);
+    status = ntfs_directory_index_insert(mnt, parent_record, target_reference, parent_reference, name, name_length, target->file_attr, target->file_size, target->file_size);
     if (status < 0) {
         mft_write(mnt, target->mft_no, old_record);
         goto out;
@@ -4430,8 +4307,7 @@ static int ntfs_namespace_symlink_locked(ntfs_handle_t *parent, const char *sour
     status = ntfs_utf16_from_utf8(source_target, &target, &target_length, 0);
     if (status < 0) goto out;
     relative = source_target[0] != '/' && source_target[0] != '\\'
-               && !(((source_target[0] >= 'A' && source_target[0] <= 'Z') || (source_target[0] >= 'a' && source_target[0] <= 'z'))
-                    && source_target[1] == ':');
+               && !(((source_target[0] >= 'A' && source_target[0] <= 'Z') || (source_target[0] >= 'a' && source_target[0] <= 'z')) && source_target[1] == ':');
     parent_record = malloc(mnt->mft_size);
     link_record   = malloc(mnt->mft_size);
     link          = calloc(1, sizeof(*link));
@@ -4453,14 +4329,13 @@ static int ntfs_namespace_symlink_locked(ntfs_handle_t *parent, const char *sour
     if (status < 0) goto out;
     parent_reference = parent->mft_no | ((u64)le16(parent_record + 0x10) << 48);
     link_reference   = record_number | (1ULL << 48);
-    status = ntfs_build_symlink_record(mnt, link_record, record_number, 1, parent_reference, name, name_length, target, target_length, relative);
+    status           = ntfs_build_symlink_record(mnt, link_record, record_number, 1, parent_reference, name, name_length, target, target_length, relative);
     if (status < 0) goto out;
     status = mft_write(mnt, record_number, link_record);
     if (status < 0) goto out;
     status = ntfs_mft_bitmap_set(mnt, record_number, 1);
     if (status < 0) goto out;
-    status = ntfs_directory_index_insert(mnt, parent_record, link_reference, parent_reference, name, name_length,
-                                         0x20 | FILE_ATTRIBUTE_REPARSE_POINT, 0, 0);
+    status = ntfs_directory_index_insert(mnt, parent_record, link_reference, parent_reference, name, name_length, 0x20 | FILE_ATTRIBUTE_REPARSE_POINT, 0, 0);
     if (status < 0) {
         ntfs_mft_bitmap_set(mnt, record_number, 0);
         goto out;
@@ -4559,6 +4434,7 @@ static int ntfs_vfs_symlink(void *p, const char *target_name, vfs_node_t node)
     if (!node || !node->name) return -EINVAL;
     return ntfs_namespace_symlink(p, node->name, target_name, node);
 }
+
 /* Refresh a node's size and lazily load its children or runlist. */
 static int ntfs_vfs_stat(void *file, vfs_node_t nd)
 {
@@ -4699,8 +4575,7 @@ static int ntfs_vfs_delete(void *p, vfs_node_t n)
                 status = -EIO;
                 goto unlock;
             }
-            index_extents = runlist_parse((u8 *)attributes.allocation + mapping_offset, (int)(allocation_length - mapping_offset), vcn,
-                                          index_lcn, index_length, 256);
+            index_extents = runlist_parse((u8 *)attributes.allocation + mapping_offset, (int)(allocation_length - mapping_offset), vcn, index_lcn, index_length, 256);
             if (index_extents <= 0) {
                 status = -EIO;
                 goto unlock;
@@ -4727,8 +4602,7 @@ static int ntfs_vfs_delete(void *p, vfs_node_t n)
                 u16 flags          = le16((u8 *)&attribute->flags);
                 u16 mapping_offset = le16((u8 *)&attribute->d.nres.mapping_pairs_off);
                 s64 vcn[256];
-                if (flags & (ATTR_IS_COMPRESSED | ATTR_IS_ENCRYPTED | ATTR_IS_SPARSE) || length < 64 || mapping_offset < 64
-                    || mapping_offset >= length || data_extents) {
+                if (flags & (ATTR_IS_COMPRESSED | ATTR_IS_ENCRYPTED | ATTR_IS_SPARSE) || length < 64 || mapping_offset < 64 || mapping_offset >= length || data_extents) {
                     status = -EOPNOTSUPP;
                     goto unlock;
                 }
@@ -4738,8 +4612,7 @@ static int ntfs_vfs_delete(void *p, vfs_node_t n)
                     goto unlock;
                 }
                 for (int i = 0; i < data_extents; i++) {
-                    if (data_lcn[i] < 0 || data_length[i] <= 0 || data_lcn[i] >= mnt->nr_clusters
-                        || data_length[i] > mnt->nr_clusters - data_lcn[i]) {
+                    if (data_lcn[i] < 0 || data_length[i] <= 0 || data_lcn[i] >= mnt->nr_clusters || data_length[i] > mnt->nr_clusters - data_lcn[i]) {
                         status = -EIO;
                         goto unlock;
                     }
@@ -4782,6 +4655,7 @@ unlock:
     free(parent_record);
     return status;
 }
+
 /* Rename a file's directory entry and file-name attribute. */
 static int ntfs_vfs_rename(void *c, const char *nn)
 {
@@ -4845,27 +4719,23 @@ static int ntfs_vfs_rename(void *c, const char *nn)
     child_reference  = child->mft_no | ((u64)le16(child_record + 0x10) << 48);
     status           = ntfs_directory_index_remove(mnt, parent_record, child->mft_no, child->name, child->name_length);
     if (status < 0) goto unlock_rename;
-    status = ntfs_directory_index_insert(mnt, parent_record, child_reference, parent_reference, new_name, new_length, child->file_attr,
-                                         child->file_size, child->file_size);
+    status = ntfs_directory_index_insert(mnt, parent_record, child_reference, parent_reference, new_name, new_length, child->file_attr, child->file_size, child->file_size);
     if (status < 0) {
-        ntfs_directory_index_insert(mnt, old_parent_record, child_reference, parent_reference, child->name, child->name_length, child->file_attr,
-                                    child->file_size, child->file_size);
+        ntfs_directory_index_insert(mnt, old_parent_record, child_reference, parent_reference, child->name, child->name_length, child->file_attr, child->file_size, child->file_size);
         ntfs_index_reclaim_abort(mnt);
         goto unlock_rename;
     }
     status = ntfs_file_name_replace(mnt, child_record, parent_reference, child->name, child->name_length, new_name, new_length);
     if (status < 0) {
         ntfs_directory_index_remove(mnt, parent_record, child->mft_no, new_name, new_length);
-        ntfs_directory_index_insert(mnt, old_parent_record, child_reference, parent_reference, child->name, child->name_length, child->file_attr,
-                                    child->file_size, child->file_size);
+        ntfs_directory_index_insert(mnt, old_parent_record, child_reference, parent_reference, child->name, child->name_length, child->file_attr, child->file_size, child->file_size);
         ntfs_index_reclaim_abort(mnt);
         goto unlock_rename;
     }
     status = mft_write(mnt, child->mft_no, child_record);
     if (status < 0) {
         ntfs_directory_index_remove(mnt, parent_record, child->mft_no, new_name, new_length);
-        ntfs_directory_index_insert(mnt, old_parent_record, child_reference, parent_reference, child->name, child->name_length, child->file_attr,
-                                    child->file_size, child->file_size);
+        ntfs_directory_index_insert(mnt, old_parent_record, child_reference, parent_reference, child->name, child->name_length, child->file_attr, child->file_size, child->file_size);
         ntfs_index_reclaim_abort(mnt);
         mft_write(mnt, child->mft_no, old_record);
         goto unlock_rename;
@@ -4873,8 +4743,7 @@ static int ntfs_vfs_rename(void *c, const char *nn)
     status = mft_write(mnt, child->parent_mft_no, parent_record);
     if (status < 0) {
         ntfs_directory_index_remove(mnt, parent_record, child->mft_no, new_name, new_length);
-        ntfs_directory_index_insert(mnt, old_parent_record, child_reference, parent_reference, child->name, child->name_length, child->file_attr,
-                                    child->file_size, child->file_size);
+        ntfs_directory_index_insert(mnt, old_parent_record, child_reference, parent_reference, child->name, child->name_length, child->file_attr, child->file_size, child->file_size);
         ntfs_index_reclaim_abort(mnt);
         mft_write(mnt, child->mft_no, old_record);
         goto unlock_rename;

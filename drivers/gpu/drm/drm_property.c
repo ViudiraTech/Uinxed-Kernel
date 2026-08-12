@@ -153,8 +153,7 @@ struct drm_property *drm_property_create_range(struct drm_device *dev, uint32_t 
  * per supplied enum; values[i] mirrors enums[i].value. Returns NULL on
  * failure with full rollback.
  */
-struct drm_property *drm_property_create_enum(struct drm_device *dev, uint32_t flags, const char *name,
-                                              const struct drm_mode_property_enum *enums, int num_enums)
+struct drm_property *drm_property_create_enum(struct drm_device *dev, uint32_t flags, const char *name, const struct drm_mode_property_enum *enums, int num_enums)
 {
     struct drm_property *prop;
     int                  i;
@@ -191,8 +190,7 @@ struct drm_property *drm_property_create_enum(struct drm_device *dev, uint32_t f
  * values[j] mirrors the included enums[i].value. Returns NULL on failure
  * with full rollback.
  */
-struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_t flags, const char *name,
-                                                 const struct drm_mode_property_enum *enums, int num_enums, uint32_t supported_bits)
+struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_t flags, const char *name, const struct drm_mode_property_enum *enums, int num_enums, uint32_t supported_bits)
 {
     struct drm_property *prop;
     int                  i, j;
@@ -371,8 +369,7 @@ int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *
     req->length = (uint32_t)blob->length;
     if (capacity) {
         if (capacity < blob->length) {
-            plogk("drm_property: GETBLOB: buffer too small for blob %u (capacity=%u, length=%zu), returning -EINVAL.\n", req->blob_id, capacity,
-                  blob->length);
+            plogk("drm_property: GETBLOB: buffer too small for blob %u (capacity=%u, length=%zu), returning -EINVAL.\n", req->blob_id, capacity, blob->length);
             ret = -EINVAL;
         } else if (!req->data || copy_to_user((void *)(uintptr_t)req->data, blob->data, blob->length)) {
             plogk("drm_property: GETBLOB: copy_to_user failed for blob %u, returning -EFAULT.\n", req->blob_id);
@@ -537,8 +534,7 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
 
     if (user_values && prop->num_values) {
         uint32_t count = user_values < prop->num_values ? user_values : prop->num_values;
-        if (!prop_req->values_ptr
-            || copy_to_user((void *)(uintptr_t)prop_req->values_ptr, prop->values, (size_t)count * sizeof(*prop->values))) {
+        if (!prop_req->values_ptr || copy_to_user((void *)(uintptr_t)prop_req->values_ptr, prop->values, (size_t)count * sizeof(*prop->values))) {
             drm_mode_object_put(&prop->base);
             plogk("drm_property: GETPROPERTY: values copy_to_user failed for property %u, returning -EFAULT.\n", prop_req->prop_id);
             return -EFAULT;

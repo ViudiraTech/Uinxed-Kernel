@@ -263,24 +263,21 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
         if (cmd == DRM_IOCTL_MODE_CREATE_DUMB) {
             ret = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = dev->driver->dumb_create ? dev->driver->dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)kdata) :
-                                             drm_gem_dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)kdata);
+            ret = dev->driver->dumb_create ? dev->driver->dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)kdata) : drm_gem_dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)kdata);
             goto copy_out;
         }
         if (cmd == DRM_IOCTL_MODE_MAP_DUMB) {
             struct drm_mode_map_dumb *args = (struct drm_mode_map_dumb *)kdata;
             ret                            = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = dev->driver->dumb_map_offset ? dev->driver->dumb_map_offset(file_priv, dev, args->handle, &args->offset) :
-                                                 drm_gem_dumb_map_offset(file_priv, dev, args->handle, &args->offset);
+            ret = dev->driver->dumb_map_offset ? dev->driver->dumb_map_offset(file_priv, dev, args->handle, &args->offset) : drm_gem_dumb_map_offset(file_priv, dev, args->handle, &args->offset);
             goto copy_out;
         }
         if (cmd == DRM_IOCTL_MODE_DESTROY_DUMB) {
             struct drm_mode_destroy_dumb *args = (struct drm_mode_destroy_dumb *)kdata;
             ret                                = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = dev->driver->dumb_destroy ? dev->driver->dumb_destroy(file_priv, dev, args->handle) :
-                                              drm_gem_dumb_destroy(file_priv, dev, args->handle);
+            ret = dev->driver->dumb_destroy ? dev->driver->dumb_destroy(file_priv, dev, args->handle) : drm_gem_dumb_destroy(file_priv, dev, args->handle);
             goto out;
         }
         if (cmd == DRM_IOCTL_PRIME_HANDLE_TO_FD) {

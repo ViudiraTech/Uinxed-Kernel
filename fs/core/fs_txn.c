@@ -83,8 +83,7 @@ static int fs_txn_write_home(fs_txn_t *transaction, uint32_t required_flags)
         }
         int status = blockdev_write_bytes(&log->device, buffer->home_block * (uint64_t)log->block_size, buffer->data, log->block_size);
         if (status != EOK) {
-            plogk("fs_txn: Write_home block %llu write failed (drive %u, status %d)\n", (unsigned long long)buffer->home_block,
-                  log->device.drive, status);
+            plogk("fs_txn: Write_home block %llu write failed (drive %u, status %d)\n", (unsigned long long)buffer->home_block, log->device.drive, status);
             return status;
         }
     }
@@ -101,11 +100,9 @@ static void fs_txn_finish(fs_txn_t *transaction)
 }
 
 /* Initialize a transaction log bound to a block device. */
-int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops,
-                    void *backend_context)
+int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops, void *backend_context)
 {
-    if (!log || !device || !device->sector_size || !device->sector_count || block_size < device->sector_size
-        || block_size % device->sector_size) {
+    if (!log || !device || !device->sector_size || !device->sector_count || block_size < device->sector_size || block_size % device->sector_size) {
         plogk("fs_txn: Log init invalid parameters (drive %u, block_size %u)\n", device ? device->drive : 0, block_size);
         return -EINVAL;
     }
@@ -197,8 +194,7 @@ int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, u
         return EOK;
     }
     if (transaction->used >= transaction->credits) {
-        plogk("fs_txn: Stage credits exhausted (home_block %llu, used %u, credits %u)\n", (unsigned long long)home_block, transaction->used,
-              transaction->credits);
+        plogk("fs_txn: Stage credits exhausted (home_block %llu, used %u, credits %u)\n", (unsigned long long)home_block, transaction->used, transaction->credits);
         return -ENOSPC;
     }
     buffer = calloc(1, sizeof(*buffer));
@@ -208,8 +204,7 @@ int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, u
     }
     buffer->data = malloc(transaction->log->block_size);
     if (!buffer->data) {
-        plogk("fs_txn: Stage data allocation failed (home_block %llu, block_size %u)\n", (unsigned long long)home_block,
-              transaction->log->block_size);
+        plogk("fs_txn: Stage data allocation failed (home_block %llu, block_size %u)\n", (unsigned long long)home_block, transaction->log->block_size);
         free(buffer);
         return -ENOMEM;
     }
@@ -245,11 +240,8 @@ int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data)
             return EOK;
         }
     }
-    status = blockdev_read_bytes(&transaction->log->device, home_block * (uint64_t)transaction->log->block_size, data,
-                                 transaction->log->block_size);
-    if (status != EOK)
-        plogk("fs_txn: Read home_block %llu failed (drive %u, status %d)\n", (unsigned long long)home_block, transaction->log->device.drive,
-              status);
+    status = blockdev_read_bytes(&transaction->log->device, home_block * (uint64_t)transaction->log->block_size, data, transaction->log->block_size);
+    if (status != EOK) plogk("fs_txn: Read home_block %llu failed (drive %u, status %d)\n", (unsigned long long)home_block, transaction->log->device.drive, status);
     return status;
 }
 
@@ -275,8 +267,7 @@ int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t
     uint32_t block_size = transaction->log->block_size;
     uint8_t *block      = malloc(block_size);
     if (!block) {
-        plogk("fs_txn: Read_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size,
-              block_size);
+        plogk("fs_txn: Read_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size, block_size);
         return -ENOMEM;
     }
     while (size) {
@@ -309,8 +300,7 @@ int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data,
     uint32_t       block_size = transaction->log->block_size;
     uint8_t       *block      = malloc(block_size);
     if (!block) {
-        plogk("fs_txn: Stage_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size,
-              block_size);
+        plogk("fs_txn: Stage_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size, block_size);
         return -ENOMEM;
     }
     while (size) {
@@ -349,8 +339,7 @@ int fs_txn_commit(fs_txn_t *transaction)
     log = transaction->log;
     if (transaction->error) status = transaction->error;
 
-    if (status == EOK && log->ops && log->ops->begin)
-        status = log->ops->begin(log->backend_context, transaction->transaction_id, transaction->used);
+    if (status == EOK && log->ops && log->ops->begin) status = log->ops->begin(log->backend_context, transaction->transaction_id, transaction->used);
 
     /* Ordered data must reach stable storage before the metadata commit record. */
     if (status == EOK) status = fs_txn_write_home(transaction, FS_TXN_ORDERED_DATA);
@@ -372,8 +361,7 @@ int fs_txn_commit(fs_txn_t *transaction)
     if (status == EOK && log->ops && transaction->used) status = fs_txn_flush(log);
 
     if (status != EOK) {
-        plogk("fs_txn: Commit failed (transaction %u, drive %u, status %d, buffers %u)\n", transaction->transaction_id, log->device.drive,
-              status, transaction->used);
+        plogk("fs_txn: Commit failed (transaction %u, drive %u, status %d, buffers %u)\n", transaction->transaction_id, log->device.drive, status, transaction->used);
         log->aborted    = 1;
         log->last_error = status;
         if (log->ops && log->ops->abort) log->ops->abort(log->backend_context, transaction->transaction_id, status);
@@ -387,8 +375,7 @@ void fs_txn_abort(fs_txn_t *transaction, int error)
 {
     if (!transaction || !transaction->active) return;
     transaction->error = error ? error : -EIO;
-    if (transaction->log->ops && transaction->log->ops->abort)
-        transaction->log->ops->abort(transaction->log->backend_context, transaction->transaction_id, transaction->error);
+    if (transaction->log->ops && transaction->log->ops->abort) transaction->log->ops->abort(transaction->log->backend_context, transaction->transaction_id, transaction->error);
     fs_txn_finish(transaction);
 }
 

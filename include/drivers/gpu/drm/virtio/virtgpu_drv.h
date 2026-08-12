@@ -368,18 +368,17 @@ struct virtio_gpu_resp_map_info {
 #define DRM_VIRTGPU_RESOURCE_CREATE_BLOB 0x0a
 #define DRM_VIRTGPU_CONTEXT_INIT         0x0b
 
-#define DRM_IOCTL_VIRTGPU_MAP                DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_MAP, struct drm_virtgpu_map)
-#define DRM_IOCTL_VIRTGPU_EXECBUFFER         DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_EXECBUFFER, struct drm_virtgpu_execbuffer)
-#define DRM_IOCTL_VIRTGPU_GETPARAM           DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_GETPARAM, struct drm_virtgpu_getparam)
-#define DRM_IOCTL_VIRTGPU_RESOURCE_CREATE    DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_CREATE, struct drm_virtgpu_resource_create)
-#define DRM_IOCTL_VIRTGPU_RESOURCE_INFO      DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_INFO, struct drm_virtgpu_resource_info)
-#define DRM_IOCTL_VIRTGPU_TRANSFER_FROM_HOST DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_TRANSFER_FROM_HOST, struct drm_virtgpu_3d_transfer)
-#define DRM_IOCTL_VIRTGPU_TRANSFER_TO_HOST   DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_TRANSFER_TO_HOST, struct drm_virtgpu_3d_transfer)
-#define DRM_IOCTL_VIRTGPU_WAIT               DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_WAIT, struct drm_virtgpu_3d_wait)
-#define DRM_IOCTL_VIRTGPU_GET_CAPS           DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_GET_CAPS, struct drm_virtgpu_get_caps)
-#define DRM_IOCTL_VIRTGPU_RESOURCE_CREATE_BLOB \
-    DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_CREATE_BLOB, struct drm_virtgpu_resource_create_blob)
-#define DRM_IOCTL_VIRTGPU_CONTEXT_INIT DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_CONTEXT_INIT, struct drm_virtgpu_context_init)
+#define DRM_IOCTL_VIRTGPU_MAP                  DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_MAP, struct drm_virtgpu_map)
+#define DRM_IOCTL_VIRTGPU_EXECBUFFER           DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_EXECBUFFER, struct drm_virtgpu_execbuffer)
+#define DRM_IOCTL_VIRTGPU_GETPARAM             DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_GETPARAM, struct drm_virtgpu_getparam)
+#define DRM_IOCTL_VIRTGPU_RESOURCE_CREATE      DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_CREATE, struct drm_virtgpu_resource_create)
+#define DRM_IOCTL_VIRTGPU_RESOURCE_INFO        DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_INFO, struct drm_virtgpu_resource_info)
+#define DRM_IOCTL_VIRTGPU_TRANSFER_FROM_HOST   DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_TRANSFER_FROM_HOST, struct drm_virtgpu_3d_transfer)
+#define DRM_IOCTL_VIRTGPU_TRANSFER_TO_HOST     DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_TRANSFER_TO_HOST, struct drm_virtgpu_3d_transfer)
+#define DRM_IOCTL_VIRTGPU_WAIT                 DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_WAIT, struct drm_virtgpu_3d_wait)
+#define DRM_IOCTL_VIRTGPU_GET_CAPS             DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_GET_CAPS, struct drm_virtgpu_get_caps)
+#define DRM_IOCTL_VIRTGPU_RESOURCE_CREATE_BLOB DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_CREATE_BLOB, struct drm_virtgpu_resource_create_blob)
+#define DRM_IOCTL_VIRTGPU_CONTEXT_INIT         DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_CONTEXT_INIT, struct drm_virtgpu_context_init)
 
 /* Param IDs */
 #define DRM_VIRTGPU_PARAM_3D_FEATURES          1
@@ -687,17 +686,14 @@ int virtgpu_cmd_unref_resource(struct virtio_gpu_device *vgdev, uint32_t res_id)
 int virtgpu_cmd_attach_backing(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj);
 int virtgpu_cmd_detach_backing(struct virtio_gpu_device *vgdev, uint32_t res_id);
 int virtgpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint64_t offset);
-int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj,
-                                         const struct drm_virtgpu_3d_transfer *xf);
+int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_3d_transfer *xf);
 int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rect, uint64_t offset);
 int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, bool set_scanout);
-int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id,
-                            const struct drm_virtgpu_3d_transfer *xf, bool to_host);
+int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id, const struct drm_virtgpu_3d_transfer *xf, bool to_host);
 int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, struct virtio_gpu_rect *rect);
 int virtgpu_cmd_set_scanout(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj);
 int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj);
-int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, struct virtio_gpu_object *obj, int32_t x, int32_t y,
-                              int32_t hot_x, int32_t hot_y);
+int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, struct virtio_gpu_object *obj, int32_t x, int32_t y, int32_t hot_x, int32_t hot_y);
 int virtgpu_cmd_move_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, int32_t x, int32_t y);
 int virtgpu_cmd_ctx_create(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t context_init, const char *debug_name, uint32_t name_len);
 int virtgpu_cmd_ctx_destroy(struct virtio_gpu_device *vgdev, uint32_t ctx_id);
@@ -705,8 +701,7 @@ int virtgpu_cmd_ctx_attach_resource(struct virtio_gpu_device *vgdev, uint32_t ct
 int virtgpu_cmd_ctx_detach_resource(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t resource_id);
 int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id);
 int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id);
-int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx, const void *cmd, uint32_t size,
-                          struct virtio_gpu_fence *fence);
+int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx, const void *cmd, uint32_t size, struct virtio_gpu_fence *fence);
 int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, uint32_t *capset_id, uint32_t *max_version, uint32_t *max_size);
 int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, uint32_t version, void *data, uint32_t max_size);
 

@@ -66,16 +66,16 @@ static ssize_t product_uuid_show(struct device *dev, struct device_attribute *at
     (void)dev;
     (void)attr;
     smbios_sys_uuid(uuid);
-    return sysfs_emit(buf, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n", uuid[0], uuid[1], uuid[2], uuid[3], uuid[4],
-                      uuid[5], uuid[6], uuid[7], uuid[8], uuid[9], uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
+    return sysfs_emit(buf, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n", uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7], uuid[8], uuid[9], uuid[10],
+                      uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
 }
 
 static ssize_t modalias_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
     (void)attr;
-    return sysfs_emit(buf, "dmi:bvn%s:bvr%s:bd%s:svn%s:pn%s:pvr%s\n", smbios_bios_vendor(), smbios_bios_version(), smbios_bios_release_date(),
-                      smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_sys_version());
+    return sysfs_emit(buf, "dmi:bvn%s:bvr%s:bd%s:svn%s:pn%s:pvr%s\n", smbios_bios_vendor(), smbios_bios_version(), smbios_bios_release_date(), smbios_sys_manufacturer(), smbios_sys_product_name(),
+                      smbios_sys_version());
 }
 
 static struct attribute *dmi_attributes[] = {

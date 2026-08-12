@@ -216,8 +216,8 @@ static int build_dynamic_trees(deflate_stream_t *stream, deflate_huffman_t *lite
 }
 
 /* Decompress one Huffman-coded block, emitting literals and LZ77 matches. */
-static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset,
-                                         const deflate_huffman_t *literal_tree, const deflate_huffman_t *distance_tree)
+static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset, const deflate_huffman_t *literal_tree,
+                                         const deflate_huffman_t *distance_tree)
 {
     uint8_t literals[16];
     size_t  literal_count = 0;
@@ -288,8 +288,8 @@ static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *outp
 }
 
 /* Run the compressed block with the FPU enabled for SSE2 copies. */
-static int inflate_compressed_block(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset,
-                                    const deflate_huffman_t *literal_tree, const deflate_huffman_t *distance_tree)
+static int inflate_compressed_block(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset, const deflate_huffman_t *literal_tree,
+                                    const deflate_huffman_t *distance_tree)
 {
     kernel_fpu_begin();
     int status = inflate_compressed_block_impl(stream, output, output_capacity, output_offset, literal_tree, distance_tree);
@@ -330,8 +330,7 @@ static int inflate_data(const uint8_t *input, size_t input_size, uint8_t *output
         } else if (type == 1 || type == 2) {
             deflate_huffman_t literal_tree;
             deflate_huffman_t distance_tree;
-            int               status
-                = type == 1 ? build_fixed_trees(&literal_tree, &distance_tree) : build_dynamic_trees(&stream, &literal_tree, &distance_tree);
+            int               status = type == 1 ? build_fixed_trees(&literal_tree, &distance_tree) : build_dynamic_trees(&stream, &literal_tree, &distance_tree);
             if (status != EOK) return status;
             status = inflate_compressed_block(&stream, output, output_capacity, &written, &literal_tree, &distance_tree);
             if (status != EOK) return status;

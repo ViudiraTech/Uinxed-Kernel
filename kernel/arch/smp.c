@@ -351,7 +351,6 @@ void smp_init(void)
     while (ap_ready_count < cpu_count - 1) __asm__ volatile("pause");
     if (cpu_support_rdtscp()) __atomic_store_n(&smp_tsc_aux_ready, 1, __ATOMIC_RELEASE);
     __atomic_store_n(&smp_ready, 1, __ATOMIC_RELEASE);
-    for (size_t i = 0; i < cpu_count; i++)
-        plogk("smp: CPU %03u: tss_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].kernel_stack);
+    for (size_t i = 0; i < cpu_count; i++) plogk("smp: CPU %03u: tss_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].kernel_stack);
     plogk("smp: All APs are up, total %llu CPUs.\n", cpu_count);
 }

@@ -331,8 +331,7 @@ static int copy_user_bytes_process_nofault_current(process_t *proc, void *dst, c
 {
     uintptr_t user = (uintptr_t)(to_user ? dst : src);
     if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
-    if (proc && __atomic_load_n(&proc->thread_count, __ATOMIC_ACQUIRE) == 1 && proc->task)
-        return copy_user_direct_task(proc->task, dst, src, size, 1);
+    if (proc && __atomic_load_n(&proc->thread_count, __ATOMIC_ACQUIRE) == 1 && proc->task) return copy_user_direct_task(proc->task, dst, src, size, 1);
     return copy_user_bytes_process_nofault(proc, dst, src, size, to_user);
 }
 

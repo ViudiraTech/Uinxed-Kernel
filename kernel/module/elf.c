@@ -39,12 +39,10 @@ int module_elf_validate(const void *image, size_t size, module_elf_view_t *view)
     }
 
     const Elf64_Ehdr *header = image;
-    if (header->e_ident[0] != 0x7f || header->e_ident[1] != 'E' || header->e_ident[2] != 'L' || header->e_ident[3] != 'F'
-        || header->e_ident[4] != ELFCLASS64 || header->e_ident[5] != ELFDATA2LSB || header->e_ident[6] != EV_CURRENT || header->e_type != ET_REL
-        || header->e_machine != EM_X86_64 || header->e_version != EV_CURRENT || header->e_ehsize != sizeof(Elf64_Ehdr)
+    if (header->e_ident[0] != 0x7f || header->e_ident[1] != 'E' || header->e_ident[2] != 'L' || header->e_ident[3] != 'F' || header->e_ident[4] != ELFCLASS64 || header->e_ident[5] != ELFDATA2LSB
+        || header->e_ident[6] != EV_CURRENT || header->e_type != ET_REL || header->e_machine != EM_X86_64 || header->e_version != EV_CURRENT || header->e_ehsize != sizeof(Elf64_Ehdr)
         || header->e_shentsize != sizeof(Elf64_Shdr)) {
-        plogk("module: Malformed ELF header (type=%u, machine=%u, version=%u, ehsize=%u, shentsize=%u)\n", header->e_type, header->e_machine,
-              header->e_version, header->e_ehsize, header->e_shentsize);
+        plogk("module: Malformed ELF header (type=%u, machine=%u, version=%u, ehsize=%u, shentsize=%u)\n", header->e_type, header->e_machine, header->e_version, header->e_ehsize, header->e_shentsize);
         return -ENOEXEC;
     }
 
@@ -71,22 +69,18 @@ int module_elf_validate(const void *image, size_t size, module_elf_view_t *view)
             return -ENOEXEC;
         }
         if (section->sh_type != SHT_NOBITS && !range_valid((size_t)section->sh_offset, (size_t)section->sh_size, size)) {
-            plogk("module: Section %lu data out of range (type=%u, offset=%lu, size=%lu)\n", (unsigned long)index, section->sh_type,
-                  (unsigned long)section->sh_offset, (unsigned long)section->sh_size);
-            return -ENOEXEC;
-        }
-        if ((section->sh_type == SHT_SYMTAB || section->sh_type == SHT_DYNSYM)
-            && (section->sh_entsize != sizeof(Elf64_Sym) || section->sh_link >= count || section->sh_size % sizeof(Elf64_Sym))) {
-            plogk("module: Invalid symbol table section %lu (entsize=%lu, link=%lu, size=%lu)\n", (unsigned long)index,
-                  (unsigned long)section->sh_entsize, (unsigned long)section->sh_link, (unsigned long)section->sh_size);
-            return -ENOEXEC;
-        }
-        if (section->sh_type == SHT_RELA
-            && (section->sh_entsize != sizeof(Elf64_Rela) || section->sh_link >= count || section->sh_info >= count
-                || section->sh_size % sizeof(Elf64_Rela))) {
-            plogk("module: Invalid RELA section %lu (entsize=%lu, link=%lu, info=%lu, size=%lu)\n", (unsigned long)index,
-                  (unsigned long)section->sh_entsize, (unsigned long)section->sh_link, (unsigned long)section->sh_info,
+            plogk("module: Section %lu data out of range (type=%u, offset=%lu, size=%lu)\n", (unsigned long)index, section->sh_type, (unsigned long)section->sh_offset,
                   (unsigned long)section->sh_size);
+            return -ENOEXEC;
+        }
+        if ((section->sh_type == SHT_SYMTAB || section->sh_type == SHT_DYNSYM) && (section->sh_entsize != sizeof(Elf64_Sym) || section->sh_link >= count || section->sh_size % sizeof(Elf64_Sym))) {
+            plogk("module: Invalid symbol table section %lu (entsize=%lu, link=%lu, size=%lu)\n", (unsigned long)index, (unsigned long)section->sh_entsize, (unsigned long)section->sh_link,
+                  (unsigned long)section->sh_size);
+            return -ENOEXEC;
+        }
+        if (section->sh_type == SHT_RELA && (section->sh_entsize != sizeof(Elf64_Rela) || section->sh_link >= count || section->sh_info >= count || section->sh_size % sizeof(Elf64_Rela))) {
+            plogk("module: Invalid RELA section %lu (entsize=%lu, link=%lu, info=%lu, size=%lu)\n", (unsigned long)index, (unsigned long)section->sh_entsize, (unsigned long)section->sh_link,
+                  (unsigned long)section->sh_info, (unsigned long)section->sh_size);
             return -ENOEXEC;
         }
         if (section->sh_type == SHT_REL) {

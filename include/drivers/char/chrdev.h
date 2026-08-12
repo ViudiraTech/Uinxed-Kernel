@@ -43,8 +43,7 @@ typedef struct cdev {
  * @mode:        node permission bits (0 = 0600)
  * @ops:         device operations bound to the node
  */
-int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, uint32_t count, uint16_t node_type, uint16_t mode,
-             const tmpfs_device_ops_t *ops);
+int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, uint32_t count, uint16_t node_type, uint16_t mode, const tmpfs_device_ops_t *ops);
 
 /* Remove a static character device by its full /dev path. */
 int cdev_del(const char *path);

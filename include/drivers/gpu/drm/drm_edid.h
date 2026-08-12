@@ -285,9 +285,8 @@ static inline const char *drm_edid_decode_mfg_id(uint16_t mfg_id, char vend[4])
  * @vend_chr_0..2: The three vendor string characters.
  * @product_id: The 16-bit product ID.
  */
-#define drm_edid_encode_panel_id(vend_chr_0, vend_chr_1, vend_chr_2, product_id)                   \
-    ((((uint32_t)(vend_chr_0) - '@') & 0x1f) << 26 | (((uint32_t)(vend_chr_1) - '@') & 0x1f) << 21 \
-     | (((uint32_t)(vend_chr_2) - '@') & 0x1f) << 16 | ((product_id) & 0xffff))
+#define drm_edid_encode_panel_id(vend_chr_0, vend_chr_1, vend_chr_2, product_id) \
+    ((((uint32_t)(vend_chr_0) - '@') & 0x1f) << 26 | (((uint32_t)(vend_chr_1) - '@') & 0x1f) << 21 | (((uint32_t)(vend_chr_2) - '@') & 0x1f) << 16 | ((product_id) & 0xffff))
 
 /* Look up a DMT timing by resolution and refresh rate, or NULL. */
 struct drm_display_mode *drm_mode_find_dmt(struct drm_device *dev, int hsize, int vsize, int fresh, bool rb);

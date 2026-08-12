@@ -117,10 +117,7 @@ static bool drm_mode_equal(const struct drm_display_mode *mode1, const struct dr
 {
     if (!mode1 || !mode2) return false;
 
-    if (mode1->clock != mode2->clock || mode1->hdisplay != mode2->hdisplay || mode1->vdisplay != mode2->vdisplay || mode1->flags != mode2->flags
-        || mode1->type != mode2->type) {
-        return false;
-    }
+    if (mode1->clock != mode2->clock || mode1->hdisplay != mode2->hdisplay || mode1->vdisplay != mode2->vdisplay || mode1->flags != mode2->flags || mode1->type != mode2->type) { return false; }
 
     return true;
 }
@@ -214,8 +211,8 @@ static void drm_mode_debug_printmodeline(const struct drm_display_mode *mode)
         return;
     }
 
-    DRM_DEBUG_KMS("modeline \"%s\": %d %d %d %d %d %d %d %d %d 0x%x 0x%x\n", mode->name, mode->clock, mode->hdisplay, mode->hsync_start,
-                  mode->hsync_end, mode->htotal, mode->vdisplay, mode->vsync_start, mode->vsync_end, mode->vtotal, mode->flags, mode->type);
+    DRM_DEBUG_KMS("modeline \"%s\": %d %d %d %d %d %d %d %d %d 0x%x 0x%x\n", mode->name, mode->clock, mode->hdisplay, mode->hsync_start, mode->hsync_end, mode->htotal, mode->vdisplay,
+                  mode->vsync_start, mode->vsync_end, mode->vtotal, mode->flags, mode->type);
 }
 
 /*

@@ -62,8 +62,7 @@ typedef struct devtmpfs_block_registration devtmpfs_block_registration_t;
 int devtmpfs_open_block_device(const char *path, blockdev_device_t *device);
 
 /* Publish a whole disk and, optionally, its MBR/GPT partition views. */
-int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool scan_partitions,
-                                   devtmpfs_block_registration_t **registration);
+int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool scan_partitions, devtmpfs_block_registration_t **registration);
 
 /* Remove all nodes in a dynamic block-device registration. */
 void devtmpfs_unregister_block_device(devtmpfs_block_registration_t *registration);

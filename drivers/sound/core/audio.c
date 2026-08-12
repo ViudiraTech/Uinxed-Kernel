@@ -442,8 +442,7 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
         ret += done;
         frames -= done;
 
-        if (card->ops->start && pf->state == SNDRV_PCM_STATE_PREPARED
-            && (snd_pcm_sframes_t)pcm_ring_buffer_avail(pf) >= (snd_pcm_sframes_t)pf->start_threshold) {
+        if (card->ops->start && pf->state == SNDRV_PCM_STATE_PREPARED && (snd_pcm_sframes_t)pcm_ring_buffer_avail(pf) >= (snd_pcm_sframes_t)pf->start_threshold) {
             card->ops->start(card);
             pf->state = SNDRV_PCM_STATE_RUNNING;
         }
@@ -705,16 +704,14 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
         case SNDRV_PCM_IOCTL_WRITEI_FRAMES : {
             struct snd_xferi xf;
             if (copy_from_user(&xf, arg, sizeof(xf))) return -EFAULT;
-            xf.result
-                = (snd_pcm_sframes_t)(audio_file_write(ctx, pf, flags, xf.buf, 0, xf.frames * frame_bytes(&pf->fmt)) / frame_bytes(&pf->fmt));
+            xf.result = (snd_pcm_sframes_t)(audio_file_write(ctx, pf, flags, xf.buf, 0, xf.frames * frame_bytes(&pf->fmt)) / frame_bytes(&pf->fmt));
             if (copy_to_user(arg, &xf, sizeof(xf))) return -EFAULT;
             return EOK;
         }
         case SNDRV_PCM_IOCTL_READI_FRAMES : {
             struct snd_xferi xf;
             if (copy_from_user(&xf, arg, sizeof(xf))) return -EFAULT;
-            xf.result
-                = (snd_pcm_sframes_t)(audio_file_read(ctx, pf, flags, xf.buf, 0, xf.frames * frame_bytes(&pf->fmt)) / frame_bytes(&pf->fmt));
+            xf.result = (snd_pcm_sframes_t)(audio_file_read(ctx, pf, flags, xf.buf, 0, xf.frames * frame_bytes(&pf->fmt)) / frame_bytes(&pf->fmt));
             if (copy_to_user(arg, &xf, sizeof(xf))) return -EFAULT;
             return EOK;
         }

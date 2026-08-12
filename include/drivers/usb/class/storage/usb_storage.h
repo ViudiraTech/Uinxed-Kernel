@@ -37,8 +37,7 @@ typedef struct __attribute__((packed)) {
 } usb_msc_csw_t;
 
 /* Fill a Bulk-Only Transport command wrapper from a SCSI command. */
-int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length, uint32_t transfer_length,
-                      bool input);
+int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length, uint32_t transfer_length, bool input);
 
 /* Build a 10-byte READ(10)/WRITE(10) SCSI command. */
 void usb_scsi_build_rw10(uint8_t command[10], bool write, uint32_t lba, uint16_t blocks, bool fua);

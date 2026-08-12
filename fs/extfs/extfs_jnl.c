@@ -19,9 +19,8 @@
 #define EXTFS_JNL_CRC32C_CHKSUM 4U
 #define EXTFS_JNL_CRC32_CHKSUM  1U
 #define EXTFS_JNL_KNOWN_COMPAT  EXTFS_JNL_FEATURE_COMPAT_CHECKSUM
-#define EXTFS_JNL_KNOWN_INCOMPAT                                                                                    \
-    (EXTFS_JNL_FEATURE_INCOMPAT_REVOKE | EXTFS_JNL_FEATURE_INCOMPAT_64BIT | EXTFS_JNL_FEATURE_INCOMPAT_ASYNC_COMMIT \
-     | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3)
+#define EXTFS_JNL_KNOWN_INCOMPAT \
+    (EXTFS_JNL_FEATURE_INCOMPAT_REVOKE | EXTFS_JNL_FEATURE_INCOMPAT_64BIT | EXTFS_JNL_FEATURE_INCOMPAT_ASYNC_COMMIT | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3)
 
 typedef struct extfs_jnl_record {
         uint64_t                 home;
@@ -117,8 +116,7 @@ static int extfs_jnl_logical_io(extfs_journal_t *journal, uint32_t logical, void
     physical = extfs_map_block(journal->inode, logical, 0);
     if (!physical || physical >= journal->sb->blocks_count) return -EIO;
     uint64_t offset = (uint64_t)physical * journal->block_size;
-    return write ? blockdev_write_bytes(&journal->sb->device, offset, data, journal->block_size) :
-                   blockdev_read_bytes(&journal->sb->device, offset, data, journal->block_size);
+    return write ? blockdev_write_bytes(&journal->sb->device, offset, data, journal->block_size) : blockdev_read_bytes(&journal->sb->device, offset, data, journal->block_size);
 }
 
 static int extfs_jnl_read(extfs_journal_t *journal, uint32_t logical, void *data)
@@ -198,9 +196,7 @@ static uint32_t extfs_jnl_data_checksum(extfs_journal_t *journal, uint32_t seque
 /* Validate a commit block's magic, type, sequence and checksum. */
 static int extfs_jnl_verify_commit(extfs_journal_t *journal, uint8_t *block, uint32_t sequence)
 {
-    if (extfs_jnl_get_be32(block) != EXTFS_JNL_MAGIC_NUMBER || extfs_jnl_get_be32(block + 4) != EXTFS_JNL_COMMIT_BLOCK
-        || extfs_jnl_get_be32(block + 8) != sequence)
-        return -EIO;
+    if (extfs_jnl_get_be32(block) != EXTFS_JNL_MAGIC_NUMBER || extfs_jnl_get_be32(block + 4) != EXTFS_JNL_COMMIT_BLOCK || extfs_jnl_get_be32(block + 8) != sequence) return -EIO;
     if (!(journal->incompat & (EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3))) return EOK;
     if (block[12] != EXTFS_JNL_CRC32C_CHKSUM || block[13] != 4) return -EIO;
     uint32_t stored = extfs_jnl_get_be32(block + 16);
@@ -224,8 +220,7 @@ static int extfs_jnl_verify_descriptor(extfs_journal_t *journal, uint8_t *block)
     uint32_t calculated = crc32c_update(journal->checksum_seed, block, journal->block_size);
     extfs_jnl_put_be32(tail, stored);
     if (stored != calculated) {
-        plogk("extfs: Drive %u: journal descriptor block checksum mismatch (sequence %u)\n", journal->sb->device.drive,
-              extfs_jnl_get_be32(block + 8));
+        plogk("extfs: Drive %u: journal descriptor block checksum mismatch (sequence %u)\n", journal->sb->device.drive, extfs_jnl_get_be32(block + 8));
         return -EIO;
     }
     return EOK;
@@ -240,8 +235,7 @@ static void extfs_jnl_set_descriptor_checksum(extfs_journal_t *journal, uint8_t 
 }
 
 /* Walk one committed transaction. Descriptor data blocks are checked while walking. */
-static int extfs_jnl_walk_transaction(extfs_journal_t *journal, uint32_t start, uint32_t sequence, uint32_t *next, extfs_jnl_revoke_t **revokes,
-                                      int replay)
+static int extfs_jnl_walk_transaction(extfs_journal_t *journal, uint32_t start, uint32_t sequence, uint32_t *next, extfs_jnl_revoke_t **revokes, int replay)
 {
     uint8_t *block           = malloc(journal->block_size);
     uint8_t *data            = malloc(journal->block_size);
@@ -266,8 +260,7 @@ static int extfs_jnl_walk_transaction(extfs_journal_t *journal, uint32_t start, 
         if (type == EXTFS_JNL_DESCRIPTOR_BLOCK) {
             status = extfs_jnl_verify_descriptor(journal, block);
             if (status != EOK) break;
-            if (journal->compat & EXTFS_JNL_FEATURE_COMPAT_CHECKSUM)
-                transaction_crc = extfs_jnl_crc32_be(transaction_crc, block, journal->block_size);
+            if (journal->compat & EXTFS_JNL_FEATURE_COMPAT_CHECKSUM) transaction_crc = extfs_jnl_crc32_be(transaction_crc, block, journal->block_size);
             size_t tag_size = extfs_jnl_tag_size(journal);
             size_t offset   = sizeof(extfs_jnl_header_t);
             size_t limit    = journal->block_size;
@@ -296,13 +289,11 @@ static int extfs_jnl_walk_transaction(extfs_journal_t *journal, uint32_t start, 
                 cursor = extfs_jnl_next_block(journal, cursor);
                 status = extfs_jnl_read(journal, cursor, data);
                 if (status != EOK) break;
-                if (journal->compat & EXTFS_JNL_FEATURE_COMPAT_CHECKSUM)
-                    transaction_crc = extfs_jnl_crc32_be(transaction_crc, data, journal->block_size);
+                if (journal->compat & EXTFS_JNL_FEATURE_COMPAT_CHECKSUM) transaction_crc = extfs_jnl_crc32_be(transaction_crc, data, journal->block_size);
                 if (journal->incompat & (EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3)) {
                     uint32_t actual = extfs_jnl_data_checksum(journal, sequence, data);
                     if ((journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3) ? actual != checksum : (uint16_t)actual != (uint16_t)checksum) {
-                        plogk("extfs: Drive %u: journal data block checksum mismatch (sequence %u, home %llu)\n", journal->sb->device.drive,
-                              sequence, (unsigned long long)home);
+                        plogk("extfs: Drive %u: journal data block checksum mismatch (sequence %u, home %llu)\n", journal->sb->device.drive, sequence, (unsigned long long)home);
                         status = -EIO;
                         break;
                     }
@@ -315,8 +306,7 @@ static int extfs_jnl_walk_transaction(extfs_journal_t *journal, uint32_t start, 
                             revoked = 1;
                             break;
                         }
-                    if (!revoked)
-                        status = blockdev_write_bytes(&journal->sb->device, home * (uint64_t)journal->block_size, data, journal->block_size);
+                    if (!revoked) status = blockdev_write_bytes(&journal->sb->device, home * (uint64_t)journal->block_size, data, journal->block_size);
                 }
                 last = !!(flags & EXTFS_JNL_FLAG_LAST_TAG);
             }
@@ -374,8 +364,7 @@ static int extfs_jnl_v1_transaction_checksum(extfs_journal_t *journal, uint32_t 
     int      status = block && data ? EOK : -ENOMEM;
     while (status == EOK && cursor != end) {
         status = extfs_jnl_read(journal, cursor, block);
-        if (status != EOK || extfs_jnl_get_be32(block) != EXTFS_JNL_MAGIC_NUMBER || extfs_jnl_get_be32(block + 4) != EXTFS_JNL_DESCRIPTOR_BLOCK
-            || extfs_jnl_get_be32(block + 8) != sequence) {
+        if (status != EOK || extfs_jnl_get_be32(block) != EXTFS_JNL_MAGIC_NUMBER || extfs_jnl_get_be32(block + 4) != EXTFS_JNL_DESCRIPTOR_BLOCK || extfs_jnl_get_be32(block + 8) != sequence) {
             if (status == EOK) status = -EIO;
             break;
         }
@@ -387,8 +376,7 @@ static int extfs_jnl_v1_transaction_checksum(extfs_journal_t *journal, uint32_t 
                 status = -EIO;
                 break;
             }
-            uint32_t flags = (journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3) ? extfs_jnl_get_be32(block + offset + 4) :
-                                                                                        extfs_jnl_get_be16(block + offset + 6);
+            uint32_t flags = (journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3) ? extfs_jnl_get_be32(block + offset + 4) : extfs_jnl_get_be16(block + offset + 6);
             offset += tag_size + ((flags & EXTFS_JNL_FLAG_SAME_UUID) ? 0 : 16);
             cursor = extfs_jnl_next_block(journal, cursor);
             if (cursor == end || (status = extfs_jnl_read(journal, cursor, data)) != EOK) { // NOLINT(bugprone-assignment-in-if-condition)
@@ -552,8 +540,7 @@ static int extfs_jnl_commit(void *context, uint32_t transaction_id)
             } else {
                 extfs_jnl_put_be16(descriptor + offset + 4, (uint16_t)checksum);
                 extfs_jnl_put_be16(descriptor + offset + 6, (uint16_t)flags);
-                if (journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_64BIT)
-                    extfs_jnl_put_be32(descriptor + offset + 8, (uint32_t)(record->home >> 32));
+                if (journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_64BIT) extfs_jnl_put_be32(descriptor + offset + 8, (uint32_t)(record->home >> 32));
             }
             offset += extfs_jnl_tag_size(journal);
             if (first) {
@@ -575,8 +562,7 @@ static int extfs_jnl_commit(void *context, uint32_t transaction_id)
     if (status == EOK) status = blockdev_flush(&journal->sb->device);
     if (status == EOK) {
         uint32_t transaction_crc = 0;
-        if (journal->compat & EXTFS_JNL_FEATURE_COMPAT_CHECKSUM)
-            status = extfs_jnl_v1_transaction_checksum(journal, journal->head, cursor, sequence, &transaction_crc);
+        if (journal->compat & EXTFS_JNL_FEATURE_COMPAT_CHECKSUM) status = extfs_jnl_v1_transaction_checksum(journal, journal->head, cursor, sequence, &transaction_crc);
         if (status != EOK) goto out;
         memset(copy, 0, journal->block_size);
         extfs_jnl_put_be32(copy, EXTFS_JNL_MAGIC_NUMBER);
@@ -675,19 +661,15 @@ int extfs_jnl_open(struct extfs_sb_info *sb, extfs_journal_t **out)
     journal->incompat    = extfs_jnl_get_be32(&super->feature_incompat);
     uint32_t fast_blocks = extfs_jnl_get_be32(&super->fast_commit_blocks);
     uint64_t inode_size  = inode.i_size | ((uint64_t)inode.i_dir_acl << 32);
-    if (extfs_jnl_get_be32(&super->header.magic) != EXTFS_JNL_MAGIC_NUMBER
-        || (type != EXTFS_JNL_SUPERBLOCK_V1 && type != EXTFS_JNL_SUPERBLOCK_V2) || extfs_jnl_get_be32(&super->block_size) != sb->block_size
-        || journal->max_length > inode_size / sb->block_size || journal->first == 0 || journal->first >= journal->max_length
-        || journal->start >= journal->max_length || journal->compat & ~EXTFS_JNL_KNOWN_COMPAT || journal->incompat & ~EXTFS_JNL_KNOWN_INCOMPAT
-        || fast_blocks >= journal->max_length - journal->first
-        || ((journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_ASYNC_COMMIT)
-            && !(journal->incompat & (EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3)))
+    if (extfs_jnl_get_be32(&super->header.magic) != EXTFS_JNL_MAGIC_NUMBER || (type != EXTFS_JNL_SUPERBLOCK_V1 && type != EXTFS_JNL_SUPERBLOCK_V2)
+        || extfs_jnl_get_be32(&super->block_size) != sb->block_size || journal->max_length > inode_size / sb->block_size || journal->first == 0 || journal->first >= journal->max_length
+        || journal->start >= journal->max_length || journal->compat & ~EXTFS_JNL_KNOWN_COMPAT || journal->incompat & ~EXTFS_JNL_KNOWN_INCOMPAT || fast_blocks >= journal->max_length - journal->first
+        || ((journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_ASYNC_COMMIT) && !(journal->incompat & (EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3)))
         || ((journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2) && (journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3))) {
         extfs_jnl_close(journal);
         return -EOPNOTSUPP;
     }
-    if ((journal->compat & EXTFS_JNL_FEATURE_COMPAT_CHECKSUM)
-        && (journal->incompat & (EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3))) {
+    if ((journal->compat & EXTFS_JNL_FEATURE_COMPAT_CHECKSUM) && (journal->incompat & (EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3))) {
         extfs_jnl_close(journal);
         return -EINVAL;
     }

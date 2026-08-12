@@ -520,8 +520,7 @@ static int64_t tmpfs_file_write(vfs_node_t node, void *private_data, uint64_t fl
 
 #define TMPFS_USER_IO_CHUNK 16384
 
-static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
-                                    struct process *proc)
+static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc)
 {
     tmpfs_file_t *f = node->handle;
     if (!f) return -EINVAL;
@@ -541,8 +540,7 @@ static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_
     return (int64_t)done;
 }
 
-static int64_t tmpfs_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
-                                     struct process *proc)
+static int64_t tmpfs_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc)
 {
     tmpfs_file_t *f = node->handle;
     if (!f) return -EINVAL;

@@ -770,12 +770,10 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             ret = copy_to_user((void *)data, &state->event_msg, sizeof(state->event_msg)) ? -EFAULT : 0;
             break;
         case PTRACE_GETSIGINFO :
-            ret = state->stop_reason == PTRACE_STOP_NONE ? -EINVAL :
-                                                           (copy_to_user((void *)data, &state->siginfo, sizeof(state->siginfo)) ? -EFAULT : 0);
+            ret = state->stop_reason == PTRACE_STOP_NONE ? -EINVAL : (copy_to_user((void *)data, &state->siginfo, sizeof(state->siginfo)) ? -EFAULT : 0);
             break;
         case PTRACE_SETSIGINFO :
-            ret = state->stop_reason == PTRACE_STOP_NONE ? -EINVAL :
-                                                           (copy_from_user(&state->siginfo, (void *)data, sizeof(state->siginfo)) ? -EFAULT : 0);
+            ret = state->stop_reason == PTRACE_STOP_NONE ? -EINVAL : (copy_from_user(&state->siginfo, (void *)data, sizeof(state->siginfo)) ? -EFAULT : 0);
             break;
         case PTRACE_GETSIGMASK :
             if (addr != sizeof(sigset_t)) {
@@ -843,8 +841,7 @@ static task_t *ptrace_wait_target_get(task_t *tracer, int64_t pid, process_t **o
     process_t *proc;
     while ((proc = process_iterate_get(&position))) {
         uint64_t requested_group = pid < -1 ? (uint64_t)(-(pid + 1)) + 1 : 0;
-        bool     group_match
-            = pid == -1 || (pid == 0 && proc->pgid == tracer->process->pgid) || (pid < -1 && (uint64_t)proc->pgid == requested_group);
+        bool     group_match     = pid == -1 || (pid == 0 && proc->pgid == tracer->process->pgid) || (pid < -1 && (uint64_t)proc->pgid == requested_group);
         if (!group_match) {
             process_put(proc);
             continue;
@@ -925,8 +922,7 @@ int ptrace_signal_delivery(syscall_frame_t *frame, int sig, siginfo_t *info)
     if (interrupt) {
         injected = ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, PTRACE_EVENT_STOP, (uint64_t)sig, info);
     } else {
-        injected
-            = ptrace_stop_current(frame, sig, group_stop ? PTRACE_STOP_GROUP : PTRACE_STOP_SIGNAL, group_stop ? PTRACE_EVENT_STOP : 0, 0, info);
+        injected = ptrace_stop_current(frame, sig, group_stop ? PTRACE_STOP_GROUP : PTRACE_STOP_SIGNAL, group_stop ? PTRACE_EVENT_STOP : 0, 0, info);
     }
     if (injected && info) {
         spin_lock(&state->lock);

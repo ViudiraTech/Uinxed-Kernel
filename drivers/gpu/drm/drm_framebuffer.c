@@ -304,8 +304,7 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
         }
 
         /* Include the plane offset and protect the arithmetic from wrap. */
-        if (r->offsets[i] > obj->size
-            || (r->height > 0 && ((uint64_t)r->pitches[i] * (r->height - 1) + min_pitch > obj->size - r->offsets[i]))) {
+        if (r->offsets[i] > obj->size || (r->height > 0 && ((uint64_t)r->pitches[i] * (r->height - 1) + min_pitch > obj->size - r->offsets[i]))) {
             plogk("drm: Addfb2: GEM object %u too small for pitch %u height %u offset %u\n", handle, r->pitches[i], r->height, r->offsets[i]);
             drm_gem_object_put(obj);
             ret = -EINVAL;
@@ -530,8 +529,7 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
                 unsigned int dst_w = clips[i + 1].x2 - clips[i + 1].x1;
                 unsigned int dst_h = clips[i + 1].y2 - clips[i + 1].y1;
 
-                if (clips[i].x2 < clips[i].x1 || clips[i].y2 < clips[i].y1 || clips[i + 1].x2 < clips[i + 1].x1
-                    || clips[i + 1].y2 < clips[i + 1].y1 || src_w != dst_w || src_h != dst_h) {
+                if (clips[i].x2 < clips[i].x1 || clips[i].y2 < clips[i].y1 || clips[i + 1].x2 < clips[i + 1].x1 || clips[i + 1].y2 < clips[i + 1].y1 || src_w != dst_w || src_h != dst_h) {
                     plogk("drm: Dirtyfb: invalid annotate_copy clip pair at index %u\n", i);
                     free(clips);
                     return -EINVAL;

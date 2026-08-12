@@ -263,8 +263,7 @@ static int devtmpfs_register_one_block(const char *path, const blockdev_device_t
 }
 
 /* Register a whole disk plus its partitions, tracking the created paths. */
-int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool scan_partitions,
-                                   devtmpfs_block_registration_t **registration)
+int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool scan_partitions, devtmpfs_block_registration_t **registration)
 {
     devtmpfs_block_registration_t *nodes;
     partition_table_t              table;
@@ -366,8 +365,7 @@ static int devtmpfs_create_block_node(const char *dev_path, const blockdev_devic
 }
 
 /* Create the device node for a single partition. */
-static void devtmpfs_create_partition_node(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *parent, uint64_t dev,
-                                           uint64_t rdev_base, const partition_info_t *partition)
+static void devtmpfs_create_partition_node(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *parent, uint64_t dev, uint64_t rdev_base, const partition_info_t *partition)
 {
     char dev_path[96];
     (void)snprintf(dev_path, sizeof(dev_path), "%s%s%u", dev_prefix, use_p_separator ? "p" : "", partition->number);
@@ -377,13 +375,12 @@ static void devtmpfs_create_partition_node(const char *dev_prefix, bool use_p_se
     if (blockdev_open_partition(parent, partition->start_lba, partition->sector_count, &view) != EOK) return;
     if (partition->read_only) view.read_only = true;
     if (devtmpfs_create_block_node(dev_path, &view, dev, (rdev_base << 8) | partition->number, true) == EOK)
-        plogk("devtmpfs: Registered %s as partition device (start %llu, sectors %llu%s%s)\n", dev_path, (unsigned long long)partition->start_lba,
-              (unsigned long long)partition->sector_count, partition->name[0] ? ", name " : "", partition->name);
+        plogk("devtmpfs: Registered %s as partition device (start %llu, sectors %llu%s%s)\n", dev_path, (unsigned long long)partition->start_lba, (unsigned long long)partition->sector_count,
+              partition->name[0] ? ", name " : "", partition->name);
 }
 
 /* Create device nodes for every partition of a disk. */
-static int devtmpfs_create_partitions(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *device, uint64_t dev,
-                                      uint64_t rdev_base)
+static int devtmpfs_create_partitions(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *device, uint64_t dev, uint64_t rdev_base)
 {
     partition_table_t table;
     int               status;
@@ -394,8 +391,7 @@ static int devtmpfs_create_partitions(const char *dev_prefix, bool use_p_separat
         plogk("devtmpfs: Ignoring invalid partition table on %s: %d\n", dev_prefix, status);
         return 0;
     }
-    for (size_t i = 0; i < table.count; i++)
-        devtmpfs_create_partition_node(dev_prefix, use_p_separator, device, dev, rdev_base, &table.partitions[i]);
+    for (size_t i = 0; i < table.count; i++) devtmpfs_create_partition_node(dev_prefix, use_p_separator, device, dev, rdev_base, &table.partitions[i]);
     int count = (int)table.count;
     partition_table_destroy(&table);
     return count;
@@ -451,10 +447,7 @@ static int devtmpfs_create_audio_nodes(void)
 /* Register the /dev/ptmx pseudo-terminal master node. */
 static int devtmpfs_create_ptmx_node(void)
 {
-    if (devtmpfs_register_char_device("/dev/ptmx", MKDEV(PTMX_MAJOR, PTMX_MINOR), MKDEV(PTMX_MAJOR, PTMX_MINOR), file_ptmx | file_stream,
-                                      &pty_ptmx_operations)
-        != EOK)
-        return 0;
+    if (devtmpfs_register_char_device("/dev/ptmx", MKDEV(PTMX_MAJOR, PTMX_MINOR), MKDEV(PTMX_MAJOR, PTMX_MINOR), file_ptmx | file_stream, &pty_ptmx_operations) != EOK) return 0;
     vfs_node_t node = vfs_open("/dev/ptmx");
     if (node) {
         node->mode = 0666;
@@ -504,9 +497,7 @@ static int devtmpfs_create_rtc_node(void)
         .file_ioctl = rtc_dev_ioctl,
     };
 
-    if (devtmpfs_register_char_device("/dev/rtc0", MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), file_stream, &rtc_device)
-        != EOK)
-        return 0;
+    if (devtmpfs_register_char_device("/dev/rtc0", MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), file_stream, &rtc_device) != EOK) return 0;
     vfs_node_t node = vfs_open("/dev/rtc0");
     if (node) {
         node->mode = 0644;
@@ -525,8 +516,7 @@ typedef struct {
 } devtmpfs_partition_walk_t;
 
 /* Adapter from the gendisk partition iterator to the block walk callback. */
-static void devtmpfs_partition_walk_cb(const gendisk_t *disk, const char *part_name, uint32_t major, uint32_t minor, uint64_t blocks,
-                                       void *opaque)
+static void devtmpfs_partition_walk_cb(const gendisk_t *disk, const char *part_name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque)
 {
     devtmpfs_partition_walk_t *ctx = opaque;
     (void)disk;
@@ -643,7 +633,7 @@ typedef struct {
 static void devtmpfs_partitions_block(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque)
 {
     devtmpfs_block_file_ctx_t *ctx = opaque;
-    int n = snprintf(ctx->buf + ctx->off, ctx->cap - ctx->off, "  %u        %u %9llu %s\n", major, minor, (unsigned long long)blocks, name);
+    int                        n   = snprintf(ctx->buf + ctx->off, ctx->cap - ctx->off, "  %u        %u %9llu %s\n", major, minor, (unsigned long long)blocks, name);
     if (n > 0 && (size_t)n < ctx->cap - ctx->off) ctx->off += (size_t)n;
 }
 
@@ -740,8 +730,7 @@ void devtmpfs_init(void)
         if (!disk) continue;
         (void)snprintf(dev_path, sizeof(dev_path), "/dev/%s", disk->name);
         if (devtmpfs_create_block_node(dev_path, &disk->device, disk->major, disk->minor_base, false) == EOK) total_devices++;
-        if (disk->scan_partitions)
-            total_devices += devtmpfs_create_partitions(dev_path, disk->use_p_separator, &disk->device, disk->major, disk->minor_base);
+        if (disk->scan_partitions) total_devices += devtmpfs_create_partitions(dev_path, disk->use_p_separator, &disk->device, disk->major, disk->minor_base);
     }
 
     total_devices += evdev_publish_nodes();

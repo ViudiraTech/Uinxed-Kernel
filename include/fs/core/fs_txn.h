@@ -59,8 +59,7 @@ typedef struct fs_txn {
 } fs_txn_t;
 
 /* Initialize a transaction log bound to a block device. */
-int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops,
-                    void *backend_context);
+int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops, void *backend_context);
 
 /* Tear down a transaction log and release its device reference. */
 void fs_txn_log_destroy(fs_txn_log_t *log);

@@ -436,8 +436,7 @@ struct drm_connector {
 };
 
 struct drm_framebuffer_funcs {
-        int (*dirty)(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips,
-                     unsigned int num_clips);
+        int (*dirty)(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips);
 };
 
 struct drm_framebuffer {
@@ -928,8 +927,7 @@ int                       drm_mode_obj_getproperties_ioctl(struct drm_device *de
 int                       drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 struct drm_property      *drm_property_create(struct drm_device *dev, uint32_t flags, const char *name, int num_values);
 struct drm_property      *drm_property_create_range(struct drm_device *dev, uint32_t flags, const char *name, uint64_t min, uint64_t max);
-struct drm_property      *drm_property_create_enum(struct drm_device *dev, uint32_t flags, const char *name,
-                                                   const struct drm_mode_property_enum *enums, int num_enums);
+struct drm_property      *drm_property_create_enum(struct drm_device *dev, uint32_t flags, const char *name, const struct drm_mode_property_enum *enums, int num_enums);
 struct drm_property      *drm_property_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
 struct drm_property_blob *drm_property_lookup_blob(struct drm_device *dev, uint32_t id);
 void                      drm_property_blob_get(struct drm_property_blob *blob);
@@ -949,12 +947,11 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS object initialisation. */
-int  drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, struct drm_plane *primary, struct drm_plane *cursor, void *funcs,
-                               const char *name);
+int  drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, struct drm_plane *primary, struct drm_plane *cursor, void *funcs, const char *name);
 void drm_crtc_cleanup(struct drm_crtc *crtc);
 int  drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void *funcs, int encoder_type, const char *name);
-int  drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t possible_crtcs, void *funcs, const uint32_t *formats,
-                    unsigned int format_count, const uint64_t *modifiers, enum drm_plane_type type, const char *name);
+int  drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t possible_crtcs, void *funcs, const uint32_t *formats, unsigned int format_count, const uint64_t *modifiers,
+                    enum drm_plane_type type, const char *name);
 void drm_plane_cleanup(struct drm_plane *plane);
 void drm_connector_cleanup(struct drm_connector *connector);
 int  drm_connector_init(struct drm_device *dev, struct drm_connector *connector, void *funcs, int connector_type);
@@ -982,8 +979,7 @@ void                      drm_mode_copy(struct drm_display_mode *dst, const stru
 int                       drm_mode_vrefresh(const struct drm_display_mode *mode);
 void                      drm_mode_set_name(struct drm_display_mode *mode);
 struct drm_display_mode  *drm_mode_duplicate(struct drm_device *dev, const struct drm_display_mode *mode);
-struct drm_property      *drm_property_create_bitmask(struct drm_device *dev, uint32_t flags, const char *name,
-                                                      const struct drm_mode_property_enum *enums, int num_enums, uint32_t supported_bits);
+struct drm_property      *drm_property_create_bitmask(struct drm_device *dev, uint32_t flags, const char *name, const struct drm_mode_property_enum *enums, int num_enums, uint32_t supported_bits);
 struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const void *data, size_t length);
 void                      drm_property_destroy(struct drm_device *dev, struct drm_property *property);
 

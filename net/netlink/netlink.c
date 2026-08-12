@@ -77,8 +77,7 @@ static nl_sock_t *nl_sk(struct socket *sk)
 }
 
 /* Allocate a refcounted message with a copy of the payload. */
-static nl_msg_t *nl_msg_alloc(const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_groups, uint32_t sender_uid,
-                              uint32_t sender_gid)
+static nl_msg_t *nl_msg_alloc(const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_groups, uint32_t sender_uid, uint32_t sender_gid)
 {
     nl_msg_t *msg;
 
@@ -272,8 +271,7 @@ static void rtnl_emit_address(net_device_t *device, void *opaque)
     message->ifa_index     = info.ifindex;
     uint32_t address       = rtnl_be32(info.ipv4_address);
     uint32_t broadcast     = rtnl_be32(info.ipv4_address | ~info.ipv4_netmask);
-    if (rtnl_add_attr(payload, sizeof(payload), &length, IFA_ADDRESS, &address, sizeof(address))
-        || rtnl_add_attr(payload, sizeof(payload), &length, IFA_LOCAL, &address, sizeof(address))
+    if (rtnl_add_attr(payload, sizeof(payload), &length, IFA_ADDRESS, &address, sizeof(address)) || rtnl_add_attr(payload, sizeof(payload), &length, IFA_LOCAL, &address, sizeof(address))
         || rtnl_add_attr(payload, sizeof(payload), &length, IFA_BROADCAST, &broadcast, sizeof(broadcast))
         || rtnl_add_attr(payload, sizeof(payload), &length, IFA_LABEL, info.name, (uint16_t)(strlen(info.name) + 1))) {
         context->error = -EMSGSIZE;
@@ -316,9 +314,7 @@ static void rtnl_emit_routes(net_device_t *device, void *opaque)
     rtnl_device_info_t   info    = {0};
     if (context->error || (!context->multipart && context->emitted)) return;
     rtnl_snapshot_device(device, &info);
-    if (!info.ipv4_address || !info.ipv4_netmask || !(info.flags & NETDEV_F_UP)
-        || (context->ifindex && context->ifindex != (int32_t)info.ifindex))
-        return;
+    if (!info.ipv4_address || !info.ipv4_netmask || !(info.flags & NETDEV_F_UP) || (context->ifindex && context->ifindex != (int32_t)info.ifindex)) return;
     int connected = !context->has_destination || ((context->destination & info.ipv4_netmask) == (info.ipv4_address & info.ipv4_netmask));
     if (connected)
         context->error = rtnl_emit_one_route(context, &info, 0);
@@ -690,8 +686,7 @@ int netlink_getsockname(struct socket *sk, sockaddr_nl_t *addr)
 }
 
 /* Enqueue a datagram on a socket, enforcing limits and waking waiters. */
-static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_groups, uint32_t sender_uid,
-                             uint32_t sender_gid)
+static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_groups, uint32_t sender_uid, uint32_t sender_gid)
 {
     nl_sock_t *ns = nl_sk(sk);
     nl_msg_t  *msg;
@@ -751,8 +746,7 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
 }
 
 /* Deliver a datagram to every socket subscribed to the given groups. */
-static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_uid,
-                                 uint32_t sender_gid)
+static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_uid, uint32_t sender_gid)
 {
     nl_mcast_table_t *tab;
     int               delivered   = 0;
@@ -928,8 +922,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
 /* Recvmsg */
 
 /* Receive the next datagram, blocking if empty unless MSG_DONTWAIT. */
-int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid,
-                         int *msg_flags)
+int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid, int *msg_flags)
 {
     nl_sock_t *ns;
     nl_msg_t  *msg;

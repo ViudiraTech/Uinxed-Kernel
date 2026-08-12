@@ -291,9 +291,9 @@ struct drm_mode_get_connector {
 #define DRM_MODE_PROP_SIGNED_RANGE  DRM_MODE_PROP_TYPE(2)
 #define DRM_MODE_PROP_ATOMIC        0x80000000U
 
-#define DRM_MODE_PROP_FLAGS                                                                                                                  \
-    (DRM_MODE_PROP_PENDING | DRM_MODE_PROP_RANGE | DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ENUM | DRM_MODE_PROP_BLOB | DRM_MODE_PROP_BITMASK \
-     | DRM_MODE_PROP_LEGACY_TYPE | DRM_MODE_PROP_EXTENDED_TYPE | DRM_MODE_PROP_OBJECT | DRM_MODE_PROP_SIGNED_RANGE | DRM_MODE_PROP_ATOMIC)
+#define DRM_MODE_PROP_FLAGS                                                                                                                                                                            \
+    (DRM_MODE_PROP_PENDING | DRM_MODE_PROP_RANGE | DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ENUM | DRM_MODE_PROP_BLOB | DRM_MODE_PROP_BITMASK | DRM_MODE_PROP_LEGACY_TYPE | DRM_MODE_PROP_EXTENDED_TYPE \
+     | DRM_MODE_PROP_OBJECT | DRM_MODE_PROP_SIGNED_RANGE | DRM_MODE_PROP_ATOMIC)
 
 struct drm_mode_property_enum {
         __u64 value;
@@ -461,8 +461,7 @@ struct drm_mode_destroy_dumb {
 #define DRM_MODE_ATOMIC_TEST_ONLY     0x0100
 #define DRM_MODE_ATOMIC_NONBLOCK      0x0200
 #define DRM_MODE_ATOMIC_ALLOW_MODESET 0x0400
-#define DRM_MODE_ATOMIC_FLAGS \
-    (DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC | DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_ATOMIC_ALLOW_MODESET)
+#define DRM_MODE_ATOMIC_FLAGS         (DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC | DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_ATOMIC_ALLOW_MODESET)
 
 struct drm_mode_atomic {
         __u32 flags;

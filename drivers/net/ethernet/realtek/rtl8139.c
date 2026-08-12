@@ -73,8 +73,7 @@
 #define RTL8139_ISR_PUN   (1u << 5) // packet underrun / link change
 #define RTL8139_ISR_FOVW  (1u << 6) // receive FIFO overflow
 
-#define RTL8139_INT_MASK \
-    (RTL8139_ISR_ROK | RTL8139_ISR_RER | RTL8139_ISR_TOK | RTL8139_ISR_TER | RTL8139_ISR_RXOVW | RTL8139_ISR_PUN | RTL8139_ISR_FOVW)
+#define RTL8139_INT_MASK     (RTL8139_ISR_ROK | RTL8139_ISR_RER | RTL8139_ISR_TOK | RTL8139_ISR_TER | RTL8139_ISR_RXOVW | RTL8139_ISR_PUN | RTL8139_ISR_FOVW)
 #define RTL8139_RX_INT_MASK  (RTL8139_ISR_ROK | RTL8139_ISR_RER | RTL8139_ISR_RXOVW | RTL8139_ISR_FOVW)
 #define RTL8139_WORK_INITIAL (RTL8139_ISR_ROK | RTL8139_ISR_TOK)
 
@@ -317,8 +316,7 @@ static void rtl8139_program_hw(rtl8139_device_t *device)
     rtl8139_write8(device, RTL8139_REG_9346CR, RTL8139_9346_UNLOCK);
 
     /* IDR0-5 are written with 4-byte accesses. */
-    rtl8139_write32(device, RTL8139_REG_IDR0,
-                    (uint32_t)(device->mac[0] | (device->mac[1] << 8) | (device->mac[2] << 16) | (device->mac[3] << 24)));
+    rtl8139_write32(device, RTL8139_REG_IDR0, (uint32_t)(device->mac[0] | (device->mac[1] << 8) | (device->mac[2] << 16) | (device->mac[3] << 24)));
     rtl8139_write32(device, RTL8139_REG_IDR0 + 4, (uint32_t)(device->mac[4] | (device->mac[5] << 8)));
 
     /* Receive ring base address (dword-aligned). */
@@ -337,8 +335,7 @@ static void rtl8139_program_hw(rtl8139_device_t *device)
 
     /* Receive configuration: physical/multicast/broadcast, 32K ring. */
     rtl8139_write32(device, RTL8139_REG_RCR,
-                    ((uint32_t)RTL8139_RCR_RXFTH << 13) | ((uint32_t)RTL8139_RX_BUF_IDX << 11) | ((uint32_t)RTL8139_RCR_MXDMA << 8)
-                        | RTL8139_RCR_APM | RTL8139_RCR_AM | RTL8139_RCR_AB);
+                    ((uint32_t)RTL8139_RCR_RXFTH << 13) | ((uint32_t)RTL8139_RX_BUF_IDX << 11) | ((uint32_t)RTL8139_RCR_MXDMA << 8) | RTL8139_RCR_APM | RTL8139_RCR_AM | RTL8139_RCR_AB);
 
     rtl8139_write8(device, RTL8139_REG_CR, RTL8139_CR_TE | RTL8139_CR_RE);
     rtl8139_write_flush(device);
@@ -516,11 +513,10 @@ size_t rtl8139_poll(rtl8139_device_t *device, size_t budget)
         uint32_t           hdr    = *hdrp;
         dma_read_barrier();
 
-        uint16_t status = hdr & 0xffff;
-        uint32_t length = hdr >> 16; // includes the 4-byte CRC
-        int      good   = (status & RTL8139_RX_ROK) && !(status & RTL8139_RX_ERROR_MASK) && length > RTL8139_CRC_LEN
-                   && length - RTL8139_CRC_LEN <= RTL8139_MAX_FRAME_SIZE;
-        size_t frame_length = good ? length - RTL8139_CRC_LEN : 0;
+        uint16_t status       = hdr & 0xffff;
+        uint32_t length       = hdr >> 16; // includes the 4-byte CRC
+        int      good         = (status & RTL8139_RX_ROK) && !(status & RTL8139_RX_ERROR_MASK) && length > RTL8139_CRC_LEN && length - RTL8139_CRC_LEN <= RTL8139_MAX_FRAME_SIZE;
+        size_t   frame_length = good ? length - RTL8139_CRC_LEN : 0;
 
         if (!good) {
             device->stats.rx_errors++;
@@ -794,8 +790,7 @@ static void rtl8139_release_interrupt(rtl8139_device_t *device)
     rtl8139_irq_slots[device->irq_slot] = NULL;
     spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
 
-    if (device->using_legacy && !device->using_direct_legacy && net_irq_release_legacy)
-        net_irq_release_legacy(device->irq, rtl8139_legacy_irq_handlers[device->irq_slot]);
+    if (device->using_legacy && !device->using_direct_legacy && net_irq_release_legacy) net_irq_release_legacy(device->irq, rtl8139_legacy_irq_handlers[device->irq_slot]);
     for (;;) {
         rflags     = spin_lock_irqsave(&rtl8139_irq_lock);
         int active = device->irq_active != 0;
@@ -844,9 +839,7 @@ static void rtl8139_destroy(rtl8139_device_t *device)
             rflags = spin_lock_irqsave(&device->work_lock);
         }
         spin_unlock_irqrestore(&device->work_lock, rflags);
-        while (__atomic_load_n(&device->worker_task->state, __ATOMIC_ACQUIRE) != TASK_ZOMBIE
-               || __atomic_load_n(&device->worker_task->on_cpu, __ATOMIC_ACQUIRE))
-            sched_yield();
+        while (__atomic_load_n(&device->worker_task->state, __ATOMIC_ACQUIRE) != TASK_ZOMBIE || __atomic_load_n(&device->worker_task->on_cpu, __ATOMIC_ACQUIRE)) sched_yield();
         task_free(device->worker_task);
         device->worker_task = NULL;
     }
@@ -949,8 +942,8 @@ int rtl8139_probe(pci_device_cache_t *pci)
         ret   = rtl8139_start_worker(device);
         if (ret) goto fail_linked;
     }
-    plogk("rtl8139: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, INTx, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
-          device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->link_up ? "up" : "down");
+    plogk("rtl8139: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, INTx, link %s)\n", device->netdev.name, device->mac[0], device->mac[1], device->mac[2], device->mac[3], device->mac[4],
+          device->mac[5], device->link_up ? "up" : "down");
     return 0;
 fail_linked:
     if (rtl8139_devices == device) rtl8139_devices = device->next;

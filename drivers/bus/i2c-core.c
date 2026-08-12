@@ -172,8 +172,7 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 }
 
 /* Emulate an SMBus protocol as raw I2C messages via __i2c_transfer(). */
-static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, int read_write, uint8_t command, int protocol,
-                                       union i2c_smbus_data *data)
+static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, int read_write, uint8_t command, int protocol, union i2c_smbus_data *data)
 {
     struct i2c_msg msg[2];
     int            nmsgs = 0;

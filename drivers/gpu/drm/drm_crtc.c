@@ -37,8 +37,7 @@
  * inserts the CRTC into the device's crtc_list, and sets defaults.
  * Returns 0 on success or a negative errno on failure.
  */
-int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, struct drm_plane *primary, struct drm_plane *cursor, void *funcs,
-                              const char *name)
+int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, struct drm_plane *primary, struct drm_plane *cursor, void *funcs, const char *name)
 {
     int ret;
 
@@ -265,15 +264,13 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
             ret = -EINVAL;
             goto out;
         }
-        if (crtc_req->x > DRM_S32_MAX || crtc_req->y > DRM_S32_MAX || (uint64_t)crtc_req->x + crtc_req->mode.hdisplay > DRM_S32_MAX
-            || (uint64_t)crtc_req->y + crtc_req->mode.vdisplay > DRM_S32_MAX) {
+        if (crtc_req->x > DRM_S32_MAX || crtc_req->y > DRM_S32_MAX || (uint64_t)crtc_req->x + crtc_req->mode.hdisplay > DRM_S32_MAX || (uint64_t)crtc_req->y + crtc_req->mode.vdisplay > DRM_S32_MAX) {
             plogk("drm_crtc: Invalid crtc position.\n");
             ret = -EINVAL;
             goto out;
         }
 
-        if (crtc_req->count_connectors > (uint32_t)dev->mode_config.num_connector
-            || (crtc_req->count_connectors && !crtc_req->set_connectors_ptr)) {
+        if (crtc_req->count_connectors > (uint32_t)dev->mode_config.num_connector || (crtc_req->count_connectors && !crtc_req->set_connectors_ptr)) {
             plogk("drm_crtc: Invalid connector count %u\n", crtc_req->count_connectors);
             ret = -EINVAL;
             goto out;
@@ -285,8 +282,7 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
                 ret = -ENOMEM;
                 goto out;
             }
-            if (copy_from_user(connector_ids, (const void *)(uintptr_t)crtc_req->set_connectors_ptr,
-                               (size_t)crtc_req->count_connectors * sizeof(*connector_ids))) {
+            if (copy_from_user(connector_ids, (const void *)(uintptr_t)crtc_req->set_connectors_ptr, (size_t)crtc_req->count_connectors * sizeof(*connector_ids))) {
                 plogk("drm_crtc: Failed to copy connector ids from user.\n");
                 ret = -EFAULT;
                 goto out;
@@ -341,13 +337,11 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
             ret = -ENOMEM;
             goto out;
         }
-        plane_state->crtc = crtc_req->mode_valid ? crtc : NULL;
-        plane_state->fb   = crtc_req->mode_valid ? fb : NULL;
-        plane_state->src  = (struct drm_rect) {0, 0, crtc_req->mode_valid ? (int32_t)(fb->width << 16) : 0,
-                                              crtc_req->mode_valid ? (int32_t)(fb->height << 16) : 0};
-        plane_state->dst
-            = (struct drm_rect) {(int32_t)crtc_req->x, (int32_t)crtc_req->y, crtc_req->mode_valid ? (int32_t)(crtc_req->x + mode.hdisplay) : 0,
-                                 crtc_req->mode_valid ? (int32_t)(crtc_req->y + mode.vdisplay) : 0};
+        plane_state->crtc          = crtc_req->mode_valid ? crtc : NULL;
+        plane_state->fb            = crtc_req->mode_valid ? fb : NULL;
+        plane_state->src           = (struct drm_rect) {0, 0, crtc_req->mode_valid ? (int32_t)(fb->width << 16) : 0, crtc_req->mode_valid ? (int32_t)(fb->height << 16) : 0};
+        plane_state->dst           = (struct drm_rect) {(int32_t)crtc_req->x, (int32_t)crtc_req->y, crtc_req->mode_valid ? (int32_t)(crtc_req->x + mode.hdisplay) : 0,
+                                              crtc_req->mode_valid ? (int32_t)(crtc_req->y + mode.vdisplay) : 0};
         crtc_state->planes_changed = true;
     }
 

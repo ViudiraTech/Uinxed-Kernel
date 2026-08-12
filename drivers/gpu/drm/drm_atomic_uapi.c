@@ -31,9 +31,8 @@ static bool drm_atomic_modes_equal(const struct drm_display_mode *a, const struc
 {
     if (!a || !b) return false;
 
-    return a->clock == b->clock && a->hdisplay == b->hdisplay && a->hsync_start == b->hsync_start && a->hsync_end == b->hsync_end
-           && a->htotal == b->htotal && a->hskew == b->hskew && a->vdisplay == b->vdisplay && a->vsync_start == b->vsync_start
-           && a->vsync_end == b->vsync_end && a->vtotal == b->vtotal && a->vscan == b->vscan && a->flags == b->flags;
+    return a->clock == b->clock && a->hdisplay == b->hdisplay && a->hsync_start == b->hsync_start && a->hsync_end == b->hsync_end && a->htotal == b->htotal && a->hskew == b->hskew
+           && a->vdisplay == b->vdisplay && a->vsync_start == b->vsync_start && a->vsync_end == b->vsync_end && a->vtotal == b->vtotal && a->vscan == b->vscan && a->flags == b->flags;
 }
 
 /* Look up the current value of a property on an object, if present. */
@@ -123,8 +122,7 @@ static int drm_atomic_validate_property(struct drm_device *dev, struct drm_mode_
 }
 
 /* Apply one UAPI property write to the atomic state. */
-static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct drm_file *file_priv, struct drm_mode_object *obj,
-                                        struct drm_property *prop, uint64_t value)
+static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct drm_file *file_priv, struct drm_mode_object *obj, struct drm_property *prop, uint64_t value)
 {
     struct drm_mode_config *config = &state->dev->mode_config;
 
@@ -383,8 +381,7 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             goto out;
         }
         if (copy_from_user(objs, (const void *)(uintptr_t)atomic->objs_ptr, (size_t)atomic->count_objs * sizeof(*objs))
-            || copy_from_user(count_props, (const void *)(uintptr_t)atomic->count_props_ptr,
-                              (size_t)atomic->count_objs * sizeof(*count_props))) {
+            || copy_from_user(count_props, (const void *)(uintptr_t)atomic->count_props_ptr, (size_t)atomic->count_objs * sizeof(*count_props))) {
             plogk("drm_atomic: Failed to copy object arrays from user.\n");
             ret = -EFAULT;
             goto out;
@@ -656,8 +653,7 @@ err_flip:
 /* drm_mode_cursor_ioctl: handle DRM_IOCTL_MODE_CURSOR */
 
 /* Shared implementation for the CURSOR and CURSOR2 ioctls. */
-static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_priv, struct drm_mode_cursor *cursor, int32_t hot_x,
-                                  int32_t hot_y)
+static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_priv, struct drm_mode_cursor *cursor, int32_t hot_x, int32_t hot_y)
 {
     struct drm_mode_object       *base;
     struct drm_crtc              *crtc;
@@ -684,8 +680,7 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
             goto out;
         }
         if (cursor->handle) {
-            if (!cursor->width || !cursor->height || hot_x < 0 || hot_y < 0 || (uint32_t)hot_x >= cursor->width
-                || (uint32_t)hot_y >= cursor->height) {
+            if (!cursor->width || !cursor->height || hot_x < 0 || hot_y < 0 || (uint32_t)hot_x >= cursor->width || (uint32_t)hot_y >= cursor->height) {
                 plogk("drm_atomic: Invalid cursor size %ux%u hot %dx%d\n", cursor->width, cursor->height, hot_x, hot_y);
                 ret = -EINVAL;
                 goto out;

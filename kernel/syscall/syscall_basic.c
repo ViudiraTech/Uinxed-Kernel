@@ -1513,8 +1513,7 @@ int64_t sys_pidfd_send_signal_impl(uint64_t pidfd, uint64_t sig, uint64_t info, 
 
 /* process_vm_readv / process_vm_writev */
 
-int64_t sys_process_vm_readv_impl(uint64_t pid, uint64_t local_iov, uint64_t local_iovcnt, uint64_t remote_iov, uint64_t remote_iovcnt,
-                                  uint64_t flags)
+int64_t sys_process_vm_readv_impl(uint64_t pid, uint64_t local_iov, uint64_t local_iovcnt, uint64_t remote_iov, uint64_t remote_iovcnt, uint64_t flags)
 {
     (void)pid;
     (void)local_iov;
@@ -1525,8 +1524,7 @@ int64_t sys_process_vm_readv_impl(uint64_t pid, uint64_t local_iov, uint64_t loc
     return -ENOSYS; // cross-process VM operations not yet implemented
 }
 
-int64_t sys_process_vm_writev_impl(uint64_t pid, uint64_t local_iov, uint64_t local_iovcnt, uint64_t remote_iov, uint64_t remote_iovcnt,
-                                   uint64_t flags)
+int64_t sys_process_vm_writev_impl(uint64_t pid, uint64_t local_iov, uint64_t local_iovcnt, uint64_t remote_iov, uint64_t remote_iovcnt, uint64_t flags)
 {
     (void)pid;
     (void)local_iov;

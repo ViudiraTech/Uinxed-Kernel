@@ -65,10 +65,7 @@ int parport_pc_init(void)
     for (size_t i = 0; i < sizeof(legacy_bases) / sizeof(legacy_bases[0]); i++) {
         if (!parport_pc_detect(legacy_bases[i])) continue;
         if (parport_register_port("parport", legacy_bases[i], -1, NULL) != 0) continue;
-        log_buffer_write(&parallel_log, "parallel: Port %s detected.\n",
-                         legacy_bases[i] == 0x378 ? "LPT1" :
-                         legacy_bases[i] == 0x278 ? "LPT2" :
-                                                    "LPT3");
+        log_buffer_write(&parallel_log, "parallel: Port %s detected.\n", legacy_bases[i] == 0x378 ? "LPT1" : legacy_bases[i] == 0x278 ? "LPT2" : "LPT3");
         registered++;
     }
     if (registered) log_buffer_write(&parallel_log, "parallel: %d port(s) available.\n", registered);

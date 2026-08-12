@@ -252,13 +252,11 @@ static int extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_
 {
     uint32_t remaining = sb->block_size - offset;
     if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) {
-        plogk("extfs: Drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode,
-              de->rec_len);
+        plogk("extfs: Drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode, de->rec_len);
         return 0;
     }
     if (de->name_len > de->rec_len - 8) {
-        plogk("extfs: Drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode,
-              de->name_len);
+        plogk("extfs: Drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode, de->name_len);
         return 0;
     }
     if (de->inode > sb->es->s_inodes_count) {
@@ -293,9 +291,7 @@ int extfs_dir_lookup(extfs_handle_t *dir_h, const char *name, uint32_t *ino)
     uint64_t dir_size = raw.i_size;
     for (block_num = 0; (uint64_t)block_num * sb->block_size < dir_size; block_num++) {
         uint32_t offset = 0;
-        uint32_t valid
-            = (uint32_t)((dir_size - (uint64_t)block_num * sb->block_size) > sb->block_size ? sb->block_size :
-                                                                                              dir_size - (uint64_t)block_num * sb->block_size);
+        uint32_t valid  = (uint32_t)((dir_size - (uint64_t)block_num * sb->block_size) > sb->block_size ? sb->block_size : dir_size - (uint64_t)block_num * sb->block_size);
 
         phys = extfs_map_block(dir_h, block_num, 0);
         if (!phys) continue;

@@ -419,8 +419,7 @@ int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t le
             int ret = memfd_allocate_page(file, page);
             if (ret) {
                 spin_unlock(&file->lock);
-                plogk("memfd: Fallocate page alloc failed (offset=%lu, length=%lu, ret=%d)\n", (unsigned long)offset, (unsigned long)length,
-                      ret);
+                plogk("memfd: Fallocate page alloc failed (offset=%lu, length=%lu, ret=%d)\n", (unsigned long)offset, (unsigned long)length, ret);
                 return ret;
             }
             if (mode & FALLOC_FL_ZERO_RANGE) memset(phys_to_virt(file->pages[page]), 0, PAGE_4K_SIZE);
@@ -435,8 +434,7 @@ int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t le
 int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, uint64_t offset, vm_flags_t flags)
 {
     if (!memfd_is_node(node) || !proc || offset > UINT64_MAX - length) {
-        plogk("memfd: Map invalid args (node=%p, proc=%p, offset=%lu, length=%lu)\n", (void *)node, (void *)proc, (unsigned long)offset,
-              (unsigned long)length);
+        plogk("memfd: Map invalid args (node=%p, proc=%p, offset=%lu, length=%lu)\n", (void *)node, (void *)proc, (unsigned long)offset, (unsigned long)length);
         return -EINVAL;
     }
     memfd_file_t *file = node->handle;
@@ -458,8 +456,7 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
     uint64_t map_limit = ALIGN_UP(file->size, PAGE_4K_SIZE);
     if (offset > map_limit || length > map_limit - offset) {
         spin_unlock(&file->lock);
-        plogk("memfd: Map beyond EOF denied (offset=%lu, length=%lu, size=%lu)\n", (unsigned long)offset, (unsigned long)length,
-              (unsigned long)file->size);
+        plogk("memfd: Map beyond EOF denied (offset=%lu, length=%lu, size=%lu)\n", (unsigned long)offset, (unsigned long)length, (unsigned long)file->size);
         return -EINVAL;
     }
     for (size_t done = 0; done < length; done += PAGE_4K_SIZE) {

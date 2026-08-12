@@ -29,8 +29,7 @@ typedef struct gendisk {
  * Register a whole disk. The device descriptor is copied and retained; the
  * caller may reuse or drop its own copy afterwards.
  */
-int block_register_disk(const char *name, uint32_t major, uint32_t minor, const blockdev_device_t *device, bool scan_partitions,
-                        bool use_p_separator);
+int block_register_disk(const char *name, uint32_t major, uint32_t minor, const blockdev_device_t *device, bool scan_partitions, bool use_p_separator);
 
 /* Remove a previously registered disk and release its backend reference. */
 int block_unregister_disk(const char *name);
@@ -45,8 +44,7 @@ int block_disk_count(void);
 gendisk_t *block_get_disk(int index);
 
 /* Partition iteration shared by devtmpfs, sysfs and procfs. */
-typedef void (*block_partition_cb_t)(const gendisk_t *disk, const char *part_name, uint32_t major, uint32_t minor, uint64_t blocks,
-                                     void *opaque);
+typedef void (*block_partition_cb_t)(const gendisk_t *disk, const char *part_name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque);
 
 void block_foreach_partition(block_partition_cb_t cb, void *opaque);
 

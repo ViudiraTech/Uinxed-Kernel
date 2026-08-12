@@ -103,8 +103,7 @@ void fb_sysfs_init(void)
     memset(&framebuffer_platform_device, 0, sizeof(framebuffer_platform_device));
     framebuffer_platform_device.bus   = &framebuffer_platform_bus;
     framebuffer_platform_device.devid = 0;
-    if (kobject_set_name(&framebuffer_platform_device.kobj, "virtio-framebuffer") != EOK
-        || device_register(&framebuffer_platform_device) != EOK) {
+    if (kobject_set_name(&framebuffer_platform_device.kobj, "virtio-framebuffer") != EOK || device_register(&framebuffer_platform_device) != EOK) {
         plogk("fb_sysfs: Physical framebuffer registration failed.\n");
         class_unregister(&graphics_class);
         bus_unregister(&framebuffer_platform_bus);

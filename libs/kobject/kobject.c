@@ -230,8 +230,7 @@ err_kset:
         kobj->state_in_kset = 0;
     }
 err_refs:
-    plogk("kobject: Add of \"%s\" (parent \"%s\") failed: %d\n", kobj->name ? kobj->name : "(unnamed)",
-          parent && parent->name ? parent->name : "(none)", ret);
+    plogk("kobject: Add of \"%s\" (parent \"%s\") failed: %d\n", kobj->name ? kobj->name : "(unnamed)", parent && parent->name ? parent->name : "(none)", ret);
     kobj->parent = NULL;
     kset_put(held_kset);
     kobject_put(held_parent);
@@ -582,8 +581,7 @@ uint64_t kobject_uevent_seqnum(void)
 /* kobject_uevent_env - build and broadcast the Linux uevent ABI */
 
 static const char *const kobject_actions[] = {
-    [KOBJ_ADD] = "add",       [KOBJ_REMOVE] = "remove",   [KOBJ_CHANGE] = "change", [KOBJ_MOVE] = "move",
-    [KOBJ_ONLINE] = "online", [KOBJ_OFFLINE] = "offline", [KOBJ_BIND] = "bind",     [KOBJ_UNBIND] = "unbind",
+    [KOBJ_ADD] = "add", [KOBJ_REMOVE] = "remove", [KOBJ_CHANGE] = "change", [KOBJ_MOVE] = "move", [KOBJ_ONLINE] = "online", [KOBJ_OFFLINE] = "offline", [KOBJ_BIND] = "bind", [KOBJ_UNBIND] = "unbind",
 };
 
 const char *kobject_action_name(enum kobject_action action)
@@ -800,8 +798,7 @@ int kobject_synth_uevent(struct kobject *kobj, const char *buf, size_t count)
     command[count] = '\0';
 
     length = count;
-    while (length && (command[length - 1] == '\n' || command[length - 1] == '\r' || command[length - 1] == ' ' || command[length - 1] == '\t'))
-        command[--length] = '\0';
+    while (length && (command[length - 1] == '\n' || command[length - 1] == '\r' || command[length - 1] == ' ' || command[length - 1] == '\t')) command[--length] = '\0';
     if (!length) return -EINVAL;
 
     for (size_t i = 0; i < length; i++) {

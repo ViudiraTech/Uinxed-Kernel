@@ -183,9 +183,7 @@ static vm_area_t *vma_split_locked(process_t *proc, vm_area_t *vma, uintptr_t sp
         if (right->vm_pagecache && vfs_cache_mapping_pin(right->vm_file) != EOK) goto fail_file;
         memfd_vma_retain(right->vm_file, right->flags);
     }
-    if (right->type == VM_REGION_SHM && right->vm_private_data
-        && sysv_shm_vma_get(right->vm_private_data, proc->task ? (uint32_t)proc->task->pid : 0))
-        goto fail_backing;
+    if (right->type == VM_REGION_SHM && right->vm_private_data && sysv_shm_vma_get(right->vm_private_data, proc->task ? (uint32_t)proc->task->pid : 0)) goto fail_backing;
 
     vma->end    = split;
     right->next = vma->next;
@@ -214,8 +212,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) return -EINVAL;
     if ((flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_SHARED && (flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_PRIVATE) return -EINVAL;
 
-    const uint64_t supported_flags
-        = MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_LOCKED | MAP_POPULATE | MAP_NORESERVE | MAP_STACK;
+    const uint64_t supported_flags = MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_LOCKED | MAP_POPULATE | MAP_NORESERVE | MAP_STACK;
     if (flags & ~supported_flags) return -EINVAL;
 
     size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
@@ -756,8 +753,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
         spin_lock(&proc->mmap_lock);
         vma = proc->mmap_list;
         while (vma && vma->start != (uintptr_t)old_addr) vma = vma->next;
-        bool valid = vma && vma->end == (uintptr_t)old_addr + old_pages && vma->vm_file == vm_file && vma->flags == vm_flags
-                     && vma->vm_pgoff == vm_pgoff;
+        bool valid = vma && vma->end == (uintptr_t)old_addr + old_pages && vma->vm_file == vm_file && vma->flags == vm_flags && vma->vm_pgoff == vm_pgoff;
         for (vm_area_t *other = proc->mmap_list; valid && other; other = other->next)
             if (other != vma && target < other->end && target + new_pages > other->start) valid = false;
 

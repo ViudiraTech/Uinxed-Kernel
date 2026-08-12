@@ -68,8 +68,7 @@ void context_switch(task_context_t *prev, task_context_t *next, volatile uint64_
 
 /* Context switch (naked assembly) */
 
-__attribute__((naked)) void context_switch(task_context_t *prev __attribute__((unused)), task_context_t *next __attribute__((unused)),
-                                           volatile uint64_t *prev_on_cpu __attribute__((unused)))
+__attribute__((naked)) void context_switch(task_context_t *prev __attribute__((unused)), task_context_t *next __attribute__((unused)), volatile uint64_t *prev_on_cpu __attribute__((unused)))
 {
     __asm__ volatile("movq %rsp, 0(%rdi)\n\t"
                      "movq %rbx, 8(%rdi)\n\t"
@@ -716,8 +715,7 @@ void sched_init(void)
         cpu_rqs[i].idle->context.rflags = 0x202;
     }
     plogk("task: Created task 0 (swapper/0) on CPU 0\n");
-    for (unsigned int i = 1; i < cpu_scheduler_count; i++)
-        plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
+    for (unsigned int i = 1; i < cpu_scheduler_count; i++) plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
     plogk("sched: %u CPU(s) registered, using EEVDF scheduler.\n", cpu_scheduler_count);
 
     scheduler.next_pid = 1;

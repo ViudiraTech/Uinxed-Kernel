@@ -25,8 +25,7 @@ static gendisk_t *gendisk_list;
 static spinlock_t gendisk_lock;
 
 /* Register a disk under /dev/<name>, optionally scanning its partitions. */
-int block_register_disk(const char *name, uint32_t major, uint32_t minor, const blockdev_device_t *device, bool scan_partitions,
-                        bool use_p_separator)
+int block_register_disk(const char *name, uint32_t major, uint32_t minor, const blockdev_device_t *device, bool scan_partitions, bool use_p_separator)
 {
     gendisk_t *disk;
 

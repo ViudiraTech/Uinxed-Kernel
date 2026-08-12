@@ -289,8 +289,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
 int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, uint32_t *addrlen, int flags);
 
 /* Kernel-buffer variant used by recvmsg/recvfrom to preserve metadata. */
-int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid,
-                         int *msg_flags);
+int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid, int *msg_flags);
 
 /* Netlink-specific close cleanup */
 void netlink_close(struct socket *sk);

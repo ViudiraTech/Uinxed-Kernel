@@ -100,12 +100,9 @@ static int extent_push_metadata(extent_vector_t *vector, uint32_t block)
 /* Validate an extent tree header against its node capacity. */
 static int extent_header_valid(extfs_sb_info_t *sb, const ext4_extent_header_t *header, uint16_t expected_depth, int root)
 {
-    uint16_t capacity
-        = root ? (uint16_t)((sizeof(((ext2_inode_t *)0)->i_block) - sizeof(*header)) / sizeof(ext4_extent_t)) :
-                 (uint16_t)((sb->block_size - sizeof(*header) - ((sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) ? 4 : 0))
-                            / sizeof(ext4_extent_t));
-    return header->magic == EXT4_EXT_MAGIC && header->depth == expected_depth && header->depth <= EXT4_EXT_MAX_DEPTH
-           && header->entries <= header->max && header->max <= capacity;
+    uint16_t capacity = root ? (uint16_t)((sizeof(((ext2_inode_t *)0)->i_block) - sizeof(*header)) / sizeof(ext4_extent_t)) :
+                               (uint16_t)((sb->block_size - sizeof(*header) - ((sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) ? 4 : 0)) / sizeof(ext4_extent_t));
+    return header->magic == EXT4_EXT_MAGIC && header->depth == expected_depth && header->depth <= EXT4_EXT_MAX_DEPTH && header->entries <= header->max && header->max <= capacity;
 }
 
 static uint32_t extent_checksum_seed(extfs_handle_t *h)
@@ -147,8 +144,7 @@ static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t 
 {
     ext4_extent_header_t *header = (ext4_extent_header_t *)node;
     if (!extent_header_valid(h->sb, header, depth, root)) {
-        plogk("extfs: Drive %u: inode %u invalid extent header (depth %u, entries %u)\n", h->sb->device.drive, h->inode_no, depth,
-              header->entries);
+        plogk("extfs: Drive %u: inode %u invalid extent header (depth %u, entries %u)\n", h->sb->device.drive, h->inode_no, depth, header->entries);
         return -EIO;
     }
     if (!depth) {
@@ -158,8 +154,7 @@ static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t 
             uint32_t length   = entries[i].length & ~EXT4_EXT_UNWRITTEN;
             uint64_t physical = entries[i].start_lo | (uint64_t)entries[i].start_hi << 32;
             if (!length || physical == 0 || physical + length > h->sb->blocks_count || (i && entries[i].logical < previous_end)) {
-                plogk("extfs: Drive %u: inode %u invalid extent (logical %u, phys %llu, len %u)\n", h->sb->device.drive, h->inode_no,
-                      entries[i].logical, (unsigned long long)physical, length);
+                plogk("extfs: Drive %u: inode %u invalid extent (logical %u, phys %llu, len %u)\n", h->sb->device.drive, h->inode_no, entries[i].logical, (unsigned long long)physical, length);
                 return -EIO;
             }
             extent_item_t item = {
@@ -184,8 +179,7 @@ static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t 
     for (uint16_t i = 0; i < header->entries; i++) {
         uint64_t block = indices[i].leaf_lo | (uint64_t)indices[i].leaf_hi << 32;
         if (!block || block > UINT32_MAX || block >= h->sb->blocks_count || (i && indices[i].logical <= previous)) {
-            plogk("extfs: Drive %u: inode %u invalid extent index (logical %u, block %llu)\n", h->sb->device.drive, h->inode_no,
-                  indices[i].logical, (unsigned long long)block);
+            plogk("extfs: Drive %u: inode %u invalid extent index (logical %u, block %llu)\n", h->sb->device.drive, h->inode_no, indices[i].logical, (unsigned long long)block);
             status = -EIO;
             break;
         }
@@ -194,8 +188,7 @@ static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t 
         if (status != EOK || (status = extfs_read_block(h->sb, (uint32_t)block, buffer)) != EOK) // NOLINT(bugprone-assignment-in-if-condition)
             break;
         if (!extent_block_checksum_verify(h, buffer)) {
-            plogk("extfs: Drive %u: inode %u extent block %llu checksum mismatch.\n", h->sb->device.drive, h->inode_no,
-                  (unsigned long long)block);
+            plogk("extfs: Drive %u: inode %u extent block %llu checksum mismatch.\n", h->sb->device.drive, h->inode_no, (unsigned long long)block);
             status = -EIO;
             break;
         }
@@ -243,8 +236,7 @@ static void extent_sort_and_merge(extent_vector_t *vector)
         if (output) {
             extent_item_t *previous = &vector->items[output - 1];
             uint32_t       combined = previous->length + item.length;
-            if ((uint64_t)previous->logical + previous->length == item.logical
-                && (uint64_t)previous->physical + previous->length == item.physical && previous->unwritten == item.unwritten
+            if ((uint64_t)previous->logical + previous->length == item.logical && (uint64_t)previous->physical + previous->length == item.physical && previous->unwritten == item.unwritten
                 && combined <= 0x7fffU) {
                 previous->length = (uint16_t)combined;
                 continue;
@@ -264,8 +256,7 @@ static void extent_fill_header(ext4_extent_header_t *header, uint16_t entries, u
     header->generation = 0;
 }
 
-static int extent_alloc_node(extfs_handle_t *h, uint32_t *block, uint8_t **buffer, uint32_t **allocated, uint32_t *allocated_count,
-                             uint32_t *allocated_capacity)
+static int extent_alloc_node(extfs_handle_t *h, uint32_t *block, uint8_t **buffer, uint32_t **allocated, uint32_t *allocated_count, uint32_t *allocated_capacity)
 {
     int status = extfs_alloc_block(h->sb, 0, block);
     if (status != EOK) return status;
@@ -287,10 +278,8 @@ static int extent_alloc_node(extfs_handle_t *h, uint32_t *block, uint8_t **buffe
 /* Rebuild the extent tree from a vector, freeing the old index nodes. */
 static int extent_rebuild(extfs_handle_t *h, extent_vector_t *vector)
 {
-    uint16_t root_capacity = (sizeof(h->ei.i_data) - sizeof(ext4_extent_header_t)) / sizeof(ext4_extent_t);
-    uint16_t node_capacity
-        = (h->sb->block_size - sizeof(ext4_extent_header_t) - ((h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) ? 4 : 0))
-          / sizeof(ext4_extent_t);
+    uint16_t        root_capacity = (sizeof(h->ei.i_data) - sizeof(ext4_extent_header_t)) / sizeof(ext4_extent_t);
+    uint16_t        node_capacity = (h->sb->block_size - sizeof(ext4_extent_header_t) - ((h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) ? 4 : 0)) / sizeof(ext4_extent_t);
     uint32_t       *allocated = 0, allocated_count = 0, allocated_capacity = 0;
     extent_child_t *children    = 0;
     uint32_t        child_count = 0;
@@ -425,10 +414,7 @@ uint32_t extfs_extent_map_block(extfs_handle_t *h, uint32_t logical, int create)
         }
         vector.items[i].length = (uint16_t)(logical - item.logical);
         extent_item_t written  = {.logical = logical, .physical = item.physical + logical - item.logical, .length = 1};
-        extent_item_t suffix   = {.logical   = logical + 1,
-                                  .physical  = written.physical + 1,
-                                  .length    = (uint16_t)(item.logical + item.length - logical - 1),
-                                  .unwritten = 1};
+        extent_item_t suffix   = {.logical = logical + 1, .physical = written.physical + 1, .length = (uint16_t)(item.logical + item.length - logical - 1), .unwritten = 1};
         if (!vector.items[i].length) {
             vector.items[i] = written;
         } else if (extent_push(&vector, written) != EOK) {
@@ -492,8 +478,7 @@ int extfs_extent_remove_space(extfs_handle_t *h, uint32_t first, uint32_t last)
             prefix.length        = (uint16_t)(cut_first - item.logical);
             status               = extent_push(&replacement, prefix);
         }
-        for (uint32_t logical = cut_first; status == EOK && logical < cut_last; logical++)
-            extfs_free_block(h->sb, item.physical + logical - item.logical);
+        for (uint32_t logical = cut_first; status == EOK && logical < cut_last; logical++) extfs_free_block(h->sb, item.physical + logical - item.logical);
         if (status == EOK && cut_last < end) {
             extent_item_t suffix = item;
             suffix.logical       = cut_last;

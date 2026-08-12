@@ -155,8 +155,7 @@ static int vfs_page_sync_backend(void *context)
 /* Whether the node can be served through the page cache. */
 static bool vfs_pagecache_eligible(vfs_node_t node)
 {
-    return node && (node->type & ~file_delete) == file_none && !(node->flags & VFS_NODE_NOCACHE) && node->handle
-           && callbackof(node, read) != vfs_empty_callback.read;
+    return node && (node->type & ~file_delete) == file_none && !(node->flags & VFS_NODE_NOCACHE) && node->handle && callbackof(node, read) != vfs_empty_callback.read;
 }
 
 /* Look up a node's cache mapping, creating it on demand. */
@@ -381,8 +380,8 @@ static vfs_node_t vfs_child_append(vfs_node_t parent, const char *name, void *ha
 static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
 {
     return clist_first(parent->child, data,
-                       !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
-                           && !(((vfs_node_t)data)->type & file_delete) && streq(name, ((vfs_node_t)data)->name));
+                       !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) && !(((vfs_node_t)data)->type & file_delete)
+                           && streq(name, ((vfs_node_t)data)->name));
 }
 
 /*
@@ -393,9 +392,7 @@ static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
  */
 static vfs_node_t vfs_child_find_reserved(vfs_node_t parent, const char *name)
 {
-    return clist_first(parent->child, data,
-                       !(((vfs_node_t)data)->flags & VFS_NODE_UNLINKED) && !(((vfs_node_t)data)->type & file_delete)
-                           && streq(name, ((vfs_node_t)data)->name));
+    return clist_first(parent->child, data, !(((vfs_node_t)data)->flags & VFS_NODE_UNLINKED) && !(((vfs_node_t)data)->type & file_delete) && streq(name, ((vfs_node_t)data)->name));
 }
 
 /* Check whether the directory still has children that can be seen. */
@@ -463,8 +460,8 @@ void set_rootdir(vfs_node_t node)
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name)
 {
     return clist_first(dir->child, data,
-                       !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
-                           && !(((vfs_node_t)data)->type & file_delete) && streq(name, ((vfs_node_t)data)->name));
+                       !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) && !(((vfs_node_t)data)->type & file_delete)
+                           && streq(name, ((vfs_node_t)data)->name));
 }
 
 /* Update a file or directory, ensuring it is open and ready */
@@ -812,9 +809,7 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
     size_t     visible = 0;
     for (clist_t list = dir->child; list; list = list->next) {
         vfs_node_t candidate = list->data;
-        if (!candidate || (candidate->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
-            || (candidate->type & file_delete))
-            continue;
+        if (!candidate || (candidate->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) || (candidate->type & file_delete)) continue;
         if (visible++ == index) {
             child = candidate;
             break;
@@ -1044,8 +1039,7 @@ size_t vfs_format_filesystems(char *buffer, size_t capacity)
     for (int i = 1; i < fs_nextid; i++) {
         if (!fs_names[i] || !fs_names[i][0] || fs_callbacks[i]->mount == vfs_empty_callback.mount) continue;
         const char *prefix = (fs_flags[i] & VFS_FS_NODEV) ? "nodev\t" : "\t";
-        int length = snprintf(used < capacity ? buffer + used : buffer + capacity - 1, used < capacity ? capacity - used : 0, "%s%s\n", prefix,
-                              fs_names[i]);
+        int         length = snprintf(used < capacity ? buffer + used : buffer + capacity - 1, used < capacity ? capacity - used : 0, "%s%s\n", prefix, fs_names[i]);
         if (length > 0) used += (size_t)length;
     }
     if (used >= capacity) {
@@ -1297,8 +1291,7 @@ static uint64_t vfs_parent_mount_id(vfs_node_t node)
 }
 
 /* Emit one mount table line per mount in the subtree. */
-static void vfs_format_mount_subtree(vfs_node_t node, char *buffer, size_t capacity, size_t *used, bool mountinfo,
-                                     vfs_mount_format_scratch_t *scratch)
+static void vfs_format_mount_subtree(vfs_node_t node, char *buffer, size_t capacity, size_t *used, bool mountinfo, vfs_mount_format_scratch_t *scratch)
 {
     if (!node) return;
     if (node->is_mount && node->mount_id && vfs_node_path(node, scratch->path, sizeof(scratch->path)) == EOK) {
@@ -1310,17 +1303,14 @@ static void vfs_format_mount_subtree(vfs_node_t node, char *buffer, size_t capac
         size_t      remaining   = *used < capacity ? capacity - *used : 0;
         int         length;
         if (mountinfo) {
-            length = snprintf(destination, remaining, "%llu %llu 0:%u / %s %s - %s %s %s\n", node->mount_id, vfs_parent_mount_id(node),
-                              (unsigned)node->fsid, scratch->escaped_path, scratch->options, type, scratch->escaped_source,
-                              (node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
+            length = snprintf(destination, remaining, "%llu %llu 0:%u / %s %s - %s %s %s\n", node->mount_id, vfs_parent_mount_id(node), (unsigned)node->fsid, scratch->escaped_path, scratch->options,
+                              type, scratch->escaped_source, (node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
         } else {
-            length
-                = snprintf(destination, remaining, "%s %s %s %s 0 0\n", scratch->escaped_source, scratch->escaped_path, type, scratch->options);
+            length = snprintf(destination, remaining, "%s %s %s %s 0 0\n", scratch->escaped_source, scratch->escaped_path, type, scratch->options);
         }
         if (length > 0) *used += (size_t)length;
     }
-    for (clist_t child = node->child; child; child = child->next)
-        vfs_format_mount_subtree((vfs_node_t)child->data, buffer, capacity, used, mountinfo, scratch);
+    for (clist_t child = node->child; child; child = child->next) vfs_format_mount_subtree((vfs_node_t)child->data, buffer, capacity, used, mountinfo, scratch);
 }
 
 /* Format the full mount table for /proc/mounts or /proc/self/mountinfo. */
@@ -1353,7 +1343,7 @@ size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size)
 
     if (file->type & file_dir) return (size_t)-1;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
-    int64_t result = mapping ? pagecache_read(mapping, addr, offset, size) : (int64_t)callbackof(file, read)(file->handle, addr, offset, size);
+    int64_t              result  = mapping ? pagecache_read(mapping, addr, offset, size) : (int64_t)callbackof(file, read)(file->handle, addr, offset, size);
     if (mapping) file->size = pagecache_size(mapping);
     if (result > 0) inotify_notify(file, IN_ACCESS);
     return (size_t)result;
@@ -1385,7 +1375,7 @@ size_t vfs_write(vfs_node_t file, const void *addr, size_t offset, size_t size)
 
     if (file->type & file_dir) return (size_t)-1;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
-    int64_t ret = mapping ? pagecache_write(mapping, addr, offset, size) : (int64_t)callbackof(file, write)(file->handle, addr, offset, size);
+    int64_t              ret     = mapping ? pagecache_write(mapping, addr, offset, size) : (int64_t)callbackof(file, write)(file->handle, addr, offset, size);
 
     if (mapping)
         file->size = pagecache_size(mapping);
@@ -1432,8 +1422,7 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
 }
 
 /* Write to a file node as a specific process, enforcing its permissions. */
-int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
-                               process_t *proc)
+int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
 {
     int64_t ret;
 
@@ -1533,8 +1522,7 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
     return (int64_t)done;
 }
 
-int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
-                                    process_t *proc)
+int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
 {
     if (!file || (!addr && size)) return -EINVAL;
     if (!user_range_ok(addr, size)) return -EFAULT;
@@ -1760,8 +1748,7 @@ int vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t ev
 void vfs_file_descriptor_close(vfs_node_t file, void *private_data)
 {
     if (!file) return;
-    if (callbackof(file, file_descriptor_close) != vfs_empty_callback.file_descriptor_close)
-        callbackof(file, file_descriptor_close)(file, private_data);
+    if (callbackof(file, file_descriptor_close) != vfs_empty_callback.file_descriptor_close) callbackof(file, file_descriptor_close)(file, private_data);
 }
 
 vfs_poll_source_t *vfs_file_poll_source(vfs_node_t file, void *private_data)
@@ -1781,8 +1768,7 @@ void vfs_poll_source_init(vfs_poll_source_t *source)
 }
 
 /* Register a subscription, notifying immediately if the source is closed. */
-void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify,
-                               void *context)
+void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context)
 {
     if (!source || !subscription || !notify) return;
     spin_lock(&source->lock);
@@ -1957,8 +1943,7 @@ int vfs_close(vfs_node_t node)
      * A synchronous unlink has already released the backing inode/blocks.
      * Never let mapping destruction write stale pages back to that storage.
      */
-    if (node->mapping && (node->flags & VFS_NODE_DELETE_COMMITTED))
-        (void)pagecache_invalidate(node->mapping, 0, UINT64_MAX, PAGECACHE_INVALIDATE_DISCARD_DIRTY);
+    if (node->mapping && (node->flags & VFS_NODE_DELETE_COMMITTED)) (void)pagecache_invalidate(node->mapping, 0, UINT64_MAX, PAGECACHE_INVALIDATE_DISCARD_DIRTY);
     vfs_pagecache_destroy(node);
     callbackof(node, close)(node->handle);
     vfs_node_t retained_parent = NULL;
@@ -2157,8 +2142,7 @@ int vfs_rename(vfs_node_t node, const char *new)
          * the same inode as the POSIX no-op case, otherwise retain the
          * destination while it is removed below.
          */
-        bool same_inode
-            = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
+        bool same_inode = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
         if (same_inode) {
             spin_unlock(&vfs_namespace_lock);
             free(old);
@@ -2232,8 +2216,7 @@ int vfs_move(vfs_node_t node, vfs_node_t new_parent, const char *new)
     if (node->parent == new_parent) return vfs_rename(node, new);
     if (node->fsid != new_parent->fsid || node->root != new_parent->root) return -EXDEV;
     if (node->is_mount || (node->flags & VFS_NODE_SWAPFILE)) return -EBUSY;
-    if (vfs_access_check(node->parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK || vfs_access_check(new_parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK)
-        return -EACCES;
+    if (vfs_access_check(node->parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK || vfs_access_check(new_parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK) return -EACCES;
 
     for (vfs_node_t parent = new_parent; parent; parent = parent->parent) {
         if (parent == node) return -EINVAL;
@@ -2261,8 +2244,7 @@ int vfs_move(vfs_node_t node, vfs_node_t new_parent, const char *new)
     }
     vfs_node_t collision = vfs_child_find_reserved(new_parent, new);
     if (collision && collision != node) {
-        bool same_inode
-            = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
+        bool same_inode = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
         if (same_inode) {
             spin_unlock(&vfs_namespace_lock);
             free(old);

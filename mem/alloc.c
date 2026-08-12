@@ -401,8 +401,7 @@ static int cache_free_object(slab_cache_t *expected, slab_header_t *slab, void *
 
     uintptr_t payload_start = slab->object_start + cache->payload_offset;
     uintptr_t address       = (uintptr_t)pointer;
-    if (address < payload_start || (address - payload_start) % cache->stride
-        || (address - payload_start) / cache->stride >= slab->object_count) {
+    if (address < payload_start || (address - payload_start) % cache->stride || (address - payload_start) / cache->stride >= slab->object_count) {
         spin_unlock_irqrestore(&cache->lock, rflags);
         return -1;
     }
@@ -557,8 +556,7 @@ void *aligned_alloc(size_t alignment, size_t size)
     void *result = large_alloc(alignment, size);
     if (!result) {
         stat_add(&heap.failed_allocations, 1);
-        if (size > size_classes[SIZE_CACHE_COUNT - 1])
-            plogk("alloc: Failed to allocate %llu bytes aligned to %llu (heap limit reached)\n", (uint64_t)size, (uint64_t)alignment);
+        if (size > size_classes[SIZE_CACHE_COUNT - 1]) plogk("alloc: Failed to allocate %llu bytes aligned to %llu (heap limit reached)\n", (uint64_t)size, (uint64_t)alignment);
         return NULL;
     }
     stat_add(&heap.live_allocations, 1);
@@ -587,8 +585,7 @@ size_t usable_size(void *pointer)
     }
 
     large_header_t *large = owner;
-    if (large->magic == LARGE_MAGIC && large->cookie == large_cookie(large) && large->state == LARGE_ALLOCATED && large->user == pointer)
-        return large->usable;
+    if (large->magic == LARGE_MAGIC && large->cookie == large_cookie(large) && large->state == LARGE_ALLOCATED && large->user == pointer) return large->usable;
     return 0;
 }
 
@@ -604,16 +601,12 @@ static size_t requested_size(void *pointer)
         slab_cache_t *cache         = slab->cache;
         uintptr_t     payload_start = slab->object_start + cache->payload_offset;
         uintptr_t     address       = (uintptr_t)pointer;
-        if (address < payload_start || (address - payload_start) % cache->stride
-            || (address - payload_start) / cache->stride >= slab->object_count)
-            return 0;
+        if (address < payload_start || (address - payload_start) % cache->stride || (address - payload_start) / cache->stride >= slab->object_count) return 0;
         slab_object_header_t *object = (void *)((uintptr_t)pointer - cache->payload_offset);
-        if (object->magic == SLAB_OBJECT_MAGIC && object->cookie == object_cookie(object) && object->state == OBJECT_ALLOCATED)
-            return object->requested <= cache->object_size ? object->requested : 0;
+        if (object->magic == SLAB_OBJECT_MAGIC && object->cookie == object_cookie(object) && object->state == OBJECT_ALLOCATED) return object->requested <= cache->object_size ? object->requested : 0;
     }
     large_header_t *large = owner;
-    if (large->magic == LARGE_MAGIC && large->cookie == large_cookie(large) && large->state == LARGE_ALLOCATED && large->user == pointer)
-        return large->requested;
+    if (large->magic == LARGE_MAGIC && large->cookie == large_cookie(large) && large->state == LARGE_ALLOCATED && large->user == pointer) return large->requested;
     return 0;
 }
 
@@ -640,8 +633,7 @@ void free(void *pointer)
         }
     } else {
         large_header_t *large = owner;
-        if (large->magic != LARGE_MAGIC || large->cookie != large_cookie(large) || large->state != LARGE_ALLOCATED || large->user != pointer
-            || large->page_index != owner_index) {
+        if (large->magic != LARGE_MAGIC || large->cookie != large_cookie(large) || large->state != LARGE_ALLOCATED || large->user != pointer || large->page_index != owner_index) {
             plogk("alloc: Free of 0x%016llx rejected (large block header corrupt)\n", (uint64_t)(uintptr_t)pointer);
             report_error(invalid_free, pointer);
             return;
@@ -803,8 +795,7 @@ static int validate_list(slab_cache_t *cache, slab_header_t *head, unsigned expe
     size_t         count    = 0;
     slab_header_t *previous = NULL;
     for (slab_header_t *slab = head; slab; slab = slab->next) {
-        if (count++ > cache->slab_count || slab->previous != previous || slab->list != expected_list || slab->cache != cache
-            || slab->magic != SLAB_MAGIC || slab->cookie != slab_cookie(slab))
+        if (count++ > cache->slab_count || slab->previous != previous || slab->list != expected_list || slab->cache != cache || slab->magic != SLAB_MAGIC || slab->cookie != slab_cookie(slab))
             return -1;
         if (expected_list == SLAB_LIST_EMPTY && slab->inuse != 0) return -1;
         if (expected_list == SLAB_LIST_FULL && slab->inuse != slab->object_count) return -1;
@@ -826,10 +817,8 @@ int heap_validate(void)
     for (size_t i = 0; i < SIZE_CACHE_COUNT; i++) {
         slab_cache_t *cache = &size_caches[i];
         rflags              = spin_lock_irqsave(&cache->lock);
-        result              = validate_list(cache, cache->partial, SLAB_LIST_PARTIAL, cache->partial_count)
-                 || validate_list(cache, cache->full, SLAB_LIST_FULL, cache->full_count)
-                 || validate_list(cache, cache->empty, SLAB_LIST_EMPTY, cache->empty_count)
-                 || cache->slab_count != cache->partial_count + cache->full_count + cache->empty_count;
+        result              = validate_list(cache, cache->partial, SLAB_LIST_PARTIAL, cache->partial_count) || validate_list(cache, cache->full, SLAB_LIST_FULL, cache->full_count)
+                 || validate_list(cache, cache->empty, SLAB_LIST_EMPTY, cache->empty_count) || cache->slab_count != cache->partial_count + cache->full_count + cache->empty_count;
         spin_unlock_irqrestore(&cache->lock, rflags);
         if (result) return -1;
     }

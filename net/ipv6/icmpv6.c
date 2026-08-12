@@ -27,9 +27,7 @@ static int icmpv6_is_error(uint8_t type)
 /* Handle an inbound ICMPv6 message: echo, NDP dispatch, and error delivery. */
 int icmpv6_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 {
-    if (!device || !ip || !packet || packet->length < ICMPV6_HEADER_LEN
-        || net_checksum_ipv6_pseudo(&ip->source, &ip->destination, IPV6_NEXT_ICMP, packet->data, packet->length) != 0)
-        goto bad;
+    if (!device || !ip || !packet || packet->length < ICMPV6_HEADER_LEN || net_checksum_ipv6_pseudo(&ip->source, &ip->destination, IPV6_NEXT_ICMP, packet->data, packet->length) != 0) goto bad;
     uint8_t type = packet->data[0];
     uint8_t code = packet->data[1];
     if (type == ICMPV6_ECHO_REQUEST) {
@@ -57,21 +55,17 @@ bad:
 }
 
 /* Send an ICMPv6 error message quoting the offending IPv6 packet. */
-int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_t type, uint8_t code, uint32_t value, const void *original,
-                 size_t original_length)
+int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_t type, uint8_t code, uint32_t value, const void *original, size_t original_length)
 {
     if (!device || !destination || !ipv6_address_is_unicast(destination) || !original || original_length < IPV6_HEADER_LEN
-        || (type != ICMPV6_DEST_UNREACHABLE && type != ICMPV6_PACKET_TOO_BIG && type != ICMPV6_TIME_EXCEEDED
-            && type != ICMPV6_PARAMETER_PROBLEM))
+        || (type != ICMPV6_DEST_UNREACHABLE && type != ICMPV6_PACKET_TOO_BIG && type != ICMPV6_TIME_EXCEEDED && type != ICMPV6_PARAMETER_PROBLEM))
         return -EINVAL;
     const uint8_t *ip = original;
     ipv6_address_t original_destination;
     memcpy(original_destination.bytes, ip + 24, IPV6_ADDRESS_LEN);
     if ((ip[0] >> 4) != 6 || ipv6_address_is_multicast(&original_destination)) return -EINVAL;
     net_ipv6_packet_t parsed;
-    if (!net_ipv6_parse(original, original_length, &parsed) && parsed.protocol == IPV6_NEXT_ICMP && parsed.payload_len
-        && icmpv6_is_error(parsed.payload[0]))
-        return -EINVAL;
+    if (!net_ipv6_parse(original, original_length, &parsed) && parsed.protocol == IPV6_NEXT_ICMP && parsed.payload_len && icmpv6_is_error(parsed.payload[0])) return -EINVAL;
     size_t quote_length = original_length;
     if (quote_length > IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN) quote_length = IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN;
     net_pbuf_t *packet = net_pbuf_alloc(ICMPV6_HEADER_LEN + quote_length, NET_PBUF_HEADROOM);

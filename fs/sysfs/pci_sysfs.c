@@ -47,9 +47,8 @@ static int pci_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 
     ret = add_uevent_var(env, "PCI_SLOT_NAME=%s", dev_name(dev));
     if (ret) return ret;
-    return add_uevent_var(env, "MODALIAS=pci:v0000%04Xd0000%04Xsv0000%04Xsd0000%04Xbc%02Xsc%02Xi%02X", psd->cache->vendor_id,
-                          psd->cache->device_id, subsystem_vendor, subsystem_device, (class_code >> 16) & 0xFF, (class_code >> 8) & 0xFF,
-                          class_code & 0xFF);
+    return add_uevent_var(env, "MODALIAS=pci:v0000%04Xd0000%04Xsv0000%04Xsd0000%04Xbc%02Xsc%02Xi%02X", psd->cache->vendor_id, psd->cache->device_id, subsystem_vendor, subsystem_device,
+                          (class_code >> 16) & 0xFF, (class_code >> 8) & 0xFF, class_code & 0xFF);
 }
 
 /* PCI bus type */
@@ -142,9 +141,8 @@ static ssize_t pci_modalias_show(struct device *dev, struct device_attribute *at
     subsystem_device = read_pci(reg) & 0xFFFF;
     class_code       = psd->cache->class_code;
 
-    return (ssize_t)sysfs_emit(buf, "pci:v0000%04Xd0000%04Xsv0000%04Xsd0000%04Xbc%02Xsc%02Xi%02X\n", psd->cache->vendor_id,
-                               psd->cache->device_id, subsystem_vendor, subsystem_device, (class_code >> 16) & 0xFF, (class_code >> 8) & 0xFF,
-                               class_code & 0xFF);
+    return (ssize_t)sysfs_emit(buf, "pci:v0000%04Xd0000%04Xsv0000%04Xsd0000%04Xbc%02Xsc%02Xi%02X\n", psd->cache->vendor_id, psd->cache->device_id, subsystem_vendor, subsystem_device,
+                               (class_code >> 16) & 0xFF, (class_code >> 8) & 0xFF, class_code & 0xFF);
 }
 
 /* Device attributes */
@@ -218,8 +216,7 @@ void pci_sysfs_init(void)
         psd->cache = item;
 
         /* Format: 0000:bb:dd.f (domain:bus:slot.func) */
-        (void)snprintf(name, sizeof(name), "%04x:%02x:%02x.%01x", item->device->domain, item->device->bus, item->device->slot,
-                       item->device->func);
+        (void)snprintf(name, sizeof(name), "%04x:%02x:%02x.%01x", item->device->domain, item->device->bus, item->device->slot, item->device->func);
 
         dev = calloc(1, sizeof(struct device));
         if (!dev) {

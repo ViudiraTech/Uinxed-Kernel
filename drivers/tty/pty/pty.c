@@ -275,8 +275,7 @@ static int pty_create_slave(pty_pair_t *pair)
 {
     tmpfs_device_ops_t operations = pty_slave_operations;
     operations.ctx                = pair;
-    int result = devtmpfs_register_char_device(pair->slave_path, MKDEV(PTS_MAJOR, pair->number), MKDEV(PTS_MAJOR, pair->number),
-                                               file_pts | file_stream, &operations);
+    int result                    = devtmpfs_register_char_device(pair->slave_path, MKDEV(PTS_MAJOR, pair->number), MKDEV(PTS_MAJOR, pair->number), file_pts | file_stream, &operations);
     if (result) return result;
 
     vfs_node_t node = vfs_open(pair->slave_path);
@@ -325,8 +324,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
         wait_queue_init(&pair->master_space_wait);
         vfs_poll_source_init(&pair->master_poll_source);
         vfs_poll_source_init(&pair->slave_poll_source);
-        static const tty_core_ops_t core_operations
-            = {.emit = pty_slave_emit, .event = pty_slave_event, .retain = pty_tty_retain, .release = pty_tty_release};
+        static const tty_core_ops_t core_operations = {.emit = pty_slave_emit, .event = pty_slave_event, .retain = pty_tty_retain, .release = pty_tty_release};
         tty_core_init(&pair->slave_tty, &core_operations, pair);
         (void)snprintf(pair->slave_path, sizeof(pair->slave_path), "/dev/pts/%u", pair->number);
         spin_lock(&pty_lifetime_lock);
@@ -571,9 +569,7 @@ static int pty_master_ioctl(pty_pair_t *pair, uint64_t flags, size_t request, vo
             uint64_t peer_flags = (uint64_t)(uintptr_t)argument;
             if ((peer_flags & ~allowed) || (peer_flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
             if (!pair->slave_node) return -EIO;
-            uint32_t access        = (peer_flags & O_ACCMODE) == O_WRONLY ? VFS_ACCESS_W :
-                                     (peer_flags & O_ACCMODE) == O_RDWR   ? VFS_ACCESS_R | VFS_ACCESS_W :
-                                                                            VFS_ACCESS_R;
+            uint32_t access        = (peer_flags & O_ACCMODE) == O_WRONLY ? VFS_ACCESS_W : (peer_flags & O_ACCMODE) == O_RDWR ? VFS_ACCESS_R | VFS_ACCESS_W : VFS_ACCESS_R;
             int      access_result = vfs_access_check(pair->slave_node, access);
             if (access_result) return access_result;
             vfs_node_t slave = vfs_node_retain(pair->slave_node);

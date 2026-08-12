@@ -165,14 +165,12 @@ int buddy_free(buddy_allocator_t *allocator, size_t index, unsigned order)
     size_t units = order_units(order);
     if ((index & (units - 1)) || units > allocator->page_count - index) return -1;
     if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) {
-        plogk("buddy: Invalid free at page 0x%llx order %u (state %u, stored order %u)\n", (uint64_t)index, order, allocator->pages[index].state,
-              allocator->pages[index].order);
+        plogk("buddy: Invalid free at page 0x%llx order %u (state %u, stored order %u)\n", (uint64_t)index, order, allocator->pages[index].state, allocator->pages[index].order);
         return -1;
     }
     for (size_t i = 1; i < units; i++) {
         if (allocator->pages[index + i].state != BUDDY_PAGE_ALLOC_TAIL) {
-            plogk("buddy: Corrupted block at page 0x%llx order %u (tail page 0x%llx state %u)\n", (uint64_t)index, order, (uint64_t)(index + i),
-                  allocator->pages[index + i].state);
+            plogk("buddy: Corrupted block at page 0x%llx order %u (tail page 0x%llx state %u)\n", (uint64_t)index, order, (uint64_t)(index + i), allocator->pages[index + i].state);
             return -1;
         }
     }
@@ -244,9 +242,7 @@ int buddy_validate(const buddy_allocator_t *allocator)
                 if (allocator->pages[index + i].state == BUDDY_PAGE_FREE_HEAD) return -1;
             if (order < allocator->max_order) {
                 size_t buddy = index ^ units;
-                if (buddy < allocator->page_count && allocator->pages[buddy].state == BUDDY_PAGE_FREE_HEAD
-                    && allocator->pages[buddy].order == order)
-                    return -1; // Coalescing invariant violated.
+                if (buddy < allocator->page_count && allocator->pages[buddy].state == BUDDY_PAGE_FREE_HEAD && allocator->pages[buddy].order == order) return -1; // Coalescing invariant violated.
             }
             previous = node;
             node     = page->next;

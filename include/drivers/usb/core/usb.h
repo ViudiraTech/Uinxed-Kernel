@@ -201,8 +201,7 @@ void usb_disconnect_device(usb_device_t *device);
 void usb_remove_device(usb_device_t *device);
 
 /* Issue one control transfer to the HCD. */
-int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *buffer, uint16_t length,
-                    uint32_t timeout_ms);
+int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *buffer, uint16_t length, uint32_t timeout_ms);
 
 /* Perform one bulk transfer on an endpoint. */
 int usb_bulk_msg(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms);

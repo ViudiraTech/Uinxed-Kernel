@@ -318,8 +318,7 @@ static int e1000_map_bar(e1000_device_t *device)
 
     device->mmio_size = bar.size & ~BAR_64BIT_FLAG;
     if (device->mmio_size < E1000_REG_RAH0 + sizeof(uint32_t)) {
-        plogk("e1000: %04x:%04x: BAR too small (%#x bytes)\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id,
-              (unsigned)device->mmio_size);
+        plogk("e1000: %04x:%04x: BAR too small (%#x bytes)\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id, (unsigned)device->mmio_size);
         return -ENODEV;
     }
     if (phys + device->mmio_size < phys) {
@@ -397,8 +396,7 @@ static int e1000_alloc_dma(e1000_device_t *device)
     for (size_t i = 0; i < E1000_RX_COUNT; i++) {
         device->rx_buffer_phys[i] = alloc_frames(1);
         if (!device->rx_buffer_phys[i]) {
-            plogk("e1000: %04x:%04x: RX buffer allocation failed (index %zu)\n", (unsigned)device->pci->vendor_id,
-                  (unsigned)device->pci->device_id, i);
+            plogk("e1000: %04x:%04x: RX buffer allocation failed (index %zu)\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id, i);
             return -ENOMEM;
         }
         device->rx_ring[i].address = device->rx_buffer_phys[i];
@@ -406,8 +404,7 @@ static int e1000_alloc_dma(e1000_device_t *device)
     for (size_t i = 0; i < E1000_TX_COUNT; i++) {
         device->tx_buffer_phys[i] = alloc_frames(1);
         if (!device->tx_buffer_phys[i]) {
-            plogk("e1000: %04x:%04x: TX buffer allocation failed (index %zu)\n", (unsigned)device->pci->vendor_id,
-                  (unsigned)device->pci->device_id, i);
+            plogk("e1000: %04x:%04x: TX buffer allocation failed (index %zu)\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id, i);
             return -ENOMEM;
         }
         device->tx_ring[i].address = device->tx_buffer_phys[i];
@@ -420,8 +417,7 @@ static int e1000_alloc_dma(e1000_device_t *device)
 /* Program the MAC into RAL/RAH and clear the multicast table. */
 static void e1000_program_mac(e1000_device_t *device)
 {
-    uint32_t ral
-        = (uint32_t)device->mac[0] | ((uint32_t)device->mac[1] << 8) | ((uint32_t)device->mac[2] << 16) | ((uint32_t)device->mac[3] << 24);
+    uint32_t ral = (uint32_t)device->mac[0] | ((uint32_t)device->mac[1] << 8) | ((uint32_t)device->mac[2] << 16) | ((uint32_t)device->mac[3] << 24);
     uint32_t rah = (uint32_t)device->mac[4] | ((uint32_t)device->mac[5] << 8) | E1000_RAH_AV;
     e1000_write(device, E1000_REG_RAL0, ral);
     e1000_write(device, E1000_REG_RAH0, rah);
@@ -636,8 +632,7 @@ size_t e1000_poll(e1000_device_t *device, size_t budget)
                 device->stats.rx_errors++;
                 static uint64_t last_log;
                 if (sched_ticks() - last_log >= 1000) {
-                    plogk("e1000: %s: RX error (errors=%#x, length=%u, status=%#x)\n", device->netdev.name, (unsigned)desc->errors,
-                          (unsigned)length, (unsigned)status);
+                    plogk("e1000: %s: RX error (errors=%#x, length=%u, status=%#x)\n", device->netdev.name, (unsigned)desc->errors, (unsigned)length, (unsigned)status);
                     last_log = sched_ticks();
                 }
             }
@@ -913,8 +908,7 @@ static void e1000_release_interrupt(e1000_device_t *device)
     spin_unlock_irqrestore(&e1000_irq_lock, rflags);
 
     if (device->using_msi) pci_disable_msi(device->pci);
-    if (device->using_legacy && !device->using_direct_legacy && net_irq_release_legacy)
-        net_irq_release_legacy(device->irq, e1000_legacy_irq_handlers[device->irq_slot]);
+    if (device->using_legacy && !device->using_direct_legacy && net_irq_release_legacy) net_irq_release_legacy(device->irq, e1000_legacy_irq_handlers[device->irq_slot]);
     for (;;) {
         rflags     = spin_lock_irqsave(&e1000_irq_lock);
         int active = device->irq_active != 0;
@@ -944,9 +938,7 @@ static void e1000_destroy(e1000_device_t *device)
             rflags = spin_lock_irqsave(&device->work_lock);
         }
         spin_unlock_irqrestore(&device->work_lock, rflags);
-        while (__atomic_load_n(&device->worker_task->state, __ATOMIC_ACQUIRE) != TASK_ZOMBIE
-               || __atomic_load_n(&device->worker_task->on_cpu, __ATOMIC_ACQUIRE))
-            sched_yield();
+        while (__atomic_load_n(&device->worker_task->state, __ATOMIC_ACQUIRE) != TASK_ZOMBIE || __atomic_load_n(&device->worker_task->on_cpu, __ATOMIC_ACQUIRE)) sched_yield();
         task_free(device->worker_task);
         device->worker_task = NULL;
     }
@@ -1065,8 +1057,8 @@ int e1000_probe(pci_device_cache_t *pci)
         ret   = e1000_start_worker(device);
         if (ret) goto fail_linked;
     }
-    plogk("e1000: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
-          device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->using_msi ? "MSI" : "INTx", device->link_up ? "up" : "down");
+    plogk("e1000: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1], device->mac[2], device->mac[3], device->mac[4],
+          device->mac[5], device->using_msi ? "MSI" : "INTx", device->link_up ? "up" : "down");
     return 0;
 fail_linked:
     if (e1000_devices == device) e1000_devices = device->next;

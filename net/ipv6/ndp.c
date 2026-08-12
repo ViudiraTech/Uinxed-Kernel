@@ -104,8 +104,7 @@ static void ndp_pool_init_locked(void)
 static ndp_entry_t *ndp_find_locked(net_device_t *device, const ipv6_address_t *address)
 {
     for (unsigned i = 0; i < NDP_CACHE_CAPACITY; i++)
-        if (ndp_cache[i].state != NDP_EMPTY && ndp_cache[i].device == device && ipv6_address_equal(&ndp_cache[i].address, address))
-            return &ndp_cache[i];
+        if (ndp_cache[i].state != NDP_EMPTY && ndp_cache[i].device == device && ipv6_address_equal(&ndp_cache[i].address, address)) return &ndp_cache[i];
     return NULL;
 }
 
@@ -145,8 +144,7 @@ static ndp_entry_t *ndp_alloc_locked(net_device_t *device, const ipv6_address_t 
 }
 
 /* Build and transmit an NDP message, optionally including a target option. */
-static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t type, uint32_t flags,
-                    const ipv6_address_t *target, uint8_t option_type)
+static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t type, uint32_t flags, const ipv6_address_t *target, uint8_t option_type)
 {
     size_t      length = target ? 32U : 16U;
     net_pbuf_t *packet = net_pbuf_alloc(length, NET_PBUF_HEADROOM);
@@ -339,9 +337,7 @@ static int ndp_neighbor_input(net_device_t *device, const ipv6_info_t *ip, net_p
         return ndp_send(device, &target, &ip->source, ICMPV6_NEIGHBOR_ADVERT, 0x60000000U, &target, NDP_OPT_TARGET_LL);
     }
     uint32_t flags = net_read_be32(packet->data + 4);
-    if (ipv6_address_is_unspecified(&ip->source) || ((flags & 0x40000000U) && ipv6_address_is_multicast(&ip->destination)) || !target_ll
-        || !ndp_mac_unicast(target_ll))
-        return -EBADMSG;
+    if (ipv6_address_is_unspecified(&ip->source) || ((flags & 0x40000000U) && ipv6_address_is_multicast(&ip->destination)) || !target_ll || !ndp_mac_unicast(target_ll)) return -EBADMSG;
     ndp_learn(device, &target, target_ll, sched_ticks());
     return 0;
 }
@@ -373,8 +369,7 @@ static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pb
             ipv6_address_t prefix;
             memcpy(prefix.bytes, options + 16, 16);
             if (preferred > valid) return -EBADMSG;
-            if (options[2] == 64 && (options[3] & 0x40U) && valid && !ipv6_address_is_multicast(&prefix)
-                && !ipv6_address_is_link_local(&prefix)) {
+            if (options[2] == 64 && (options[3] & 0x40U) && valid && !ipv6_address_is_multicast(&prefix) && !ipv6_address_is_link_local(&prefix)) {
                 memcpy(address.bytes, prefix.bytes, 8);
                 memcpy(address.bytes + 8, device->ipv6_link_local + 8, 8);
                 valid_until     = ndp_lifetime(now, valid);

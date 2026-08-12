@@ -24,8 +24,7 @@
 #define IPV4_FRAGMENT_MASK    0x1fffU
 #define IPV4_REASSEMBLY_SLOTS 4U
 
-typedef void (*ipv4_error_hook_t)(uint8_t protocol, uint32_t source, uint32_t destination, const void *transport, size_t transport_length,
-                                  int error, uint32_t mtu);
+typedef void (*ipv4_error_hook_t)(uint8_t protocol, uint32_t source, uint32_t destination, const void *transport, size_t transport_length, int error, uint32_t mtu);
 
 typedef struct ipv4_info {
         uint32_t source;

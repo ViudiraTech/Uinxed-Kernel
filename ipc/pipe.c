@@ -600,8 +600,7 @@ static int64_t pipe_file_write(vfs_node_t node, void *private_data, uint64_t fla
     return pipe_write_common(node, endpoint->ring, flags, addr, size);
 }
 
-static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
-                                    process_t *proc)
+static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
 {
     (void)offset;
     pipe_endpoint_t *endpoint = private_data;

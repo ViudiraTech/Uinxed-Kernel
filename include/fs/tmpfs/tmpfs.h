@@ -31,10 +31,8 @@ typedef void (*tmpfs_dev_descriptor_close_t)(void *ctx, void *private_data);
 typedef void *(*tmpfs_dev_mmap_t)(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
 typedef int64_t (*tmpfs_dev_file_read_t)(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
 typedef int64_t (*tmpfs_dev_file_write_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
-typedef int64_t (*tmpfs_dev_file_read_user_t)(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
-                                              struct process *proc);
-typedef int64_t (*tmpfs_dev_file_write_user_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
-                                               struct process *proc);
+typedef int64_t (*tmpfs_dev_file_read_user_t)(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+typedef int64_t (*tmpfs_dev_file_write_user_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
 typedef int (*tmpfs_dev_file_poll_t)(void *ctx, void *private_data, uint64_t flags, size_t events);
 typedef vfs_poll_source_t *(*tmpfs_dev_file_poll_source_t)(void *ctx, void *private_data);
 typedef int (*tmpfs_dev_file_ioctl_t)(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);

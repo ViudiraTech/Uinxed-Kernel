@@ -84,8 +84,7 @@ static int rr_check_sp(const struct rock_ridge *entry, isofs_rr_state_t *state)
  * entry to `visit`.  The visitor returns 0 to keep scanning, a negative
  * code to abort with that error, or RR_SCAN_ABORT to stop cleanly.
  */
-static int rr_scan(isofs_rr_state_t *state, isofs_mount_t *mount, const struct iso_directory_record *de,
-                   int (*visit)(const struct rock_ridge *, isofs_rr_state_t *, void *), void *opaque)
+static int rr_scan(isofs_rr_state_t *state, isofs_mount_t *mount, const struct iso_directory_record *de, int (*visit)(const struct rock_ridge *, isofs_rr_state_t *, void *), void *opaque)
 {
     int status = 0;
 

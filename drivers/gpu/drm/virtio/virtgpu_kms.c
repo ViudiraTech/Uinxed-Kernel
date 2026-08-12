@@ -88,8 +88,7 @@ static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
         char name[14];
 
         drm_edid_get_monitor_name(edid, name, sizeof(name));
-        plogk("virtgpu: Connector: EDID parsed: %d mode(s), monitor=\"%s\", %ux%u mm.\n", count, name[0] ? name : "unknown",
-              connector->display_info_width_mm, connector->display_info_height_mm);
+        plogk("virtgpu: Connector: EDID parsed: %d mode(s), monitor=\"%s\", %ux%u mm.\n", count, name[0] ? name : "unknown", connector->display_info_width_mm, connector->display_info_height_mm);
     }
 
     free(edid);
@@ -296,8 +295,7 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
 }
 
 /* Set or clear the hardware cursor for the CRTC. */
-static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height, int32_t hot_x,
-                                   int32_t hot_y)
+static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height, int32_t hot_x, int32_t hot_y)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)crtc->dev->dev_private;
     struct virtio_gpu_object *obj   = gem ? to_virtio_gpu_object(gem) : NULL;
@@ -310,8 +308,8 @@ static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object 
          * dumb-buffer API, which creates XRGB8888 objects in the same way as
          * Linux virtio-gpu.  Accept both advertised 32-bit KMS formats here.
          */
-        if (width != 64 || height != 64 || gem->size < 64 * 64 * 4 || obj->width != 64 || obj->height != 64
-            || (obj->format != DRM_FORMAT_XRGB8888 && obj->format != DRM_FORMAT_ARGB8888) || obj->created_3d || obj->created_blob)
+        if (width != 64 || height != 64 || gem->size < 64 * 64 * 4 || obj->width != 64 || obj->height != 64 || (obj->format != DRM_FORMAT_XRGB8888 && obj->format != DRM_FORMAT_ARGB8888)
+            || obj->created_3d || obj->created_blob)
             return -EINVAL;
         ret = virtgpu_cmd_transfer_to_host_2d(vgdev, obj, 0);
         if (ret) return ret;
@@ -507,8 +505,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     memset(primary, 0, sizeof(*primary));
     vgdev->kms_primary = primary;
 
-    ret = drm_plane_init(dev, primary, 1, NULL, virtgpu_formats, sizeof(virtgpu_formats) / sizeof(virtgpu_formats[0]), NULL,
-                         DRM_PLANE_TYPE_PRIMARY, "virtgpu-primary");
+    ret = drm_plane_init(dev, primary, 1, NULL, virtgpu_formats, sizeof(virtgpu_formats) / sizeof(virtgpu_formats[0]), NULL, DRM_PLANE_TYPE_PRIMARY, "virtgpu-primary");
     if (ret) {
         DRM_ERROR("Failed to init primary plane: %d\n", ret);
         free(primary);
@@ -650,8 +647,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
             mode_count++;
             node = node->next;
         }
-        DRM_INFO("KMS pipeline: CRTC-%d + primary plane-%d + encoder-%d + connector-%d (%d modes)\n", crtc->base.id, primary->base.id,
-                 encoder->base.id, connector->base.id, mode_count);
+        DRM_INFO("KMS pipeline: CRTC-%d + primary plane-%d + encoder-%d + connector-%d (%d modes)\n", crtc->base.id, primary->base.id, encoder->base.id, connector->base.id, mode_count);
     }
 
     /*

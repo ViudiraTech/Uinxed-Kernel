@@ -312,8 +312,7 @@ void process_vfork_complete(process_t *proc);
 process_t *process_fork_from_syscall(syscall_frame_t *frame);
 
 /* Create a pthread-style task sharing the current process resources. */
-task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid,
-                             uintptr_t child_clear_tid, uintptr_t tls, int *error);
+task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid, uintptr_t child_clear_tid, uintptr_t tls, int *error);
 
 /* Return the next available pid */
 pid_t process_next_pid(void);

@@ -271,9 +271,8 @@ struct winsize {
 #endif
 
 #ifndef _IOC
-#    define _IOC(dir, type, nr, size)                                                                                                \
-        (((unsigned long)(dir) << _IOC_DIRSHIFT) | ((unsigned long)(type) << _IOC_TYPESHIFT) | ((unsigned long)(nr) << _IOC_NRSHIFT) \
-         | ((unsigned long)(size) << _IOC_SIZESHIFT))
+#    define _IOC(dir, type, nr, size) \
+        (((unsigned long)(dir) << _IOC_DIRSHIFT) | ((unsigned long)(type) << _IOC_TYPESHIFT) | ((unsigned long)(nr) << _IOC_NRSHIFT) | ((unsigned long)(size) << _IOC_SIZESHIFT))
 #endif
 
 #ifndef _IO

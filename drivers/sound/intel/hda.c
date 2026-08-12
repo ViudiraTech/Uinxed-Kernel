@@ -725,10 +725,8 @@ static void hda_config_codec(hda_codec_t *codec)
         }
 
         if (codec->dac_nid > 0) {
-            hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE,
-                         AC_AMP_SET_OUTPUT | AC_AMP_SET_LEFT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
-            hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE,
-                         AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
+            hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_LEFT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
+            hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
         }
     }
 
@@ -895,10 +893,7 @@ static int hda_audio_drain(audio_card_t *card)
             if (lpib >= hda_ctrl.streams[hda_ctrl.playback_stream].buf_size) break;
             usleep(10);
         }
-        if (timeout < 0) {
-            plogk("hda: Playback stream %d drain timed out (LPIB=0x%x)\n", hda_ctrl.playback_stream,
-                  sd_read32(hda_ctrl.playback_stream, SD_LPIB));
-        }
+        if (timeout < 0) { plogk("hda: Playback stream %d drain timed out (LPIB=0x%x)\n", hda_ctrl.playback_stream, sd_read32(hda_ctrl.playback_stream, SD_LPIB)); }
         hda_stop_stream(hda_ctrl.playback_stream);
     }
     spin_unlock(&hda_ctrl.lock);
@@ -1072,10 +1067,8 @@ static int hda_audio_set_volume(audio_card_t *card, const audio_volume_t *volume
         if (codec->dac_nid > 0) {
             uint32_t gl = ((uint32_t)volume->left * 0x7f) / 255;
             uint32_t gr = ((uint32_t)volume->right * 0x7f) / 255;
-            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE,
-                         AC_AMP_SET_OUTPUT | AC_AMP_SET_LEFT | AC_AMP_SET_GAIN(gl));
-            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE,
-                         AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_GAIN(gr));
+            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_LEFT | AC_AMP_SET_GAIN(gl));
+            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_GAIN(gr));
         }
     }
     return EOK;
@@ -1183,9 +1176,7 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
             if (hda_ctrl.streams[s].pcm_file) {
                 audio_pcm_file_t *pf = hda_ctrl.streams[s].pcm_file;
                 spin_lock(&pf->lock);
-                snd_pcm_uframes_t frames_consumed = hda_ctrl.streams[s].buf_size
-                                                    / ((size_t)(hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels)
-                                                    / hda_ctrl.streams[s].period_frags;
+                snd_pcm_uframes_t frames_consumed = hda_ctrl.streams[s].buf_size / ((size_t)(hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels) / hda_ctrl.streams[s].period_frags;
 
                 pcm_ring_buffer_advance_hw(pf, frames_consumed);
                 pf->period_event = 1;
@@ -1237,8 +1228,7 @@ void hda_init(void)
     }
     if (!dev) return;
 
-    plogk("hda: Controller at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", dev->device->domain, dev->device->bus, dev->device->slot,
-          dev->device->func, dev->vendor_id, dev->device_id);
+    plogk("hda: Controller at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", dev->device->domain, dev->device->bus, dev->device->slot, dev->device->func, dev->vendor_id, dev->device_id);
 
     {
         pci_device_reg_t bar_reg  = {.parent = dev, .offset = 0x10};

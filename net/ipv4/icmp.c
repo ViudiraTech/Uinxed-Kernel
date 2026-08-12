@@ -124,8 +124,8 @@ int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_from(data, length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("icmp: Send alloc failed (dest=%u.%u.%u.%u len=%lu)\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
-              (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned long)length);
+        plogk("icmp: Send alloc failed (dest=%u.%u.%u.%u len=%lu)\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff,
+              (unsigned)destination & 0xff, (unsigned long)length);
         netdev_put(device);
         return -ENOMEM;
     }
@@ -190,16 +190,15 @@ static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
         icmp_endpoint_t *endpoint = icmp_table[i];
         if (!endpoint) continue;
         spin_lock(&endpoint->lock);
-        if ((endpoint->local_address && endpoint->local_address != ip->destination)
-            || (endpoint->remote_address && endpoint->remote_address != ip->source) || endpoint->queue_length >= ICMP_RX_QUEUE_MAX
-            || length > ICMP_RX_BYTES_MAX - endpoint->queue_bytes) {
+        if ((endpoint->local_address && endpoint->local_address != ip->destination) || (endpoint->remote_address && endpoint->remote_address != ip->source)
+            || endpoint->queue_length >= ICMP_RX_QUEUE_MAX || length > ICMP_RX_BYTES_MAX - endpoint->queue_bytes) {
             spin_unlock(&endpoint->lock);
             continue;
         }
         icmp_packet_t *queued = malloc(sizeof(*queued) + length);
         if (!queued) {
-            plogk("icmp: RX queue alloc failed (src=%u.%u.%u.%u len=%lu)\n", (unsigned)(ip->source >> 24) & 0xff,
-                  (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned long)length);
+            plogk("icmp: RX queue alloc failed (src=%u.%u.%u.%u len=%lu)\n", (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff,
+                  (unsigned)ip->source & 0xff, (unsigned long)length);
             spin_unlock(&endpoint->lock);
             continue;
         }
@@ -245,8 +244,7 @@ int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     uint8_t type = packet->data[0];
     uint8_t code = packet->data[1];
     if (type == ICMP_ECHO_REQUEST) {
-        if (code || ip->destination == UINT32_MAX || (device->ipv4_netmask && ip->destination == (device->ipv4_address | ~device->ipv4_netmask)))
-            goto ignored;
+        if (code || ip->destination == UINT32_MAX || (device->ipv4_netmask && ip->destination == (device->ipv4_address | ~device->ipv4_netmask))) goto ignored;
         packet->data[0] = ICMP_ECHO_REPLY;
         packet->data[2] = packet->data[3] = 0;
         net_write_be16(packet->data + 2, net_checksum(packet->data, packet->length));
@@ -267,23 +265,21 @@ bad:
 }
 
 /* Send an ICMP error message quoting the offending IP packet. */
-int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uint8_t code, uint16_t mtu, const void *original,
-                   size_t original_length)
+int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uint8_t code, uint16_t mtu, const void *original, size_t original_length)
 {
     if (!device || !destination || !original || original_length < IPV4_HEADER_MIN) return -EINVAL;
     const uint8_t *ip            = original;
     size_t         header_length = (size_t)(ip[0] & 0x0fU) * 4U;
-    if ((ip[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > original_length || (net_read_be16(ip + 6) & IPV4_FRAGMENT_MASK)
-        || destination == UINT32_MAX || (device->ipv4_netmask && destination == (device->ipv4_address | ~device->ipv4_netmask)))
+    if ((ip[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > original_length || (net_read_be16(ip + 6) & IPV4_FRAGMENT_MASK) || destination == UINT32_MAX
+        || (device->ipv4_netmask && destination == (device->ipv4_address | ~device->ipv4_netmask)))
         return -EINVAL;
     if (ip[9] == IPV4_PROTO_ICMP && original_length > header_length && icmp_is_error(ip[header_length])) return -EINVAL;
     size_t quote_length = header_length + ICMP_QUOTE_LEN;
     if (quote_length > original_length) quote_length = original_length;
     net_pbuf_t *packet = net_pbuf_alloc(ICMP_HEADER_LEN + quote_length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("icmp: Error message alloc failed (type=%u code=%u dest=%u.%u.%u.%u)\n", (unsigned)type, (unsigned)code,
-              (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff,
-              (unsigned)destination & 0xff);
+        plogk("icmp: Error message alloc failed (type=%u code=%u dest=%u.%u.%u.%u)\n", (unsigned)type, (unsigned)code, (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
+              (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff);
         return -ENOMEM;
     }
     memset(packet->data, 0, ICMP_HEADER_LEN);

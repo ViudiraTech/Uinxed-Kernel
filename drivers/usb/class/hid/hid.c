@@ -49,8 +49,7 @@ static void hid_set_bit(unsigned int bit, uint32_t *bitmap)
 static uint16_t hid_usage_at(const usb_hid_field_t *field, size_t index)
 {
     if (index < field->usage_count) return field->usages[index];
-    if (field->usage_maximum >= field->usage_minimum && field->usage_minimum + index <= field->usage_maximum)
-        return field->usage_minimum + (uint16_t)index;
+    if (field->usage_maximum >= field->usage_minimum && field->usage_minimum + index <= field->usage_maximum) return field->usage_minimum + (uint16_t)index;
     return 0;
 }
 
@@ -135,8 +134,7 @@ static void hid_build_capabilities(usb_hid_device_t *hid)
                         uint16_t minimum = field->usage_minimum;
                         uint16_t maximum = field->usage_maximum;
                         if (maximum > 0xff) maximum = 0xff;
-                        for (uint16_t key_usage = minimum; key_usage <= maximum; key_usage++)
-                            hid_enable_key(input, usb_hid_keyboard_keycode(key_usage));
+                        for (uint16_t key_usage = minimum; key_usage <= maximum; key_usage++) hid_enable_key(input, usb_hid_keyboard_keycode(key_usage));
                     }
                     break;
                 case 0x09 :
@@ -174,8 +172,7 @@ static int hid_register_inputs(usb_hid_device_t *hid)
         if (!input) return -ENOMEM;
         hid->input[i] = input;
         (void)snprintf(input->name, sizeof(input->name), "%s", hid_application_name(&hid->report.applications[i]));
-        (void)snprintf(input->phys, sizeof(input->phys), "%s/input%u", hid->interface->device->path,
-                       hid->interface->descriptor.interface_number);
+        (void)snprintf(input->phys, sizeof(input->phys), "%s/input%u", hid->interface->device->path, hid->interface->descriptor.interface_number);
         input->id.bustype             = BUS_USB;
         input->id.vendor              = hid->interface->device->descriptor.vendor_id;
         input->id.product             = hid->interface->device->descriptor.product_id;
@@ -273,16 +270,15 @@ int usb_hid_probe(usb_interface_t *interface)
         return -ENOMEM;
     }
     hid->report_descriptor_length = report_length;
-    result = usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_INTERFACE, USB_REQ_GET_DESCRIPTOR, USB_DT_REPORT << 8,
-                             interface->descriptor.interface_number, hid->report_descriptor, report_length, USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_INTERFACE, USB_REQ_GET_DESCRIPTOR, USB_DT_REPORT << 8, interface->descriptor.interface_number,
+                             hid->report_descriptor, report_length, USB_CTRL_TIMEOUT_MS);
     if (result != EOK) goto fail;
     result = usb_hid_parse_report_descriptor(hid->report_descriptor, report_length, &hid->report);
     if (result != EOK) goto fail;
 
-    (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_IDLE, 0,
-                          interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
-    (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_PROTOCOL,
-                          USB_HID_REPORT_PROTOCOL, interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_IDLE, 0, interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_PROTOCOL, USB_HID_REPORT_PROTOCOL, interface->descriptor.interface_number, NULL, 0,
+                          USB_CTRL_TIMEOUT_MS);
     result = hid_register_inputs(hid);
     if (result != EOK) goto fail_inputs;
     interface->driver_data = hid;

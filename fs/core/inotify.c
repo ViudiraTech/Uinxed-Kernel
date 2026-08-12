@@ -53,11 +53,9 @@ static size_t inotify_name_size(const char *name)
 }
 
 /* Coalesce an event that is identical to the current queue tail. */
-static bool inotify_events_equal(const inotify_queue_event_t *queued, int32_t wd, uint32_t mask, uint32_t cookie, const char *name,
-                                 size_t name_size)
+static bool inotify_events_equal(const inotify_queue_event_t *queued, int32_t wd, uint32_t mask, uint32_t cookie, const char *name, size_t name_size)
 {
-    if (!queued || queued->event.wd != wd || queued->event.mask != mask || queued->event.cookie != cookie || queued->event.len != name_size)
-        return false;
+    if (!queued || queued->event.wd != wd || queued->event.mask != mask || queued->event.cookie != cookie || queued->event.len != name_size) return false;
     if (!name_size) return true;
     return memcmp(queued->event.name, name, strlen(name) + 1U) == 0;
 }
@@ -326,6 +324,7 @@ void inotify_notify_unmount(vfs_node_t mount_root)
 }
 
 #ifndef INOTIFY_HOST_TEST
+
 /* VFS read callback for the inotify file descriptor. */
 static int64_t inotify_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *address, size_t offset, size_t size)
 {

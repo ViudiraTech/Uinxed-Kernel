@@ -267,13 +267,12 @@ static uint32_t uhci_td_flags(const usb_device_t *device, bool short_packet)
 /* Encode the TD token word for a transfer phase. */
 static uint32_t uhci_token(uint8_t pid, uint8_t address, uint8_t endpoint, uint8_t toggle, size_t length)
 {
-    return (uint32_t)pid | ((uint32_t)address << UHCI_TOKEN_DEVADDR_SHIFT) | ((uint32_t)endpoint << UHCI_TOKEN_ENDP_SHIFT)
-           | ((uint32_t)(toggle & 1) << UHCI_TOKEN_TOGGLE_SHIFT) | (uhci_td_encode_length(length) << UHCI_TOKEN_MAXLEN_SHIFT);
+    return (uint32_t)pid | ((uint32_t)address << UHCI_TOKEN_DEVADDR_SHIFT) | ((uint32_t)endpoint << UHCI_TOKEN_ENDP_SHIFT) | ((uint32_t)(toggle & 1) << UHCI_TOKEN_TOGGLE_SHIFT)
+           | (uhci_td_encode_length(length) << UHCI_TOKEN_MAXLEN_SHIFT);
 }
 
 /* Wait for a chain of TDs to complete, optionally stopping at a short packet. */
-static int uhci_wait_chain(uhci_controller_t *ctrl, const int *td_indices, const size_t *packet_lengths, size_t count, uint32_t timeout_ms,
-                           bool stop_on_short, size_t *actual)
+static int uhci_wait_chain(uhci_controller_t *ctrl, const int *td_indices, const size_t *packet_lengths, size_t count, uint32_t timeout_ms, bool stop_on_short, size_t *actual)
 {
     uint64_t deadline    = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
     size_t   transferred = 0;
@@ -494,9 +493,7 @@ cleanup_bulk:
 static int uhci_submit_interrupt(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || !length || length > PAGE_4K_SIZE || !complete) return -EINVAL;
-    if ((endpoint->descriptor.attributes & USB_ENDPOINT_XFERTYPE_MASK) != USB_ENDPOINT_XFER_INT
-        || !(endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK))
-        return -EINVAL;
+    if ((endpoint->descriptor.attributes & USB_ENDPOINT_XFERTYPE_MASK) != USB_ENDPOINT_XFER_INT || !(endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK)) return -EINVAL;
     if (endpoint->hc_private) return -EBUSY;
     uhci_controller_t *ctrl = endpoint->interface->device->hc_private;
     if (!ctrl) return -ENODEV;
@@ -644,14 +641,13 @@ static int uhci_enumerate_port(uhci_controller_t *ctrl, uint8_t port)
     (void)snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
 
     uint8_t address = port + 1;
-    result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0,
-                                      USB_CTRL_TIMEOUT_MS);
+    result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
     if (result != EOK) goto fail;
     msleep(10);
     device->address = address;
 
-    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0,
-                             &device->descriptor, sizeof(device->descriptor), USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &device->descriptor, sizeof(device->descriptor),
+                             USB_CTRL_TIMEOUT_MS);
     if (result != EOK || device->descriptor.length < sizeof(device->descriptor) || device->descriptor.descriptor_type != USB_DT_DEVICE) {
         if (result == EOK) result = -EPROTO;
         goto fail;
@@ -659,9 +655,7 @@ static int uhci_enumerate_port(uhci_controller_t *ctrl, uint8_t port)
 
     uint16_t language = 0x0409;
     uint8_t  lang_desc[4];
-    if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, lang_desc,
-                        sizeof(lang_desc), USB_CTRL_TIMEOUT_MS)
-            == EOK
+    if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, lang_desc, sizeof(lang_desc), USB_CTRL_TIMEOUT_MS) == EOK
         && lang_desc[0] >= 4)
         language = lang_desc[2] | (uint16_t)lang_desc[3] << 8;
     usb_get_string_descriptor(device, device->descriptor.manufacturer, language, device->manufacturer, sizeof(device->manufacturer));
@@ -711,8 +705,7 @@ static void uhci_service_periodic(uhci_controller_t *ctrl)
         spin_unlock_irqrestore(&ctrl->lock, flags);
         size_t actual = 0;
         int    status = uhci_submit_bulk(transfer->endpoint, transfer->buffer, transfer->length, &actual, USB_IO_TIMEOUT_MS);
-        if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE))
-            transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
+        if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE)) transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
         transfer->next_poll = nano_time() + (uint64_t)transfer->interval_ms * 1000000ULL;
         __atomic_store_n(&transfer->in_callback, false, __ATOMIC_RELEASE);
     }

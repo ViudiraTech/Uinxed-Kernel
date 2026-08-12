@@ -90,8 +90,7 @@ bool drm_mm_clean_check(const struct drm_mm *mm);
  * Insert @node of @size honoring @alignment and mode, restricted to
  * [range_start, range_end). Returns 0 or -ENOSPC/-EINVAL.
  */
-int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uint64_t size, uint64_t alignment, uint64_t range_start,
-                                uint64_t range_end, enum drm_mm_insert_mode mode);
+int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uint64_t size, uint64_t alignment, uint64_t range_start, uint64_t range_end, enum drm_mm_insert_mode mode);
 
 /* Insert over the full allocator range with default alignment. */
 int drm_mm_insert_node(struct drm_mm *mm, struct drm_mm_node *node, uint64_t size);
@@ -106,8 +105,7 @@ void drm_mm_replace_node(struct drm_mm_node *old, struct drm_mm_node *new_node);
 void drm_mm_init_scan(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment, enum drm_mm_insert_mode mode);
 
 /* Initialize a scan constrained to [range_start, range_end). */
-void drm_mm_init_scan_with_range(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment, uint64_t range_start,
-                                 uint64_t range_end, enum drm_mm_insert_mode mode);
+void drm_mm_init_scan_with_range(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment, uint64_t range_start, uint64_t range_end, enum drm_mm_insert_mode mode);
 
 /*
  * Block @node during a scan. Returns true if @node could have been an

@@ -40,8 +40,8 @@
  * and modifier arrays, inserts into the device plane list, and stores
  * the plane type and name. Returns 0 on success or -ENOMEM/-errno.
  */
-int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t possible_crtcs, void *funcs, const uint32_t *formats,
-                   unsigned int format_count, const uint64_t *modifiers, enum drm_plane_type type, const char *name)
+int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t possible_crtcs, void *funcs, const uint32_t *formats, unsigned int format_count, const uint64_t *modifiers,
+                   enum drm_plane_type type, const char *name)
 {
     int ret;
 
@@ -151,8 +151,7 @@ int drm_mode_getplane_res(struct drm_device *dev, void *data, struct drm_file *f
             plogk("drm: GETPLANERESOURCES allocation failed (count=%u), returning -ENOMEM.\n", count);
             return -ENOMEM;
         }
-        for (ilist_node_t *node = dev->mode_config.plane_list.next; node != &dev->mode_config.plane_list; node = node->next)
-            ids[n++] = container_of(node, struct drm_plane, head)->base.id;
+        for (ilist_node_t *node = dev->mode_config.plane_list.next; node != &dev->mode_config.plane_list; node = node->next) ids[n++] = container_of(node, struct drm_plane, head)->base.id;
         if (!plane_res->plane_id_ptr || copy_to_user((void *)(uintptr_t)plane_res->plane_id_ptr, ids, (size_t)copy_count * sizeof(*ids))) {
             free(ids);
             plogk("drm: GETPLANERESOURCES copy_to_user failed (count=%u), returning -EFAULT.\n", copy_count);
@@ -202,8 +201,7 @@ int drm_mode_getplane(struct drm_device *dev, void *data, struct drm_file *file_
 
     if (user_format_count) {
         uint32_t count = user_format_count < plane->format_count ? user_format_count : plane->format_count;
-        if (!plane_req->format_type_ptr
-            || copy_to_user((void *)(uintptr_t)plane_req->format_type_ptr, plane->format_types, (size_t)count * sizeof(*plane->format_types))) {
+        if (!plane_req->format_type_ptr || copy_to_user((void *)(uintptr_t)plane_req->format_type_ptr, plane->format_types, (size_t)count * sizeof(*plane->format_types))) {
             drm_mode_object_put(obj);
             plogk("drm: GETPLANE: copy_to_user failed for plane %u, returning -EFAULT.\n", plane_req->plane_id);
             return -EFAULT;
@@ -250,8 +248,7 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
     plane = container_of(obj, struct drm_plane, base);
     if (!!plane_req->crtc_id != !!plane_req->fb_id) {
         ret = -EINVAL;
-        plogk("drm: SETPLANE: crtc_id and fb_id must be both set or both clear (plane %u, crtc_id=%u fb_id=%u), returning -EINVAL.\n",
-              plane_req->plane_id, plane_req->crtc_id, plane_req->fb_id);
+        plogk("drm: SETPLANE: crtc_id and fb_id must be both set or both clear (plane %u, crtc_id=%u fb_id=%u), returning -EINVAL.\n", plane_req->plane_id, plane_req->crtc_id, plane_req->fb_id);
         goto out;
     }
     if (plane_req->fb_id) {
@@ -269,15 +266,12 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
             plogk("drm: SETPLANE: framebuffer %u not found, returning -ENOENT.\n", plane_req->fb_id);
             goto out;
         }
-        if (plane_req->src_w > DRM_S32_MAX || plane_req->src_h > DRM_S32_MAX || plane_req->crtc_w > DRM_S32_MAX
-            || plane_req->crtc_h > DRM_S32_MAX || (int64_t)(int32_t)plane_req->src_x + plane_req->src_w > DRM_S32_MAX
-            || (int64_t)(int32_t)plane_req->src_y + plane_req->src_h > DRM_S32_MAX
+        if (plane_req->src_w > DRM_S32_MAX || plane_req->src_h > DRM_S32_MAX || plane_req->crtc_w > DRM_S32_MAX || plane_req->crtc_h > DRM_S32_MAX
+            || (int64_t)(int32_t)plane_req->src_x + plane_req->src_w > DRM_S32_MAX || (int64_t)(int32_t)plane_req->src_y + plane_req->src_h > DRM_S32_MAX
             || (int64_t)plane_req->crtc_x + plane_req->crtc_w > DRM_S32_MAX || (int64_t)plane_req->crtc_y + plane_req->crtc_h > DRM_S32_MAX) {
             ret = -EINVAL;
-            plogk(
-                "drm: SETPLANE: coordinates out of range (src_x=%u src_y=%u src_w=%u src_h=%u crtc_x=%d crtc_y=%d crtc_w=%u crtc_h=%u), returning -EINVAL.\n",
-                plane_req->src_x, plane_req->src_y, plane_req->src_w, plane_req->src_h, plane_req->crtc_x, plane_req->crtc_y, plane_req->crtc_w,
-                plane_req->crtc_h);
+            plogk("drm: SETPLANE: coordinates out of range (src_x=%u src_y=%u src_w=%u src_h=%u crtc_x=%d crtc_y=%d crtc_w=%u crtc_h=%u), returning -EINVAL.\n", plane_req->src_x, plane_req->src_y,
+                  plane_req->src_w, plane_req->src_h, plane_req->crtc_x, plane_req->crtc_y, plane_req->crtc_w, plane_req->crtc_h);
             goto out;
         }
     }
@@ -297,10 +291,8 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
     }
     plane_state->crtc = crtc;
     plane_state->fb   = fb;
-    plane_state->src  = (struct drm_rect) {(int32_t)plane_req->src_x, (int32_t)plane_req->src_y, (int32_t)(plane_req->src_x + plane_req->src_w),
-                                           (int32_t)(plane_req->src_y + plane_req->src_h)};
-    plane_state->dst  = (struct drm_rect) {plane_req->crtc_x, plane_req->crtc_y, plane_req->crtc_x + (int32_t)plane_req->crtc_w,
-                                           plane_req->crtc_y + (int32_t)plane_req->crtc_h};
+    plane_state->src  = (struct drm_rect) {(int32_t)plane_req->src_x, (int32_t)plane_req->src_y, (int32_t)(plane_req->src_x + plane_req->src_w), (int32_t)(plane_req->src_y + plane_req->src_h)};
+    plane_state->dst  = (struct drm_rect) {plane_req->crtc_x, plane_req->crtc_y, plane_req->crtc_x + (int32_t)plane_req->crtc_w, plane_req->crtc_y + (int32_t)plane_req->crtc_h};
     if (crtc) {
         crtc_state = drm_atomic_get_crtc_state(state, crtc);
         if (!crtc_state) {

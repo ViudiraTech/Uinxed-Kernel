@@ -227,9 +227,7 @@ static int module_name_valid(const char *name)
     size_t length = 0;
     for (; name[length]; length++) {
         char c = name[length];
-        if (length >= MODULE_NAME_LEN - 1
-            || !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
-            return 0;
+        if (length >= MODULE_NAME_LEN - 1 || !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) return 0;
     }
     return length != 0;
 }
@@ -630,12 +628,10 @@ static void unmap_module(module_internal_t *internal)
 static int map_sections(module_internal_t *internal, const module_elf_view_t *view)
 {
     uintptr_t kernel_base = KERNEL_BASE_ADDRESS;
-    if (kernel_address_request.response && kernel_address_request.response->virtual_base)
-        kernel_base = kernel_address_request.response->virtual_base;
+    if (kernel_address_request.response && kernel_address_request.response->virtual_base) kernel_base = kernel_address_request.response->virtual_base;
     uintptr_t search = kernel_base + MODULE_VADDR_OFFSET;
     uintptr_t base   = walk_page_tables_find_free(get_kernel_pagedir(), search, internal->mapped_size, PAGE_4K_SIZE);
-    if (!base || base < search || base - kernel_base > MODULE_VADDR_LIMIT || internal->mapped_size > MODULE_VADDR_LIMIT - (base - kernel_base))
-        return -ENOMEM;
+    if (!base || base < search || base - kernel_base > MODULE_VADDR_LIMIT || internal->mapped_size > MODULE_VADDR_LIMIT - (base - kernel_base)) return -ENOMEM;
 
     internal->base       = base;
     internal->page_count = internal->mapped_size / PAGE_4K_SIZE;
@@ -715,8 +711,7 @@ static int symbol_name_at(const module_elf_view_t *view, const Elf64_Shdr *symbo
     return EOK;
 }
 
-static int resolve_elf_symbol(module_internal_t *internal, const module_elf_view_t *view, const Elf64_Shdr *symbols, const Elf64_Sym *symbol,
-                              uint64_t *value_out)
+static int resolve_elf_symbol(module_internal_t *internal, const module_elf_view_t *view, const Elf64_Shdr *symbols, const Elf64_Sym *symbol, uint64_t *value_out)
 {
     const char *name = NULL;
     int         ret  = symbol_name_at(view, symbols, symbol, &name);
@@ -764,9 +759,7 @@ static int relocate_module(module_internal_t *internal, const module_elf_view_t 
             uint32_t type         = ELF64_R_TYPE(table[index].r_info);
             size_t   width        = relocation_width(type);
             size_t   symbol_index = ELF64_R_SYM(table[index].r_info);
-            if (width == SIZE_MAX || symbol_index >= symbol_count || table[index].r_offset > target->size
-                || width > target->size - table[index].r_offset)
-                return -ENOEXEC;
+            if (width == SIZE_MAX || symbol_index >= symbol_count || table[index].r_offset > target->size || width > target->size - table[index].r_offset) return -ENOEXEC;
             const Elf64_Sym *symbol = &symbol_table[symbol_index];
             if (ELF64_ST_TYPE(symbol->st_info) == STT_GNU_IFUNC || ELF64_ST_TYPE(symbol->st_info) == STT_TLS) return -ENOEXEC;
             uint64_t value = 0;
@@ -964,8 +957,7 @@ static int set_parameter(module_internal_t *internal, const struct kernel_param 
         case MODULE_PARAM_BOOL :
             if (streq(value, "1") || streq(value, "y") || streq(value, "Y") || streq(value, "yes") || streq(value, "true") || streq(value, "on"))
                 *(bool *)parameter->arg = true;
-            else if (streq(value, "0") || streq(value, "n") || streq(value, "N") || streq(value, "no") || streq(value, "false")
-                     || streq(value, "off"))
+            else if (streq(value, "0") || streq(value, "n") || streq(value, "N") || streq(value, "no") || streq(value, "false") || streq(value, "off"))
                 *(bool *)parameter->arg = false;
             else
                 return -EINVAL;
@@ -1409,10 +1401,8 @@ size_t module_format_proc(char *buffer, size_t size)
             users[0] = '-';
             users[1] = 0;
         }
-        int n = snprintf(buffer + written, size - written, "%s %zu %u %s %s 0x%llx\n", item->module->name,
-                         item->module->core_size + item->module->init_size, module_refcount(item->module), users,
-                         item->module->state == MODULE_STATE_LIVE ? "Live" : module_state_name(item->module->state),
-                         (unsigned long long)item->base);
+        int n = snprintf(buffer + written, size - written, "%s %zu %u %s %s 0x%llx\n", item->module->name, item->module->core_size + item->module->init_size, module_refcount(item->module), users,
+                         item->module->state == MODULE_STATE_LIVE ? "Live" : module_state_name(item->module->state), (unsigned long long)item->base);
         if (n < 0) break;
         if ((size_t)n >= size - written) {
             written = size - 1;

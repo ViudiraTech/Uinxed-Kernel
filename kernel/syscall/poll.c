@@ -163,8 +163,7 @@ static void poll_watches_release(poll_watch_t *watches, uint64_t nfds)
 }
 
 /* Create watches for every fd and subscribe to their event sources */
-static int poll_watches_create(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, bool invalid_is_error, poll_wait_context_t *context,
-                               poll_watch_t **result)
+static int poll_watches_create(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, bool invalid_is_error, poll_wait_context_t *context, poll_watch_t **result)
 {
     poll_watch_t *watches = nfds ? calloc((size_t)nfds, sizeof(*watches)) : NULL;
     if (nfds && !watches) {
@@ -249,8 +248,7 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
         }
 
         wait_queue_prepare(&context.wq);
-        if (__atomic_load_n(&context.generation, __ATOMIC_ACQUIRE) != generation || poll_signal_pending(proc)
-            || (!timeout->infinite && sched_ticks() >= timeout->deadline_tick)) {
+        if (__atomic_load_n(&context.generation, __ATOMIC_ACQUIRE) != generation || poll_signal_pending(proc) || (!timeout->infinite && sched_ticks() >= timeout->deadline_tick)) {
             wait_queue_wake_all(&context.wq);
         }
 
@@ -362,8 +360,7 @@ static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uin
     uint8_t out_write[SELECT_FD_SET_SIZE]  = {0};
     uint8_t out_except[SELECT_FD_SET_SIZE] = {0};
 
-    if ((readfds && copy_from_user(in_read, (const void *)readfds, set_size))
-        || (writefds && copy_from_user(in_write, (const void *)writefds, set_size))
+    if ((readfds && copy_from_user(in_read, (const void *)readfds, set_size)) || (writefds && copy_from_user(in_write, (const void *)writefds, set_size))
         || (exceptfds && copy_from_user(in_except, (const void *)exceptfds, set_size))) {
         plogk("poll: Select copy of fd sets from user failed (nfds=%lu)\n", (unsigned long)nfds);
         return -EFAULT;
@@ -441,8 +438,7 @@ int64_t sys_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t 
             return -EINVAL;
         }
     }
-    uint64_t duration
-        = timeout_ptr ? saturating_add_u64(saturating_mul_u64((uint64_t)tv.tv_sec, 1000000000ULL), (uint64_t)tv.tv_usec * 1000ULL) : 0;
+    uint64_t       duration = timeout_ptr ? saturating_add_u64(saturating_mul_u64((uint64_t)tv.tv_sec, 1000000000ULL), (uint64_t)tv.tv_usec * 1000ULL) : 0;
     poll_timeout_t timeout;
     poll_timeout_init(&timeout, timeout_ptr == 0, duration);
     int64_t ret = do_select(nfds, readfds, writefds, exceptfds, &timeout, NULL);

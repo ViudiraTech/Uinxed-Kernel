@@ -111,8 +111,7 @@ void init_frame(void)
     frame_allocator.metadata_frames = metadata_frame_count;
 
     log_buffer_write(&frame_log, "frame: Total physical frames = 0x%08x (%d KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
-    log_buffer_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08x (%d KiB)\n", frame_allocator.usable_frames,
-                     (frame_allocator.usable_frames * 4096) >> 10);
+    log_buffer_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08x (%d KiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
 }
 
 /* Allocate count frames aligned to 2^alignment_order pages. */
@@ -204,8 +203,7 @@ int frame_release_range(uint64_t addr, size_t count)
     for (size_t i = 0; i < count; i++) {
         buddy_page_t *page = &frame_allocator.buddy.pages[frame_index + i];
         if (page->state != BUDDY_PAGE_ALLOC_HEAD || page->order != 0 || !page->tag) {
-            plogk("frame: Invalid release at 0x%016llx (state %u, order %u, refs %u)\n", addr + i * PAGE_4K_SIZE, page->state, page->order,
-                  page->tag);
+            plogk("frame: Invalid release at 0x%016llx (state %u, order %u, refs %u)\n", addr + i * PAGE_4K_SIZE, page->state, page->order, page->tag);
             spin_unlock(&frame_allocator.lock);
             return -1;
         }

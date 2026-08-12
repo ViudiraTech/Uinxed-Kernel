@@ -41,8 +41,7 @@ static int satapi_find_slot(ahci_port_state_t *port)
 
 /* Issue an ATAPI packet command via AHCI */
 
-static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t *cdb, uint16_t cdb_len, uint8_t direction, int is_dma,
-                               uint64_t buf_phys, uint32_t byte_count)
+static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t *cdb, uint16_t cdb_len, uint8_t direction, int is_dma, uint64_t buf_phys, uint32_t byte_count)
 {
     volatile hba_cmd_header_t *hdr = &port->cmd_list[slot];
     volatile uint8_t          *p   = port->port_mmio;
@@ -141,8 +140,7 @@ void ahci_satapi_init(void)
             ahci_devices[i].sector_size = blk_sz;
         }
 
-        plogk("ahci-satapi: Registered optical drive sr%u on AHCI port %u, %u blocks, %u bytes per block.\n", sr_idx, hw_port, sdev->lba_size,
-              sdev->blk_size);
+        plogk("ahci-satapi: Registered optical drive sr%u on AHCI port %u, %u blocks, %u bytes per block.\n", sr_idx, hw_port, sdev->lba_size, sdev->blk_size);
 
         sr_idx++;
         ahci_satapi_device_count++;

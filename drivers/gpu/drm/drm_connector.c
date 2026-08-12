@@ -199,8 +199,7 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
             drm_mode_object_put(obj);
             return -ENOMEM;
         }
-        for (uint32_t i = 0; i < count; i++, node = node->next)
-            drm_convert_to_umode(&modes[i], container_of(node, struct drm_display_mode, head));
+        for (uint32_t i = 0; i < count; i++, node = node->next) drm_convert_to_umode(&modes[i], container_of(node, struct drm_display_mode, head));
         if (!conn_req->modes_ptr || copy_to_user((void *)(uintptr_t)conn_req->modes_ptr, modes, (size_t)count * sizeof(*modes))) {
             plogk("drm_connector: Failed to copy modes to user.\n");
             free(modes);
@@ -211,9 +210,7 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
     }
     if (user_encoders && encoder_count) {
         uint32_t count = user_encoders < (uint32_t)encoder_count ? user_encoders : (uint32_t)encoder_count;
-        if (!conn_req->encoders_ptr
-            || copy_to_user((void *)(uintptr_t)conn_req->encoders_ptr, connector->possible_encoders_ids,
-                            (size_t)count * sizeof(*connector->possible_encoders_ids))) {
+        if (!conn_req->encoders_ptr || copy_to_user((void *)(uintptr_t)conn_req->encoders_ptr, connector->possible_encoders_ids, (size_t)count * sizeof(*connector->possible_encoders_ids))) {
             plogk("drm_connector: Failed to copy encoders to user.\n");
             drm_mode_object_put(obj);
             return -EFAULT;
@@ -243,8 +240,7 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
             return -ENOMEM;
         }
         if (count
-            && (!conn_req->props_ptr || !conn_req->prop_values_ptr
-                || copy_to_user((void *)(uintptr_t)conn_req->props_ptr, ids, (size_t)count * sizeof(*ids))
+            && (!conn_req->props_ptr || !conn_req->prop_values_ptr || copy_to_user((void *)(uintptr_t)conn_req->props_ptr, ids, (size_t)count * sizeof(*ids))
                 || copy_to_user((void *)(uintptr_t)conn_req->prop_values_ptr, values, (size_t)count * sizeof(*values)))) {
             plogk("drm_connector: Failed to copy properties to user.\n");
             free(ids);

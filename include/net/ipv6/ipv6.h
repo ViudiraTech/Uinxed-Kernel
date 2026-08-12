@@ -64,13 +64,11 @@ typedef struct net_ipv6_packet {
 
 /* The input callback consumes packet on every return path. */
 typedef int (*ipv6_transport_input_t)(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
-typedef void (*ipv6_error_hook_t)(uint8_t protocol, const ipv6_address_t *source, const ipv6_address_t *destination, const void *transport,
-                                  size_t transport_length, int error, uint32_t mtu);
+typedef void (*ipv6_error_hook_t)(uint8_t protocol, const ipv6_address_t *source, const ipv6_address_t *destination, const void *transport, size_t transport_length, int error, uint32_t mtu);
 
 /* IPv6 packet parsing and pseudo-header checksum. */
 int      net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet);
-uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, const void *data,
-                                  size_t length);
+uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, const void *data, size_t length);
 
 /* Address classification and derived-address helpers. */
 int  ipv6_address_equal(const ipv6_address_t *left, const ipv6_address_t *right);
@@ -85,8 +83,7 @@ void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6]);
 
 /* IPv6 input, output, and routing. */
 int  ipv6_input(net_device_t *device, net_pbuf_t *packet);
-int  ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit,
-                 net_pbuf_t *packet);
+int  ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit, net_pbuf_t *packet);
 int  ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop);
 int  ipv6_set_transport_handler(uint8_t protocol, ipv6_transport_input_t handler);
 int  ipv6_set_error_hook(ipv6_error_hook_t hook);

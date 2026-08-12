@@ -145,8 +145,7 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
      * kernel.
      */
     task_t *fault_task = current_task();
-    if (!us && !reserved && !id && fault_task && fault_task->uaccess_fault_resume && faulting_address
-        && faulting_address < PROCESS_USER_STACK_TOP) {
+    if (!us && !reserved && !id && fault_task && fault_task->uaccess_fault_resume && faulting_address && faulting_address < PROCESS_USER_STACK_TOP) {
         process_t *proc = fault_task->process;
         if (!fault_task->uaccess_fault_nofault && proc && proc->user_page_dir) {
             if (present && rw && page_resolve_cow_fault(proc, faulting_address) == 0) return;
@@ -170,8 +169,8 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
             info.si_code   = present ? SEGV_ACCERR : SEGV_MAPERR;
             info.si_addr   = (void *)faulting_address;
 
-            plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n", proc->task->pid, proc->task->name,
-                  faulting_address, frame->rip, frame->rsp, frame->cs, error_code);
+            plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n", proc->task->pid, proc->task->name, faulting_address, frame->rip, frame->rsp, frame->cs,
+                  error_code);
 
             /*
              * A synchronous fault cannot be deferred.  If SIGSEGV is
@@ -232,8 +231,7 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
         return;
     }
 
-    panic("PAGE_FAULT-%s-Address: 0x%016llx RIP: 0x%016llx RSP: 0x%016llx error: 0x%llx", pf_msg, faulting_address, frame->rip, frame->rsp,
-          error_code);
+    panic("PAGE_FAULT-%s-Address: 0x%016llx RIP: 0x%016llx RSP: 0x%016llx error: 0x%llx", pf_msg, faulting_address, frame->rip, frame->rsp, error_code);
 }
 
 /* Determine whether the page table entry maps a huge page */
@@ -781,8 +779,7 @@ static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64
         if (require_empty || (old_value & PAGE_4K_MASK) != (frame & PAGE_4K_MASK)) goto rollback;
         if (old_value & PTE_SHARED) flags |= PTE_SHARED;
         if ((old_value & PTE_COW) && (flags & PTE_WRITEABLE) && !(flags & PTE_SHARED)) flags = (flags & ~PTE_WRITEABLE) | PTE_COW;
-        if ((flags & PTE_WRITEABLE) && !(flags & PTE_SHARED) && frame_refcount(frame & PAGE_4K_MASK) > 1)
-            flags = (flags & ~PTE_WRITEABLE) | PTE_COW;
+        if ((flags & PTE_WRITEABLE) && !(flags & PTE_SHARED) && frame_refcount(frame & PAGE_4K_MASK) > 1) flags = (flags & ~PTE_WRITEABLE) | PTE_COW;
     }
     l1_table->entries[l1_index].value = (frame & PAGE_4K_MASK) | flags;
     flush_tlb(addr);
@@ -816,8 +813,7 @@ int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write,
     if (!directory || !directory->table) return 0;
     spin_lock(&directory->lock);
     cow_fault_leaf_t leaf;
-    int              accessible = find_cow_leaf(directory, addr, &leaf) == 0 && (leaf.value & PTE_USER)
-                     && (!write || (leaf.value & (PTE_WRITEABLE | PTE_COW))) && (!exec || !(leaf.value & PTE_NO_EXECUTE));
+    int accessible = find_cow_leaf(directory, addr, &leaf) == 0 && (leaf.value & PTE_USER) && (!write || (leaf.value & (PTE_WRITEABLE | PTE_COW))) && (!exec || !(leaf.value & PTE_NO_EXECUTE));
     spin_unlock(&directory->lock);
     return accessible;
 }

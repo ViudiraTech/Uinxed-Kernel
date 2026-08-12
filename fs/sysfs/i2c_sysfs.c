@@ -257,8 +257,7 @@ int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
         .file_ioctl = i2c_dev_ioctl,
         .ctx        = adap,
     };
-    (void)devtmpfs_register_char_device(node_path, MKDEV(I2C_DEV_MAJOR, (uint32_t)adap->nr), MKDEV(I2C_DEV_MAJOR, (uint32_t)adap->nr),
-                                        file_stream, &ops);
+    (void)devtmpfs_register_char_device(node_path, MKDEV(I2C_DEV_MAJOR, (uint32_t)adap->nr), MKDEV(I2C_DEV_MAJOR, (uint32_t)adap->nr), file_stream, &ops);
     return EOK;
 #endif
 }

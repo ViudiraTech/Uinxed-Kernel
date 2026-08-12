@@ -997,8 +997,7 @@ typedef struct {
 #endif
 
 #ifndef _IOC
-#    define _IOC(dir, type, nr, size) \
-        (((dir) << _IOC_DIRSHIFT) | ((type) << _IOC_TYPESHIFT) | ((nr) << _IOC_NRSHIFT) | ((size) << _IOC_SIZESHIFT))
+#    define _IOC(dir, type, nr, size) (((dir) << _IOC_DIRSHIFT) | ((type) << _IOC_TYPESHIFT) | ((nr) << _IOC_NRSHIFT) | ((size) << _IOC_SIZESHIFT))
 #endif
 
 #ifndef _IO

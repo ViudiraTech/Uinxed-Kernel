@@ -400,8 +400,8 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
 
     drm_connector_register(&pipeline_connector);
 
-    DRM_INFO("KMS pipeline: CRTC-%u + primary plane-%u + encoder-%u + connector-%u (%u modes)\n", pipeline_crtc.base.id,
-             pipeline_primary_plane.base.id, pipeline_encoder.base.id, pipeline_connector.base.id, sizeof(dummy_modes) / sizeof(dummy_modes[0]));
+    DRM_INFO("KMS pipeline: CRTC-%u + primary plane-%u + encoder-%u + connector-%u (%u modes)\n", pipeline_crtc.base.id, pipeline_primary_plane.base.id, pipeline_encoder.base.id,
+             pipeline_connector.base.id, sizeof(dummy_modes) / sizeof(dummy_modes[0]));
 
     return 0;
 }

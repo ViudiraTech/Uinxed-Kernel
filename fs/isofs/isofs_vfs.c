@@ -42,8 +42,7 @@ static int isofs_rr_read_block(void *ctx, uint32_t block, void *buf, uint32_t si
 static int isofs_read_bytes(isofs_mount_t *mnt, uint64_t offset, void *buf, uint32_t size)
 {
     int status = blockdev_read_bytes(&mnt->device, offset, buf, size);
-    if (status != EOK)
-        plogk("isofs: Drive %u: read failed at byte %llu (size %u): %d\n", mnt->device.drive, (unsigned long long)offset, size, status);
+    if (status != EOK) plogk("isofs: Drive %u: read failed at byte %llu (size %u): %d\n", mnt->device.drive, (unsigned long long)offset, size, status);
     return status;
 }
 
@@ -78,8 +77,7 @@ static void isofs_handle_destroy(isofs_handle_t *h)
 /* Scan directory records to find a child by name */
 
 /* Find a child record by name, returning a copy of the record. */
-static iso_directory_record_t *isofs_lookup_record(isofs_mount_t *mnt, uint32_t dir_block, uint64_t dir_size, const char *name,
-                                                   uint32_t *out_block, uint32_t *out_offset)
+static iso_directory_record_t *isofs_lookup_record(isofs_mount_t *mnt, uint32_t dir_block, uint64_t dir_size, const char *name, uint32_t *out_block, uint32_t *out_offset)
 {
     uint8_t *buf;
     uint32_t block_size = mnt->block_size;

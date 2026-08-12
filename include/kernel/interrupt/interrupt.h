@@ -15,10 +15,8 @@
 #include <libs/std/stdint.h>
 
 #if defined(__clang__)
-#    define INTERRUPT_BEGIN                                                                          \
-        _Pragma("clang diagnostic push") _Pragma("clang diagnostic ignored \"-Wexcessive-regsave\"") \
-            __attribute__((interrupt, target("general-regs-only")))
-#    define INTERRUPT_END _Pragma("clang diagnostic pop")
+#    define INTERRUPT_BEGIN _Pragma("clang diagnostic push") _Pragma("clang diagnostic ignored \"-Wexcessive-regsave\"") __attribute__((interrupt, target("general-regs-only")))
+#    define INTERRUPT_END   _Pragma("clang diagnostic pop")
 #elif defined(__GNUC__)
 #    define INTERRUPT_BEGIN __attribute__((interrupt, target("general-regs-only")))
 #    define INTERRUPT_END

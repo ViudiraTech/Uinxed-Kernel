@@ -371,8 +371,8 @@ void init_ahci(void)
 
     hba_mmio = (volatile uint8_t *)bar.address;
 
-    plogk("ahci: Controller found at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", cache->device->domain, cache->device->bus,
-          cache->device->slot, cache->device->func, cache->vendor_id, cache->device_id);
+    plogk("ahci: Controller found at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", cache->device->domain, cache->device->bus, cache->device->slot, cache->device->func, cache->vendor_id,
+          cache->device_id);
 
     /* BIOS/OS handoff */
     uint32_t cap2 = ahci_read32(hba_mmio, HOST_CAP2);

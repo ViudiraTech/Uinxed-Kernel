@@ -154,8 +154,8 @@ void process_debug_dump_tasks(void)
         for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
             task_t *task = rb_entry(node, task_t, thread_node);
             if (task->state == TASK_ZOMBIE) continue;
-            plogk("task-dump: pid=%llu name=%s state=%u cpu=%u on_cpu=%llu wait=%p wake=%u tick=%llu\n", task->pid, task->name, task->state,
-                  task->cpu_id, task->on_cpu, task->wait_queue, task->wake_reason, task->wake_tick);
+            plogk("task-dump: pid=%llu name=%s state=%u cpu=%u on_cpu=%llu wait=%p wake=%u tick=%llu\n", task->pid, task->name, task->state, task->cpu_id, task->on_cpu, task->wait_queue,
+                  task->wake_reason, task->wake_tick);
         }
     }
     plogk("task-dump: End\n");
@@ -501,9 +501,7 @@ vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
 
 int vm_area_insert(process_t *proc, vm_area_t *vma)
 {
-    if (!proc || !vma || vma->start >= vma->end || (vma->start & (PAGE_4K_SIZE - 1)) || (vma->end & (PAGE_4K_SIZE - 1))
-        || vma->end > PROCESS_USER_STACK_TOP)
-        return -EINVAL;
+    if (!proc || !vma || vma->start >= vma->end || (vma->start & (PAGE_4K_SIZE - 1)) || (vma->end & (PAGE_4K_SIZE - 1)) || vma->end > PROCESS_USER_STACK_TOP) return -EINVAL;
 
     spin_lock(&proc->mmap_lock);
     vm_area_t **link = &proc->mmap_list;
@@ -1747,8 +1745,7 @@ static void process_child_wait_event(process_t *child, int stop_signal, bool con
     if (published) wait_queue_wake_all(&parent->child_wait);
     spin_unlock(&parent->child_wait.lock);
 
-    if (published)
-        signal_notify_child_status(parent, (pid_t)child->task->tgid, continued ? SIGCONT : stop_signal, continued ? CLD_CONTINUED : CLD_STOPPED);
+    if (published) signal_notify_child_status(parent, (pid_t)child->task->tgid, continued ? SIGCONT : stop_signal, continued ? CLD_CONTINUED : CLD_STOPPED);
     process_put(parent);
 }
 
@@ -2222,8 +2219,7 @@ process_t *process_fork_from_syscall(syscall_frame_t *frame)
     return child;
 }
 
-task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid,
-                             uintptr_t child_clear_tid, uintptr_t tls, int *error)
+task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid, uintptr_t child_clear_tid, uintptr_t tls, int *error)
 {
     task_t    *current = current_task();
     process_t *proc    = current ? current->process : NULL;
@@ -2233,8 +2229,7 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
         return NULL;
     }
     if (!user_access_ok((void *)(child_stack - 1), 1, 1) || (parent_tid && !user_access_ok((void *)parent_tid, sizeof(uint32_t), 1))
-        || (child_set_tid && !user_access_ok((void *)child_set_tid, sizeof(uint32_t), 1))
-        || (child_clear_tid && !user_access_ok((void *)child_clear_tid, sizeof(uint32_t), 1))) {
+        || (child_set_tid && !user_access_ok((void *)child_set_tid, sizeof(uint32_t), 1)) || (child_clear_tid && !user_access_ok((void *)child_clear_tid, sizeof(uint32_t), 1))) {
         if (error) *error = -EFAULT;
         return NULL;
     }
@@ -2255,8 +2250,7 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     }
 
     uint32_t tid = (uint32_t)child->pid;
-    if ((child_set_tid && copy_to_user((void *)child_set_tid, &tid, sizeof(tid)))
-        || (parent_tid && copy_to_user((void *)parent_tid, &tid, sizeof(tid)))) {
+    if ((child_set_tid && copy_to_user((void *)child_set_tid, &tid, sizeof(tid))) || (parent_tid && copy_to_user((void *)parent_tid, &tid, sizeof(tid)))) {
         task_free(child);
         if (error) *error = -EFAULT;
         return NULL;
@@ -2355,8 +2349,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
     for (; allocated < pages; allocated++) {
         frames[allocated] = alloc_frames(1);
         if (!frames[allocated]) {
-            plogk("process: %s: mmap frame allocation failed (%lu/%lu pages at %#lx)\n", proc->name, (unsigned long)allocated,
-                  (unsigned long)pages, (unsigned long)addr);
+            plogk("process: %s: mmap frame allocation failed (%lu/%lu pages at %#lx)\n", proc->name, (unsigned long)allocated, (unsigned long)pages, (unsigned long)addr);
             goto rollback_frames;
         }
         memset(phys_to_virt(frames[allocated]), 0, PAGE_4K_SIZE);
@@ -2383,8 +2376,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
     for (; mapped < pages; mapped++)
         if (page_map_new_to(proc->user_page_dir, addr + mapped * PAGE_4K_SIZE, frames[mapped], pte_flags) < 0) break;
     if (mapped != pages) {
-        plogk("process: %s: mmap page map failed at %#lx (%lu/%lu pages)\n", proc->name, (unsigned long)addr, (unsigned long)mapped,
-              (unsigned long)pages);
+        plogk("process: %s: mmap page map failed at %#lx (%lu/%lu pages)\n", proc->name, (unsigned long)addr, (unsigned long)mapped, (unsigned long)pages);
         for (size_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, addr + i * PAGE_4K_SIZE);
         spin_unlock(&proc->mmap_lock);
         allocated = pages;

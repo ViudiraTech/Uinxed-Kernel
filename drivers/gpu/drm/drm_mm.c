@@ -121,8 +121,7 @@ int drm_mm_insert_node(struct drm_mm *mm, struct drm_mm_node *node, uint64_t siz
  * by @mode.  Returns 0 on success, -ENOSPC if no hole is found, or -EINVAL
  * on invalid arguments.
  */
-int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uint64_t size, uint64_t alignment, uint64_t range_start,
-                                uint64_t range_end, enum drm_mm_insert_mode mode)
+int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uint64_t size, uint64_t alignment, uint64_t range_start, uint64_t range_end, enum drm_mm_insert_mode mode)
 {
     struct drm_mm_node *prev, *entry;
     uint64_t            hole_start, hole_end, aligned;
@@ -202,8 +201,8 @@ found_hole:
     }
 
     spin_unlock(&mm->lock);
-    plogk("drm_mm: Insert: no hole for size %llu alignment %llu in range [0x%llx, 0x%llx)\n", (unsigned long long)size,
-          (unsigned long long)alignment, (unsigned long long)range_start, (unsigned long long)range_end);
+    plogk("drm_mm: Insert: no hole for size %llu alignment %llu in range [0x%llx, 0x%llx)\n", (unsigned long long)size, (unsigned long long)alignment, (unsigned long long)range_start,
+          (unsigned long long)range_end);
     return -ENOSPC;
 }
 
@@ -255,8 +254,7 @@ void drm_mm_init_scan(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size
 }
 
 /* Initialize a scan constrained to [range_start, range_end). */
-void drm_mm_init_scan_with_range(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment, uint64_t range_start,
-                                 uint64_t range_end, enum drm_mm_insert_mode mode)
+void drm_mm_init_scan_with_range(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment, uint64_t range_start, uint64_t range_end, enum drm_mm_insert_mode mode)
 {
     scan->size        = size;
     scan->alignment   = alignment;

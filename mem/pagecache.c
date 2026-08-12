@@ -296,8 +296,7 @@ static int pc_load_locked(pagecache_page_t *page)
     int64_t result = count ? mapping->ops.read(mapping->context, page->data, start, count) : 0;
     pc_stat_inc(&pagecache.stats.reads);
     if (result < 0) {
-        plogk("pagecache: Read failed (page %llu, offset %llu, count %zu): %lld\n", (unsigned long long)page->index, (unsigned long long)start,
-              count, (long long)result);
+        plogk("pagecache: Read failed (page %llu, offset %llu, count %zu): %lld\n", (unsigned long long)page->index, (unsigned long long)start, count, (long long)result);
         page->flags |= PC_PAGE_ERROR;
         __atomic_store_n(&mapping->error, (int)result, __ATOMIC_RELEASE);
         return (int)result;
@@ -331,8 +330,7 @@ static int pc_writeback_page_locked(pagecache_page_t *page)
     page->flags &= ~PC_PAGE_WRITEBACK;
     pc_stat_dec(&pagecache.stats.writeback);
     if (result < 0 || (size_t)result != count) {
-        plogk("pagecache: Writeback failed for page %llu (offset %llu, count %zu, result %lld)\n", (unsigned long long)page->index,
-              (unsigned long long)start, count, (long long)result);
+        plogk("pagecache: Writeback failed for page %llu (offset %llu, count %zu, result %lld)\n", (unsigned long long)page->index, (unsigned long long)start, count, (long long)result);
         int error = result < 0 ? (int)result : -EIO;
         page->flags |= PC_PAGE_ERROR;
         __atomic_store_n(&mapping->error, error, __ATOMIC_RELEASE);
@@ -882,8 +880,7 @@ int pagecache_truncate(pagecache_mapping_t *mapping, uint64_t size)
 
     if (size < old_size) {
         uint64_t first_dead = (size + PAGECACHE_PAGE_SIZE - 1) / PAGECACHE_PAGE_SIZE;
-        if (first_dead <= UINT64_MAX / PAGECACHE_PAGE_SIZE)
-            (void)pagecache_invalidate(mapping, first_dead * PAGECACHE_PAGE_SIZE, UINT64_MAX, PAGECACHE_INVALIDATE_DISCARD_DIRTY);
+        if (first_dead <= UINT64_MAX / PAGECACHE_PAGE_SIZE) (void)pagecache_invalidate(mapping, first_dead * PAGECACHE_PAGE_SIZE, UINT64_MAX, PAGECACHE_INVALIDATE_DISCARD_DIRTY);
         if (size % PAGECACHE_PAGE_SIZE) {
             pagecache_page_t *page = pagecache_get_page(mapping, size / PAGECACHE_PAGE_SIZE, 0);
             if (page) {

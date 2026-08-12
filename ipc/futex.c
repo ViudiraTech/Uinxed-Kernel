@@ -1251,8 +1251,7 @@ static futex_entry_t *futex2_find_key(futex_bucket_t *bucket, uintptr_t key)
  * to nr_requeue remaining waiters to key2.  Moved waiters keep their own
  * mask: each lands in the (key2, mask) queue.
  */
-static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1, uint64_t uaddr2, unsigned int size_code2, int nr_wake, int nr_requeue,
-                               uint64_t cmpval)
+static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1, uint64_t uaddr2, unsigned int size_code2, int nr_wake, int nr_requeue, uint64_t cmpval)
 {
     uintptr_t       key1    = futex2_key(uaddr, size_code1);
     uintptr_t       key2    = futex2_key(uaddr2, size_code2);

@@ -150,8 +150,7 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
 static size_t video_fb_size(const video_info_t *info)
 {
     size_t bytes_per_pixel = (info->bpp + 7U) / 8U;
-    if (!bytes_per_pixel || !info->height || info->stride > SIZE_MAX / info->height || info->stride * info->height > SIZE_MAX / bytes_per_pixel)
-        return 0;
+    if (!bytes_per_pixel || !info->height || info->stride > SIZE_MAX / info->height || info->stride * info->height > SIZE_MAX / bytes_per_pixel) return 0;
     return (size_t)(info->stride * info->height * bytes_per_pixel);
 }
 
@@ -200,14 +199,11 @@ static int video_fb_validate_mode(const video_info_t *info, const fbdev_var_scre
     uint32_t               activate = requested->activate & FB_ACTIVATE_MASK;
 
     if (activate != FB_ACTIVATE_NOW && activate != FB_ACTIVATE_TEST) return -EINVAL;
-    if (requested->xres != current.xres || requested->yres != current.yres || requested->xres_virtual != current.xres_virtual
-        || requested->yres_virtual != current.yres_virtual || requested->bits_per_pixel != current.bits_per_pixel || requested->xoffset
-        || requested->yoffset || requested->grayscale || requested->nonstd || requested->red.length != current.red.length
-        || requested->green.length != current.green.length || requested->blue.length != current.blue.length
-        || requested->right_margin != current.right_margin || requested->hsync_len != current.hsync_len
-        || requested->left_margin != current.left_margin || requested->lower_margin != current.lower_margin
-        || requested->vsync_len != current.vsync_len || requested->upper_margin != current.upper_margin || requested->sync != current.sync
-        || (requested->vmode & FB_VMODE_MASK) != current.vmode)
+    if (requested->xres != current.xres || requested->yres != current.yres || requested->xres_virtual != current.xres_virtual || requested->yres_virtual != current.yres_virtual
+        || requested->bits_per_pixel != current.bits_per_pixel || requested->xoffset || requested->yoffset || requested->grayscale || requested->nonstd || requested->red.length != current.red.length
+        || requested->green.length != current.green.length || requested->blue.length != current.blue.length || requested->right_margin != current.right_margin
+        || requested->hsync_len != current.hsync_len || requested->left_margin != current.left_margin || requested->lower_margin != current.lower_margin || requested->vsync_len != current.vsync_len
+        || requested->upper_margin != current.upper_margin || requested->sync != current.sync || (requested->vmode & FB_VMODE_MASK) != current.vmode)
         return -EINVAL;
     return EOK;
 }
@@ -284,8 +280,8 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             if (cmap.start > 256 || cmap.len > 256 - cmap.start || (cmap.len && (!cmap.red || !cmap.green || !cmap.blue))) return -EINVAL;
             size_t bytes = (size_t)cmap.len * sizeof(uint16_t);
             if (bytes
-                && (copy_from_user(scratch, cmap.red, bytes) || copy_from_user(scratch, cmap.green, bytes)
-                    || copy_from_user(scratch, cmap.blue, bytes) || (cmap.transp && copy_from_user(scratch, cmap.transp, bytes))))
+                && (copy_from_user(scratch, cmap.red, bytes) || copy_from_user(scratch, cmap.green, bytes) || copy_from_user(scratch, cmap.blue, bytes)
+                    || (cmap.transp && copy_from_user(scratch, cmap.transp, bytes))))
                 return -EFAULT;
             return EOK;
         }
@@ -606,8 +602,7 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
         if (old_stride == stride) {
             memcpy(buffer, old_buffer, (size_t)stride * h * sizeof(uint32_t));
         } else {
-            for (uint32_t y = 0; y < h; y++)
-                memcpy(buffer + (size_t)y * stride, old_buffer + (size_t)y * old_stride, (size_t)w * sizeof(uint32_t));
+            for (uint32_t y = 0; y < h; y++) memcpy(buffer + (size_t)y * stride, old_buffer + (size_t)y * old_stride, (size_t)w * sizeof(uint32_t));
         }
     } else {
         /* Resolution changed: rebuild the display from scratch. */

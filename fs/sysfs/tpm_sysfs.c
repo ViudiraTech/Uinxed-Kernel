@@ -107,14 +107,7 @@ static DEVICE_ATTR(pcrs, 0444, pcrs_show, NULL);
 static DEVICE_ATTR(timeouts, 0444, timeouts_show, NULL);
 
 static struct attribute *tpm_dev_attributes[] = {
-    &dev_attr_tpm_version_major.attr,
-    &dev_attr_tpm_version_minor.attr,
-    &dev_attr_tpm_fwver.attr,
-    &dev_attr_description.attr,
-    &dev_attr_caps.attr,
-    &dev_attr_pcrs.attr,
-    &dev_attr_timeouts.attr,
-    NULL,
+    &dev_attr_tpm_version_major.attr, &dev_attr_tpm_version_minor.attr, &dev_attr_tpm_fwver.attr, &dev_attr_description.attr, &dev_attr_caps.attr, &dev_attr_pcrs.attr, &dev_attr_timeouts.attr, NULL,
 };
 
 static struct attribute_group tpm_dev_group = {

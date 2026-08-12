@@ -642,8 +642,7 @@ int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
     }
     spin_unlock_irqrestore(&msi_lock, rflags);
     if (found < 0) {
-        plogk("pci: %04x:%02x:%02x.%01x: no contiguous MSI vectors available for %d vector(s).\n", dev->device->domain, dev->device->bus,
-              dev->device->slot, dev->device->func, allocated_nvec);
+        plogk("pci: %04x:%02x:%02x.%01x: no contiguous MSI vectors available for %d vector(s).\n", dev->device->domain, dev->device->bus, dev->device->slot, dev->device->func, allocated_nvec);
         return -1;
     }
 
@@ -734,24 +733,21 @@ static int msix_map_table(pci_device_cache_t *dev, int nvec)
     int      bir          = table_info & PCI_MSIX_TABLE_BIR;
     uint32_t table_offset = table_info & PCI_MSIX_TABLE_OFFSET;
     if (bir >= 6) {
-        plogk("pci: %04x:%02x:%02x.%01x: MSI-X table BIR %d out of range.\n", dev->device->domain, dev->device->bus, dev->device->slot,
-              dev->device->func, bir);
+        plogk("pci: %04x:%02x:%02x.%01x: MSI-X table BIR %d out of range.\n", dev->device->domain, dev->device->bus, dev->device->slot, dev->device->func, bir);
         return -1;
     }
 
     base_address_register_t bar = get_base_address_register(dev, bir);
     if (!bar.address || bar.type != mem_mapping) {
-        plogk("pci: %04x:%02x:%02x.%01x: MSI-X BAR %d is not a memory BAR.\n", dev->device->domain, dev->device->bus, dev->device->slot,
-              dev->device->func, bir);
+        plogk("pci: %04x:%02x:%02x.%01x: MSI-X BAR %d is not a memory BAR.\n", dev->device->domain, dev->device->bus, dev->device->slot, dev->device->func, bir);
         return -1;
     }
 
     uint64_t bar_size   = bar.size & ~BAR_64BIT_FLAG;
     uint64_t table_size = (uint64_t)nvec * PCI_MSIX_ENTRY_SIZE;
     if (table_offset >= bar_size || table_size > bar_size - table_offset) {
-        plogk("pci: %04x:%02x:%02x.%01x: MSI-X table (offset 0x%x, %llu bytes) does not fit BAR %d (size 0x%llx)\n", dev->device->domain,
-              dev->device->bus, dev->device->slot, dev->device->func, table_offset, (unsigned long long)table_size, bir,
-              (unsigned long long)bar_size);
+        plogk("pci: %04x:%02x:%02x.%01x: MSI-X table (offset 0x%x, %llu bytes) does not fit BAR %d (size 0x%llx)\n", dev->device->domain, dev->device->bus, dev->device->slot, dev->device->func,
+              table_offset, (unsigned long long)table_size, bir, (unsigned long long)bar_size);
         return -1;
     }
 
@@ -789,8 +785,7 @@ int pci_enable_msix(pci_device_cache_t *dev, int nvec)
     for (int i = 0; i < nvec; i++) {
         dev->msi.msix_vectors[i] = msi_vector_alloc(1);
         if (dev->msi.msix_vectors[i] < 0) {
-            plogk("pci: %04x:%02x:%02x.%01x: MSI-X vector allocation failed at index %d\n", dev->device->domain, dev->device->bus,
-                  dev->device->slot, dev->device->func, i);
+            plogk("pci: %04x:%02x:%02x.%01x: MSI-X vector allocation failed at index %d\n", dev->device->domain, dev->device->bus, dev->device->slot, dev->device->func, i);
             for (int j = 0; j < i; j++) msi_vector_free(dev->msi.msix_vectors[j]);
             dev->msi.msix_table = 0;
             return -1;
@@ -879,7 +874,7 @@ int pci_irq_vector(pci_device_cache_t *dev, int index)
 void pci_config(pci_device_cache_t *cache, uint32_t addr)
 {
     pci_device_t *device = cache->device;
-    uint32_t      cmd = 0x80000000 | (addr & 0xfc) | ((device->bus & 0xff) << 16) | ((device->slot & 0x1f) << 11) | ((device->func & 0x07) << 8);
+    uint32_t      cmd    = 0x80000000 | (addr & 0xfc) | ((device->bus & 0xff) << 16) | ((device->slot & 0x1f) << 11) | ((device->func & 0x07) << 8);
     spin_lock(&pci_legacy_lock);
     outl(PCI_COMMAND_PORT, cmd);
     spin_unlock(&pci_legacy_lock);
@@ -1223,8 +1218,8 @@ void pci_init(void)
             msi_str = " [MSI]";
         else if (cache->msi.msix_cap)
             msi_str = " [MSI-X]";
-        plogk("pci: %04x:%02x:%02x.%01x: [0x%04x:0x%04x] class=0x%06x, %s%s\n", device->domain, device->bus, device->slot, device->func,
-              cache->vendor_id, cache->device_id, cache->class_code, pci_classname(cache->class_code), msi_str);
+        plogk("pci: %04x:%02x:%02x.%01x: [0x%04x:0x%04x] class=0x%06x, %s%s\n", device->domain, device->bus, device->slot, device->func, cache->vendor_id, cache->device_id, cache->class_code,
+              pci_classname(cache->class_code), msi_str);
         cache = cache->next;
     }
     plogk("pci: Found %lu devices.\n", pci_cache.devices_count);

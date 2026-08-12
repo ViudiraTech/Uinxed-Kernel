@@ -67,9 +67,9 @@ typedef struct syscall_frame syscall_frame_t;
 #define PTRACE_O_TRACESECCOMP    0x00000080
 #define PTRACE_O_EXITKILL        0x00100000
 #define PTRACE_O_SUSPEND_SECCOMP 0x00200000
-#define PTRACE_O_MASK                                                                                                                      \
-    (PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC | PTRACE_O_TRACEVFORKDONE \
-     | PTRACE_O_TRACEEXIT | PTRACE_O_TRACESECCOMP | PTRACE_O_EXITKILL | PTRACE_O_SUSPEND_SECCOMP)
+#define PTRACE_O_MASK                                                                                                                                                                   \
+    (PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC | PTRACE_O_TRACEVFORKDONE | PTRACE_O_TRACEEXIT | PTRACE_O_TRACESECCOMP \
+     | PTRACE_O_EXITKILL | PTRACE_O_SUSPEND_SECCOMP)
 
 #define PTRACE_EVENT_FORK       1
 #define PTRACE_EVENT_VFORK      2

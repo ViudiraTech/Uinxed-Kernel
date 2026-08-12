@@ -195,8 +195,8 @@ int dhcp_parse_reply(const void *data, size_t length, uint32_t expected_xid, con
 {
     if (!data || !hardware_address || !reply || length < DHCP_FIXED_LENGTH) return -EBADMSG;
     const uint8_t *packet = data;
-    if (packet[0] != 2 || packet[1] != 1 || packet[2] != 6 || net_read_be32(packet + 4) != expected_xid
-        || memcmp(packet + 28, hardware_address, 6) != 0 || net_read_be32(packet + 236) != DHCP_MAGIC_COOKIE)
+    if (packet[0] != 2 || packet[1] != 1 || packet[2] != 6 || net_read_be32(packet + 4) != expected_xid || memcmp(packet + 28, hardware_address, 6) != 0
+        || net_read_be32(packet + 236) != DHCP_MAGIC_COOKIE)
         return -EBADMSG;
     memset(reply, 0, sizeof(*reply));
     reply->offered_address = net_read_be32(packet + 16);
@@ -238,9 +238,8 @@ static int dhcp_send(dhcp_client_t *client, uint8_t message_type, int broadcast)
         net_write_be32(address, client->server_identifier);
         offset = dhcp_add_option(packet, offset, DHCP_OPT_SERVER_ID, address, sizeof(address));
     }
-    static const uint8_t parameters[]
-        = {DHCP_OPT_NETMASK, DHCP_OPT_ROUTER, DHCP_OPT_DNS, DHCP_OPT_LEASE, DHCP_OPT_SERVER_ID, DHCP_OPT_RENEWAL, DHCP_OPT_REBINDING};
-    offset = dhcp_add_option(packet, offset, DHCP_OPT_PARAMETER_LIST, parameters, sizeof(parameters));
+    static const uint8_t parameters[] = {DHCP_OPT_NETMASK, DHCP_OPT_ROUTER, DHCP_OPT_DNS, DHCP_OPT_LEASE, DHCP_OPT_SERVER_ID, DHCP_OPT_RENEWAL, DHCP_OPT_REBINDING};
+    offset                            = dhcp_add_option(packet, offset, DHCP_OPT_PARAMETER_LIST, parameters, sizeof(parameters));
     uint8_t maximum[2];
     net_write_be16(maximum, DHCP_PACKET_CAPACITY);
     offset           = dhcp_add_option(packet, offset, DHCP_OPT_MAX_MESSAGE, maximum, sizeof(maximum));
@@ -295,8 +294,8 @@ static int dhcp_apply_lease(dhcp_client_t *client, const dhcp_reply_t *reply, ui
     uint32_t gateway = reply->has_gateway ? reply->gateway : client->device->ipv4_gateway;
     if (!netmask) netmask = dhcp_default_netmask(address);
     if (!address || netdev_configure_ipv4(client->device, address, netmask, gateway)) {
-        plogk("dhcp: %s: Lease apply failed (address=%u.%u.%u.%u)\n", client->device->name, (unsigned)(address >> 24) & 0xff,
-              (unsigned)(address >> 16) & 0xff, (unsigned)(address >> 8) & 0xff, (unsigned)address & 0xff);
+        plogk("dhcp: %s: Lease apply failed (address=%u.%u.%u.%u)\n", client->device->name, (unsigned)(address >> 24) & 0xff, (unsigned)(address >> 16) & 0xff, (unsigned)(address >> 8) & 0xff,
+              (unsigned)address & 0xff);
         return -EINVAL;
     }
     if (reply->has_dns) netdev_configure_dns(client->device, reply->dns, reply->dns_count);
@@ -351,15 +350,12 @@ static void dhcp_receive_replies(uint64_t now)
             dhcp_send(client, DHCP_REQUEST, 1);
             client->next_action = dhcp_deadline(now, dhcp_retry_delay(client->retries));
             dhcp_count_retry(client);
-        } else if (reply.message_type == DHCP_ACK
-                   && (client->state == DHCP_STATE_REQUESTING || client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING)
+        } else if (reply.message_type == DHCP_ACK && (client->state == DHCP_STATE_REQUESTING || client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING)
                    && (client->state != DHCP_STATE_REQUESTING || reply.server_identifier == client->server_identifier)
                    && (client->state != DHCP_STATE_REQUESTING || reply.offered_address == client->offered_address)) {
             dhcp_apply_lease(client, &reply, now);
-        } else if (reply.message_type == DHCP_NAK
-                   && (client->state == DHCP_STATE_REQUESTING || client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING)
-                   && (client->state != DHCP_STATE_REQUESTING || !reply.server_identifier
-                       || reply.server_identifier == client->server_identifier)) {
+        } else if (reply.message_type == DHCP_NAK && (client->state == DHCP_STATE_REQUESTING || client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING)
+                   && (client->state != DHCP_STATE_REQUESTING || !reply.server_identifier || reply.server_identifier == client->server_identifier)) {
             plogk("dhcp: %s: Server NAK, restarting.\n", client->device->name);
             dhcp_schedule_restart(client, now, DHCP_INITIAL_RETRY);
         }

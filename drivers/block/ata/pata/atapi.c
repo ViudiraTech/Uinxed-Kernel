@@ -420,17 +420,7 @@ uint8_t atapi_read(uint8_t drive, uint32_t lba, uint8_t num_sectors, uint16_t *b
 
     /* Build READ(12) CDB */
     uint8_t cdb[ATAPI_CDB_LEN] = {
-        GPCMD_READ_12,
-        0,
-        (lba >> 24) & 0xff,
-        (lba >> 16) & 0xff,
-        (lba >> 8) & 0xff,
-        lba & 0xff,
-        0,
-        0,
-        (num_sectors >> 24) & 0xff,
-        (num_sectors >> 16) & 0xff,
-        (num_sectors >> 8) & 0xff,
+        GPCMD_READ_12,      0, (lba >> 24) & 0xff, (lba >> 16) & 0xff, (lba >> 8) & 0xff, lba & 0xff, 0, 0, (num_sectors >> 24) & 0xff, (num_sectors >> 16) & 0xff, (num_sectors >> 8) & 0xff,
         num_sectors & 0xff,
     };
 

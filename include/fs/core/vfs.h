@@ -102,10 +102,8 @@ typedef void (*vfs_file_release_t)(vfs_node_t node, void *private_data);
 typedef void (*vfs_file_descriptor_close_t)(vfs_node_t node, void *private_data);
 typedef int64_t (*vfs_file_read_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
 typedef int64_t (*vfs_file_write_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
-typedef int64_t (*vfs_file_read_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
-                                           struct process *proc);
-typedef int64_t (*vfs_file_write_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
-                                            struct process *proc);
+typedef int64_t (*vfs_file_read_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+typedef int64_t (*vfs_file_write_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
 typedef int (*vfs_file_ioctl_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, size_t req, void *arg);
 typedef int (*vfs_file_poll_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, size_t events);
 typedef vfs_poll_source_t *(*vfs_file_poll_source_cb_t)(vfs_node_t node, void *private_data);
@@ -323,19 +321,16 @@ int  vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *ph
 int  vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end);
 
 /* Per-open operations, falling back to the legacy node callbacks. */
-int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
-int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
-int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
-int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
-                               struct process *proc);
-int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
-                                   struct process *proc);
-int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
-                                    struct process *proc);
-int     vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
-int     vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
-int     vfs_mount_is_readonly(vfs_node_t node);
-void    vfs_file_descriptor_close(vfs_node_t file, void *private_data);
+int64_t            vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+int64_t            vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+int64_t            vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+int64_t            vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+int64_t            vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+int64_t            vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+int                vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
+int                vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
+int                vfs_mount_is_readonly(vfs_node_t node);
+void               vfs_file_descriptor_close(vfs_node_t file, void *private_data);
 vfs_poll_source_t *vfs_file_poll_source(vfs_node_t file, void *private_data);
 
 /* Readiness-notification subscriptions on a node or a raw poll source. */
@@ -343,8 +338,7 @@ void vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, 
 void vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription);
 void vfs_poll_notify(vfs_node_t file, uint32_t events);
 void vfs_poll_source_init(vfs_poll_source_t *source);
-void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify,
-                               void *context);
+void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context);
 void vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription);
 void vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events);
 void vfs_poll_source_close(vfs_poll_source_t *source, uint32_t events);

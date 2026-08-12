@@ -31,13 +31,11 @@
 /* Signal default action table */
 
 static const sig_dfl_action_t sig_default_action_table[NSIG] = {
-    [0] = SIG_DFL_TERM,       [SIGHUP] = SIG_DFL_TERM,    [SIGINT] = SIG_DFL_TERM,  [SIGQUIT] = SIG_DFL_CORE, [SIGILL] = SIG_DFL_CORE,
-    [SIGTRAP] = SIG_DFL_CORE, [SIGABRT] = SIG_DFL_CORE,   [SIGBUS] = SIG_DFL_CORE,  [SIGFPE] = SIG_DFL_CORE,  [SIGKILL] = SIG_DFL_TERM,
-    [SIGUSR1] = SIG_DFL_TERM, [SIGSEGV] = SIG_DFL_CORE,   [SIGUSR2] = SIG_DFL_TERM, [SIGPIPE] = SIG_DFL_TERM, [SIGALRM] = SIG_DFL_TERM,
-    [SIGTERM] = SIG_DFL_TERM, [SIGSTKFLT] = SIG_DFL_TERM, [SIGCHLD] = SIG_DFL_IGN,  [SIGCONT] = SIG_DFL_CONT, [SIGSTOP] = SIG_DFL_STOP,
-    [SIGTSTP] = SIG_DFL_STOP, [SIGTTIN] = SIG_DFL_STOP,   [SIGTTOU] = SIG_DFL_STOP, [SIGURG] = SIG_DFL_IGN,   [SIGXCPU] = SIG_DFL_CORE,
-    [SIGXFSZ] = SIG_DFL_CORE, [SIGVTALRM] = SIG_DFL_TERM, [SIGPROF] = SIG_DFL_TERM, [SIGWINCH] = SIG_DFL_IGN, [SIGIO] = SIG_DFL_TERM,
-    [SIGPWR] = SIG_DFL_TERM,  [SIGSYS] = SIG_DFL_CORE,
+    [0] = SIG_DFL_TERM,       [SIGHUP] = SIG_DFL_TERM,  [SIGINT] = SIG_DFL_TERM,    [SIGQUIT] = SIG_DFL_CORE, [SIGILL] = SIG_DFL_CORE,  [SIGTRAP] = SIG_DFL_CORE,   [SIGABRT] = SIG_DFL_CORE,
+    [SIGBUS] = SIG_DFL_CORE,  [SIGFPE] = SIG_DFL_CORE,  [SIGKILL] = SIG_DFL_TERM,   [SIGUSR1] = SIG_DFL_TERM, [SIGSEGV] = SIG_DFL_CORE, [SIGUSR2] = SIG_DFL_TERM,   [SIGPIPE] = SIG_DFL_TERM,
+    [SIGALRM] = SIG_DFL_TERM, [SIGTERM] = SIG_DFL_TERM, [SIGSTKFLT] = SIG_DFL_TERM, [SIGCHLD] = SIG_DFL_IGN,  [SIGCONT] = SIG_DFL_CONT, [SIGSTOP] = SIG_DFL_STOP,   [SIGTSTP] = SIG_DFL_STOP,
+    [SIGTTIN] = SIG_DFL_STOP, [SIGTTOU] = SIG_DFL_STOP, [SIGURG] = SIG_DFL_IGN,     [SIGXCPU] = SIG_DFL_CORE, [SIGXFSZ] = SIG_DFL_CORE, [SIGVTALRM] = SIG_DFL_TERM, [SIGPROF] = SIG_DFL_TERM,
+    [SIGWINCH] = SIG_DFL_IGN, [SIGIO] = SIG_DFL_TERM,   [SIGPWR] = SIG_DFL_TERM,    [SIGSYS] = SIG_DFL_CORE,
 };
 
 static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *sender, int code);
@@ -383,8 +381,7 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, c
     if (sig_is_rt(sig) && state->sigqueue_count >= SIGQUEUE_MAX) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("signal: rt signal %d to pid %llu dropped, queue full.\n", sig,
-                  proc && proc->task ? (unsigned long long)proc->task->pid : 0ULL);
+            plogk("signal: rt signal %d to pid %llu dropped, queue full.\n", sig, proc && proc->task ? (unsigned long long)proc->task->pid : 0ULL);
             last_log = sched_ticks();
         }
         return -EAGAIN;
@@ -559,8 +556,7 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
 
     size_t fpstate_size = fpu_signal_state_size();
     if (fpstate_size) {
-        if (fpstate_size > sizeof(sig_frame.fpstate) || fpu_signal_save(current_task(), sig_frame.fpstate, sizeof(sig_frame.fpstate)))
-            return -EFAULT;
+        if (fpstate_size > sizeof(sig_frame.fpstate) || fpu_signal_save(current_task(), sig_frame.fpstate, sizeof(sig_frame.fpstate))) return -EFAULT;
         sig_frame.fpstate_magic = SIGNAL_FPSTATE_MAGIC;
         sig_frame.fpstate_size  = (uint32_t)fpstate_size;
     }
@@ -1598,14 +1594,11 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
      * Never feed arbitrary selectors/non-canonical state to IRETQ: malformed
      * user frames must become SIGSEGV, not a kernel-mode #GP.
      */
-    if (sig_frame.cs != 0x33 || sig_frame.ss != 0x2b || !sig_frame.rip || sig_frame.rip >= PROCESS_USER_STACK_TOP || !sig_frame.rsp
-        || sig_frame.rsp >= PROCESS_USER_STACK_TOP)
-        return -EINVAL;
+    if (sig_frame.cs != 0x33 || sig_frame.ss != 0x2b || !sig_frame.rip || sig_frame.rip >= PROCESS_USER_STACK_TOP || !sig_frame.rsp || sig_frame.rsp >= PROCESS_USER_STACK_TOP) return -EINVAL;
 
     size_t expected_fpstate = fpu_signal_state_size();
     if (expected_fpstate) {
-        if (sig_frame.fpstate_magic != SIGNAL_FPSTATE_MAGIC || sig_frame.fpstate_size != expected_fpstate
-            || fpu_signal_restore(current_task(), sig_frame.fpstate, sig_frame.fpstate_size))
+        if (sig_frame.fpstate_magic != SIGNAL_FPSTATE_MAGIC || sig_frame.fpstate_size != expected_fpstate || fpu_signal_restore(current_task(), sig_frame.fpstate, sig_frame.fpstate_size))
             return -EINVAL;
     }
 
@@ -1636,8 +1629,8 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
      * User-visible arithmetic/debug flags plus mandatory bit 1 and IF.
      * Clear IOPL, NT and VM so IRETQ cannot enter an invalid privilege state.
      */
-    const uint64_t user_rflags = (1ULL << 0) | (1ULL << 2) | (1ULL << 4) | (1ULL << 6) | (1ULL << 7) | (1ULL << 8) | (1ULL << 9) | (1ULL << 10)
-                                 | (1ULL << 11) | (1ULL << 16) | (1ULL << 18) | (1ULL << 21);
+    const uint64_t user_rflags
+        = (1ULL << 0) | (1ULL << 2) | (1ULL << 4) | (1ULL << 6) | (1ULL << 7) | (1ULL << 8) | (1ULL << 9) | (1ULL << 10) | (1ULL << 11) | (1ULL << 16) | (1ULL << 18) | (1ULL << 21);
     frame->rflags = (sig_frame.rflags & user_rflags) | (1ULL << 1) | (1ULL << 9);
     frame->rsp    = sig_frame.rsp;
     frame->cs     = 0x33;

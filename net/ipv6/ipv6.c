@@ -138,8 +138,7 @@ void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6])
 }
 
 /* Compute the IPv6 pseudo-header checksum for a transport segment. */
-uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, const void *data,
-                                  size_t length)
+uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, const void *data, size_t length)
 {
     if (!source || !destination || (!data && length) || length > UINT32_MAX) return 0;
     uint8_t pseudo[40];
@@ -195,8 +194,7 @@ int net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet)
     uint8_t  next       = bytes[6];
     size_t   offset     = IPV6_HEADER_LEN;
     unsigned extensions = 0;
-    while (next == IPV6_NEXT_HOP_BY_HOP || next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_FRAGMENT || next == IPV6_NEXT_DEST_OPTS
-           || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP) {
+    while (next == IPV6_NEXT_HOP_BY_HOP || next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_FRAGMENT || next == IPV6_NEXT_DEST_OPTS || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP) {
         if (++extensions > IPV6_MAX_EXTENSION_HEADERS) return -EBADMSG;
         if (next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_DEST_OPTS || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP) return -EOPNOTSUPP;
         if (next == IPV6_NEXT_HOP_BY_HOP) {
@@ -218,9 +216,7 @@ int net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet)
         packet->fragment_id     = net_read_be32(bytes + offset + 4);
         next                    = bytes[offset];
         offset += 8U;
-        if (next == IPV6_NEXT_HOP_BY_HOP || next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_FRAGMENT || next == IPV6_NEXT_DEST_OPTS
-            || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP)
-            return -EOPNOTSUPP;
+        if (next == IPV6_NEXT_HOP_BY_HOP || next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_FRAGMENT || next == IPV6_NEXT_DEST_OPTS || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP) return -EOPNOTSUPP;
     }
     if (next == IPV6_NEXT_NONE && offset != packet->total_len) return -EBADMSG;
     size_t transport_length = packet->total_len - offset;
@@ -267,8 +263,7 @@ static void ipv6_route_visit(net_device_t *device, void *context)
     memcpy(configured.bytes, device->ipv6_address, 16);
     if (!search->direct
         && (ipv6_address_is_multicast(search->destination) || ipv6_address_is_link_local(search->destination)
-            || (device->ipv6_prefix_length && ipv6_address_is_unicast(&configured)
-                && ipv6_prefix_matches(configured.bytes, search->destination->bytes, device->ipv6_prefix_length)))) {
+            || (device->ipv6_prefix_length && ipv6_address_is_unicast(&configured) && ipv6_prefix_matches(configured.bytes, search->destination->bytes, device->ipv6_prefix_length)))) {
         netdev_get(device);
         search->direct = device;
     }
@@ -282,18 +277,16 @@ static void ipv6_route_visit(net_device_t *device, void *context)
 /* Choose the device, source address, and next hop for a destination. */
 int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop)
 {
-    if (!destination || !device || !source || !next_hop || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination))
-        return -EINVAL;
+    if (!destination || !device || !source || !next_hop || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination)) return -EINVAL;
     ipv6_route_search_t search = {.destination = destination};
     netdev_iterate(ipv6_route_visit, &search);
     net_device_t *selected = search.direct ? search.direct : search.router;
     if (!selected) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("ipv6: No route to %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x\n", destination->bytes[0],
-                  destination->bytes[1], destination->bytes[2], destination->bytes[3], destination->bytes[4], destination->bytes[5],
-                  destination->bytes[6], destination->bytes[7], destination->bytes[8], destination->bytes[9], destination->bytes[10],
-                  destination->bytes[11], destination->bytes[12], destination->bytes[13], destination->bytes[14], destination->bytes[15]);
+            plogk("ipv6: No route to %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x\n", destination->bytes[0], destination->bytes[1], destination->bytes[2],
+                  destination->bytes[3], destination->bytes[4], destination->bytes[5], destination->bytes[6], destination->bytes[7], destination->bytes[8], destination->bytes[9],
+                  destination->bytes[10], destination->bytes[11], destination->bytes[12], destination->bytes[13], destination->bytes[14], destination->bytes[15]);
             last_log = sched_ticks();
         }
         return -ENETUNREACH;
@@ -309,12 +302,9 @@ int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_ad
 }
 
 /* Transmit a packet, prepending the IPv6 header and resolving the next hop. */
-int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit,
-                net_pbuf_t *packet)
+int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit, net_pbuf_t *packet)
 {
-    if (!destination || !packet || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination)
-        || packet->length > IPV6_MAX_PAYLOAD)
-        return -EINVAL;
+    if (!destination || !packet || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination) || packet->length > IPV6_MAX_PAYLOAD) return -EINVAL;
     ipv6_address_t selected_source, next_hop;
     int            release = 0;
     if (!device) {
@@ -323,8 +313,7 @@ int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_a
         release = 1;
     } else {
         memcpy(selected_source.bytes, device->ipv6_link_local, 16);
-        if (!ipv6_destination_link_scope(destination) && device->ipv6_prefix_length && device->ipv6_valid_until > sched_ticks())
-            memcpy(selected_source.bytes, device->ipv6_address, 16);
+        if (!ipv6_destination_link_scope(destination) && device->ipv6_prefix_length && device->ipv6_valid_until > sched_ticks()) memcpy(selected_source.bytes, device->ipv6_address, 16);
         if (ipv6_address_is_multicast(destination) || ipv6_address_is_link_local(destination)
             || (device->ipv6_prefix_length && ipv6_prefix_matches(device->ipv6_address, destination->bytes, device->ipv6_prefix_length)))
             next_hop = *destination;
@@ -333,19 +322,16 @@ int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_a
     }
     if (source && !ipv6_address_is_unspecified(source)) selected_source = *source;
     uint32_t mtu = device->ipv6_mtu ? device->ipv6_mtu : device->mtu;
-    if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&selected_source)
-        || (!ipv6_address_is_unicast(&selected_source) && !ipv6_address_is_unspecified(&selected_source))
+    if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&selected_source) || (!ipv6_address_is_unicast(&selected_source) && !ipv6_address_is_unspecified(&selected_source))
         || packet->length + IPV6_HEADER_LEN > mtu || packet->length + IPV6_HEADER_LEN > UINT16_MAX) {
         if (release) netdev_put(device);
         return -EMSGSIZE;
     }
     uint8_t *header = net_pbuf_push(packet, IPV6_HEADER_LEN);
     if (!header) {
-        plogk("ipv6: %s: Header push failed (dest=%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x len=%lu)\n",
-              device->name, destination->bytes[0], destination->bytes[1], destination->bytes[2], destination->bytes[3], destination->bytes[4],
-              destination->bytes[5], destination->bytes[6], destination->bytes[7], destination->bytes[8], destination->bytes[9],
-              destination->bytes[10], destination->bytes[11], destination->bytes[12], destination->bytes[13], destination->bytes[14],
-              destination->bytes[15], (unsigned long)packet->length);
+        plogk("ipv6: %s: Header push failed (dest=%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x len=%lu)\n", device->name, destination->bytes[0], destination->bytes[1],
+              destination->bytes[2], destination->bytes[3], destination->bytes[4], destination->bytes[5], destination->bytes[6], destination->bytes[7], destination->bytes[8], destination->bytes[9],
+              destination->bytes[10], destination->bytes[11], destination->bytes[12], destination->bytes[13], destination->bytes[14], destination->bytes[15], (unsigned long)packet->length);
         if (release) netdev_put(device);
         return -ENOBUFS;
     }
@@ -441,8 +427,8 @@ static ipv6_reassembly_t *ipv6_reassembly_find(net_device_t *device, const net_i
     ipv6_reassembly_t *slot = NULL;
     for (unsigned i = 0; i < IPV6_REASSEMBLY_SLOTS; i++) {
         ipv6_reassembly_t *entry = &ipv6_reassembly[i];
-        if (entry->device == device && entry->id == ip->fragment_id && entry->protocol == ip->protocol
-            && ipv6_address_equal(&entry->source, &ip->source) && ipv6_address_equal(&entry->destination, &ip->destination))
+        if (entry->device == device && entry->id == ip->fragment_id && entry->protocol == ip->protocol && ipv6_address_equal(&entry->source, &ip->source)
+            && ipv6_address_equal(&entry->destination, &ip->destination))
             return entry;
         if (!entry->device || !slot || entry->expires < slot->expires) slot = entry;
     }
@@ -450,11 +436,9 @@ static ipv6_reassembly_t *ipv6_reassembly_find(net_device_t *device, const net_i
     slot->data   = malloc(IPV6_MAX_PAYLOAD);
     slot->bitmap = malloc(IPV6_REASSEMBLY_BITMAP_SIZE);
     if (!slot->data || !slot->bitmap) {
-        plogk("ipv6: %s: Reassembly buffer alloc failed (src=%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x id=%u)\n",
-              device->name, ip->source.bytes[0], ip->source.bytes[1], ip->source.bytes[2], ip->source.bytes[3], ip->source.bytes[4],
-              ip->source.bytes[5], ip->source.bytes[6], ip->source.bytes[7], ip->source.bytes[8], ip->source.bytes[9], ip->source.bytes[10],
-              ip->source.bytes[11], ip->source.bytes[12], ip->source.bytes[13], ip->source.bytes[14], ip->source.bytes[15],
-              (unsigned)ip->fragment_id);
+        plogk("ipv6: %s: Reassembly buffer alloc failed (src=%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x id=%u)\n", device->name, ip->source.bytes[0], ip->source.bytes[1],
+              ip->source.bytes[2], ip->source.bytes[3], ip->source.bytes[4], ip->source.bytes[5], ip->source.bytes[6], ip->source.bytes[7], ip->source.bytes[8], ip->source.bytes[9],
+              ip->source.bytes[10], ip->source.bytes[11], ip->source.bytes[12], ip->source.bytes[13], ip->source.bytes[14], ip->source.bytes[15], (unsigned)ip->fragment_id);
         ipv6_reassembly_clear(slot);
         return NULL;
     }
@@ -478,9 +462,7 @@ static net_pbuf_t *ipv6_reassemble(net_device_t *device, const net_ipv6_packet_t
     ipv6_reassembly_t *entry = ipv6_reassembly_find(device, ip, now);
     if (!entry) goto out;
     size_t end = ip->fragment_offset + ip->payload_len;
-    if ((entry->have_last && end > entry->total_length)
-        || (!ip->more_fragments && ((entry->have_last && end != entry->total_length) || entry->highest_end > end)))
-        goto overlap;
+    if ((entry->have_last && end > entry->total_length) || (!ip->more_fragments && ((entry->have_last && end != entry->total_length) || entry->highest_end > end))) goto overlap;
     {
         uint8_t *bm      = entry->bitmap;
         size_t   off     = ip->fragment_offset;
@@ -577,8 +559,7 @@ int ipv6_input(net_device_t *device, net_pbuf_t *packet)
     net_ipv6_packet_t parsed;
     int               parse_status = net_ipv6_parse(packet->data, packet->length, &parsed);
     if (parse_status) goto bad_status;
-    if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&parsed.source)
-        || (!ipv6_address_is_unicast(&parsed.source) && !ipv6_address_is_unspecified(&parsed.source))
+    if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&parsed.source) || (!ipv6_address_is_unicast(&parsed.source) && !ipv6_address_is_unspecified(&parsed.source))
         || !ipv6_is_local(device, &parsed.destination)) {
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
@@ -654,9 +635,7 @@ void ipv6_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
             offset += 8U;
         }
     }
-    if (protocol == IPV6_NEXT_ROUTING || protocol == IPV6_NEXT_DEST_OPTS || protocol == IPV6_NEXT_AH || protocol == IPV6_NEXT_ESP
-        || protocol == IPV6_NEXT_NONE)
-        return;
+    if (protocol == IPV6_NEXT_ROUTING || protocol == IPV6_NEXT_DEST_OPTS || protocol == IPV6_NEXT_AH || protocol == IPV6_NEXT_ESP || protocol == IPV6_NEXT_NONE) return;
     int error = 0;
     if (type == ICMPV6_PACKET_TOO_BIG)
         error = -EMSGSIZE;

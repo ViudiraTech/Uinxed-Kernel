@@ -111,8 +111,7 @@ static int64_t mem_read_user(void *ctx, void *private_data, uint64_t flags, void
 }
 
 /* User-mode write path, delegated to mem_write(). */
-static int64_t mem_write_user(void *ctx, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size,
-                              struct process *proc)
+static int64_t mem_write_user(void *ctx, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size, struct process *proc)
 {
     /* Linux's null iterator advances without fetching source bytes. */
     (void)proc;

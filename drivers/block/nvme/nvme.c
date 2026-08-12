@@ -207,8 +207,7 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe
 /* Admin command submission */
 
 /* Submit one admin command on the admin queue and wait for its result. */
-static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint32_t cdw10, uint32_t cdw11,
-                          uint32_t cdw12, nvme_cqe_t *result)
+static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint32_t cdw10, uint32_t cdw11, uint32_t cdw12, nvme_cqe_t *result)
 {
     nvme_queue_t *q    = &ctrl->admin_q;
     uint32_t      tail = q->sq_tail;
@@ -310,8 +309,8 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     vendor_id = read_pci((pci_device_reg_t) {.parent = pci_dev, .offset = PCI_CONF_VENDOR});
     device_id = read_pci((pci_device_reg_t) {.parent = pci_dev, .offset = PCI_CONF_DEVICE});
 
-    plogk("nvme: Controller found at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", pci_dev->device->domain, pci_dev->device->bus,
-          pci_dev->device->slot, pci_dev->device->func, vendor_id, device_id);
+    plogk("nvme: Controller found at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", pci_dev->device->domain, pci_dev->device->bus, pci_dev->device->slot, pci_dev->device->func, vendor_id,
+          device_id);
 
     /* Enable bus mastering and MMIO space */
     {
@@ -429,8 +428,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_CQ, 0, ctrl->io_q.cq_phys, 0, ((uint32_t)(io_entries - 1) << 16) | 1u, 1u, 0, &cqe);
         if (ret) goto err_io;
 
-        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_SQ, 0, ctrl->io_q.sq_phys, 0, ((uint32_t)(io_entries - 1) << 16) | 1u, (1u << 16) | 1u,
-                             0, &cqe);
+        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_SQ, 0, ctrl->io_q.sq_phys, 0, ((uint32_t)(io_entries - 1) << 16) | 1u, (1u << 16) | 1u, 0, &cqe);
         if (ret) goto err_io;
     }
 
@@ -613,8 +611,7 @@ int nvme_read_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t 
         uint64_t prp1, prp2;
         ret = nvme_build_prp(q, dma_phys, bytes, &prp1, &prp2);
         if (ret) {
-            plogk("nvme: ns%u: PRP build failed for read at LBA %llu (%u bytes): %d\n", ns->nsid, (unsigned long long)dev->base_lba + lba, bytes,
-                  ret);
+            plogk("nvme: ns%u: PRP build failed for read at LBA %llu (%u bytes): %d\n", ns->nsid, (unsigned long long)dev->base_lba + lba, bytes, ret);
             free_frames(dma_phys, pages);
             return ret;
         }
@@ -685,8 +682,7 @@ int nvme_write_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t
         uint64_t prp1, prp2;
         ret = nvme_build_prp(q, dma_phys, bytes, &prp1, &prp2);
         if (ret) {
-            plogk("nvme: ns%u: PRP build failed for write at LBA %llu (%u bytes): %d\n", ns->nsid, (unsigned long long)dev->base_lba + lba,
-                  bytes, ret);
+            plogk("nvme: ns%u: PRP build failed for write at LBA %llu (%u bytes): %d\n", ns->nsid, (unsigned long long)dev->base_lba + lba, bytes, ret);
             free_frames(dma_phys, pages);
             return ret;
         }

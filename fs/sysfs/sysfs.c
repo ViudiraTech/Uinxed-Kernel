@@ -543,9 +543,7 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
             char   *content = NULL;
             ssize_t length  = sysfs_gen_attr_content(sn, &content);
             if (length < 0) {
-                if (length != -ENODEV && length != -EIO) {
-                    plogk("sysfs: Show() for %s failed (%d)\n", sn->attr && sn->attr->name ? sn->attr->name : "?", (int)length);
-                }
+                if (length != -ENODEV && length != -EIO) { plogk("sysfs: Show() for %s failed (%d)\n", sn->attr && sn->attr->name ? sn->attr->name : "?", (int)length); }
                 return 0;
             }
             if (!length || offset >= (size_t)length) {
@@ -853,8 +851,7 @@ int sysfs_create_dir(struct kobject *kobj)
     if (!kobj->name || !kobj->name[0]) return -EINVAL;
     if (kobj->parent) {
         struct kobject *collision = sysfs_find_child_kobj(kobj->parent, kobj->name);
-        if ((collision && collision != kobj) || sysfs_find_attr(kobj->parent, kobj->name) || sysfs_find_bin_attr(kobj->parent, kobj->name)
-            || sysfs_find_symlink(kobj->parent, kobj->name))
+        if ((collision && collision != kobj) || sysfs_find_attr(kobj->parent, kobj->name) || sysfs_find_bin_attr(kobj->parent, kobj->name) || sysfs_find_symlink(kobj->parent, kobj->name))
             return -EEXIST;
     }
 
@@ -1392,9 +1389,7 @@ int sysfs_rename_dir(struct kobject *kobj, const char *new_name)
     if (!kobj || !new_name || !new_name[0]) return -EINVAL;
     if (kobj->parent) {
         struct kobject *collision = sysfs_find_child_kobj(kobj->parent, new_name);
-        if ((collision && collision != kobj) || sysfs_find_attr(kobj->parent, new_name) || sysfs_find_bin_attr(kobj->parent, new_name)
-            || sysfs_find_symlink(kobj->parent, new_name))
-            return -EEXIST;
+        if ((collision && collision != kobj) || sysfs_find_attr(kobj->parent, new_name) || sysfs_find_bin_attr(kobj->parent, new_name) || sysfs_find_symlink(kobj->parent, new_name)) return -EEXIST;
     }
     if (!kobj->sd) return EOK;
 
@@ -1415,9 +1410,7 @@ int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent)
 {
     if (!kobj || !new_parent) return -EINVAL;
     struct kobject *collision = sysfs_find_child_kobj(new_parent, kobj->name);
-    if ((collision && collision != kobj) || sysfs_find_attr(new_parent, kobj->name) || sysfs_find_bin_attr(new_parent, kobj->name)
-        || sysfs_find_symlink(new_parent, kobj->name))
-        return -EEXIST;
+    if ((collision && collision != kobj) || sysfs_find_attr(new_parent, kobj->name) || sysfs_find_bin_attr(new_parent, kobj->name) || sysfs_find_symlink(new_parent, kobj->name)) return -EEXIST;
     if (!kobj->sd && !new_parent->sd) return EOK;
     if (!kobj->sd || !new_parent->sd) return -ENOENT;
     for (clist_t node = new_parent->sd->child; node; node = node->next) {

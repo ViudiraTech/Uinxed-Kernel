@@ -203,12 +203,11 @@ static int swap_area_io(const swap_area_t *area, uint64_t slot, void *buffer, in
     if (!area || !area->active || !slot || slot > area->slots.slots) return -EINVAL;
     uint64_t offset = slot * SWAP_PAGE_SIZE;
     if (area->backend == SWAP_BACKEND_BLOCK) {
-        return write ? blockdev_write_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE) :
-                       blockdev_read_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE);
+        return write ? blockdev_write_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE) : blockdev_read_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE);
     }
 
-    size_t actual = write ? callbackof(area->file, write)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE) :
-                            callbackof(area->file, read)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE);
+    size_t actual
+        = write ? callbackof(area->file, write)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE) : callbackof(area->file, read)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE);
     return actual == SWAP_PAGE_SIZE ? EOK : -EIO;
 }
 
@@ -318,8 +317,7 @@ int swap_activate_path(const char *path, uint32_t flags)
             goto fail;
         }
         uint64_t pages = area->device.sector_count * area->device.sector_size / SWAP_PAGE_SIZE;
-        if (blockdev_read_bytes(&area->device, 0, header, sizeof(header)) != EOK
-            || (result = swap_area_setup_slots(area, pages, header)) != 0) { // NOLINT(bugprone-assignment-in-if-condition)
+        if (blockdev_read_bytes(&area->device, 0, header, sizeof(header)) != EOK || (result = swap_area_setup_slots(area, pages, header)) != 0) { // NOLINT(bugprone-assignment-in-if-condition)
             blockdev_release(&area->device);
             result = result ? result : -EIO;
             goto fail;
@@ -331,8 +329,7 @@ int swap_activate_path(const char *path, uint32_t flags)
             result = -ENOENT;
             goto fail;
         }
-        if ((file->type & ~file_delete) != file_none || file->size < 2 * SWAP_PAGE_SIZE || !file->handle || callbackof(file, read) == NULL
-            || callbackof(file, write) == NULL) {
+        if ((file->type & ~file_delete) != file_none || file->size < 2 * SWAP_PAGE_SIZE || !file->handle || callbackof(file, read) == NULL || callbackof(file, write) == NULL) {
             vfs_close(file);
             result = -EINVAL;
             goto fail;
@@ -344,8 +341,7 @@ int swap_activate_path(const char *path, uint32_t flags)
             goto fail;
         }
         size_t actual = callbackof(file, read)(file->handle, header, 0, sizeof(header));
-        if (actual != sizeof(header)
-            || (result = swap_area_setup_slots(area, file->size / SWAP_PAGE_SIZE, header)) != 0) { // NOLINT(bugprone-assignment-in-if-condition)
+        if (actual != sizeof(header) || (result = swap_area_setup_slots(area, file->size / SWAP_PAGE_SIZE, header)) != 0) { // NOLINT(bugprone-assignment-in-if-condition)
             vfs_close(file);
             result = result ? result : -EIO;
             goto fail;
@@ -425,9 +421,7 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
         (void)swap_entry_release_pte(entry);
         area->pages_in++;
     } else {
-        if (result != -ENOMEM)
-            plogk("swap: Swap-in failed type=%u slot=%llu addr=0x%016llx err=%d\n", swap_entry_type(entry), swap_entry_offset(entry),
-                  (uint64_t)address, result);
+        if (result != -ENOMEM) plogk("swap: Swap-in failed type=%u slot=%llu addr=0x%016llx err=%d\n", swap_entry_type(entry), swap_entry_offset(entry), (uint64_t)address, result);
         __atomic_store_n(&pte->value, entry, __ATOMIC_RELEASE);
         flush_tlb(address);
         if (frame) (void)frame_release_range(frame, 1);
@@ -457,8 +451,7 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address)
     spin_lock(&directory->lock);
     page_table_entry_t *pte   = swap_pte_lookup(directory, address);
     uint64_t            value = pte ? __atomic_load_n(&pte->value, __ATOMIC_ACQUIRE) : 0;
-    if (!pte || !(value & PTE_PRESENT) || !(value & PTE_USER) || (value & (PTE_SHARED | PTE_HUGE))
-        || frame_refcount(value & PAGE_4K_MASK) != 1) {
+    if (!pte || !(value & PTE_PRESENT) || !(value & PTE_USER) || (value & (PTE_SHARED | PTE_HUGE)) || frame_refcount(value & PAGE_4K_MASK) != 1) {
         spin_unlock(&directory->lock);
         (void)swap_slot_release(&best->slots, slot);
         return -EAGAIN;
@@ -619,8 +612,7 @@ int swap_format_proc_swaps(char *buf, size_t cap)
         uint64_t used = 0;
         for (uint64_t slot = 1; slot <= area->slots.slots; slot++)
             if (swap_slot_refs(&area->slots, slot)) used++;
-        int n = snprintf(buf + off, cap - off, "%s\t\t\t\t%s\t\t%llu\t%llu\t%d\n", area->path,
-                         area->backend == SWAP_BACKEND_BLOCK ? "partition" : "file", (unsigned long long)area->slots.slots,
+        int n = snprintf(buf + off, cap - off, "%s\t\t\t\t%s\t\t%llu\t%llu\t%d\n", area->path, area->backend == SWAP_BACKEND_BLOCK ? "partition" : "file", (unsigned long long)area->slots.slots,
                          (unsigned long long)used, area->priority);
         if (n <= 0 || off + (size_t)n >= cap) break;
         off += (size_t)n;

@@ -61,12 +61,16 @@ _Static_assert(__builtin_offsetof(epoll_event_t, data) == 4, "epoll_event.data m
 
 /* Create a new epoll instance. */
 int64_t sys_epoll_create(int size);
+
 /* Create a new epoll instance, honoring flags. */
 int64_t sys_epoll_create1(int flags);
+
 /* Add, modify, or delete an fd from the epoll interest list. */
 int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event);
+
 /* Wait for events, blocking up to timeout milliseconds. */
 int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeout);
+
 /* Wait for events, optionally replacing the caller's signal mask. */
 int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int timeout, const void *sigmask, size_t sigsetsize);
 

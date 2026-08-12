@@ -214,8 +214,7 @@ void fpu_init(void)
              * would corrupt every XRSTOR, so refuse to continue on CPUs
              * whose enabled XSAVE area exceeds the static template.
              */
-            if (fpu_save_size > sizeof(fpu_initial_state))
-                panic("fpu: XSAVE area (%zu B) exceeds the initial-state template (%zu B)\n", fpu_save_size, sizeof(fpu_initial_state));
+            if (fpu_save_size > sizeof(fpu_initial_state)) panic("fpu: XSAVE area (%zu B) exceeds the initial-state template (%zu B)\n", fpu_save_size, sizeof(fpu_initial_state));
             cpuid_count(0x0000000d, 1, &eax, &ebx, &ecx, &edx);
 
             fpu_xstate_mask  = xcr0_mask;

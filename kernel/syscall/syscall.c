@@ -86,8 +86,7 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
  * it in pthread_create().  Accepting it as a no-op is required for the Linux
  * clone ABI; rejecting it makes pthread_create return EINVAL.
  */
-#define CLONE_PTHREAD_ALLOWED \
-    (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
+#define CLONE_PTHREAD_ALLOWED (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
 
 #define AT_FDCWD              PROCESS_AT_FDCWD
 #define STATX_BASIC_STATS     0x000007ffU
@@ -2092,7 +2091,7 @@ static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, 
     if (ret != EOK) return ret;
 
     int        lookup_error = EOK;
-    vfs_node_t node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(name, &lookup_error) : vfs_open_checked(name, &lookup_error);
+    vfs_node_t node         = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(name, &lookup_error) : vfs_open_checked(name, &lookup_error);
     if (!node) return lookup_error;
     int result = vfs_chmod_process(node, (uint16_t)mode, proc);
     vfs_close(node);
@@ -3876,8 +3875,7 @@ static int64_t sys_mq_timedsend_wrap(uint64_t mqdes, uint64_t msg_ptr, uint64_t 
     return sys_mq_timedsend((int)mqdes, (const char *)msg_ptr, (size_t)msg_len, (uint32_t)msg_prio, (const void *)abs_timeout);
 }
 
-static int64_t sys_mq_timedreceive_wrap(uint64_t mqdes, uint64_t msg_ptr, uint64_t msg_len, uint64_t msg_prio, uint64_t abs_timeout,
-                                        uint64_t arg5)
+static int64_t sys_mq_timedreceive_wrap(uint64_t mqdes, uint64_t msg_ptr, uint64_t msg_len, uint64_t msg_prio, uint64_t abs_timeout, uint64_t arg5)
 {
     (void)arg5;
     return sys_mq_timedreceive((int)mqdes, (char *)msg_ptr, (size_t)msg_len, (uint32_t *)msg_prio, (const void *)abs_timeout);
@@ -4181,8 +4179,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
         }
         size_t expected_size = node->size;
         if (node->size == 0 || node->size > 0x4000000) {
-            plogk("syscall: Exec of %s node=%p handle=%p rejected with image size %llu\n", kpath, node, node->handle,
-                  (unsigned long long)node->size);
+            plogk("syscall: Exec of %s node=%p handle=%p rejected with image size %llu\n", kpath, node, node->handle, (unsigned long long)node->size);
             vfs_close(node);
             free_string_array(kargv);
             free_string_array(kenvp);
@@ -4300,8 +4297,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
         }
 
         if (total < sizeof(uint32_t)) {
-            plogk("syscall: Exec of %s read only %llu bytes (expected %llu)\n", kpath, (unsigned long long)total,
-                  (unsigned long long)expected_size);
+            plogk("syscall: Exec of %s read only %llu bytes (expected %llu)\n", kpath, (unsigned long long)total, (unsigned long long)expected_size);
             vfs_close(node);
             free(elf_data);
             free_string_array(kargv);
@@ -5336,9 +5332,8 @@ int syscall_dispatch(syscall_frame_t *frame)
             goto check_signals;
         }
         int     error = EOK;
-        task_t *child = process_clone_thread(frame, frame->rsi, (flags & CLONE_PARENT_SETTID) ? frame->rdx : 0,
-                                             (flags & CLONE_CHILD_SETTID) ? frame->r10 : 0, (flags & CLONE_CHILD_CLEARTID) ? frame->r10 : 0,
-                                             (flags & CLONE_SETTLS) ? frame->r8 : current_task()->thread.fs_base, &error);
+        task_t *child = process_clone_thread(frame, frame->rsi, (flags & CLONE_PARENT_SETTID) ? frame->rdx : 0, (flags & CLONE_CHILD_SETTID) ? frame->r10 : 0,
+                                             (flags & CLONE_CHILD_CLEARTID) ? frame->r10 : 0, (flags & CLONE_SETTLS) ? frame->r8 : current_task()->thread.fs_base, &error);
         retval        = child ? (int64_t)child->pid : error;
         frame->rax    = (uint64_t)retval;
         if (child) ptrace_fork_event(frame, PTRACE_EVENT_CLONE, child->pid);
@@ -5351,10 +5346,8 @@ int syscall_dispatch(syscall_frame_t *frame)
         uint64_t tid_flags   = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
         uint64_t supported   = SIGCHLD | tid_flags | CLONE_DETACHED;
         if (vfork) supported |= CLONE_VM | CLONE_VFORK;
-        if ((num == SYS_CLONE && (clone_flags & ~supported)) || (num == SYS_CLONE && vfork && !(clone_flags & CLONE_VM))
-            || ((clone_flags & 0xff) != SIGCHLD) || (vfork && num == SYS_CLONE && !frame->rsi)
-            || ((clone_flags & CLONE_PARENT_SETTID) && !frame->rdx)
-            || ((clone_flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !frame->r10)) {
+        if ((num == SYS_CLONE && (clone_flags & ~supported)) || (num == SYS_CLONE && vfork && !(clone_flags & CLONE_VM)) || ((clone_flags & 0xff) != SIGCHLD)
+            || (vfork && num == SYS_CLONE && !frame->rsi) || ((clone_flags & CLONE_PARENT_SETTID) && !frame->rdx) || ((clone_flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !frame->r10)) {
             frame->rax = (uint64_t)-EINVAL;
             goto check_signals;
         }
@@ -5380,8 +5373,7 @@ int syscall_dispatch(syscall_frame_t *frame)
             int      tid_error       = 0;
             if ((clone_flags & CLONE_PARENT_SETTID) && copy_to_user((void *)frame->rdx, &child_tid, sizeof(child_tid))) tid_error = -EFAULT;
             if (!tid_error && (clone_flags & CLONE_CHILD_SETTID)
-                && (!user_access_ok_process(child, (void *)frame->r10, sizeof(child_tid), 1)
-                    || copy_to_user_process_nofault(child, (void *)frame->r10, &child_tid, sizeof(child_tid))))
+                && (!user_access_ok_process(child, (void *)frame->r10, sizeof(child_tid), 1) || copy_to_user_process_nofault(child, (void *)frame->r10, &child_tid, sizeof(child_tid))))
                 tid_error = -EFAULT;
             if (tid_error) {
                 process_fork_discard(child);
@@ -5601,8 +5593,7 @@ check_signals:
      * canonical lower-half addresses.  Full-context restoration paths use
      * IRETQ so RCX/R11 are restored instead of taking their syscall-ABI role.
      */
-    if (force_iret || frame->cs != 0x33 || frame->ss != 0x2b || frame->rip >= PROCESS_USER_STACK_TOP || frame->rsp >= PROCESS_USER_STACK_TOP)
-        return 0;
+    if (force_iret || frame->cs != 0x33 || frame->ss != 0x2b || frame->rip >= PROCESS_USER_STACK_TOP || frame->rsp >= PROCESS_USER_STACK_TOP) return 0;
     return 1;
 }
 
@@ -5676,38 +5667,36 @@ __attribute__((naked)) static void syscall_entry_syscall(void)
 {
     __asm__ volatile(
         "swapgs\n\t"
-        "movq %rsp, %gs:" SYSCALL_STRINGIFY(
-            SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
-                                         "movq %gs:" SYSCALL_STRINGIFY(
-                                             SYSCALL_CPU_KERNEL_RSP_OFFSET) ", %rsp\n\t"
-                                                                            "cld\n\t"
-                                                                            "pushq $0x2B\n\t"
-                                                                            "pushq %gs:" SYSCALL_STRINGIFY(
-                                                                                SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
-                                                                                                             "pushq %r11\n\t"
-                                                                                                             "pushq $0x33\n\t"
-                                                                                                             "pushq %rcx\n\t"
-                                                                                                             "pushq %rax\n\t"
-                                                                                                             "pushq %rbx\n\t"
-                                                                                                             "pushq %rcx\n\t"
-                                                                                                             "pushq %rdx\n\t"
-                                                                                                             "pushq %rbp\n\t"
-                                                                                                             "pushq %rsi\n\t"
-                                                                                                             "pushq %rdi\n\t"
-                                                                                                             "pushq %r8\n\t"
-                                                                                                             "pushq %r9\n\t"
-                                                                                                             "pushq %r10\n\t"
-                                                                                                             "pushq %r11\n\t"
-                                                                                                             "pushq %r12\n\t"
-                                                                                                             "pushq %r13\n\t"
-                                                                                                             "pushq %r14\n\t"
-                                                                                                             "pushq %r15\n\t"
-                                                                                                             "swapgs\n\t"
-                                                                                                             "movq %rsp, %rdi\n\t"
-                                                                                                             "call syscall_dispatch\n\t"
-                                                                                                             "testl %eax, %eax\n\t"
-                                                                                                             "jz syscall_return\n\t"
-                                                                                                             "jmp syscall_return_sysret\n\t");
+        "movq %rsp, %gs:" SYSCALL_STRINGIFY(SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
+                                                                         "movq %gs:" SYSCALL_STRINGIFY(SYSCALL_CPU_KERNEL_RSP_OFFSET) ", %rsp\n\t"
+                                                                                                                                      "cld\n\t"
+                                                                                                                                      "pushq $0x2B\n\t"
+                                                                                                                                      "pushq %gs:" SYSCALL_STRINGIFY(
+                                                                                                                                          SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
+                                                                                                                                                                       "pushq %r11\n\t"
+                                                                                                                                                                       "pushq $0x33\n\t"
+                                                                                                                                                                       "pushq %rcx\n\t"
+                                                                                                                                                                       "pushq %rax\n\t"
+                                                                                                                                                                       "pushq %rbx\n\t"
+                                                                                                                                                                       "pushq %rcx\n\t"
+                                                                                                                                                                       "pushq %rdx\n\t"
+                                                                                                                                                                       "pushq %rbp\n\t"
+                                                                                                                                                                       "pushq %rsi\n\t"
+                                                                                                                                                                       "pushq %rdi\n\t"
+                                                                                                                                                                       "pushq %r8\n\t"
+                                                                                                                                                                       "pushq %r9\n\t"
+                                                                                                                                                                       "pushq %r10\n\t"
+                                                                                                                                                                       "pushq %r11\n\t"
+                                                                                                                                                                       "pushq %r12\n\t"
+                                                                                                                                                                       "pushq %r13\n\t"
+                                                                                                                                                                       "pushq %r14\n\t"
+                                                                                                                                                                       "pushq %r15\n\t"
+                                                                                                                                                                       "swapgs\n\t"
+                                                                                                                                                                       "movq %rsp, %rdi\n\t"
+                                                                                                                                                                       "call syscall_dispatch\n\t"
+                                                                                                                                                                       "testl %eax, %eax\n\t"
+                                                                                                                                                                       "jz syscall_return\n\t"
+                                                                                                                                                                       "jmp syscall_return_sysret\n\t");
 }
 
 void syscall_init_cpu(uint64_t kernel_gs_base)

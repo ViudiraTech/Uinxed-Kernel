@@ -476,8 +476,7 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         memcpy(&refcount, buffer + 4, sizeof(refcount));
         memcpy(&blocks, buffer + 8, sizeof(blocks));
         if (magic != 0xEA020000U || !refcount || blocks != 1) {
-            plogk("extfs: Drive %u: inode %u xattr block %llu has invalid header (magic 0x%x)\n", sb->device.drive, h->inode_no,
-                  (unsigned long long)block, magic);
+            plogk("extfs: Drive %u: inode %u xattr block %llu has invalid header (magic 0x%x)\n", sb->device.drive, h->inode_no, (unsigned long long)block, magic);
             status = -EIO;
         }
     }

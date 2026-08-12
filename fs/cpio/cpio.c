@@ -37,8 +37,7 @@ static compression_type_t get_compression_type(const void *data, size_t size)
     const unsigned char *bytes = data;
 
     if (bytes[0] == 0x1F && bytes[1] == 0x8B) return COMPRESSION_GZIP;
-    if (size >= 6 && bytes[0] == 0xFD && bytes[1] == 0x37 && bytes[2] == 0x7A && bytes[3] == 0x58 && bytes[4] == 0x5A && bytes[5] == 0x00)
-        return COMPRESSION_XZ;
+    if (size >= 6 && bytes[0] == 0xFD && bytes[1] == 0x37 && bytes[2] == 0x7A && bytes[3] == 0x58 && bytes[4] == 0x5A && bytes[5] == 0x00) return COMPRESSION_XZ;
     if (bytes[0] == 0x18 && bytes[1] == 0x4D && bytes[2] == 0x22 && bytes[3] == 0x04) return COMPRESSION_LZ4;
     if (bytes[0] == 0x28 && bytes[1] == 0xB5 && bytes[2] == 0x2F && bytes[3] == 0xFD) return COMPRESSION_ZSTD;
     if (bytes[0] == 0x5D && bytes[1] == 0x00 && bytes[2] == 0x00 && bytes[3] == 0x80) return COMPRESSION_LZMA;
@@ -105,8 +104,7 @@ static bool cpio_make_path(const char *archive_name, size_t namesize, char path[
     for (size_t i = 0; i <= length; i++) {
         if (i != length && name[i] != '/') continue;
         size_t component_length = i - component_start;
-        if (!component_length || (component_length == 1 && name[component_start] == '.')
-            || (component_length == 2 && name[component_start] == '.' && name[component_start + 1] == '.')) {
+        if (!component_length || (component_length == 1 && name[component_start] == '.') || (component_length == 2 && name[component_start] == '.' && name[component_start + 1] == '.')) {
             return false;
         }
         component_start = i + 1;
@@ -148,8 +146,7 @@ static uint32_t cpio_data_checksum(const uint8_t *data, size_t size)
 }
 
 /* Install one archive entry (dir, symlink or regular file) into the VFS. */
-static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t gid, uint32_t mtime, const uint8_t *filedata, size_t filesize,
-                              bool zero_copy)
+static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t gid, uint32_t mtime, const uint8_t *filedata, size_t filesize, bool zero_copy)
 {
     uint32_t file_type = mode & CPIO_MODE_IFMT;
     int      status;
@@ -264,9 +261,8 @@ void init_cpio(void)
             failure = -EBADMSG;
             break;
         }
-        if (!cpio_read_hex(header.c_namesize, 8, &namesize) || !cpio_read_hex(header.c_filesize, 8, &filesize)
-            || !cpio_read_hex(header.c_mode, 8, &mode) || !cpio_read_hex(header.c_uid, 8, &uid) || !cpio_read_hex(header.c_gid, 8, &gid)
-            || !cpio_read_hex(header.c_mtime, 8, &mtime) || !cpio_read_hex(header.c_check, 8, &expected_checksum)) {
+        if (!cpio_read_hex(header.c_namesize, 8, &namesize) || !cpio_read_hex(header.c_filesize, 8, &filesize) || !cpio_read_hex(header.c_mode, 8, &mode) || !cpio_read_hex(header.c_uid, 8, &uid)
+            || !cpio_read_hex(header.c_gid, 8, &gid) || !cpio_read_hex(header.c_mtime, 8, &mtime) || !cpio_read_hex(header.c_check, 8, &expected_checksum)) {
             failure = -EBADMSG;
             break;
         }
@@ -326,6 +322,5 @@ void init_cpio(void)
         plogk("cpio: Initramfs rejected after %llu entries: %d%s\n", entries, failure, trailer ? "" : " (missing trailer)");
         return;
     }
-    plogk("cpio: Loaded initramfs: %llu bytes, %llu entries, format=%s, storage=%s\n", size, entries, format,
-          allocated ? "copied" : "module-backed COW");
+    plogk("cpio: Loaded initramfs: %llu bytes, %llu entries, format=%s, storage=%s\n", size, entries, format, allocated ? "copied" : "module-backed COW");
 }

@@ -134,8 +134,7 @@ static spinlock_t      tcp_iss_lock;
 static uint16_t        tcp_ephemeral = TCP_EPHEMERAL_FIRST;
 static uint32_t        tcp_iss_counter;
 
-static int  tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, const void *data, size_t length,
-                     int track);
+static int  tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, const void *data, size_t length, int track);
 static int  tcp_autobind(tcp_endpoint_t *endpoint, uint32_t address);
 static void tcp_records_free(tcp_tx_record_t *record);
 
@@ -183,9 +182,7 @@ int net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t des
     if (!data || !segment || length < TCP_HEADER_LEN) return -EBADMSG;
     const uint8_t *bytes         = data;
     size_t         header_length = (size_t)(bytes[12] >> 4) * 4U;
-    if (header_length < TCP_HEADER_LEN || header_length > length
-        || net_checksum_ipv4_pseudo(source, destination, IPV4_PROTO_TCP, bytes, length) != 0)
-        return -EBADMSG;
+    if (header_length < TCP_HEADER_LEN || header_length > length || net_checksum_ipv4_pseudo(source, destination, IPV4_PROTO_TCP, bytes, length) != 0) return -EBADMSG;
     segment->source_port      = net_read_be16(bytes);
     segment->destination_port = net_read_be16(bytes + 2);
     segment->sequence         = net_read_be32(bytes + 4);
@@ -197,8 +194,7 @@ int net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t des
     return 0;
 }
 
-int net_tcp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination,
-                   net_tcp_segment_t *segment)
+int net_tcp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination, net_tcp_segment_t *segment)
 {
     /* IPv6 variant: the pseudo-header uses 16-byte addresses */
     if (!data || !source || !destination || !segment || length < TCP_HEADER_LEN) return -EBADMSG;
@@ -206,8 +202,7 @@ int net_tcp_parse6(const void *data, size_t length, const struct in6_addr *sourc
     size_t                header_length = (size_t)(bytes[12] >> 4) * 4U;
     const ipv6_address_t *src           = (const ipv6_address_t *)source->s6_addr;
     const ipv6_address_t *dst           = (const ipv6_address_t *)destination->s6_addr;
-    if (header_length < TCP_HEADER_LEN || header_length > length || net_checksum_ipv6_pseudo(src, dst, IPV6_NEXT_TCP, data, length) != 0)
-        return -EBADMSG;
+    if (header_length < TCP_HEADER_LEN || header_length > length || net_checksum_ipv6_pseudo(src, dst, IPV6_NEXT_TCP, data, length) != 0) return -EBADMSG;
     segment->source_port      = net_read_be16(bytes);
     segment->destination_port = net_read_be16(bytes + 2);
     segment->sequence         = net_read_be32(bytes + 4);
@@ -238,8 +233,7 @@ static uint32_t tcp_ready_locked(const tcp_endpoint_t *endpoint)
 {
     uint32_t ready = 0;
     if (endpoint->state == TCP_LISTEN) return endpoint->accept_count ? TCP_READY_ACCEPT | TCP_READY_READ : 0;
-    if (endpoint->rx_length || endpoint->state == TCP_CLOSE_WAIT || endpoint->state == TCP_CLOSED || endpoint->state == TCP_TIME_WAIT)
-        ready |= TCP_READY_READ;
+    if (endpoint->rx_length || endpoint->state == TCP_CLOSE_WAIT || endpoint->state == TCP_CLOSED || endpoint->state == TCP_TIME_WAIT) ready |= TCP_READY_READ;
     if (endpoint->state == TCP_ESTABLISHED || endpoint->state == TCP_CLOSE_WAIT) {
         uint32_t flight = endpoint->snd_nxt - endpoint->snd_una;
         uint32_t limit  = endpoint->peer_window < endpoint->cwnd ? endpoint->peer_window : endpoint->cwnd;
@@ -284,8 +278,7 @@ static int tcp_port_used_locked(uint32_t address, uint16_t port, const tcp_endpo
 {
     for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *ep = tcp_table[i];
-        if (ep && ep != ignore && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address))
-            return 1;
+        if (ep && ep != ignore && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address)) return 1;
     }
     return 0;
 }
@@ -296,9 +289,7 @@ static int tcp_port_used6_locked(const ipv6_address_t *address, uint16_t port, c
     for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *ep = tcp_table[i];
         if (!ep || ep == ignore || !ep->bound || ep->local_port != port) continue;
-        if (ipv6_address_is_unspecified(&ep->local_address6) || ipv6_address_is_unspecified(address)
-            || ipv6_address_equal(&ep->local_address6, address))
-            return 1;
+        if (ipv6_address_is_unspecified(&ep->local_address6) || ipv6_address_is_unspecified(address) || ipv6_address_equal(&ep->local_address6, address)) return 1;
     }
     return 0;
 }
@@ -579,21 +570,18 @@ tcp_endpoint_t *tcp_accept(tcp_endpoint_t *endpoint)
  * When track is set the segment is queued for retransmission.
  */
 
-static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, const void *data, size_t length,
-                    int track)
+static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, const void *data, size_t length, int track)
 {
     size_t header_length = TCP_HEADER_LEN + ((flags & TCP_FLAG_SYN) ? 4U : 0U);
     if (length > UINT16_MAX - header_length) return -EMSGSIZE;
     net_device_t  *device;
     uint32_t       next_hop;
     ipv6_address_t source6, next_hop6;
-    int            status = endpoint->native6 ? ipv6_route(&endpoint->remote_address6, &device, &source6, &next_hop6) :
-                                                ipv4_route(endpoint->remote_address, &device, &next_hop);
+    int            status = endpoint->native6 ? ipv6_route(&endpoint->remote_address6, &device, &source6, &next_hop6) : ipv4_route(endpoint->remote_address, &device, &next_hop);
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_alloc(header_length + length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("tcp: Segment alloc failed (local=%u remote=%u len=%lu)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
-              (unsigned long)(header_length + length));
+        plogk("tcp: Segment alloc failed (local=%u remote=%u len=%lu)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port, (unsigned long)(header_length + length));
         netdev_put(device);
         return -ENOMEM;
     }
@@ -613,17 +601,15 @@ static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknow
     }
     if (length) memcpy(tcp + header_length, data, length);
     if (endpoint->native6 && ipv6_address_is_unspecified(&endpoint->local_address6)) endpoint->local_address6 = source6;
-    uint16_t checksum = endpoint->native6 ?
-                            net_checksum_ipv6_pseudo(&endpoint->local_address6, &endpoint->remote_address6, IPV6_NEXT_TCP, tcp, packet->length) :
-                            net_checksum_ipv4_pseudo(endpoint->local_address, endpoint->remote_address, IPV4_PROTO_TCP, tcp, packet->length);
+    uint16_t checksum = endpoint->native6 ? net_checksum_ipv6_pseudo(&endpoint->local_address6, &endpoint->remote_address6, IPV6_NEXT_TCP, tcp, packet->length) :
+                                            net_checksum_ipv4_pseudo(endpoint->local_address, endpoint->remote_address, IPV4_PROTO_TCP, tcp, packet->length);
     net_write_be16(tcp + 16, checksum);
     tcp_tx_record_t *record          = NULL;
     uint32_t         sequence_length = (uint32_t)length + !!(flags & TCP_FLAG_SYN) + !!(flags & TCP_FLAG_FIN);
     if (track && sequence_length) {
         record = malloc(sizeof(*record) + length);
         if (!record) {
-            plogk("tcp: TX record alloc failed (local=%u remote=%u len=%lu)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
-                  (unsigned long)length);
+            plogk("tcp: TX record alloc failed (local=%u remote=%u len=%lu)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port, (unsigned long)length);
             net_pbuf_free(packet);
             netdev_put(device);
             return -ENOMEM;
@@ -753,8 +739,7 @@ int tcp_send(tcp_endpoint_t *endpoint, const void *data, size_t length)
         if (chunk > endpoint->peer_mss) chunk = endpoint->peer_mss;
         if (chunk > allowed) chunk = allowed;
         if (!chunk) break;
-        int status
-            = tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK | TCP_FLAG_PSH, (const uint8_t *)data + sent, chunk, 1);
+        int status = tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK | TCP_FLAG_PSH, (const uint8_t *)data + sent, chunk, 1);
         if (status) {
             spin_unlock(&endpoint->lock);
             return sent ? (int)sent : status;
@@ -1010,9 +995,7 @@ static uint16_t tcp_parse_mss(const uint8_t *tcp, size_t header_length)
 /* Insert an out-of-order segment into the sorted OOO queue. */
 static int tcp_queue_ooo(tcp_endpoint_t *endpoint, uint32_t sequence, const uint8_t *data, size_t length, int fin)
 {
-    if ((!length && !fin) || endpoint->ooo_count >= TCP_OOO_SEGMENT_MAX || length > UINT16_MAX
-        || length > TCP_RX_BUFFER_MAX - endpoint->rx_length - endpoint->ooo_length)
-        return -ENOBUFS;
+    if ((!length && !fin) || endpoint->ooo_count >= TCP_OOO_SEGMENT_MAX || length > UINT16_MAX || length > TCP_RX_BUFFER_MAX - endpoint->rx_length - endpoint->ooo_length) return -ENOBUFS;
     tcp_ooo_record_t **position = &endpoint->ooo_head;
     while (*position && seq_before((*position)->sequence, sequence)) position = &(*position)->next;
     if (*position && (*position)->sequence == sequence) return 0;
@@ -1024,8 +1007,7 @@ static int tcp_queue_ooo(tcp_endpoint_t *endpoint, uint32_t sequence, const uint
     if (*position && seq_after(sequence + (uint32_t)length + fin, (*position)->sequence)) return 0;
     tcp_ooo_record_t *record = malloc(sizeof(*record) + length);
     if (!record) {
-        plogk("tcp: OOO record alloc failed (local=%u remote=%u len=%lu)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
-              (unsigned long)length);
+        plogk("tcp: OOO record alloc failed (local=%u remote=%u len=%lu)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port, (unsigned long)length);
         return -ENOMEM;
     }
     record->next     = *position;
@@ -1078,8 +1060,8 @@ static tcp_endpoint_t *tcp_lookup_locked(const ipv4_info_t *ip, uint16_t source_
     *listener = NULL;
     for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *ep = tcp_table[i];
-        if (!ep || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6)))
-            || !ep->bound || ep->local_port != destination_port || (ep->local_address && ep->local_address != ip->destination))
+        if (!ep || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6))) || !ep->bound || ep->local_port != destination_port
+            || (ep->local_address && ep->local_address != ip->destination))
             continue;
         if (ep->state == TCP_LISTEN)
             *listener = ep;
@@ -1107,8 +1089,7 @@ static tcp_endpoint_t *tcp_lookup6_locked(const ipv6_info_t *ip, uint16_t source
 }
 
 /* Send an RST reply for a segment that matched no connection. */
-static int tcp_reset_reply(const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, uint32_t sequence, uint32_t acknowledgment,
-                           uint8_t flags, size_t payload_length)
+static int tcp_reset_reply(const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, size_t payload_length)
 {
     if (flags & TCP_FLAG_RST) return 0;
     tcp_endpoint_t temporary;
@@ -1131,9 +1112,8 @@ static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uin
     if (pending >= listener->backlog) return -ENOBUFS;
     tcp_endpoint_t *child = tcp_alloc_locked();
     if (!child) {
-        plogk("tcp: Passive open alloc failed (local port=%u peer=%u.%u.%u.%u:%u)\n", (unsigned)listener->local_port,
-              (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff,
-              (unsigned)ip->source & 0xff, (unsigned)source_port);
+        plogk("tcp: Passive open alloc failed (local port=%u peer=%u.%u.%u.%u:%u)\n", (unsigned)listener->local_port, (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff,
+              (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)source_port);
         return -ENOBUFS;
     }
     child->bound              = 1;
@@ -1214,9 +1194,7 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     if (!ip || !packet || packet->length < TCP_HEADER_LEN) goto bad;
     uint8_t *tcp           = packet->data;
     size_t   header_length = (size_t)(tcp[12] >> 4) * 4U;
-    if (header_length < TCP_HEADER_LEN || header_length > packet->length
-        || net_checksum_ipv6_pseudo(&ip->source, &ip->destination, IPV6_NEXT_TCP, tcp, packet->length) != 0)
-        goto bad;
+    if (header_length < TCP_HEADER_LEN || header_length > packet->length || net_checksum_ipv6_pseudo(&ip->source, &ip->destination, IPV6_NEXT_TCP, tcp, packet->length) != 0) goto bad;
     uint16_t source_port      = net_read_be16(tcp);
     uint16_t destination_port = net_read_be16(tcp + 2);
     uint32_t sequence         = net_read_be32(tcp + 4);
@@ -1245,9 +1223,8 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     spin_lock(&endpoint->lock);
     spin_unlock(&tcp_table_lock);
     if (flags & TCP_FLAG_RST) {
-        int acceptable = endpoint->state == TCP_SYN_SENT ?
-                             ((flags & TCP_FLAG_ACK) && acknowledgment == endpoint->snd_nxt) :
-                             (!seq_before(sequence, endpoint->rcv_nxt) && !seq_after(sequence, endpoint->rcv_nxt + tcp_window(endpoint)));
+        int acceptable = endpoint->state == TCP_SYN_SENT ? ((flags & TCP_FLAG_ACK) && acknowledgment == endpoint->snd_nxt) :
+                                                           (!seq_before(sequence, endpoint->rcv_nxt) && !seq_after(sequence, endpoint->rcv_nxt + tcp_window(endpoint)));
         if (!acceptable) {
             spin_unlock(&endpoint->lock);
             net_pbuf_free(packet);
@@ -1266,9 +1243,7 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     endpoint->peer_window = window;
     if (endpoint->state == TCP_TIME_WAIT) {
         uint16_t receive_window = tcp_window(endpoint);
-        int      acceptable     = receive_window ?
-                                      (!seq_before(sequence, endpoint->rcv_nxt) && seq_before(sequence, endpoint->rcv_nxt + receive_window)) :
-                                      sequence == endpoint->rcv_nxt;
+        int      acceptable     = receive_window ? (!seq_before(sequence, endpoint->rcv_nxt) && seq_before(sequence, endpoint->rcv_nxt + receive_window)) : sequence == endpoint->rcv_nxt;
         if (acceptable) {
             uint32_t segment_end = sequence + (uint32_t)payload_length + !!(flags & TCP_FLAG_FIN);
             if ((flags & TCP_FLAG_FIN) && segment_end == endpoint->rcv_nxt) endpoint->time_wait_until = sched_ticks() + TCP_TIME_WAIT_TICKS;
@@ -1325,21 +1300,16 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
             spin_unlock(&parent->lock);
             if (cb_parent) cb_parent(parent, TCP_READY_ACCEPT | TCP_READY_READ, ctx_parent);
         }
-    } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2
-               && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING && endpoint->state != TCP_LAST_ACK) {
-        plogk("tcp: Segment on closed connection (local=%u remote=%u:%u)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
-              (unsigned)source_port);
+    } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2 && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING
+               && endpoint->state != TCP_LAST_ACK) {
+        plogk("tcp: Segment on closed connection (local=%u remote=%u:%u)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port, (unsigned)source_port);
         spin_unlock(&endpoint->lock);
         net_pbuf_free(packet);
         return -ENOTCONN;
     } else if (endpoint->state != TCP_SYN_SENT && endpoint->state != TCP_SYN_RECEIVED) {
         uint16_t receive_window = tcp_window(endpoint);
-        int      sequence_valid = receive_window ?
-                                      (!seq_before(sequence, endpoint->rcv_nxt) && seq_before(sequence, endpoint->rcv_nxt + receive_window)) :
-                                      sequence == endpoint->rcv_nxt;
-        if (!sequence_valid
-            && !(payload_length && seq_before(sequence, endpoint->rcv_nxt)
-                 && seq_after(sequence + (uint32_t)payload_length, endpoint->rcv_nxt))) {
+        int      sequence_valid = receive_window ? (!seq_before(sequence, endpoint->rcv_nxt) && seq_before(sequence, endpoint->rcv_nxt + receive_window)) : sequence == endpoint->rcv_nxt;
+        if (!sequence_valid && !(payload_length && seq_before(sequence, endpoint->rcv_nxt) && seq_after(sequence + (uint32_t)payload_length, endpoint->rcv_nxt))) {
             tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
             spin_unlock(&endpoint->lock);
             net_pbuf_free(packet);
@@ -1409,9 +1379,7 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     if (!ip || !packet || packet->length < TCP_HEADER_LEN) goto bad;
     uint8_t *tcp           = packet->data;
     size_t   header_length = (size_t)(tcp[12] >> 4) * 4U;
-    if (header_length < TCP_HEADER_LEN || header_length > packet->length
-        || net_checksum_ipv4_pseudo(ip->source, ip->destination, IPV4_PROTO_TCP, tcp, packet->length) != 0)
-        goto bad;
+    if (header_length < TCP_HEADER_LEN || header_length > packet->length || net_checksum_ipv4_pseudo(ip->source, ip->destination, IPV4_PROTO_TCP, tcp, packet->length) != 0) goto bad;
     uint16_t source_port      = net_read_be16(tcp);
     uint16_t destination_port = net_read_be16(tcp + 2);
     uint32_t sequence         = net_read_be32(tcp + 4);
@@ -1442,9 +1410,8 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     spin_unlock(&tcp_table_lock);
 
     if (flags & TCP_FLAG_RST) {
-        int acceptable = endpoint->state == TCP_SYN_SENT ?
-                             ((flags & TCP_FLAG_ACK) && acknowledgment == endpoint->snd_nxt) :
-                             (!seq_before(sequence, endpoint->rcv_nxt) && !seq_after(sequence, endpoint->rcv_nxt + tcp_window(endpoint)));
+        int acceptable = endpoint->state == TCP_SYN_SENT ? ((flags & TCP_FLAG_ACK) && acknowledgment == endpoint->snd_nxt) :
+                                                           (!seq_before(sequence, endpoint->rcv_nxt) && !seq_after(sequence, endpoint->rcv_nxt + tcp_window(endpoint)));
         if (!acceptable) {
             spin_unlock(&endpoint->lock);
             net_pbuf_free(packet);
@@ -1463,9 +1430,7 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     uint64_t now = sched_ticks();
     if (endpoint->state == TCP_TIME_WAIT) {
         uint16_t receive_window = tcp_window(endpoint);
-        int      acceptable     = receive_window ?
-                                      (!seq_before(sequence, endpoint->rcv_nxt) && seq_before(sequence, endpoint->rcv_nxt + receive_window)) :
-                                      sequence == endpoint->rcv_nxt;
+        int      acceptable     = receive_window ? (!seq_before(sequence, endpoint->rcv_nxt) && seq_before(sequence, endpoint->rcv_nxt + receive_window)) : sequence == endpoint->rcv_nxt;
         if (acceptable) {
             uint32_t segment_end = sequence + (uint32_t)payload_length + !!(flags & TCP_FLAG_FIN);
             if ((flags & TCP_FLAG_FIN) && segment_end == endpoint->rcv_nxt) endpoint->time_wait_until = now + TCP_TIME_WAIT_TICKS;
@@ -1477,12 +1442,8 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     }
     if (endpoint->state != TCP_SYN_SENT && endpoint->state != TCP_SYN_RECEIVED && endpoint->state != TCP_LISTEN) {
         uint16_t receive_window = tcp_window(endpoint);
-        int      sequence_valid = receive_window ?
-                                      (!seq_before(sequence, endpoint->rcv_nxt) && seq_before(sequence, endpoint->rcv_nxt + receive_window)) :
-                                      sequence == endpoint->rcv_nxt;
-        if (!sequence_valid
-            && !(payload_length && seq_before(sequence, endpoint->rcv_nxt)
-                 && seq_after(sequence + (uint32_t)payload_length, endpoint->rcv_nxt))) {
+        int      sequence_valid = receive_window ? (!seq_before(sequence, endpoint->rcv_nxt) && seq_before(sequence, endpoint->rcv_nxt + receive_window)) : sequence == endpoint->rcv_nxt;
+        if (!sequence_valid && !(payload_length && seq_before(sequence, endpoint->rcv_nxt) && seq_after(sequence + (uint32_t)payload_length, endpoint->rcv_nxt))) {
             tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
             spin_unlock(&endpoint->lock);
             net_pbuf_free(packet);
@@ -1518,8 +1479,7 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
                 endpoint->persist_needed = 0;
             }
         }
-        if (acknowledgment == endpoint->snd_una && endpoint->tx_head && endpoint->peer_window && window == previous_window && !payload_length
-            && !(flags & (TCP_FLAG_SYN | TCP_FLAG_FIN))) {
+        if (acknowledgment == endpoint->snd_una && endpoint->tx_head && endpoint->peer_window && window == previous_window && !payload_length && !(flags & (TCP_FLAG_SYN | TCP_FLAG_FIN))) {
             if (++endpoint->duplicate_acks == 3) {
                 uint32_t flight    = endpoint->snd_nxt - endpoint->snd_una;
                 endpoint->ssthresh = flight / 2;
@@ -1588,10 +1548,9 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
             spin_unlock(&parent->lock);
             if (cb_parent) cb_parent(parent, TCP_READY_ACCEPT | TCP_READY_READ, ctx_parent);
         }
-    } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2
-               && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING && endpoint->state != TCP_LAST_ACK) {
-        plogk("tcp: Segment on closed connection (local=%u remote=%u:%u)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
-              (unsigned)source_port);
+    } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2 && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING
+               && endpoint->state != TCP_LAST_ACK) {
+        plogk("tcp: Segment on closed connection (local=%u remote=%u:%u)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port, (unsigned)source_port);
         spin_unlock(&endpoint->lock);
         net_pbuf_free(packet);
         return -ENOTCONN;
@@ -1669,8 +1628,7 @@ void tcp_timer(uint64_t now_ticks)
         tcp_endpoint_t *endpoint = tcp_table[i];
         if (!endpoint) continue;
         spin_lock(&endpoint->lock);
-        if ((endpoint->state == TCP_TIME_WAIT || endpoint->state == TCP_FIN_WAIT_2) && now_ticks >= endpoint->time_wait_until)
-            endpoint->state = TCP_CLOSED;
+        if ((endpoint->state == TCP_TIME_WAIT || endpoint->state == TCP_FIN_WAIT_2) && now_ticks >= endpoint->time_wait_until) endpoint->state = TCP_CLOSED;
         int              failed = 0;
         tcp_tx_record_t *record = endpoint->tx_head;
         if (record && record->length && !endpoint->peer_window && endpoint->state != TCP_SYN_SENT && endpoint->state != TCP_SYN_RECEIVED) {
@@ -1691,11 +1649,9 @@ void tcp_timer(uint64_t now_ticks)
             endpoint->persist_interval = doubled_ticks > TCP_RTO_MAX ? TCP_RTO_MAX : (uint32_t)doubled_ticks;
             endpoint->persist_deadline = now_ticks + endpoint->persist_interval;
         } else if (record && now_ticks >= record->deadline) {
-            uint8_t retry_limit
-                = (endpoint->state == TCP_SYN_SENT || endpoint->state == TCP_SYN_RECEIVED) ? endpoint->syn_retries : endpoint->data_retries;
+            uint8_t retry_limit = (endpoint->state == TCP_SYN_SENT || endpoint->state == TCP_SYN_RECEIVED) ? endpoint->syn_retries : endpoint->data_retries;
             if (record->retries >= retry_limit) {
-                plogk("tcp: Retransmission timed out (local=%u remote=%u state=%u)\n", (unsigned)endpoint->local_port,
-                      (unsigned)endpoint->remote_port, (unsigned)endpoint->state);
+                plogk("tcp: Retransmission timed out (local=%u remote=%u state=%u)\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port, (unsigned)endpoint->state);
                 tcp_fail_locked(endpoint, ETIMEDOUT);
                 failed = 1;
             } else {
@@ -1797,8 +1753,7 @@ int tcp_get_info(tcp_endpoint_t *endpoint, tcp_endpoint_info_t *info)
     info->queued_segments     = tcp_tx_count(endpoint);
     info->last_received_ticks = endpoint->last_received;
     uint64_t next_timer       = endpoint->time_wait_until;
-    if (endpoint->tx_head && !endpoint->persist_deadline && (!next_timer || endpoint->tx_head->deadline < next_timer))
-        next_timer = endpoint->tx_head->deadline;
+    if (endpoint->tx_head && !endpoint->persist_deadline && (!next_timer || endpoint->tx_head->deadline < next_timer)) next_timer = endpoint->tx_head->deadline;
     if (endpoint->persist_deadline && (!next_timer || endpoint->persist_deadline < next_timer)) next_timer = endpoint->persist_deadline;
     if (endpoint->keepalive_deadline && (!next_timer || endpoint->keepalive_deadline < next_timer)) next_timer = endpoint->keepalive_deadline;
     info->next_timer_ticks  = next_timer;

@@ -269,8 +269,7 @@ void net_timer(uint64_t now_ticks)
 /* Register a device in the global table, assigning it a unique ifindex. */
 int netdev_register(net_device_t *device)
 {
-    if (!device || !device->ops || !device->ops->xmit || !device->name[0] || device->mtu < NETDEV_MTU_MIN || device->mtu > NETDEV_MTU_MAX)
-        return -EINVAL;
+    if (!device || !device->ops || !device->ops->xmit || !device->name[0] || device->mtu < NETDEV_MTU_MIN || device->mtu > NETDEV_MTU_MAX) return -EINVAL;
     spin_lock(&devices_lock);
     int slot = -1;
     for (unsigned i = 0; i < NETDEV_MAX; i++) {
@@ -518,8 +517,7 @@ int netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_
 {
     enum { UDP_HEADER_LENGTH = 8 };
     if (!device || !source_port || !destination_port || (!data && length)) return -EINVAL;
-    if (length > UINT16_MAX - UDP_HEADER_LENGTH - IPV4_HEADER_MIN || length + UDP_HEADER_LENGTH + IPV4_HEADER_MIN > device->mtu)
-        return -EMSGSIZE;
+    if (length > UINT16_MAX - UDP_HEADER_LENGTH - IPV4_HEADER_MIN || length + UDP_HEADER_LENGTH + IPV4_HEADER_MIN > device->mtu) return -EMSGSIZE;
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LENGTH + length, NET_PBUF_HEADROOM);
     if (!packet) return -ENOMEM;
     net_write_be16(packet->data, source_port);

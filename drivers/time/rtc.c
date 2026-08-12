@@ -134,11 +134,10 @@ int rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request,
             return copy_to_user(argument, &t, sizeof(t)) ? -EFAULT : 0;
         case RTC_SET_TIME :
             if (copy_from_user(&t, argument, sizeof(t))) return -EFAULT;
-            valid = t.tm_sec >= 0 && t.tm_sec <= 59 && t.tm_min >= 0 && t.tm_min <= 59 && t.tm_hour >= 0 && t.tm_hour <= 23 && t.tm_mday >= 1
-                    && t.tm_mday <= 31 && t.tm_mon >= 0 && t.tm_mon <= 11 && t.tm_year >= 70;
+            valid = t.tm_sec >= 0 && t.tm_sec <= 59 && t.tm_min >= 0 && t.tm_min <= 59 && t.tm_hour >= 0 && t.tm_hour <= 23 && t.tm_mday >= 1 && t.tm_mday <= 31 && t.tm_mon >= 0 && t.tm_mon <= 11
+                    && t.tm_year >= 70;
             if (!valid) {
-                plogk("rtc: Rejected RTC_SET_TIME with invalid time (y=%d m=%d d=%d h=%d min=%d s=%d)\n", t.tm_year, t.tm_mon + 1, t.tm_mday,
-                      t.tm_hour, t.tm_min, t.tm_sec);
+                plogk("rtc: Rejected RTC_SET_TIME with invalid time (y=%d m=%d d=%d h=%d min=%d s=%d)\n", t.tm_year, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
                 return -EINVAL;
             }
             rtc_write_cmos_time(&t);

@@ -220,8 +220,7 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
     }
     if (!crtc) crtc = e->crtc;
     if (!crtc || crtc->index < 0 || crtc->index >= e->dev->num_crtc) {
-        plogk("drm: Send_vblank_event: crtc invalid (crtc=%p, index=%d, num_crtc=%d), dropping event.\n", crtc, crtc ? crtc->index : -1,
-              e->dev->num_crtc);
+        plogk("drm: Send_vblank_event: crtc invalid (crtc=%p, index=%d, num_crtc=%d), dropping event.\n", crtc, crtc ? crtc->index : -1, e->dev->num_crtc);
         if (e->vblank_ref && e->crtc) {
             drm_crtc_vblank_put(e->crtc);
             e->vblank_ref = false;

@@ -89,17 +89,14 @@ int net_udp_parse(const void *data, size_t length, uint32_t source, uint32_t des
     return 0;
 }
 
-int net_udp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination,
-                   net_udp_datagram_t *datagram)
+int net_udp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination, net_udp_datagram_t *datagram)
 {
     if (!data || !source || !destination || !datagram || length < UDP_HEADER_LEN) return -EBADMSG;
     const uint8_t        *bytes       = data;
     uint16_t              wire_length = net_read_be16(bytes + 4);
     const ipv6_address_t *src         = (const ipv6_address_t *)source->s6_addr;
     const ipv6_address_t *dst         = (const ipv6_address_t *)destination->s6_addr;
-    if (wire_length < UDP_HEADER_LEN || wire_length > length || !net_read_be16(bytes + 6)
-        || net_checksum_ipv6_pseudo(src, dst, IPV6_NEXT_UDP, bytes, wire_length) != 0)
-        return -EBADMSG;
+    if (wire_length < UDP_HEADER_LEN || wire_length > length || !net_read_be16(bytes + 6) || net_checksum_ipv6_pseudo(src, dst, IPV6_NEXT_UDP, bytes, wire_length) != 0) return -EBADMSG;
     datagram->source_port      = net_read_be16(bytes);
     datagram->destination_port = net_read_be16(bytes + 2);
     datagram->payload          = bytes + UDP_HEADER_LEN;
@@ -113,8 +110,7 @@ static int udp_port_used_locked(uint32_t address, uint16_t port, const udp_endpo
 {
     for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
-        if (ep && ep != ignore && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address))
-            return 1;
+        if (ep && ep != ignore && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address)) return 1;
     }
     return 0;
 }
@@ -278,9 +274,8 @@ int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t desti
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LEN + length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("udp: Send alloc failed (dest=%u.%u.%u.%u:%u len=%lu)\n", (unsigned)(destination >> 24) & 0xff,
-              (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned)port,
-              (unsigned long)length);
+        plogk("udp: Send alloc failed (dest=%u.%u.%u.%u:%u len=%lu)\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff,
+              (unsigned)destination & 0xff, (unsigned)port, (unsigned long)length);
         netdev_put(device);
         return -ENOMEM;
     }
@@ -314,11 +309,10 @@ int udp_send6(udp_endpoint_t *ep, const void *data, size_t length, const ipv6_ad
     if (!ipv6_address_is_unspecified(&ep->local_address6)) source = ep->local_address6;
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LEN + length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("udp: Send6 alloc failed (dest=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x:%u len=%lu)\n", (unsigned)net_read_be16(destination->bytes),
-              (unsigned)net_read_be16(destination->bytes + 2), (unsigned)net_read_be16(destination->bytes + 4),
-              (unsigned)net_read_be16(destination->bytes + 6), (unsigned)net_read_be16(destination->bytes + 8),
-              (unsigned)net_read_be16(destination->bytes + 10), (unsigned)net_read_be16(destination->bytes + 12),
-              (unsigned)net_read_be16(destination->bytes + 14), (unsigned)port, (unsigned long)length);
+        plogk("udp: Send6 alloc failed (dest=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x:%u len=%lu)\n", (unsigned)net_read_be16(destination->bytes), (unsigned)net_read_be16(destination->bytes + 2),
+              (unsigned)net_read_be16(destination->bytes + 4), (unsigned)net_read_be16(destination->bytes + 6), (unsigned)net_read_be16(destination->bytes + 8),
+              (unsigned)net_read_be16(destination->bytes + 10), (unsigned)net_read_be16(destination->bytes + 12), (unsigned)net_read_be16(destination->bytes + 14), (unsigned)port,
+              (unsigned long)length);
         netdev_put(device);
         return -ENOMEM;
     }
@@ -379,8 +373,8 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     spin_lock(&udp_table_lock);
     for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
-        if (!ep || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6)))
-            || !ep->bound || ep->local_port != destination_port || (ep->local_address && ep->local_address != ip->destination))
+        if (!ep || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6))) || !ep->bound || ep->local_port != destination_port
+            || (ep->local_address && ep->local_address != ip->destination))
             continue;
         if (ep->remote_address && (ep->remote_address != ip->source || ep->remote_port != source_port)) continue;
         if (!target || ep->remote_address) target = ep;
@@ -395,8 +389,8 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     if (target->queue_length >= UDP_RX_QUEUE_MAX || payload_length > UDP_RX_BYTES_MAX - target->queue_bytes) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("udp: %s: RX queue overflow, dropping datagram from %u.%u.%u.%u:%u\n", device->name, (unsigned)(ip->source >> 24) & 0xff,
-                  (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)source_port);
+            plogk("udp: %s: RX queue overflow, dropping datagram from %u.%u.%u.%u:%u\n", device->name, (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff,
+                  (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)source_port);
             last_log = sched_ticks();
         }
         spin_unlock(&target->lock);
@@ -406,9 +400,8 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     }
     udp_packet_t *queued = malloc(sizeof(*queued) + payload_length);
     if (!queued) {
-        plogk("udp: RX queue alloc failed (src=%u.%u.%u.%u:%u len=%lu)\n", (unsigned)(ip->source >> 24) & 0xff,
-              (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)source_port,
-              (unsigned long)payload_length);
+        plogk("udp: RX queue alloc failed (src=%u.%u.%u.%u:%u len=%lu)\n", (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff,
+              (unsigned)ip->source & 0xff, (unsigned)source_port, (unsigned long)payload_length);
         spin_unlock(&target->lock);
         spin_unlock(&udp_table_lock);
         net_pbuf_free(packet);
@@ -456,9 +449,7 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
         if (!ep || ep->family != AF_INET6 || !ep->bound || ep->local_port != destination_port
             || (!ipv6_address_is_unspecified(&ep->local_address6) && !ipv6_address_equal(&ep->local_address6, &ip->destination)))
             continue;
-        if (!ipv6_address_is_unspecified(&ep->remote_address6)
-            && (!ipv6_address_equal(&ep->remote_address6, &ip->source) || ep->remote_port != source_port))
-            continue;
+        if (!ipv6_address_is_unspecified(&ep->remote_address6) && (!ipv6_address_equal(&ep->remote_address6, &ip->source) || ep->remote_port != source_port)) continue;
         if (!target || !ipv6_address_is_unspecified(&ep->remote_address6)) target = ep;
     }
     if (!target) {
@@ -481,11 +472,9 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     }
     udp_packet_t *queued = malloc(sizeof(*queued) + payload_length);
     if (!queued) {
-        plogk("udp: RX6 queue alloc failed (src=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x:%u len=%lu)\n",
-              (unsigned)net_read_be16(ip->source.bytes), (unsigned)net_read_be16(ip->source.bytes + 2),
-              (unsigned)net_read_be16(ip->source.bytes + 4), (unsigned)net_read_be16(ip->source.bytes + 6),
-              (unsigned)net_read_be16(ip->source.bytes + 8), (unsigned)net_read_be16(ip->source.bytes + 10),
-              (unsigned)net_read_be16(ip->source.bytes + 12), (unsigned)net_read_be16(ip->source.bytes + 14), (unsigned)source_port,
+        plogk("udp: RX6 queue alloc failed (src=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x:%u len=%lu)\n", (unsigned)net_read_be16(ip->source.bytes), (unsigned)net_read_be16(ip->source.bytes + 2),
+              (unsigned)net_read_be16(ip->source.bytes + 4), (unsigned)net_read_be16(ip->source.bytes + 6), (unsigned)net_read_be16(ip->source.bytes + 8),
+              (unsigned)net_read_be16(ip->source.bytes + 10), (unsigned)net_read_be16(ip->source.bytes + 12), (unsigned)net_read_be16(ip->source.bytes + 14), (unsigned)source_port,
               (unsigned long)payload_length);
         spin_unlock(&target->lock);
         spin_unlock(&udp_table_lock);

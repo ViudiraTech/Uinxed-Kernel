@@ -46,8 +46,7 @@ typedef struct {
 
 static inline bool timer_clock_sleep_supported(uint64_t clockid, uint64_t flags)
 {
-    return (clockid == TIMER_CLOCK_REALTIME || clockid == TIMER_CLOCK_MONOTONIC || clockid == TIMER_CLOCK_BOOTTIME)
-           && (flags == 0 || flags == TIMER_ABSTIME);
+    return (clockid == TIMER_CLOCK_REALTIME || clockid == TIMER_CLOCK_MONOTONIC || clockid == TIMER_CLOCK_BOOTTIME) && (flags == 0 || flags == TIMER_ABSTIME);
 }
 
 static inline bool timer_timespec_to_ns(const timer_timespec_t *ts, uint64_t *ns)

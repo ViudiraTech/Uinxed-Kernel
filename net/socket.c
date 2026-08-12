@@ -87,8 +87,7 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
 static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, int flags, process_file_t **rights, size_t rights_count);
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags);
 static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags);
-static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials,
-                           int *message_flags, size_t *record_size);
+static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials, int *message_flags, size_t *record_size);
 
 static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size);
 static size_t socket_vfs_write(void *file, const void *addr, size_t offset, size_t size);
@@ -331,8 +330,7 @@ static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int ab
              * Abstract names are byte strings, so their supplied length is
              * part of the address.
              */
-            if (sock_bound_tab[i].addrlen == addrlen
-                && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
+            if (sock_bound_tab[i].addrlen == addrlen && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
                 *out = sock_bound_tab[i].sk;
                 spin_unlock(&sock_bound_lock);
                 return EOK;
@@ -371,8 +369,7 @@ static int sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addr
         if (sock_bound_tab[i].abstract != abstract) continue;
 
         if (abstract) {
-            if (sock_bound_tab[i].addrlen == addrlen
-                && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
+            if (sock_bound_tab[i].addrlen == addrlen && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
                 spin_unlock(&sock_bound_lock);
                 return -EADDRINUSE;
             }
@@ -455,8 +452,8 @@ size_t socket_format_unix_table(char *buffer, size_t capacity)
         uint32_t flags = sk->state == SOCK_STATE_LISTENING ? 0x00010000U : 0;
         uint32_t state = sk->state == SOCK_STATE_CONNECTED ? 3U : 1U;
         uint64_t inode = sk->bound_node ? sk->bound_node->inode : sk->node ? sk->node->inode : 0;
-        n = snprintf(buffer + used, capacity - used, "%016llx: %08x %08x %08x %04x %02x %llu %s\n", (unsigned long long)(uintptr_t)sk,
-                     sk->refcount, 0U, flags, sk->type, state, (unsigned long long)inode, path);
+        n              = snprintf(buffer + used, capacity - used, "%016llx: %08x %08x %08x %04x %02x %llu %s\n", (unsigned long long)(uintptr_t)sk, sk->refcount, 0U, flags, sk->type, state,
+                                  (unsigned long long)inode, path);
         if (n < 0) break;
         size_t appended = (size_t)n;
         if (appended >= capacity - used) {
@@ -1382,8 +1379,7 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
     }
 
     uint32_t record_len = (uint32_t)len;
-    if (sock_buf_write(&peer->recv_buf, &record_len, header_size) != header_size
-        || (record_len && sock_buf_write(&peer->recv_buf, buf, record_len) != record_len)) {
+    if (sock_buf_write(&peer->recv_buf, &record_len, header_size) != header_size || (record_len && sock_buf_write(&peer->recv_buf, buf, record_len) != record_len)) {
         /*
          * Space was reserved while holding the lock; reaching this path means
          * ring corruption rather than a short write.
@@ -1525,8 +1521,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
     }
     uint32_t msg_len = (uint32_t)len;
     uint32_t written = 0;
-    if (sock_buf_write(&dest->recv_buf, &msg_len, sizeof(msg_len)) == sizeof(msg_len)
-        && sock_buf_write(&dest->recv_buf, &sk->local_addr, sizeof(sockaddr_un_t)) == sizeof(sockaddr_un_t)
+    if (sock_buf_write(&dest->recv_buf, &msg_len, sizeof(msg_len)) == sizeof(msg_len) && sock_buf_write(&dest->recv_buf, &sk->local_addr, sizeof(sockaddr_un_t)) == sizeof(sockaddr_un_t)
         && sock_buf_write(&dest->recv_buf, &sender, sizeof(sender)) == sizeof(sender))
         written = msg_len ? sock_buf_write(&dest->recv_buf, buf, msg_len) : 0;
 
@@ -1546,8 +1541,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
 
 /* UNIX datagram recv */
 
-static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials,
-                           int *message_flags, size_t *record_size)
+static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials, int *message_flags, size_t *record_size)
 {
     int            is_nonblock;
     int            peek;
@@ -1569,8 +1563,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
     for (;;) {
         uint32_t available = sock_buf_available(&sk->recv_buf);
         if (available >= header_size) {
-            if (sock_buf_peek_at(&sk->recv_buf, 0, &msg_len, sizeof(msg_len)) != sizeof(msg_len)
-                || msg_len > sk->recv_buf.capacity - header_size) {
+            if (sock_buf_peek_at(&sk->recv_buf, 0, &msg_len, sizeof(msg_len)) != sizeof(msg_len) || msg_len > sk->recv_buf.capacity - header_size) {
                 spin_unlock(&sk->lock);
                 return -EIO;
             }
@@ -1592,8 +1585,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
     }
 
     if (sock_buf_peek_at(&sk->recv_buf, sizeof(uint32_t), &sender_addr, sizeof(sender_addr)) != sizeof(sender_addr)
-        || sock_buf_peek_at(&sk->recv_buf, sizeof(uint32_t) + sizeof(sender_addr), &sender_credentials, sizeof(sender_credentials))
-               != sizeof(sender_credentials)) {
+        || sock_buf_peek_at(&sk->recv_buf, sizeof(uint32_t) + sizeof(sender_addr), &sender_credentials, sizeof(sender_credentials)) != sizeof(sender_credentials)) {
         spin_unlock(&sk->lock);
         return -EIO;
     }
@@ -2002,8 +1994,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
             if (sock_family != AF_INET || protocol != IPPROTO_ICMP) return -EPROTONOSUPPORT;
         }
         if (protocol == 0) protocol = sock_type == SOCK_STREAM ? IPPROTO_TCP : IPPROTO_UDP;
-        if ((sock_type == SOCK_STREAM && protocol != IPPROTO_TCP) || (sock_type == SOCK_DGRAM && protocol != IPPROTO_UDP)
-            || (sock_type == SOCK_RAW && protocol != IPPROTO_ICMP))
+        if ((sock_type == SOCK_STREAM && protocol != IPPROTO_TCP) || (sock_type == SOCK_DGRAM && protocol != IPPROTO_UDP) || (sock_type == SOCK_RAW && protocol != IPPROTO_ICMP))
             return -EPROTONOSUPPORT;
         if (!ops || !ops->create) return -EAFNOSUPPORT;
         ret = ops->create(sock_family, sock_type, (int)protocol, extra_flags, &context);
@@ -2388,7 +2379,7 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
         sockaddr_un_t sender;
         uint32_t      sender_len = sizeof(sender);
         size_t        record_len = 0;
-        ret = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags, NULL, NULL, &record_len);
+        ret                      = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags, NULL, NULL, &record_len);
         if (ret >= 0 && addr) {
             int copy_ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sender, sender_len);
             if (copy_ret < 0) ret = copy_ret;
@@ -2512,8 +2503,7 @@ malformed:
     return -EINVAL;
 }
 
-static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const iovec_t *iov, const void *kbuf, size_t total_len, int flags,
-                               process_file_t **rights, size_t rights_count)
+static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const iovec_t *iov, const void *kbuf, size_t total_len, int flags, process_file_t **rights, size_t rights_count)
 {
     int ret;
     (void)iov;
@@ -2681,8 +2671,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         uint32_t      sender_len = sizeof(sender);
         ucred_t       sender_credentials;
         size_t        record_len = 0;
-        ret = unix_dgram_recv(sk, kbuf, total_len, kmsg->msg_name ? &sender : NULL, kmsg->msg_name ? &sender_len : NULL, flags,
-                              &sender_credentials, &msg_flags, &record_len);
+        ret                      = unix_dgram_recv(sk, kbuf, total_len, kmsg->msg_name ? &sender : NULL, kmsg->msg_name ? &sender_len : NULL, flags, &sender_credentials, &msg_flags, &record_len);
         if (ret >= 0 && kmsg->msg_name) {
             uint32_t copylen = kmsg->msg_namelen < sender_len ? kmsg->msg_namelen : sender_len;
             if (copylen && copy_to_user(kmsg->msg_name, &sender, copylen)) return -EFAULT;
@@ -2761,8 +2750,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 
         process_file_t *received_rights[SOCK_RIGHTS_MAX];
         size_t          received_rights_count = 0;
-        if (ret > 0 && sk->type == SOCK_STREAM && !(flags & MSG_PEEK))
-            received_rights_count = socket_take_rights(sk, received_rights, SOCK_RIGHTS_MAX);
+        if (ret > 0 && sk->type == SOCK_STREAM && !(flags & MSG_PEEK)) received_rights_count = socket_take_rights(sk, received_rights, SOCK_RIGHTS_MAX);
 
         if (received_rights_count > 0) {
             size_t fit = received_rights_count;
@@ -2820,8 +2808,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
          * SO_PASSCRED applies to connected sockets too.  eudevd's
          * SOCK_SEQPACKET control channel requires this record.
          */
-        if (ret >= 0 && passcred && has_peer && kmsg->msg_control && control_capacity >= control_used
-            && control_capacity - control_used >= CMSG_SPACE(sizeof(credentials))) {
+        if (ret >= 0 && passcred && has_peer && kmsg->msg_control && control_capacity >= control_used && control_capacity - control_used >= CMSG_SPACE(sizeof(credentials))) {
             cmsghdr_t *cmsg  = (cmsghdr_t *)(control + control_used);
             cmsg->cmsg_len   = CMSG_LEN(sizeof(credentials));
             cmsg->cmsg_level = SOL_SOCKET;

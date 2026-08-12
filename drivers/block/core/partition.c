@@ -188,8 +188,7 @@ static int table_add(partition_table_t *table, const partition_info_t *partition
         if (other->number == partition->number) return -EINVAL;
         if (!guid_is_zero(partition->unique_guid) && !memcmp(other->unique_guid, partition->unique_guid, 16)) return -EINVAL;
         if (other->extended || partition->extended) continue;
-        if (partition->start_lba < other->start_lba + other->sector_count && other->start_lba < partition->start_lba + partition->sector_count)
-            return -EINVAL;
+        if (partition->start_lba < other->start_lba + other->sector_count && other->start_lba < partition->start_lba + partition->sector_count) return -EINVAL;
     }
     table->partitions[table->count++] = *partition;
     return EOK;
@@ -209,8 +208,7 @@ static int validate_mbr_entry(const uint8_t *entry, uint64_t disk_sectors, uint6
 }
 
 /* Walk a chain of extended-boot-record (EBR) sectors for logical partitions */
-static int parse_ebr_chain(const blockdev_device_t *device, partition_table_t *table, uint64_t extended_start, uint64_t extended_count,
-                           uint32_t *next_number, uint8_t *sector)
+static int parse_ebr_chain(const blockdev_device_t *device, partition_table_t *table, uint64_t extended_start, uint64_t extended_count, uint32_t *next_number, uint8_t *sector)
 {
     uint64_t current = extended_start;
     uint64_t visited[PARTITION_MAX_COUNT];
@@ -251,9 +249,7 @@ static int parse_ebr_chain(const blockdev_device_t *device, partition_table_t *t
             if (relative_start > UINT64_MAX - current) return -EOVERFLOW;
             uint64_t absolute_start = current + relative_start;
             if (!range_valid(absolute_start, count, device->sector_count)) return -EINVAL;
-            if (absolute_start < extended_start || absolute_start - extended_start >= extended_count
-                || count > extended_count - (absolute_start - extended_start))
-                return -EINVAL;
+            if (absolute_start < extended_start || absolute_start - extended_start >= extended_count || count > extended_count - (absolute_start - extended_start)) return -EINVAL;
 
             partition_info_t partition;
             memset(&partition, 0, sizeof(partition));
@@ -364,25 +360,19 @@ static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_
     location->entry_size  = load_le32(sector + 84);
     location->entries_crc = load_le32(sector + 88);
 
-    if (location->current_lba != header_lba || location->alternate_lba >= device->sector_count || location->alternate_lba == header_lba)
-        return -EINVAL;
+    if (location->current_lba != header_lba || location->alternate_lba >= device->sector_count || location->alternate_lba == header_lba) return -EINVAL;
     if (location->first_usable_lba > location->last_usable_lba || location->last_usable_lba >= device->sector_count) return -EINVAL;
-    if (!location->entry_count || location->entry_size < 128 || location->entry_size % 128 || !is_power_of_two(location->entry_size / 128))
-        return -EINVAL;
+    if (!location->entry_count || location->entry_size < 128 || location->entry_size % 128 || !is_power_of_two(location->entry_size / 128)) return -EINVAL;
     if (location->entry_count > UINT64_MAX / location->entry_size) return -EOVERFLOW;
     location->entries_bytes = (uint64_t)location->entry_count * location->entry_size;
     entry_blocks            = location->entries_bytes / device->sector_size + (location->entries_bytes % device->sector_size != 0);
-    if (!entry_blocks || location->entries_lba >= device->sector_count || entry_blocks > device->sector_count - location->entries_lba)
-        return -EINVAL;
+    if (!entry_blocks || location->entries_lba >= device->sector_count || entry_blocks > device->sector_count - location->entries_lba) return -EINVAL;
     table_end = location->entries_lba + entry_blocks;
 
     if (header_lba == GPT_PRIMARY_LBA) {
-        if (location->alternate_lba != device->sector_count - 1 || location->entries_lba <= header_lba || table_end > location->first_usable_lba)
-            return -EINVAL;
+        if (location->alternate_lba != device->sector_count - 1 || location->entries_lba <= header_lba || table_end > location->first_usable_lba) return -EINVAL;
     } else {
-        if (header_lba != device->sector_count - 1 || location->alternate_lba != GPT_PRIMARY_LBA
-            || location->entries_lba <= location->last_usable_lba || table_end > header_lba)
-            return -EINVAL;
+        if (header_lba != device->sector_count - 1 || location->alternate_lba != GPT_PRIMARY_LBA || location->entries_lba <= location->last_usable_lba || table_end > header_lba) return -EINVAL;
     }
 
     uint64_t byte_offset = location->entries_lba * (uint64_t)device->sector_size;
@@ -455,9 +445,8 @@ static void gpt_name_to_utf8(const uint8_t *input, char output[PARTITION_NAME_SI
 /* Compare the primary and backup GPT headers for consistency. */
 static bool gpt_locations_match(const gpt_location_t *primary, const gpt_location_t *backup)
 {
-    return primary->current_lba == backup->alternate_lba && primary->alternate_lba == backup->current_lba
-           && primary->first_usable_lba == backup->first_usable_lba && primary->last_usable_lba == backup->last_usable_lba
-           && primary->entry_count == backup->entry_count && primary->entry_size == backup->entry_size
+    return primary->current_lba == backup->alternate_lba && primary->alternate_lba == backup->current_lba && primary->first_usable_lba == backup->first_usable_lba
+           && primary->last_usable_lba == backup->last_usable_lba && primary->entry_count == backup->entry_count && primary->entry_size == backup->entry_size
            && primary->entries_crc == backup->entries_crc && !memcmp(primary->disk_guid, backup->disk_guid, 16);
 }
 
@@ -498,8 +487,8 @@ static int parse_gpt_entries(const blockdev_device_t *device, partition_table_t 
 static int format_guid(const uint8_t guid[16], char *buffer, size_t size)
 {
     if (size < PARTITION_UUID_STRING_SIZE) return -ENOSPC;
-    (void)snprintf(buffer, size, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", guid[3], guid[2], guid[1], guid[0],
-                   guid[4], guid[4], guid[7], guid[6], guid[8], guid[9], guid[10], guid[11], guid[12], guid[13], guid[14], guid[15]);
+    (void)snprintf(buffer, size, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", guid[3], guid[2], guid[1], guid[0], guid[4], guid[4], guid[7], guid[6], guid[8], guid[9],
+                   guid[10], guid[11], guid[12], guid[13], guid[14], guid[15]);
     return EOK;
 }
 

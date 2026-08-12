@@ -169,8 +169,7 @@ static int evdev_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t
 static size_t evdev_get_mask_cnt(unsigned int type)
 {
     static const size_t counts[EV_CNT] = {
-        [EV_SYN] = EV_CNT, [EV_KEY] = KEY_CNT, [EV_REL] = REL_CNT, [EV_ABS] = ABS_CNT, [EV_MSC] = MSC_CNT,
-        [EV_SW] = SW_CNT,  [EV_LED] = LED_CNT, [EV_SND] = SND_CNT, [EV_FF] = FF_CNT,
+        [EV_SYN] = EV_CNT, [EV_KEY] = KEY_CNT, [EV_REL] = REL_CNT, [EV_ABS] = ABS_CNT, [EV_MSC] = MSC_CNT, [EV_SW] = SW_CNT, [EV_LED] = LED_CNT, [EV_SND] = SND_CNT, [EV_FF] = FF_CNT,
     };
 
     return (type < EV_CNT) ? counts[type] : 0;
@@ -962,8 +961,7 @@ static int evdev_copy_bits_to_user(void *arg, const uint32_t *bits, size_t bit_c
     return (int)length;
 }
 
-static int evdev_get_state(evdev_client_t *client, input_dev_t *dev, unsigned int type, const uint32_t *state, size_t bit_count, void *arg,
-                           size_t maxlen)
+static int evdev_get_state(evdev_client_t *client, input_dev_t *dev, unsigned int type, const uint32_t *state, size_t bit_count, void *arg, size_t maxlen)
 {
     size_t    bytes = (bit_count + 7) / 8;
     uint32_t *snapshot;

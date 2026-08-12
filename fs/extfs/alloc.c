@@ -42,8 +42,7 @@ static int extfs_initialize_block_bitmap(extfs_sb_info_t *sb, uint32_t group, ui
 static int extfs_initialize_inode_bitmap(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap);
 
 /* Find a free bit in a block/inode bitmap, initializing it if needed. */
-static int extfs_alloc_bit_from_bitmap(extfs_sb_info_t *sb, uint32_t group, int inode_bitmap, uint32_t bitmap_block, uint32_t total_bits,
-                                       uint32_t start, uint32_t *out)
+static int extfs_alloc_bit_from_bitmap(extfs_sb_info_t *sb, uint32_t group, int inode_bitmap, uint32_t bitmap_block, uint32_t total_bits, uint32_t start, uint32_t *out)
 {
     uint8_t *buf;
     uint32_t i;
@@ -167,8 +166,7 @@ static int extfs_initialize_block_bitmap(extfs_sb_info_t *sb, uint32_t group, ui
         ext2_group_desc_t *desc = &sb->group_desc[other];
         extfs_mark_group_block(sb, group, bitmap, desc->bg_block_bitmap);
         extfs_mark_group_block(sb, group, bitmap, desc->bg_inode_bitmap);
-        for (uint32_t block = 0; block < inode_table_blocks; block++)
-            extfs_mark_group_block(sb, group, bitmap, (uint64_t)desc->bg_inode_table + block);
+        for (uint32_t block = 0; block < inode_table_blocks; block++) extfs_mark_group_block(sb, group, bitmap, (uint64_t)desc->bg_inode_table + block);
     }
     uint32_t valid = extfs_blocks_in_group(sb, group);
     for (uint32_t bit = valid; bit < sb->block_size * 8; bit++) extfs_set_bit(bitmap, bit);
@@ -224,9 +222,8 @@ int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
     if (goal > sb->s_first_data_block) {
         group = (goal - sb->s_first_data_block) / sb->blocks_per_group;
         if (group < sb->groups_count && sb->group_desc[group].bg_free_blocks_count > 0) {
-            bit = (goal - sb->s_first_data_block) % sb->blocks_per_group;
-            status
-                = extfs_alloc_bit_from_bitmap(sb, group, 0, sb->group_desc[group].bg_block_bitmap, extfs_blocks_in_group(sb, group), bit, out);
+            bit    = (goal - sb->s_first_data_block) % sb->blocks_per_group;
+            status = extfs_alloc_bit_from_bitmap(sb, group, 0, sb->group_desc[group].bg_block_bitmap, extfs_blocks_in_group(sb, group), bit, out);
             if (status == EOK) {
                 *out += group * sb->blocks_per_group + sb->s_first_data_block;
                 sb->group_desc[group].bg_free_blocks_count--;

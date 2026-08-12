@@ -128,26 +128,21 @@ static void user_gp_report(interrupt_frame_t *frame, uint64_t error_code)
 
     uint64_t stack[4]  = {0};
     size_t   stack_len = 0;
-    while (stack_len < 4 && !copy_from_user(&stack[stack_len], (const void *)(frame->rsp + stack_len * sizeof(uint64_t)), sizeof(uint64_t)))
-        stack_len++;
+    while (stack_len < 4 && !copy_from_user(&stack[stack_len], (const void *)(frame->rsp + stack_len * sizeof(uint64_t)), sizeof(uint64_t))) stack_len++;
 
-    plogk("[exception] #GP pid=%llu tgid=%llu comm=%s process=%s\n", (unsigned long long)task->pid, (unsigned long long)task->tgid, task->name,
-          proc->name);
-    plogk("[exception] exe=%s rip=%p rsp=%p error=0x%llx cs=0x%llx ss=0x%llx rflags=0x%llx\n", proc->exe_path[0] ? proc->exe_path : "[unknown]",
-          (void *)frame->rip, (void *)frame->rsp, (unsigned long long)error_code, (unsigned long long)frame->cs, (unsigned long long)frame->ss,
-          (unsigned long long)frame->rflags);
-    plogk("[exception] gp-source external=%u table=%u selector-index=%llu fsbase=%p fpu-init=%u fpu-active=%u\n", (unsigned)(error_code & 1U),
-          (unsigned)((error_code >> 1) & 3U), (unsigned long long)(error_code >> 3), (void *)task->thread.fs_base,
-          (unsigned)task->thread.fpu_initialized, (unsigned)task->thread.fpu_active);
+    plogk("[exception] #GP pid=%llu tgid=%llu comm=%s process=%s\n", (unsigned long long)task->pid, (unsigned long long)task->tgid, task->name, proc->name);
+    plogk("[exception] exe=%s rip=%p rsp=%p error=0x%llx cs=0x%llx ss=0x%llx rflags=0x%llx\n", proc->exe_path[0] ? proc->exe_path : "[unknown]", (void *)frame->rip, (void *)frame->rsp,
+          (unsigned long long)error_code, (unsigned long long)frame->cs, (unsigned long long)frame->ss, (unsigned long long)frame->rflags);
+    plogk("[exception] gp-source external=%u table=%u selector-index=%llu fsbase=%p fpu-init=%u fpu-active=%u\n", (unsigned)(error_code & 1U), (unsigned)((error_code >> 1) & 3U),
+          (unsigned long long)(error_code >> 3), (void *)task->thread.fs_base, (unsigned)task->thread.fpu_initialized, (unsigned)task->thread.fpu_active);
     if (map_start) {
-        plogk("[exception] vma=%p-%p %c%c%c%c type=%d file=%s file-offset=0x%llx\n", (void *)map_start, (void *)map_end,
-              (map_flags & VM_READ) ? 'r' : '-', (map_flags & VM_WRITE) ? 'w' : '-', (map_flags & VM_EXEC) ? 'x' : '-',
-              (map_flags & VM_SHARED) ? 's' : 'p', map_type, map_name, (unsigned long long)file_off);
+        plogk("[exception] vma=%p-%p %c%c%c%c type=%d file=%s file-offset=0x%llx\n", (void *)map_start, (void *)map_end, (map_flags & VM_READ) ? 'r' : '-', (map_flags & VM_WRITE) ? 'w' : '-',
+              (map_flags & VM_EXEC) ? 'x' : '-', (map_flags & VM_SHARED) ? 's' : 'p', map_type, map_name, (unsigned long long)file_off);
     } else {
         plogk("[exception] rip-vma=[unmapped]\n");
     }
-    plogk("[exception] code[%zu]=%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", code_len, code[0], code[1],
-          code[2], code[3], code[4], code[5], code[6], code[7], code[8], code[9], code[10], code[11], code[12], code[13], code[14], code[15]);
+    plogk("[exception] code[%zu]=%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", code_len, code[0], code[1], code[2], code[3], code[4], code[5], code[6], code[7],
+          code[8], code[9], code[10], code[11], code[12], code[13], code[14], code[15]);
     plogk("[exception] stack[%zu]=%p %p %p %p\n", stack_len, (void *)stack[0], (void *)stack[1], (void *)stack[2], (void *)stack[3]);
 }
 

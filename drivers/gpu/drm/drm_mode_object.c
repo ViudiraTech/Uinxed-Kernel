@@ -325,8 +325,7 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
             return -ENOMEM;
         }
         if (copy_count
-            && (!req->props_ptr || !req->prop_values_ptr
-                || copy_to_user((void *)(uintptr_t)req->props_ptr, ids, (size_t)copy_count * sizeof(*ids))
+            && (!req->props_ptr || !req->prop_values_ptr || copy_to_user((void *)(uintptr_t)req->props_ptr, ids, (size_t)copy_count * sizeof(*ids))
                 || copy_to_user((void *)(uintptr_t)req->prop_values_ptr, values, (size_t)copy_count * sizeof(*values)))) {
             free(ids);
             free(values);
@@ -402,8 +401,7 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
     if ((prop->flags & DRM_MODE_PROP_RANGE) && (req->value < prop->values[0] || req->value > prop->values[1])) {
         drm_mode_object_put(&prop->base);
         drm_mode_object_put(obj);
-        plogk("drm: OBJ_SETPROPERTY: value %llu out of range for property %u, returning -EINVAL.\n", (unsigned long long)req->value,
-              req->prop_id);
+        plogk("drm: OBJ_SETPROPERTY: value %llu out of range for property %u, returning -EINVAL.\n", (unsigned long long)req->value, req->prop_id);
         return -EINVAL;
     }
     {

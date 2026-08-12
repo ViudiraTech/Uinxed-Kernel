@@ -183,8 +183,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
     for (int i = 0; i < 4; i++)
         if (ide_devices[i].reserved == 1) {
             if (ide_devices[i].type == IDE_ATAPI)
-                plogk("ide: Found ATAPI Drive %u blocks (%u bytes/block) - %s\n", atapi_devices[i].lba_size, atapi_devices[i].blk_size,
-                      ide_devices[i].model);
+                plogk("ide: Found ATAPI Drive %u blocks (%u bytes/block) - %s\n", atapi_devices[i].lba_size, atapi_devices[i].blk_size, ide_devices[i].model);
             else
                 plogk("ide: Found ATA Drive %llu (KiB) - %s\n", (unsigned long long)(ide_devices[i].size / 2), ide_devices[i].model);
         }

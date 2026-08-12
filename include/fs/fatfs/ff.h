@@ -182,11 +182,10 @@ typedef struct {
 /* Object ID and allocation information (FFOBJID) */
 
 typedef struct {
-        FATFS *fs;   // Pointer to the volume holding this object
-        WORD   id;   // Volume mount ID when this object was opened
-        BYTE   attr; // Object attribute
-        BYTE
-            stat; // Object chain status (exFAT: b1-0: =0:not contiguous, =2:contiguous, =3:fragmented in this session, b2:sub-directory stretched)
+        FATFS  *fs;      // Pointer to the volume holding this object
+        WORD    id;      // Volume mount ID when this object was opened
+        BYTE    attr;    // Object attribute
+        BYTE    stat;    // Object chain status (exFAT: b1-0: =0:not contiguous, =2:contiguous, =3:fragmented in this session, b2:sub-directory stretched)
         DWORD   sclust;  // Object data cluster (0:no data or root directory)
         FSIZE_t objsize; // Object size (valid when sclust != 0)
 #if FF_FS_EXFAT

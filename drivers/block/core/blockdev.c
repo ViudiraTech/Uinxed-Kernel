@@ -709,8 +709,8 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
 
     int status = blockdev_read_sectors(device, start_sector, sector_count, scratch);
     if (status != EOK) {
-        plogk("blockdev: Read failed at LBA %llu count %u (offset %llu size %lu): %d\n", (unsigned long long)start_sector,
-              (unsigned)sector_count, (unsigned long long)offset, (unsigned long)size, status);
+        plogk("blockdev: Read failed at LBA %llu count %u (offset %llu size %lu): %d\n", (unsigned long long)start_sector, (unsigned)sector_count, (unsigned long long)offset, (unsigned long)size,
+              status);
         free(scratch);
         return -EIO;
     }
@@ -744,16 +744,15 @@ int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const
 
     int status = blockdev_read_sectors(device, start_sector, sector_count, scratch);
     if (status != EOK) {
-        plogk("blockdev: Read-modify-write read failed at LBA %llu count %u (offset %llu size %lu): %d\n", (unsigned long long)start_sector,
-              (unsigned)sector_count, (unsigned long long)offset, (unsigned long)size, status);
+        plogk("blockdev: Read-modify-write read failed at LBA %llu count %u (offset %llu size %lu): %d\n", (unsigned long long)start_sector, (unsigned)sector_count, (unsigned long long)offset,
+              (unsigned long)size, status);
         free(scratch);
         return -EIO;
     }
 
     memcpy(scratch + sector_offset, buffer, size);
     if (blockdev_write_sectors(device, start_sector, sector_count, scratch) != EOK) {
-        plogk("blockdev: Write failed at LBA %llu count %u (offset %llu size %lu)\n", (unsigned long long)start_sector, (unsigned)sector_count,
-              (unsigned long long)offset, (unsigned long)size);
+        plogk("blockdev: Write failed at LBA %llu count %u (offset %llu size %lu)\n", (unsigned long long)start_sector, (unsigned)sector_count, (unsigned long long)offset, (unsigned long)size);
         free(scratch);
         return -EIO;
     }

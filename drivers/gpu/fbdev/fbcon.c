@@ -850,8 +850,7 @@ void fbcon_cursor_tick(uint64_t now_ticks)
 
     /* Restore the cell where the cursor was drawn last phase. */
     if (cursor_drawn) {
-        if (cursor_drawn_row < c_height && cursor_drawn_col < c_width)
-            fbcon_redraw_row_range(cursor_drawn_row, cursor_drawn_col, cursor_drawn_col);
+        if (cursor_drawn_row < c_height && cursor_drawn_col < c_width) fbcon_redraw_row_range(cursor_drawn_row, cursor_drawn_col, cursor_drawn_col);
         damage_x     = cursor_drawn_col * font_width;
         damage_y     = cursor_drawn_row * font_height;
         damaged      = true;

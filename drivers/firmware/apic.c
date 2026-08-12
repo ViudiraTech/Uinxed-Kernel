@@ -209,14 +209,13 @@ void apic_init(madt_t *madt)
             }
             case MADT_APIC_LOCAL_X2_CPU : {
                 madt_local_x2_cpu_t *x2cpu = (madt_local_x2_cpu_t *)(entries_base + current);
-                plogk("apic: Local X2 APIC id %03u, ACPI processor uid %03u, Flags %x\n", x2cpu->local_x2_apic_id, x2cpu->acpi_processor_uid,
-                      x2cpu->flags);
+                plogk("apic: Local X2 APIC id %03u, ACPI processor uid %03u, Flags %x\n", x2cpu->local_x2_apic_id, x2cpu->acpi_processor_uid, x2cpu->flags);
                 break;
             }
             case MADT_APIC_IO_INT : {
                 madt_io_apic_int_t *int_override = (madt_io_apic_int_t *)(entries_base + current);
-                plogk("apic: IO/APIC interrupt source override: bus %u, source %u -> GSI %u, flags %x\n", int_override->bus,
-                      int_override->source, int_override->global_system_interrupt, int_override->flags);
+                plogk("apic: IO/APIC interrupt source override: bus %u, source %u -> GSI %u, flags %x\n", int_override->bus, int_override->source, int_override->global_system_interrupt,
+                      int_override->flags);
                 break;
             }
             case MADT_APIC_IO_NMI : {

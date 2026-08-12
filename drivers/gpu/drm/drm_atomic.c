@@ -407,9 +407,8 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
             if (plane_state->fb) {
                 int64_t fb_w = (int64_t)plane_state->fb->width << 16;
                 int64_t fb_h = (int64_t)plane_state->fb->height << 16;
-                if (plane_state->src.x1 < 0 || plane_state->src.y1 < 0 || plane_state->src.x2 <= plane_state->src.x1
-                    || plane_state->src.y2 <= plane_state->src.y1 || plane_state->src.x2 > fb_w || plane_state->src.y2 > fb_h
-                    || plane_state->dst.x2 <= plane_state->dst.x1 || plane_state->dst.y2 <= plane_state->dst.y1) {
+                if (plane_state->src.x1 < 0 || plane_state->src.y1 < 0 || plane_state->src.x2 <= plane_state->src.x1 || plane_state->src.y2 <= plane_state->src.y1 || plane_state->src.x2 > fb_w
+                    || plane_state->src.y2 > fb_h || plane_state->dst.x2 <= plane_state->dst.x1 || plane_state->dst.y2 <= plane_state->dst.y1) {
                     plogk("drm_atomic: Plane %d invalid src/dst rectangle.\n", i);
                     return -EINVAL;
                 }

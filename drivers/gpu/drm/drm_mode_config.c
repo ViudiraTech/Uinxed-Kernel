@@ -176,10 +176,9 @@ int drm_mode_config_init(struct drm_device *dev)
         dev->mode_config.prop_plane_type = drm_property_create_enum(dev, DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ATOMIC, "type", plane_types, 3);
     }
 
-    if (!dev->mode_config.prop_fb_id || !dev->mode_config.prop_crtc_id || !dev->mode_config.prop_active || !dev->mode_config.prop_mode_id
-        || !dev->mode_config.prop_src_x || !dev->mode_config.prop_src_y || !dev->mode_config.prop_src_w || !dev->mode_config.prop_src_h
-        || !dev->mode_config.prop_crtc_x || !dev->mode_config.prop_crtc_y || !dev->mode_config.prop_crtc_w || !dev->mode_config.prop_crtc_h
-        || !dev->mode_config.prop_zpos || !dev->mode_config.prop_alpha || !dev->mode_config.prop_plane_type) {
+    if (!dev->mode_config.prop_fb_id || !dev->mode_config.prop_crtc_id || !dev->mode_config.prop_active || !dev->mode_config.prop_mode_id || !dev->mode_config.prop_src_x
+        || !dev->mode_config.prop_src_y || !dev->mode_config.prop_src_w || !dev->mode_config.prop_src_h || !dev->mode_config.prop_crtc_x || !dev->mode_config.prop_crtc_y
+        || !dev->mode_config.prop_crtc_w || !dev->mode_config.prop_crtc_h || !dev->mode_config.prop_zpos || !dev->mode_config.prop_alpha || !dev->mode_config.prop_plane_type) {
         plogk("drm: Mode_config_init: core property creation failed, returning -ENOMEM.\n");
         drm_mode_config_cleanup(dev);
         return -ENOMEM;
@@ -384,10 +383,9 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
     if (dev->mode_config.num_crtc) crtcs = malloc((size_t)dev->mode_config.num_crtc * sizeof(*crtcs));
     if (dev->mode_config.num_connector) connectors = malloc((size_t)dev->mode_config.num_connector * sizeof(*connectors));
     if (dev->mode_config.num_encoder) encoders = malloc((size_t)dev->mode_config.num_encoder * sizeof(*encoders));
-    if ((dev->mode_config.num_fb && !fbs) || (dev->mode_config.num_crtc && !crtcs) || (dev->mode_config.num_connector && !connectors)
-        || (dev->mode_config.num_encoder && !encoders)) {
-        plogk("drm: GETRESOURCES allocation failed (num_fb=%d num_crtc=%d num_connector=%d num_encoder=%d), returning -ENOMEM.\n",
-              dev->mode_config.num_fb, dev->mode_config.num_crtc, dev->mode_config.num_connector, dev->mode_config.num_encoder);
+    if ((dev->mode_config.num_fb && !fbs) || (dev->mode_config.num_crtc && !crtcs) || (dev->mode_config.num_connector && !connectors) || (dev->mode_config.num_encoder && !encoders)) {
+        plogk("drm: GETRESOURCES allocation failed (num_fb=%d num_crtc=%d num_connector=%d num_encoder=%d), returning -ENOMEM.\n", dev->mode_config.num_fb, dev->mode_config.num_crtc,
+              dev->mode_config.num_connector, dev->mode_config.num_encoder);
         free(fbs);
         free(crtcs);
         free(connectors);
@@ -396,45 +394,34 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
     }
     n = 0;
     if (fbs)
-        for (ilist_node_t *node = dev->mode_config.fb_list.next; node != &dev->mode_config.fb_list; node = node->next)
-            fbs[n++] = container_of(node, struct drm_framebuffer, head)->base.id;
+        for (ilist_node_t *node = dev->mode_config.fb_list.next; node != &dev->mode_config.fb_list; node = node->next) fbs[n++] = container_of(node, struct drm_framebuffer, head)->base.id;
     n = 0;
     if (crtcs)
-        for (ilist_node_t *node = dev->mode_config.crtc_list.next; node != &dev->mode_config.crtc_list; node = node->next)
-            crtcs[n++] = container_of(node, struct drm_crtc, head)->base.id;
+        for (ilist_node_t *node = dev->mode_config.crtc_list.next; node != &dev->mode_config.crtc_list; node = node->next) crtcs[n++] = container_of(node, struct drm_crtc, head)->base.id;
     n = 0;
     if (connectors)
         for (ilist_node_t *node = dev->mode_config.connector_list.next; node != &dev->mode_config.connector_list; node = node->next)
             connectors[n++] = container_of(node, struct drm_connector, head)->base.id;
     n = 0;
     if (encoders)
-        for (ilist_node_t *node = dev->mode_config.encoder_list.next; node != &dev->mode_config.encoder_list; node = node->next)
-            encoders[n++] = container_of(node, struct drm_encoder, head)->base.id;
+        for (ilist_node_t *node = dev->mode_config.encoder_list.next; node != &dev->mode_config.encoder_list; node = node->next) encoders[n++] = container_of(node, struct drm_encoder, head)->base.id;
 
     if ((user_fbs && dev->mode_config.num_fb
          && (!res->fb_id_ptr
-             || copy_to_user((void *)(uintptr_t)res->fb_id_ptr, fbs,
-                             (size_t)(user_fbs < (uint32_t)dev->mode_config.num_fb ? user_fbs : (uint32_t)dev->mode_config.num_fb)
-                                 * sizeof(*fbs))))
+             || copy_to_user((void *)(uintptr_t)res->fb_id_ptr, fbs, (size_t)(user_fbs < (uint32_t)dev->mode_config.num_fb ? user_fbs : (uint32_t)dev->mode_config.num_fb) * sizeof(*fbs))))
         || (user_crtcs && dev->mode_config.num_crtc
             && (!res->crtc_id_ptr
                 || copy_to_user((void *)(uintptr_t)res->crtc_id_ptr, crtcs,
-                                (size_t)(user_crtcs < (uint32_t)dev->mode_config.num_crtc ? user_crtcs : (uint32_t)dev->mode_config.num_crtc)
-                                    * sizeof(*crtcs))))
+                                (size_t)(user_crtcs < (uint32_t)dev->mode_config.num_crtc ? user_crtcs : (uint32_t)dev->mode_config.num_crtc) * sizeof(*crtcs))))
         || (user_connectors && dev->mode_config.num_connector
             && (!res->connector_id_ptr
                 || copy_to_user((void *)(uintptr_t)res->connector_id_ptr, connectors,
-                                (size_t)(user_connectors < (uint32_t)dev->mode_config.num_connector ? user_connectors :
-                                                                                                      (uint32_t)dev->mode_config.num_connector)
-                                    * sizeof(*connectors))))
+                                (size_t)(user_connectors < (uint32_t)dev->mode_config.num_connector ? user_connectors : (uint32_t)dev->mode_config.num_connector) * sizeof(*connectors))))
         || (user_encoders && dev->mode_config.num_encoder
             && (!res->encoder_id_ptr
-                || copy_to_user(
-                    (void *)(uintptr_t)res->encoder_id_ptr, encoders,
-                    (size_t)(user_encoders < (uint32_t)dev->mode_config.num_encoder ? user_encoders : (uint32_t)dev->mode_config.num_encoder)
-                        * sizeof(*encoders))))) {
-        plogk("drm: GETRESOURCES copy_to_user failed (user_fbs=%u user_crtcs=%u user_connectors=%u user_encoders=%u), returning -EFAULT.\n",
-              user_fbs, user_crtcs, user_connectors, user_encoders);
+                || copy_to_user((void *)(uintptr_t)res->encoder_id_ptr, encoders,
+                                (size_t)(user_encoders < (uint32_t)dev->mode_config.num_encoder ? user_encoders : (uint32_t)dev->mode_config.num_encoder) * sizeof(*encoders))))) {
+        plogk("drm: GETRESOURCES copy_to_user failed (user_fbs=%u user_crtcs=%u user_connectors=%u user_encoders=%u), returning -EFAULT.\n", user_fbs, user_crtcs, user_connectors, user_encoders);
         free(fbs);
         free(crtcs);
         free(connectors);

@@ -95,8 +95,7 @@ int net_ipv4_parse(const void *data, size_t length, net_ipv4_packet_t *packet)
     packet->more_fragments  = !!(fragment & IPV4_FLAG_MF);
     packet->payload         = bytes + header_length;
     packet->payload_len     = total - header_length;
-    if ((packet->more_fragments && (packet->payload_len & 7U)) || packet->fragment_offset + packet->payload_len > IPV4_MAX_PAYLOAD)
-        return -EBADMSG;
+    if ((packet->more_fragments && (packet->payload_len & 7U)) || packet->fragment_offset + packet->payload_len > IPV4_MAX_PAYLOAD) return -EBADMSG;
     return 0;
 }
 
@@ -169,8 +168,7 @@ int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
     if (search.fallback) netdev_put(search.fallback);
     static uint64_t last_log;
     if (sched_ticks() - last_log >= 1000) {
-        plogk("ipv4: No route to %u.%u.%u.%u\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
-              (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff);
+        plogk("ipv4: No route to %u.%u.%u.%u\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff);
         last_log = sched_ticks();
     }
     return -ENETUNREACH;
@@ -187,13 +185,13 @@ static uint16_t ipv4_next_id(void)
 }
 
 /* Build one IPv4 fragment with the given flags/offset and transmit it. */
-static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl,
-                              uint16_t id, uint16_t flags_offset, const uint8_t *data, size_t length)
+static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl, uint16_t id, uint16_t flags_offset, const uint8_t *data,
+                              size_t length)
 {
     net_pbuf_t *fragment = net_pbuf_alloc(IPV4_HEADER_MIN + length, NET_PBUF_HEADROOM);
     if (!fragment) {
-        plogk("ipv4: %s: Fragment alloc failed (dest=%u.%u.%u.%u len=%lu)\n", device->name, (unsigned)(destination >> 24) & 0xff,
-              (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned long)length);
+        plogk("ipv4: %s: Fragment alloc failed (dest=%u.%u.%u.%u len=%lu)\n", device->name, (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
+              (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned long)length);
         return -ENOMEM;
     }
     uint8_t *header = fragment->data;
@@ -216,8 +214,7 @@ static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t 
 /* Transmit a packet, fragmenting by MTU and resolving the next hop. */
 int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl, net_pbuf_t *packet)
 {
-    if (!packet || !destination || packet->length > IPV4_MAX_PAYLOAD || ipv4_is_multicast(destination) || (destination >> 24) == 127U)
-        return -EMSGSIZE;
+    if (!packet || !destination || packet->length > IPV4_MAX_PAYLOAD || ipv4_is_multicast(destination) || (destination >> 24) == 127U) return -EMSGSIZE;
     uint32_t next_hop;
     int      release = 0;
     if (!device) {
@@ -234,9 +231,9 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
     if (!ipv4_source_valid(source) || !next_hop || device->mtu <= IPV4_HEADER_MIN) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("ipv4: %s: Output dropped (source %u.%u.%u.%u, next hop %u.%u.%u.%u)\n", device->name, (unsigned)(source >> 24) & 0xff,
-                  (unsigned)(source >> 16) & 0xff, (unsigned)(source >> 8) & 0xff, (unsigned)source & 0xff, (unsigned)(next_hop >> 24) & 0xff,
-                  (unsigned)(next_hop >> 16) & 0xff, (unsigned)(next_hop >> 8) & 0xff, (unsigned)next_hop & 0xff);
+            plogk("ipv4: %s: Output dropped (source %u.%u.%u.%u, next hop %u.%u.%u.%u)\n", device->name, (unsigned)(source >> 24) & 0xff, (unsigned)(source >> 16) & 0xff,
+                  (unsigned)(source >> 8) & 0xff, (unsigned)source & 0xff, (unsigned)(next_hop >> 24) & 0xff, (unsigned)(next_hop >> 16) & 0xff, (unsigned)(next_hop >> 8) & 0xff,
+                  (unsigned)next_hop & 0xff);
             last_log = sched_ticks();
         }
         if (release) netdev_put(device);
@@ -282,8 +279,7 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
     ipv4_reassembly_t *oldest     = NULL;
     for (unsigned i = 0; i < IPV4_REASSEMBLY_SLOTS; i++) {
         ipv4_reassembly_t *entry = &ipv4_reassembly[i];
-        if (entry->device == device && entry->source == ip->source && entry->destination == ip->destination
-            && entry->identification == ip->identification && entry->protocol == ip->protocol)
+        if (entry->device == device && entry->source == ip->source && entry->destination == ip->destination && entry->identification == ip->identification && entry->protocol == ip->protocol)
             return entry;
         if (!entry->device)
             free_entry = entry;
@@ -296,9 +292,8 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
     entry->data   = malloc(IPV4_MAX_PAYLOAD);
     entry->bitmap = malloc(IPV4_BITMAP_SIZE);
     if (!entry->data || !entry->bitmap) {
-        plogk("ipv4: %s: Reassembly buffer alloc failed (src=%u.%u.%u.%u id=%u)\n", device->name, (unsigned)(ip->source >> 24) & 0xff,
-              (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff,
-              (unsigned)ip->identification);
+        plogk("ipv4: %s: Reassembly buffer alloc failed (src=%u.%u.%u.%u id=%u)\n", device->name, (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff,
+              (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)ip->identification);
         ipv4_reassembly_clear(entry);
         return NULL;
     }
@@ -313,17 +308,14 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
 }
 
 /* Insert a fragment and return a reassembled packet once the stream is complete. */
-static net_pbuf_t *ipv4_reassemble(net_device_t *device, const net_ipv4_packet_t *ip, const uint8_t *header, uint64_t now, uint8_t *quote,
-                                   size_t *quote_length)
+static net_pbuf_t *ipv4_reassemble(net_device_t *device, const net_ipv4_packet_t *ip, const uint8_t *header, uint64_t now, uint8_t *quote, size_t *quote_length)
 {
     net_pbuf_t *complete = NULL;
     spin_lock(&ipv4_reassembly_lock);
     ipv4_reassembly_t *entry = ipv4_reassembly_find(device, ip, now);
     if (!entry) goto out;
     size_t end = ip->fragment_offset + ip->payload_len;
-    if ((entry->have_last && end > entry->total_length)
-        || (!ip->more_fragments && ((entry->have_last && end != entry->total_length) || entry->highest_end > end)))
-        goto overlap;
+    if ((entry->have_last && end > entry->total_length) || (!ip->more_fragments && ((entry->have_last && end != entry->total_length) || entry->highest_end > end))) goto overlap;
     {
         uint8_t *bm      = entry->bitmap;
         size_t   off     = ip->fragment_offset;
@@ -386,8 +378,7 @@ out:
 }
 
 /* Hand an IPv4 payload to its transport handler, generating ICMP errors if needed. */
-static int ipv4_dispatch(net_device_t *device, const ipv4_info_t *info, net_pbuf_t *packet, const void *quoted, size_t quoted_length,
-                         int may_error)
+static int ipv4_dispatch(net_device_t *device, const ipv4_info_t *info, net_pbuf_t *packet, const void *quoted, size_t quoted_length, int may_error)
 {
     int status;
     if (info->protocol == IPV4_PROTO_ICMP) return icmp_input(device, info, packet);
@@ -469,9 +460,7 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
     if (!quoted || quoted_length < IPV4_HEADER_MIN) return;
     const uint8_t *bytes         = quoted;
     size_t         header_length = (size_t)(bytes[0] & 0x0fU) * 4U;
-    if ((bytes[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > quoted_length
-        || (net_read_be16(bytes + 6) & IPV4_FRAGMENT_MASK))
-        return;
+    if ((bytes[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > quoted_length || (net_read_be16(bytes + 6) & IPV4_FRAGMENT_MASK)) return;
     int error = 0;
     if (type == ICMP_DEST_UNREACHABLE) {
         if (code == ICMP_FRAGMENTATION_NEEDED)
@@ -486,8 +475,7 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
     spin_lock(&ipv4_hook_lock);
     ipv4_error_hook_t hook = ipv4_error_hook;
     spin_unlock(&ipv4_hook_lock);
-    if (hook)
-        hook(bytes[9], net_read_be32(bytes + 12), net_read_be32(bytes + 16), bytes + header_length, quoted_length - header_length, error, mtu);
+    if (hook) hook(bytes[9], net_read_be32(bytes + 12), net_read_be32(bytes + 16), bytes + header_length, quoted_length - header_length, error, mtu);
 }
 
 /* Expire stale reassembly entries, reporting reassembly-timeout ICMP errors. */

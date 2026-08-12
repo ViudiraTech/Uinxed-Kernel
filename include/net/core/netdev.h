@@ -104,8 +104,7 @@ int    netdev_set_mtu(net_device_t *device, uint32_t mtu);
 int    netdev_configure_ipv4(net_device_t *device, uint32_t address, uint32_t netmask, uint32_t gateway);
 int    netdev_configure_dns(net_device_t *device, const uint32_t *servers, size_t count);
 size_t netdev_get_dns_servers(net_device_t *device, uint32_t *servers, size_t capacity);
-int    netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data,
-                            size_t length);
+int    netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data, size_t length);
 void   netdev_get_stats(net_device_t *device, netdev_stats_t *stats);
 
 /* RX consumes packet on every return path. TX does not consume packet. */

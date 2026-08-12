@@ -250,8 +250,7 @@ static size_t ohci_td_actual(const ohci_gtd_t *td, uint32_t buffer_start, size_t
 /* Build an ED control dword from the endpoint's address and speed. */
 static uint32_t ohci_ed_control(const usb_device_t *device, uint8_t endpoint, uint16_t max_packet)
 {
-    uint32_t control
-        = (uint32_t)device->address << OHCI_ED_FA_SHIFT | (uint32_t)endpoint << OHCI_ED_EN_SHIFT | (uint32_t)max_packet << OHCI_ED_MPS_SHIFT;
+    uint32_t control = (uint32_t)device->address << OHCI_ED_FA_SHIFT | (uint32_t)endpoint << OHCI_ED_EN_SHIFT | (uint32_t)max_packet << OHCI_ED_MPS_SHIFT;
     if (device->speed == USB_SPEED_LOW) control |= OHCI_ED_S;
     return control;
 }
@@ -317,12 +316,11 @@ static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     size_t data_position   = 1;
     size_t status_position = length ? 2 : 1;
     size_t dummy_position  = status_position + 1;
-    ohci_fill_td(ctrl->tds[td_indices[0]].virtual, OHCI_TD_DP_SETUP | OHCI_TD_TOGGLE_DATA0 | OHCI_TD_DI_NONE, (uint32_t)setup_physical,
-                 sizeof(*setup), (uint32_t)ctrl->tds[td_indices[data_position]].physical);
+    ohci_fill_td(ctrl->tds[td_indices[0]].virtual, OHCI_TD_DP_SETUP | OHCI_TD_TOGGLE_DATA0 | OHCI_TD_DI_NONE, (uint32_t)setup_physical, sizeof(*setup),
+                 (uint32_t)ctrl->tds[td_indices[data_position]].physical);
     if (length) {
-        ohci_fill_td(ctrl->tds[td_indices[data_position]].virtual,
-                     (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_DATA1 | OHCI_TD_DI_NONE, (uint32_t)data_physical,
-                     length, (uint32_t)ctrl->tds[td_indices[status_position]].physical);
+        ohci_fill_td(ctrl->tds[td_indices[data_position]].virtual, (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_DATA1 | OHCI_TD_DI_NONE, (uint32_t)data_physical, length,
+                     (uint32_t)ctrl->tds[td_indices[status_position]].physical);
     }
     ohci_fill_td(ctrl->tds[td_indices[status_position]].virtual, (input && length ? OHCI_TD_DP_OUT : OHCI_TD_DP_IN) | OHCI_TD_TOGGLE_DATA1, 0, 0,
                  (uint32_t)ctrl->tds[td_indices[dummy_position]].physical);
@@ -386,8 +384,8 @@ static int ohci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
         goto transfer_cleanup;
     }
 
-    ohci_fill_td(ctrl->tds[data_index].virtual, (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_CARRY,
-                 (uint32_t)data_physical, length, (uint32_t)ctrl->tds[dummy_index].physical);
+    ohci_fill_td(ctrl->tds[data_index].virtual, (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_CARRY, (uint32_t)data_physical, length,
+                 (uint32_t)ctrl->tds[dummy_index].physical);
     ohci_ed_t *ed    = ctrl->eds[ed_index].virtual;
     ed->control      = ohci_ed_control(device, endpoint_number, max_packet);
     ed->tail_pointer = (uint32_t)ctrl->tds[dummy_index].physical;
@@ -421,9 +419,7 @@ transfer_cleanup:
 static int ohci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || !length || length > PAGE_4K_SIZE || !complete) return -EINVAL;
-    if ((endpoint->descriptor.attributes & USB_ENDPOINT_XFERTYPE_MASK) != USB_ENDPOINT_XFER_INT
-        || !(endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK))
-        return -EINVAL;
+    if ((endpoint->descriptor.attributes & USB_ENDPOINT_XFERTYPE_MASK) != USB_ENDPOINT_XFER_INT || !(endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK)) return -EINVAL;
     if (endpoint->hc_private) return -EBUSY;
     ohci_controller_t *ctrl = endpoint->interface->device->hc_private;
     if (!ctrl) return -ENODEV;
@@ -547,8 +543,8 @@ static int ohci_get_string(usb_device_t *device, uint8_t index, uint16_t languag
 {
     uint8_t descriptor[128];
     if (!index || !output || capacity < 2) return -EINVAL;
-    int result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, (USB_DT_STRING << 8) | index,
-                                 language, descriptor, sizeof(descriptor), USB_CTRL_TIMEOUT_MS);
+    int result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, (USB_DT_STRING << 8) | index, language, descriptor, sizeof(descriptor),
+                                 USB_CTRL_TIMEOUT_MS);
     if (result != EOK || descriptor[0] < 2 || descriptor[1] != USB_DT_STRING) return -EIO;
     size_t characters = (descriptor[0] - 2) / 2;
     if (characters >= capacity) characters = capacity - 1;
@@ -583,14 +579,13 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
     (void)snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
 
     uint8_t address = port + 1;
-    result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0,
-                                      USB_CTRL_TIMEOUT_MS);
+    result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
     if (result != EOK) goto fail;
     msleep(10);
     device->address = address;
 
-    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0,
-                             &device->descriptor, sizeof(device->descriptor), USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &device->descriptor, sizeof(device->descriptor),
+                             USB_CTRL_TIMEOUT_MS);
     if (result != EOK || device->descriptor.length < sizeof(device->descriptor) || device->descriptor.descriptor_type != USB_DT_DEVICE) {
         if (result == EOK) result = -EPROTO;
         goto fail;
@@ -598,9 +593,7 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
 
     uint16_t language = 0x0409;
     uint8_t  lang_desc[4];
-    if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, lang_desc,
-                        sizeof(lang_desc), USB_CTRL_TIMEOUT_MS)
-            == EOK
+    if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, lang_desc, sizeof(lang_desc), USB_CTRL_TIMEOUT_MS) == EOK
         && lang_desc[0] >= 4)
         language = lang_desc[2] | (uint16_t)lang_desc[3] << 8;
     ohci_get_string(device, device->descriptor.manufacturer, language, device->manufacturer, sizeof(device->manufacturer));
@@ -608,12 +601,10 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
     ohci_get_string(device, device->descriptor.serial_number, language, device->serial, sizeof(device->serial));
 
     usb_config_descriptor_t header;
-    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, &header,
-                             sizeof(header), USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, &header, sizeof(header), USB_CTRL_TIMEOUT_MS);
     if (result != EOK) goto fail;
     uint16_t total_length = usb_get_le16(&header.total_length);
-    if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header)
-        || total_length > PAGE_4K_SIZE) {
+    if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header) || total_length > PAGE_4K_SIZE) {
         result = -EPROTO;
         goto fail;
     }
@@ -623,8 +614,7 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
         result = -ENOMEM;
         goto fail;
     }
-    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0,
-                             configuration, total_length, USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, configuration, total_length, USB_CTRL_TIMEOUT_MS);
     if (result == EOK) result = usb_add_device(device, configuration, total_length);
     free(configuration);
     if (result == EOK) {
@@ -666,8 +656,7 @@ static void ohci_service_periodic(ohci_controller_t *ctrl)
 
         size_t actual = 0;
         int    status = ohci_transfer(transfer->endpoint, transfer->buffer, transfer->length, &actual, USB_IO_TIMEOUT_MS);
-        if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE))
-            transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
+        if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE)) transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
         transfer->next_poll = nano_time() + (uint64_t)transfer->interval_ms * 1000000ULL;
         __atomic_store_n(&transfer->in_callback, false, __ATOMIC_RELEASE);
     }

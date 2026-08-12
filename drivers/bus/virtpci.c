@@ -298,8 +298,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     vq->notify_off       = common->queue_notify_off;
 
     /* Allocate descriptor table, available ring, used ring as one block */
-    alloc_size = num * sizeof(struct vring_desc) + sizeof(struct vring_avail) + num * sizeof(uint16_t) + sizeof(struct vring_used)
-                 + num * sizeof(struct vring_used_elem);
+    alloc_size = num * sizeof(struct vring_desc) + sizeof(struct vring_avail) + num * sizeof(uint16_t) + sizeof(struct vring_used) + num * sizeof(struct vring_used_elem);
     /* Align to page */
     alloc_size = (alloc_size + 4095) & ~4095;
 
@@ -573,8 +572,7 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
     dev->vendor_id = vendor_id;
     dev->device_id = device_id;
 
-    plogk("virtpci: Found device %04x:%04x at %04x:%02x:%02x.%01x\n", vendor_id, device_id, cache->device->domain, cache->device->bus,
-          cache->device->slot, cache->device->func);
+    plogk("virtpci: Found device %04x:%04x at %04x:%02x:%02x.%01x\n", vendor_id, device_id, cache->device->domain, cache->device->bus, cache->device->slot, cache->device->func);
 
     /* Scan capabilities */
     ret = vp_scan_caps(dev);

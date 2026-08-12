@@ -122,8 +122,7 @@ static uint16_t hid_field_usage_page(const usb_hid_field_t *field, size_t index)
 }
 
 /* Record one input field from the current global and local state. */
-static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_t *global, const hid_local_state_t *local, uint8_t application,
-                               uint8_t flags)
+static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_t *global, const hid_local_state_t *local, uint8_t application, uint8_t flags)
 {
     uint32_t bits = (uint32_t)global->report_size * global->report_count;
 
@@ -192,8 +191,7 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
             size_t item_length = descriptor[offset];
             offset += 2;
             if (item_length > length - offset) {
-                plogk("hid: parse_report: long item exceeds descriptor (item_length=%u, offset=%lu)\n", (unsigned)item_length,
-                      (unsigned long)offset);
+                plogk("hid: parse_report: long item exceeds descriptor (item_length=%u, offset=%lu)\n", (unsigned)item_length, (unsigned long)offset);
                 return -EINVAL;
             }
             offset += item_length;
@@ -316,9 +314,8 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                     }
                     current_application                = report->application_count++;
                     usb_hid_application_t *application = &report->applications[current_application];
-                    application->usage_page
-                        = local.usage_count ? local.usage_pages[0] : (local.has_usage_minimum ? local.usage_minimum_page : global->usage_page);
-                    application->usage = local.usage_count ? local.usages[0] : (local.has_usage_minimum ? local.usage_minimum : 0);
+                    application->usage_page            = local.usage_count ? local.usage_pages[0] : (local.has_usage_minimum ? local.usage_minimum_page : global->usage_page);
+                    application->usage                 = local.usage_count ? local.usages[0] : (local.has_usage_minimum ? local.usage_minimum : 0);
                 }
                 break;
             case HID_MAIN_END_COLLECTION :
@@ -334,8 +331,7 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
         hid_local_reset(&local);
     }
     if (collection_depth || global_depth) {
-        plogk("hid: parse_report: unterminated collection or global state (collection=%u, global=%u)\n", (unsigned)collection_depth,
-              (unsigned)global_depth);
+        plogk("hid: parse_report: unterminated collection or global state (collection=%u, global=%u)\n", (unsigned)collection_depth, (unsigned)global_depth);
         return -EINVAL;
     }
     if (!report->application_count) report->application_count = 1;
@@ -477,14 +473,12 @@ static void hid_emit(usb_hid_event_t *events, size_t capacity, size_t *count, ui
 }
 
 /* Decode an array field: emit key changes against the previous state. */
-static void hid_decode_array(usb_hid_field_t *field, const uint32_t *values, size_t value_count, usb_hid_event_t *events, size_t capacity,
-                             size_t *count)
+static void hid_decode_array(usb_hid_field_t *field, const uint32_t *values, size_t value_count, usb_hid_event_t *events, size_t capacity, size_t *count)
 {
     if (field->usage_page != HID_USAGE_PAGE_KEYBOARD) return;
     for (size_t i = 0; i < field->previous_count; i++) {
         uint32_t usage = field->previous[i];
-        if (usage > 3 && !hid_array_contains(values, value_count, usage))
-            hid_emit(events, capacity, count, field->application, EV_KEY, usb_hid_keyboard_keycode((uint16_t)usage), 0);
+        if (usage > 3 && !hid_array_contains(values, value_count, usage)) hid_emit(events, capacity, count, field->application, EV_KEY, usb_hid_keyboard_keycode((uint16_t)usage), 0);
     }
     for (size_t i = 0; i < value_count; i++) {
         uint32_t usage = values[i];
@@ -584,8 +578,7 @@ int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t 
         }
     }
     if ((size_t)report->report_bits[report_id] > length * 8) {
-        plogk("hid: decode_report: report too short for fields (report_id=%u, bits=%u, data_bits=%lu)\n", report_id,
-              report->report_bits[report_id], (unsigned long)length * 8);
+        plogk("hid: decode_report: report too short for fields (report_id=%u, bits=%u, data_bits=%lu)\n", report_id, report->report_bits[report_id], (unsigned long)length * 8);
         return -EMSGSIZE;
     }
 
@@ -597,8 +590,7 @@ int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t 
         for (size_t i = 0; i < field->report_count; i++) {
             uint32_t raw = hid_extract_bits(data, length, field->bit_offset + i * field->report_size, field->report_size);
             values[i]    = raw;
-            if (field->flags & USB_HID_MAIN_VARIABLE)
-                hid_decode_variable(field, i, hid_field_value(field, raw), events, event_capacity, &event_count);
+            if (field->flags & USB_HID_MAIN_VARIABLE) hid_decode_variable(field, i, hid_field_value(field, raw), events, event_capacity, &event_count);
         }
         if (!(field->flags & USB_HID_MAIN_VARIABLE)) hid_decode_array(field, values, field->report_count, events, event_capacity, &event_count);
     }

@@ -58,8 +58,7 @@ static int elf_source_read(elf_source_t *source, size_t offset, void *buffer, si
     if (!source->node) return -1;
 
     if (source->window && size <= source->window_capacity) {
-        bool cached
-            = offset >= source->window_offset && size <= source->window_size && offset - source->window_offset <= source->window_size - size;
+        bool cached = offset >= source->window_offset && size <= source->window_size && offset - source->window_offset <= source->window_size - size;
         if (!cached) {
             source->window_offset = offset;
             source->window_size   = source->size - offset;
@@ -174,8 +173,7 @@ static int elf_segment_range(const Elf64_Phdr *segment, uintptr_t load_bias, uin
 }
 
 /* Return the permissions for one page covered by one or more PT_LOADs. */
-static int elf_page_attributes(const Elf64_Phdr *phdr, int phnum, uintptr_t load_bias, uintptr_t va, uint64_t *pte_flags_out,
-                               vm_flags_t *vm_flags_out)
+static int elf_page_attributes(const Elf64_Phdr *phdr, int phnum, uintptr_t load_bias, uintptr_t va, uint64_t *pte_flags_out, vm_flags_t *vm_flags_out)
 {
     int       covered    = 0;
     int       readable   = 0;
@@ -234,8 +232,7 @@ static int insert_elf_vma(process_t *proc, uintptr_t start, uintptr_t end, vm_fl
     return 0;
 }
 
-static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, const Elf64_Phdr *phdr, elf_source_t *source, uintptr_t load_bias,
-                                    int set_brk)
+static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, const Elf64_Phdr *phdr, elf_source_t *source, uintptr_t load_bias, int set_brk)
 {
     uintptr_t lowest_start = UINT64_MAX;
     uintptr_t highest_end  = 0;
@@ -244,9 +241,7 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
         if (phdr[i].type != PT_LOAD) continue;
         if (phdr[i].filesz > phdr[i].memsz) return 1;
         if (phdr[i].offset > source->size || phdr[i].filesz > source->size - phdr[i].offset) return 1;
-        if (phdr[i].align > 1
-            && ((phdr[i].align & (phdr[i].align - 1)) || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1))))
-            return 1;
+        if (phdr[i].align > 1 && ((phdr[i].align & (phdr[i].align - 1)) || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1)))) return 1;
 
         uintptr_t seg_start, seg_end;
         int       range = elf_segment_range(&phdr[i], load_bias, NULL, &seg_start, &seg_end);
@@ -504,8 +499,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         if (valid_entry) break;
     }
     if (!valid_entry) {
-        plogk("elf_loader: Interpreter entry %#lx outside any executable segment: %s\n", (unsigned long)(iehdr->e_entry + load_bias),
-              interp_path);
+        plogk("elf_loader: Interpreter entry %#lx outside any executable segment: %s\n", (unsigned long)(iehdr->e_entry + load_bias), interp_path);
         free(elf_data);
         return -1;
     }
@@ -536,8 +530,7 @@ static size_t string_array_size(char *const arr[])
 }
 
 /* Build the initial user stack: argv/envp/auxv vectors and the strings they point to */
-static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base,
-                                  uintptr_t main_entry, char *const argv[], char *const envp[])
+static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base, uintptr_t main_entry, char *const argv[], char *const envp[])
 {
     int         argc      = count_string_array(argv);
     int         envc      = count_string_array(envp);
@@ -656,8 +649,7 @@ __attribute__((naked)) static void user_process_enter(void)
 }
 
 /* Load a memory-backed ELF into the process: map segments, set up the stack and registers */
-int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
-                                     uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console)
+int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[], uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console)
 {
     Elf64_Ehdr *ehdr = NULL;
     if (validate_elf(elf_data, elf_size, &ehdr)) {
@@ -761,8 +753,7 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
         return 1;
     }
 
-    uintptr_t user_rsp
-        = setup_user_stack(proc, phdr_addr, ehdr->e_phnum, ehdr->e_phentsize, interpreter_base, ehdr->e_entry + load_bias, argv, envp);
+    uintptr_t user_rsp = setup_user_stack(proc, phdr_addr, ehdr->e_phnum, ehdr->e_phentsize, interpreter_base, ehdr->e_entry + load_bias, argv, envp);
     if (!user_rsp) {
         plogk("elf_loader: Failed to initialize user stack.\n");
         return 1;
@@ -830,8 +821,7 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
     int  has_interp       = 0;
     for (int i = 0; i < ehdr.e_phnum; i++) {
         if (phdrs[i].type != PT_INTERP) continue;
-        if (has_interp || phdrs[i].filesz <= 1 || phdrs[i].filesz >= sizeof(interp_path)
-            || elf_source_read(&source, (size_t)phdrs[i].offset, interp_path, (size_t)phdrs[i].filesz)
+        if (has_interp || phdrs[i].filesz <= 1 || phdrs[i].filesz >= sizeof(interp_path) || elf_source_read(&source, (size_t)phdrs[i].offset, interp_path, (size_t)phdrs[i].filesz)
             || interp_path[phdrs[i].filesz - 1] != '\0') {
             plogk("elf_loader: Invalid PT_INTERP.\n");
             free(phdrs);
@@ -912,8 +902,7 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
         return 1;
     }
 
-    uintptr_t user_rsp
-        = setup_user_stack(proc, phdr_addr, ehdr.e_phnum, ehdr.e_phentsize, interpreter_base, ehdr.e_entry + load_bias, argv, envp);
+    uintptr_t user_rsp = setup_user_stack(proc, phdr_addr, ehdr.e_phnum, ehdr.e_phentsize, interpreter_base, ehdr.e_entry + load_bias, argv, envp);
     if (!user_rsp) {
         plogk("elf_loader: Failed to initialize user stack.\n");
         free(source.window);

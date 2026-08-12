@@ -152,8 +152,7 @@ int         tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *p
 int         tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
 void        tcp_timer(uint64_t now_ticks);
 int         net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_tcp_segment_t *segment);
-int         net_tcp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination,
-                           net_tcp_segment_t *segment);
+int         net_tcp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination, net_tcp_segment_t *segment);
 int         net_tcp_seq_before(uint32_t a, uint32_t b);
 int         net_tcp_seq_after(uint32_t a, uint32_t b);
 tcp_state_t net_tcp_state_next(tcp_state_t state, tcp_event_t event);
