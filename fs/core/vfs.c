@@ -39,9 +39,14 @@ static uint64_t   vfs_next_mount_id = 1;
  */
 int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, process_t *proc)
 {
-    if (!proc || proc->fsuid == 0) return 0;
+    if (!node) return -EACCES;
+    if (!proc) return 0;
+    if (proc->fsuid == 0) {
+        if ((access_mask & VFS_ACCESS_X) && !(node->type & file_dir) && !(node->mode & 0111)) return -EACCES;
+        return 0;
+    }
     if (proc->fsuid == node->owner && (node->mode & (access_mask << 6)) == (access_mask << 6)) return 0;
-    if (proc->fsgid == node->group && (node->mode & (access_mask << 3)) == (access_mask << 3)) return 0;
+    if (process_in_group(proc, node->group) && (node->mode & (access_mask << 3)) == (access_mask << 3)) return 0;
     if ((node->mode & access_mask) == access_mask) return 0;
     return -EACCES;
 }
@@ -49,6 +54,18 @@ int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, process_t *p
 int vfs_access_check(vfs_node_t node, uint32_t access_mask)
 {
     return vfs_access_check_process(node, access_mask, process_current());
+}
+
+int vfs_chmod_process(vfs_node_t node, uint16_t mode, process_t *proc)
+{
+    if (!node || !proc) return -EINVAL;
+    if (proc->fsuid != 0 && proc->fsuid != node->owner) return -EPERM;
+    mode &= 07777;
+    if (proc->fsuid != 0 && !process_in_group(proc, node->group)) mode &= (uint16_t)~02000;
+    node->mode        = mode;
+    node->permissions = mode;
+    inotify_notify(node, IN_ATTRIB);
+    return EOK;
 }
 
 struct vfs_callback vfs_empty_callback;
@@ -325,7 +342,7 @@ static char *vfs_resolve_link_path(vfs_node_t node)
     return normalized;
 }
 
-static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final);
+static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final, int *error);
 
 /* Open a file or directory, invoking the appropriate callback */
 static void do_open(vfs_node_t file)
@@ -453,25 +470,32 @@ void vfs_update(vfs_node_t node)
 }
 
 /* Open a file or directory by path */
-static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final)
+static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final, int *error)
 {
     vfs_node_t owned_reference = NULL;
     bool       trailing_slash;
 
-    if (!str || str[0] != '/') return 0;
+    if (error) *error = -ENOENT;
+    if (!str || str[0] != '/') {
+        if (error) *error = -EINVAL;
+        return 0;
+    }
     if (symlink_depth > 40) {
         plogk("vfs: Symlink depth exceeded while resolving %s\n", str);
+        if (error) *error = -ELOOP;
         return 0;
     }
     trailing_slash = str[1] != '\0' && str[strlen(str) - 1] == '/';
     if (str[1] == '\0') {
         rootdir->refcount++;
+        if (error) *error = EOK;
         return rootdir;
     }
 
     char *path = strdup(str + 1);
     if (!path) {
         plogk("vfs: Path allocation failed while resolving %s\n", str);
+        if (error) *error = -ENOMEM;
         return 0;
     }
 
@@ -479,6 +503,14 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
     vfs_node_t current  = rootdir;
 
     for (char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
+        if (!(current->type & file_dir)) {
+            if (error) *error = -ENOTDIR;
+            goto err;
+        }
+        if (vfs_access_check(current, VFS_ACCESS_X) != EOK) {
+            if (error) *error = -EACCES;
+            goto err;
+        }
         if (streq(buf, ".")) continue;
         if (streq(buf, "..")) {
             vfs_node_t next = current->parent ? current->parent : current;
@@ -489,7 +521,10 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
         }
 
         vfs_node_t next = vfs_child_find(current, buf);
-        if (!next) goto err;
+        if (!next) {
+            if (error) *error = -ENOENT;
+            goto err;
+        }
         if (owned_reference && owned_reference->refcount) owned_reference->refcount--;
         owned_reference = NULL;
         current         = next;
@@ -500,7 +535,7 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
             vfs_node_t target;
 
             if (!target_path) goto err;
-            target = vfs_open_internal(target_path, symlink_depth + 1, true);
+            target = vfs_open_internal(target_path, symlink_depth + 1, true, error);
             free(target_path);
             if (!target) goto err;
 
@@ -509,9 +544,13 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
             continue;
         }
     }
-    if (trailing_slash && !(current->type & file_dir)) goto err;
+    if (trailing_slash && !(current->type & file_dir)) {
+        if (error) *error = -ENOTDIR;
+        goto err;
+    }
     if (!owned_reference) current->refcount++;
     free(path);
+    if (error) *error = EOK;
     return current;
 err:
     if (owned_reference && owned_reference->refcount) owned_reference->refcount--;
@@ -522,7 +561,15 @@ err:
 vfs_node_t vfs_open(const char *str)
 {
     spin_lock(&vfs_namespace_lock);
-    vfs_node_t node = vfs_open_internal(str, 0, true);
+    vfs_node_t node = vfs_open_internal(str, 0, true, NULL);
+    spin_unlock(&vfs_namespace_lock);
+    return node;
+}
+
+vfs_node_t vfs_open_checked(const char *str, int *error)
+{
+    spin_lock(&vfs_namespace_lock);
+    vfs_node_t node = vfs_open_internal(str, 0, true, error);
     spin_unlock(&vfs_namespace_lock);
     return node;
 }
@@ -530,7 +577,15 @@ vfs_node_t vfs_open(const char *str)
 vfs_node_t vfs_open_nofollow(const char *str)
 {
     spin_lock(&vfs_namespace_lock);
-    vfs_node_t node = vfs_open_internal(str, 0, false);
+    vfs_node_t node = vfs_open_internal(str, 0, false, NULL);
+    spin_unlock(&vfs_namespace_lock);
+    return node;
+}
+
+vfs_node_t vfs_open_nofollow_checked(const char *str, int *error)
+{
+    spin_lock(&vfs_namespace_lock);
+    vfs_node_t node = vfs_open_internal(str, 0, false, error);
     spin_unlock(&vfs_namespace_lock);
     return node;
 }
@@ -1409,13 +1464,36 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
 {
     if (!file || (!addr && size)) return -EINVAL;
     if (!user_range_ok(addr, size)) return -EFAULT;
+    vfs_file_read_user_cb_t read_user = callbackof(file, file_read_user);
 
-    if (callbackof(file, file_read_user) != vfs_empty_callback.file_read_user) {
+    /*
+     * Pipes are already opened and have no cache-backed metadata to refresh.
+     * Keep their user-buffer callback completely outside the generic VFS
+     * update path: do_update() calls pipe stat on every short read, which is
+     * particularly expensive for small-block streaming workloads.
+     */
+    if ((file->type & (file_stream | file_pipe)) && read_user != vfs_empty_callback.file_read_user) {
+        if (vfs_access_check_process(file, VFS_ACCESS_R, proc)) return -EACCES;
+
+        int64_t ret = read_user(file, private_data, flags, addr, offset, size, proc);
+        if (ret > 0 && (uint64_t)ret > size) return -EIO;
+        if (ret > 0) inotify_notify(file, IN_ACCESS);
+        return ret;
+    }
+
+    /*
+     * Page-cached regular files must use the cache path for both kernel and
+     * userspace buffers.  Calling a filesystem's direct-user callback after
+     * O_TRUNC has created a mapping would update the backing inode while the
+     * zero-length cache continued to shadow it (and vice versa).
+     */
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    if (!mapping && read_user != vfs_empty_callback.file_read_user) {
         if (vfs_access_check_process(file, VFS_ACCESS_R, proc)) return -EACCES;
         do_update(file);
         if (file->type & file_dir) return -EISDIR;
 
-        int64_t ret = callbackof(file, file_read_user)(file, private_data, flags, addr, offset, size, proc);
+        int64_t ret = read_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
         if (ret > 0) inotify_notify(file, IN_ACCESS);
         return ret;
@@ -1440,14 +1518,29 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
 {
     if (!file || (!addr && size)) return -EINVAL;
     if (!user_range_ok(addr, size)) return -EFAULT;
+    vfs_file_write_user_cb_t write_user = callbackof(file, file_write_user);
 
-    if (callbackof(file, file_write_user) != vfs_empty_callback.file_write_user) {
+    /* See the matching read path above.  A pipe write only moves bytes and
+     * must not perform a per-call metadata refresh through do_update().
+     */
+    if ((file->type & (file_stream | file_pipe)) && write_user != vfs_empty_callback.file_write_user) {
+        if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
+        if (vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
+
+        int64_t ret = write_user(file, private_data, flags, addr, offset, size, proc);
+        if (ret > 0 && (uint64_t)ret > size) return -EIO;
+        if (ret > 0) inotify_notify(file, IN_MODIFY);
+        return ret;
+    }
+
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    if (!mapping && write_user != vfs_empty_callback.file_write_user) {
         if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
         if (vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
         do_update(file);
         if (file->type & file_dir) return -EISDIR;
 
-        int64_t ret = callbackof(file, file_write_user)(file, private_data, flags, addr, offset, size, proc);
+        int64_t ret = write_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
         if (ret >= 0) do_update(file);
         if (ret > 0) inotify_notify(file, IN_MODIFY);
@@ -2087,6 +2180,112 @@ int vfs_rename(vfs_node_t node, const char *new)
     node->flags &= ~VFS_NODE_INITIALIZING;
     if (node->parent) node->parent->visited = 0;
     spin_unlock(&vfs_namespace_lock);
+    inotify_notify_move(node, old, new);
+    free(old);
+    return EOK;
+}
+
+int vfs_move(vfs_node_t node, vfs_node_t new_parent, const char *new)
+{
+    if (!node || !new_parent || !new || !new[0] || strchr(new, '/') || streq(new, ".") || streq(new, "..")) return -EINVAL;
+    if (strlen(new) > VFS_NAME_MAX) return -ENAMETOOLONG;
+    if (!node->parent || !(new_parent->type & file_dir)) return -ENOTDIR;
+    if (node->parent == new_parent) return vfs_rename(node, new);
+    if (node->fsid != new_parent->fsid || node->root != new_parent->root) return -EXDEV;
+    if (node->is_mount || (node->flags & VFS_NODE_SWAPFILE)) return -EBUSY;
+    if (vfs_access_check(node->parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK || vfs_access_check(new_parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK)
+        return -EACCES;
+
+    for (vfs_node_t parent = new_parent; parent; parent = parent->parent) {
+        if (parent == node) return -EINVAL;
+        if (parent == parent->parent) break;
+    }
+    if (callbackof(node, move) == vfs_empty_callback.move) return -EXDEV;
+
+    char   *old      = strdup(node->name);
+    char   *new_name = strdup(new);
+    clist_t new_link = clist_alloc(node);
+    if (!old || !new_name || !new_link) {
+        free(old);
+        free(new_name);
+        free(new_link);
+        return -ENOMEM;
+    }
+
+    spin_lock(&vfs_namespace_lock);
+    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING)) || (node->type & file_delete)) {
+        spin_unlock(&vfs_namespace_lock);
+        free(old);
+        free(new_name);
+        free(new_link);
+        return -ENOENT;
+    }
+    vfs_node_t collision = vfs_child_find_reserved(new_parent, new);
+    if (collision && collision != node) {
+        bool same_inode
+            = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
+        if (same_inode) {
+            spin_unlock(&vfs_namespace_lock);
+            free(old);
+            free(new_name);
+            free(new_link);
+            return EOK;
+        }
+        collision->refcount++;
+    }
+    node->flags |= VFS_NODE_INITIALIZING;
+    spin_unlock(&vfs_namespace_lock);
+
+    if (collision && collision != node) {
+        bool source_is_dir   = (node->type & file_dir) != 0;
+        bool target_is_dir   = (collision->type & file_dir) != 0;
+        int  collision_error = EOK;
+        if (source_is_dir && !target_is_dir)
+            collision_error = -ENOTDIR;
+        else if (!source_is_dir && target_is_dir)
+            collision_error = -EISDIR;
+        else if (target_is_dir && vfs_directory_has_visible_children(collision))
+            collision_error = -ENOTEMPTY;
+        else if (collision->is_mount || (collision->flags & VFS_NODE_SWAPFILE))
+            collision_error = -EBUSY;
+        if (collision_error == EOK) collision_error = vfs_delete(collision);
+        vfs_close(collision);
+        if (collision_error != EOK) {
+            spin_lock(&vfs_namespace_lock);
+            node->flags &= ~VFS_NODE_INITIALIZING;
+            spin_unlock(&vfs_namespace_lock);
+            free(old);
+            free(new_name);
+            free(new_link);
+            return collision_error;
+        }
+    }
+
+    int result = callbackof(node, move)(node->handle, new_parent->handle, new);
+    if (result != EOK) {
+        spin_lock(&vfs_namespace_lock);
+        node->flags &= ~VFS_NODE_INITIALIZING;
+        spin_unlock(&vfs_namespace_lock);
+        free(old);
+        free(new_name);
+        free(new_link);
+        return result;
+    }
+
+    spin_lock(&vfs_namespace_lock);
+    vfs_node_t old_parent = node->parent;
+    old_parent->child     = clist_delete(old_parent->child, node);
+    new_link->next        = new_parent->child;
+    if (new_parent->child) new_parent->child->prev = new_link;
+    new_parent->child = new_link;
+    node->parent      = new_parent;
+    free(node->name);
+    node->name = new_name;
+    node->flags &= ~VFS_NODE_INITIALIZING;
+    old_parent->visited = 0;
+    new_parent->visited = 0;
+    spin_unlock(&vfs_namespace_lock);
+
     inotify_notify_move(node, old, new);
     free(old);
     return EOK;

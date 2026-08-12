@@ -17,15 +17,28 @@
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n)
 {
-#if defined(__builtin_memcpy)
-    return __builtin_memcpy(str1, str2, n);
-#else
-    volatile uint8_t       *dest = (volatile uint8_t *)str1;
-    const volatile uint8_t *src  = (const volatile uint8_t *)str2;
-    const volatile uint8_t *end  = (const volatile uint8_t *)((uint8_t *)str2 + n);
+    if (str1 == str2 || !n) return str1;
 
-    if (dest == src) return str1;
-    while (src != end) *dest++ = *src++;
+#if defined(__x86_64__) || defined(__i386__)
+    /*
+     * The old fallback used volatile byte accesses, which prevented the
+     * compiler and the CPU from combining ordinary kernel copies.  Keep the
+     * implementation freestanding, but let the processor select its
+     * optimized string engine.  The kernel is compiled without SSE state in
+     * general, so this is safer than borrowing XMM registers in a hot path.
+     */
+    void       *dest  = str1;
+    const void *src   = str2;
+    size_t      words = n / sizeof(uint64_t);
+    size_t      tail  = n % sizeof(uint64_t);
+
+    if (words) __asm__ volatile("cld; rep movsq" : "+D"(dest), "+S"(src), "+c"(words) : : "memory");
+    if (tail) __asm__ volatile("cld; rep movsb" : "+D"(dest), "+S"(src), "+c"(tail) : : "memory");
+    return str1;
+#else
+    uint8_t       *dest = (uint8_t *)str1;
+    const uint8_t *src  = (const uint8_t *)str2;
+    while (n--) *dest++ = *src++;
     return str1;
 #endif
 }
@@ -33,14 +46,19 @@ void *memcpy(void *str1, const void *str2, size_t n)
 /* Sets a memory area to the specified value */
 void *memset(void *str, int c, size_t n)
 {
-#if defined(__builtin_memset)
-    return __builtin_memset(str, c, n);
-#else
-    volatile uint8_t *_str = (volatile uint8_t *)str;
-    volatile uint8_t *end  = (volatile uint8_t *)((uint8_t *)str + n);
-    const uint8_t     _c   = c;
+#if defined(__x86_64__) || defined(__i386__)
+    void    *dest  = str;
+    size_t   words = n / sizeof(uint64_t);
+    size_t   tail  = n % sizeof(uint64_t);
+    uint64_t byte  = (uint8_t)c;
+    uint64_t value = byte * 0x0101010101010101ULL;
 
-    for (; _str < end; _str++) *_str = _c;
+    if (words) __asm__ volatile("cld; rep stosq" : "+D"(dest), "+c"(words) : "a"(value) : "memory");
+    if (tail) __asm__ volatile("cld; rep stosb" : "+D"(dest), "+c"(tail) : "a"(c) : "memory");
+    return str;
+#else
+    uint8_t *dest = (uint8_t *)str;
+    while (n--) *dest++ = (uint8_t)c;
     return str;
 #endif
 }
@@ -48,19 +66,32 @@ void *memset(void *str, int c, size_t n)
 /* Copies n characters from str2 to str1, accounting for overlaps */
 void *memmove(void *str1, const void *str2, size_t n)
 {
-#if defined(__builtin_memmove)
-    return __builtin_memmove(str1, str2, n);
-#else
-    volatile uint8_t       *dest = (volatile uint8_t *)str1;
-    const volatile uint8_t *src  = (const volatile uint8_t *)str2;
-    const volatile uint8_t *end  = (const volatile uint8_t *)((uint8_t *)str2 + n);
+    if (str1 == str2 || !n) return str1;
 
-    if (dest == src) return str1;
-    if (dest > src && dest < end) {
-        dest += n;
-        while (src != end) *--dest = *--end;
+#if defined(__x86_64__) || defined(__i386__)
+    uint8_t       *dest = (uint8_t *)str1;
+    const uint8_t *src  = (const uint8_t *)str2;
+
+    if (dest < src || dest >= src + n) {
+        size_t words = n / sizeof(uint64_t);
+        size_t tail  = n % sizeof(uint64_t);
+        if (words) __asm__ volatile("cld; rep movsq" : "+D"(dest), "+S"(src), "+c"(words) : : "memory");
+        if (tail) __asm__ volatile("cld; rep movsb" : "+D"(dest), "+S"(src), "+c"(tail) : : "memory");
     } else {
-        while (src != end) *dest++ = *src++;
+        dest += n;
+        src += n;
+        __asm__ volatile("std; rep movsb; cld" : "+D"(dest), "+S"(src), "+c"(n) : : "memory");
+    }
+    return str1;
+#else
+    uint8_t       *dest = (uint8_t *)str1;
+    const uint8_t *src  = (const uint8_t *)str2;
+    if (dest > src && dest < src + n) {
+        dest += n;
+        src += n;
+        while (n--) *--dest = *--src;
+    } else {
+        while (n--) *dest++ = *src++;
     }
     return str1;
 #endif

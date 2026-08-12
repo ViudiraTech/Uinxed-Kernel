@@ -44,6 +44,7 @@ typedef struct pipe_ring {
         uint32_t     tail;
         uint32_t     size;
         uint32_t     capacity;
+        uint32_t     index_mask;
         uint32_t     readers;
         uint32_t     writers;
         uint32_t     read_waiters;
@@ -66,11 +67,40 @@ typedef struct pipe_endpoint {
         bool         writable;
 } pipe_endpoint_t;
 
+/*
+ * The ring is accessed only from process context; no interrupt handler uses
+ * it.  The generic lock disables interrupts and saves/restores RFLAGS on
+ * every transfer, which is unnecessary here and is visible with dd's 512
+ * byte block size.  Keep SMP exclusion and acquire/release ordering, but use
+ * a small process-context lock for the pipe data path.
+ */
+static inline void pipe_ring_lock(spinlock_t *lock)
+{
+    while (__atomic_exchange_n(&lock->lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
+}
+
+static inline void pipe_ring_unlock(spinlock_t *lock)
+{
+    __atomic_store_n(&lock->lock, 0, __ATOMIC_RELEASE);
+}
+
+/* All locks in this translation unit protect pipe-ring state. */
+#define spin_lock(lock)   pipe_ring_lock(lock)
+#define spin_unlock(lock) pipe_ring_unlock(lock)
+
 /* Static VFS filesystem ID */
 
 static int pipe_fsid = -1;
 
 /* Internal helpers */
+
+static inline void pipe_poll_notify(vfs_node_t node, uint32_t events)
+{
+    if (!node) return;
+    /* Call the source primitive directly: it performs the single subscriber
+     * check itself, avoiding the wrapper and a duplicate atomic load. */
+    vfs_poll_source_notify(&node->poll_source, events);
+}
 
 static uint32_t pipe_ring_readable(const pipe_ring_t *ring)
 {
@@ -82,15 +112,23 @@ static uint32_t pipe_ring_writable(const pipe_ring_t *ring)
     return ring->capacity - ring->size;
 }
 
+static inline uint32_t pipe_ring_advance(const pipe_ring_t *ring, uint32_t index, uint32_t count)
+{
+    if (ring->index_mask) return (index + count) & ring->index_mask;
+
+    uint32_t next = index + count;
+    return next >= ring->capacity ? next - ring->capacity : next;
+}
+
 static void pipe_ring_consume(pipe_ring_t *ring, uint32_t count)
 {
-    ring->tail = (ring->tail + count) % ring->capacity;
+    ring->tail = pipe_ring_advance(ring, ring->tail, count);
     ring->size -= count;
 }
 
 static void pipe_ring_produce(pipe_ring_t *ring, uint32_t count)
 {
-    ring->head = (ring->head + count) % ring->capacity;
+    ring->head = pipe_ring_advance(ring, ring->head, count);
     ring->size += count;
 }
 
@@ -123,8 +161,8 @@ static int pipe_ring_copy_out_user(pipe_ring_t *ring, process_t *proc, uint8_t *
     uint32_t first_chunk = ring->capacity - ring->tail;
     if (first_chunk > count) first_chunk = count;
 
-    if (copy_to_user_process_nofault(proc, dst, ring->buf + ring->tail, first_chunk)) return -EFAULT;
-    if (count > first_chunk && copy_to_user_process_nofault(proc, dst + first_chunk, ring->buf, count - first_chunk)) return -EFAULT;
+    if (copy_to_user_process_nofault_current(proc, dst, ring->buf + ring->tail, first_chunk)) return -EFAULT;
+    if (count > first_chunk && copy_to_user_process_nofault_current(proc, dst + first_chunk, ring->buf, count - first_chunk)) return -EFAULT;
     return EOK;
 }
 
@@ -133,8 +171,8 @@ static int pipe_ring_copy_in_user(pipe_ring_t *ring, process_t *proc, const uint
     uint32_t first_chunk = ring->capacity - ring->head;
     if (first_chunk > count) first_chunk = count;
 
-    if (copy_from_user_process_nofault(proc, ring->buf + ring->head, src, first_chunk)) return -EFAULT;
-    if (count > first_chunk && copy_from_user_process_nofault(proc, ring->buf, src + first_chunk, count - first_chunk)) return -EFAULT;
+    if (copy_from_user_process_nofault_current(proc, ring->buf + ring->head, src, first_chunk)) return -EFAULT;
+    if (count > first_chunk && copy_from_user_process_nofault_current(proc, ring->buf, src + first_chunk, count - first_chunk)) return -EFAULT;
     return EOK;
 }
 
@@ -153,12 +191,15 @@ static pipe_ring_t *pipe_ring_alloc(void)
         return NULL;
     }
     ring->capacity = PIPE_BUF_SIZE;
-    ring->head     = 0;
-    ring->tail     = 0;
-    ring->size     = 0;
-    ring->readers  = 0;
-    ring->writers  = 0;
-    ring->closed   = 0;
+    /* The configured ring size is power-of-two by default.  Keep a safe
+     * modulo-free path for custom non-power-of-two configurations too. */
+    ring->index_mask = (ring->capacity && !(ring->capacity & (ring->capacity - 1))) ? ring->capacity - 1 : 0;
+    ring->head       = 0;
+    ring->tail       = 0;
+    ring->size       = 0;
+    ring->readers    = 0;
+    ring->writers    = 0;
+    ring->closed     = 0;
     wait_queue_init(&ring->read_wq);
     wait_queue_init(&ring->write_wq);
 
@@ -329,11 +370,11 @@ static void pipe_file_release(vfs_node_t node, void *private_data)
 
     if (last_reader) {
         wait_queue_wake_all(&ring->write_wq);
-        vfs_poll_notify(node, POLLERR);
+        pipe_poll_notify(node, POLLERR);
     }
     if (last_writer) {
         wait_queue_wake_all(&ring->read_wq);
-        vfs_poll_notify(node, POLLHUP);
+        pipe_poll_notify(node, POLLHUP);
     }
     free(endpoint);
 }
@@ -394,7 +435,7 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
      * remains.  Waking the whole queue creates avoidable scheduler/IPI work.
      */
     if (wake_writers) wait_queue_wake_one_sync(&ring->write_wq);
-    if (node) vfs_poll_notify(node, POLLOUT);
+    pipe_poll_notify(node, POLLOUT);
 
     return (int64_t)chunk;
 }
@@ -419,7 +460,6 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
     (void)offset;
     pipe_endpoint_t *endpoint = private_data;
     if (!endpoint || !endpoint->readable) return -EBADF;
-    if (!user_range_ok(addr, size)) return -EFAULT;
     if (!size) return 0;
 
     pipe_ring_t *ring = endpoint->ring;
@@ -463,7 +503,7 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
         spin_unlock(&ring->lock);
 
         if (wake_writers) wait_queue_wake_one_sync(&ring->write_wq);
-        if (node) vfs_poll_notify(node, POLLOUT);
+        pipe_poll_notify(node, POLLOUT);
         return (int64_t)chunk;
     }
 }
@@ -533,7 +573,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
 
         /* Wake readers that may be waiting for data */
         if (wake_readers) wait_queue_wake_one_sync(&ring->read_wq);
-        if (node) vfs_poll_notify(node, POLLIN);
+        pipe_poll_notify(node, POLLIN);
     }
 
     return (int64_t)total_written;
@@ -560,7 +600,6 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
     (void)offset;
     pipe_endpoint_t *endpoint = private_data;
     if (!endpoint || !endpoint->writable) return -EBADF;
-    if (!user_range_ok(addr, size)) return -EFAULT;
     if (!size) return 0;
 
     pipe_ring_t *ring          = endpoint->ring;
@@ -617,7 +656,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
         spin_unlock(&ring->lock);
 
         if (wake_readers) wait_queue_wake_one_sync(&ring->read_wq);
-        if (node) vfs_poll_notify(node, POLLIN);
+        pipe_poll_notify(node, POLLIN);
     }
 
     return (int64_t)total_written;

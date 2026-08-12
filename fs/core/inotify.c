@@ -223,6 +223,8 @@ static void inotify_emit(vfs_node_t target, uint32_t mask, uint32_t cookie, cons
 void inotify_notify(vfs_node_t node, uint32_t mask)
 {
     if (!node) return;
+    /* The normal data path has no watches; skip both node and parent walks. */
+    if (!__atomic_load_n(&inotify_contexts, __ATOMIC_ACQUIRE)) return;
     uint32_t type_mask = (node->type & file_dir) ? IN_ISDIR : 0;
     inotify_emit(node, mask | type_mask, 0, NULL, false);
     if (node->parent && !(node->flags & VFS_NODE_UNLINKED)) {

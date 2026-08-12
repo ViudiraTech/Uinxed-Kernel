@@ -90,6 +90,7 @@ typedef int (*vfs_stat_t)(void *file, vfs_node_t node);
 typedef int (*vfs_mk_t)(void *parent, const char *name, vfs_node_t node);
 typedef int (*vfs_del_t)(void *parent, vfs_node_t node);
 typedef int (*vfs_rename_t)(void *current, const char *new);
+typedef int (*vfs_move_t)(void *current, void *new_parent, const char *new);
 typedef int (*vfs_ioctl_t)(void *file, size_t req, void *arg);
 typedef vfs_node_t (*vfs_dup_t)(vfs_node_t node);
 typedef int (*vfs_poll_t)(void *file, size_t events);
@@ -165,6 +166,7 @@ typedef struct vfs_callback {
         vfs_file_poll_source_cb_t   file_poll_source;      // Per-open readiness notification source
         vfs_resize_t                resize;                // Change the persistent file size
         vfs_sync_t                  sync;                  // Commit data and metadata to stable storage
+        vfs_move_t                  move;                  // Move to another directory in the same filesystem
 } *vfs_callback_t;
 
 extern vfs_callback_t fs_callbacks[];
@@ -225,9 +227,11 @@ void vfs_update(vfs_node_t node);
 
 /* Open a file or directory by path */
 vfs_node_t vfs_open(const char *str);
+vfs_node_t vfs_open_checked(const char *str, int *error);
 
 /* Open without following the final pathname component if it is a symlink. */
 vfs_node_t vfs_open_nofollow(const char *str);
+vfs_node_t vfs_open_nofollow_checked(const char *str, int *error);
 
 /* Build a normalized absolute path from an absolute base and a pathname. */
 int vfs_resolve_path(const char *base, const char *path, char *resolved, size_t size);
@@ -245,6 +249,7 @@ vfs_node_t vfs_node_retain(vfs_node_t node);
 /* Check file access permissions against the current process */
 int vfs_access_check(vfs_node_t node, uint32_t access_mask);
 int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, struct process *proc);
+int vfs_chmod_process(vfs_node_t node, uint16_t mode, struct process *proc);
 
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name);
@@ -356,6 +361,7 @@ void vfs_namespace_detach(vfs_node_t node);
 
 /* Rename a VFS (Virtual File System) node to a new name */
 int vfs_rename(vfs_node_t node, const char *new);
+int vfs_move(vfs_node_t node, vfs_node_t new_parent, const char *new);
 
 /* Send control commands to a device or file */
 int vfs_ioctl(vfs_node_t device, size_t options, void *arg);

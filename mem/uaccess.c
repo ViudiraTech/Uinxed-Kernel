@@ -28,6 +28,7 @@
  * at the exact byte where they stopped.
  */
 extern int  __uaccess_copy_direct(void *dst, const void *src, size_t size);
+extern int  __uaccess_clear_direct(void *dst, size_t size);
 extern void __uaccess_copy_fault(void);
 
 __asm__(".text\n"
@@ -36,19 +37,31 @@ __asm__(".text\n"
         "__uaccess_copy_direct:\n"
         "cld\n"
         "movq %rdx, %rcx\n"
+        "shrq $3, %rcx\n"
+        "rep movsq\n"
+        "movq %rdx, %rcx\n"
+        "andq $7, %rcx\n"
         "rep movsb\n"
         "xorl %eax, %eax\n"
         "ret\n"
         ".size __uaccess_copy_direct, .-__uaccess_copy_direct\n"
+        ".global __uaccess_clear_direct\n"
+        ".type __uaccess_clear_direct, @function\n"
+        "__uaccess_clear_direct:\n"
+        "cld\n"
+        "movq %rsi, %rcx\n"
+        "xorl %eax, %eax\n"
+        "rep stosb\n"
+        "ret\n"
+        ".size __uaccess_clear_direct, .-__uaccess_clear_direct\n"
         ".global __uaccess_copy_fault\n"
         ".type __uaccess_copy_fault, @function\n"
         "__uaccess_copy_fault:\n"
         "ret\n"
         ".size __uaccess_copy_fault, .-__uaccess_copy_fault\n");
 
-static int copy_user_direct(void *dst, const void *src, size_t size, int nofault)
+static int copy_user_direct_task(task_t *task, void *dst, const void *src, size_t size, int nofault)
 {
-    task_t *task = current_task();
     if (!task) return -EFAULT;
 
     /*
@@ -61,6 +74,28 @@ static int copy_user_direct(void *dst, const void *src, size_t size, int nofault
     task->uaccess_fault_resume  = (uintptr_t)__uaccess_copy_fault;
     __asm__ volatile("" ::: "memory");
     int ret = __uaccess_copy_direct(dst, src, size);
+    __asm__ volatile("" ::: "memory");
+    task->uaccess_fault_resume  = old_resume;
+    task->uaccess_fault_nofault = old_nofault;
+    return ret;
+}
+
+static int copy_user_direct(void *dst, const void *src, size_t size, int nofault)
+{
+    return copy_user_direct_task(current_task(), dst, src, size, nofault);
+}
+
+static int clear_user_direct(void *dst, size_t size)
+{
+    task_t *task = current_task();
+    if (!task) return -EFAULT;
+
+    uintptr_t old_resume        = task->uaccess_fault_resume;
+    uint8_t   old_nofault       = task->uaccess_fault_nofault;
+    task->uaccess_fault_nofault = 0;
+    task->uaccess_fault_resume  = (uintptr_t)__uaccess_copy_fault;
+    __asm__ volatile("" ::: "memory");
+    int ret = __uaccess_clear_direct(dst, size);
     __asm__ volatile("" ::: "memory");
     task->uaccess_fault_resume  = old_resume;
     task->uaccess_fault_nofault = old_nofault;
@@ -250,6 +285,16 @@ static int copy_user_bytes_process_nofault(process_t *proc, void *dst, const voi
     size_t    remaining;
 
     if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
+
+    /*
+     * Syscalls normally copy within the current address space.  The active
+     * page table already contains the user mapping, and the exception fixup
+     * turns an invalid access into -EFAULT.  Avoid walking four page-table
+     * levels and taking the page-table lock for every 4 KiB fragment; callers
+     * already have the retry path that resolves COW/demand faults.
+     */
+    if (proc == process_current()) return copy_user_direct(dst, src, size, 1);
+
     remaining = size;
 
     while (remaining) {
@@ -276,6 +321,20 @@ static int copy_user_bytes_process_nofault(process_t *proc, void *dst, const voi
     return 0;
 }
 
+/* Pipe callbacks are entered from the current process.  For the common
+ * single-threaded case proc->task is the running task, so avoid another
+ * current_task()/RDTSCP lookup while installing the fault fixup.  Fall back
+ * to the fully generic implementation for multithreaded or foreign targets.
+ */
+static int copy_user_bytes_process_nofault_current(process_t *proc, void *dst, const void *src, size_t size, int to_user)
+{
+    uintptr_t user = (uintptr_t)(to_user ? dst : src);
+    if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
+    if (proc && __atomic_load_n(&proc->thread_count, __ATOMIC_ACQUIRE) == 1 && proc->task)
+        return copy_user_direct_task(proc->task, dst, src, size, 1);
+    return copy_user_bytes_process_nofault(proc, dst, src, size, to_user);
+}
+
 int copy_from_user(void *dst, const void *src, size_t size)
 {
     return copy_user_bytes(dst, src, size, 0);
@@ -294,6 +353,46 @@ int copy_from_user_process_nofault(process_t *proc, void *dst, const void *src, 
 int copy_to_user_process_nofault(process_t *proc, void *dst, const void *src, size_t size)
 {
     return copy_user_bytes_process_nofault(proc, dst, src, size, 1);
+}
+
+int copy_from_user_process_nofault_current(process_t *proc, void *dst, const void *src, size_t size)
+{
+    return copy_user_bytes_process_nofault_current(proc, dst, src, size, 0);
+}
+
+int copy_to_user_process_nofault_current(process_t *proc, void *dst, const void *src, size_t size)
+{
+    return copy_user_bytes_process_nofault_current(proc, dst, src, size, 1);
+}
+
+int clear_user_process(process_t *proc, void *dst, size_t size)
+{
+    uintptr_t user = (uintptr_t)dst;
+    size_t    remaining;
+
+    if (!proc || !proc->user_page_dir || !user_range_ok(dst, size)) return -EFAULT;
+    if (proc == process_current()) return clear_user_direct(dst, size);
+    remaining = size;
+
+    while (remaining) {
+        void  *kaddr;
+        size_t page_left;
+
+        spin_lock(&proc->user_page_dir->lock);
+        if (!user_translate(proc, user, 1, &kaddr, &page_left)) {
+            spin_unlock(&proc->user_page_dir->lock);
+            if (page_resolve_cow_fault(proc, user) == 0) continue;
+            if (process_demand_fault(proc, user, 1, 0) == 0) continue;
+            return -EFAULT;
+        }
+
+        size_t step = remaining < page_left ? remaining : page_left;
+        memset(kaddr, 0, step);
+        spin_unlock(&proc->user_page_dir->lock);
+        user += step;
+        remaining -= step;
+    }
+    return 0;
 }
 
 int strnlen_user(const char *src, size_t max_size)

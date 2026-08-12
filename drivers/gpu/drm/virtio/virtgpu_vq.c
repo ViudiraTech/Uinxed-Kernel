@@ -111,12 +111,26 @@ static void virtgpu_mark_queues_broken(struct virtio_gpu_device *vgdev)
  */
 int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_command *commands, uint32_t count)
 {
+    enum {
+        CTRL_LOG_NONE,
+        CTRL_LOG_NO_DESCRIPTORS,
+        CTRL_LOG_QUEUE_ADD,
+        CTRL_LOG_TIMEOUT,
+        CTRL_LOG_BAD_RESPONSE,
+        CTRL_LOG_BAD_FENCE,
+    } log_reason
+        = CTRL_LOG_NONE;
     struct vp_virtqueue        *vq;
     uint32_t                    submitted = 0;
     uint32_t                    completed = 0;
     uint32_t                    timeout   = 0;
     uint32_t                    len;
-    int                         ret = 0;
+    uint32_t                    log_index    = 0;
+    uint32_t                    log_type     = 0;
+    uint32_t                    log_reply    = 0;
+    uint32_t                    log_expected = 0;
+    int                         log_error    = 0;
+    int                         ret          = 0;
     struct virtgpu_dma_command *dma;
 
     if (!vgdev || !commands || count == 0) {
@@ -155,15 +169,16 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     }
 
     /*
-     * Stack-backed command buffers must remain owned by this caller until
-     * every response has arrived.  This lock also prevents one CPU from
-     * reaping another CPU's completion.
+     * Stack-backed command buffers remain owned until their responses have
+     * been reaped.  Do not schedule while holding that ownership: yielding
+     * lets another task on the same CPU enter this path and wait for a lock
+     * whose owner cannot be scheduled back, deadlocking DRM close/Xorg.
      */
     spin_lock(&vgdev->ctrlq_cmd_lock);
 
     if (count > (uint32_t)vq->num_free / 2) {
-        plogk("virtgpu: Ctrl_cmd_batch: not enough free descriptors (count=%u, num_free=%u)\n", (unsigned)count, (unsigned)vq->num_free);
-        ret = -ENOSPC;
+        log_reason = CTRL_LOG_NO_DESCRIPTORS;
+        ret        = -ENOSPC;
         goto out_unlock;
     }
 
@@ -183,7 +198,9 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         memset(dma[i].resp, 0, (size_t)commands[i].resp_size);
         ret = virtqueue_add_out_in(vq, dma[i].cmd, commands[i].cmd_size, dma[i].resp, commands[i].resp_size);
         if (ret) {
-            plogk("virtgpu: Ctrl_cmd_batch: queue add failed (index=%u, err=%d)\n", (unsigned)i, ret);
+            log_reason = CTRL_LOG_QUEUE_ADD;
+            log_index  = i;
+            log_error  = ret;
             break;
         }
         submitted++;
@@ -193,7 +210,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
 
     /* One doorbell covers every avail entry published above. */
     virtqueue_kick(vq);
-
     while (completed < submitted) {
         if (virtqueue_get_buf(vq, &len)) {
             completed++;
@@ -201,14 +217,22 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
             continue;
         }
 
-        cpu_relax();
-        compiler_barrier();
         if (++timeout > 10000000) {
-            plogk("virtgpu: Timed out waiting for GPU command batch (%u/%u complete)\n", completed, submitted);
+            /* A completion can race the first empty observation. Reap once
+             * more before declaring the device dead so a valid response does
+             * not strand its descriptor chain. */
+            if (virtqueue_get_buf(vq, &len)) {
+                completed++;
+                timeout = 0;
+                continue;
+            }
+            log_reason = CTRL_LOG_TIMEOUT;
             virtgpu_mark_queues_broken(vgdev);
             ret = -EIO;
             goto out_unlock;
         }
+        cpu_relax();
+        compiler_barrier();
     }
 
     for (uint32_t i = 0; i < submitted; i++) memcpy(commands[i].resp, dma[i].resp, (size_t)commands[i].resp_size);
@@ -244,13 +268,17 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         }
 
         if (reply->type != expected) {
-            plogk("virtgpu: GPU command 0x%04x returned 0x%04x, expected 0x%04x\n", request->type, reply->type, expected);
-            ret = -EIO;
+            log_reason   = CTRL_LOG_BAD_RESPONSE;
+            log_type     = request->type;
+            log_reply    = reply->type;
+            log_expected = expected;
+            ret          = -EIO;
             break;
         }
         if (!(reply->flags & VIRTIO_GPU_FLAG_FENCE) || reply->fence_id != request->fence_id) {
-            plogk("virtgpu: GPU command 0x%04x returned an invalid fence response.\n", request->type);
-            ret = -EIO;
+            log_reason = CTRL_LOG_BAD_FENCE;
+            log_type   = request->type;
+            ret        = -EIO;
             break;
         }
     }
@@ -258,6 +286,30 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
 out_unlock:
     spin_unlock(&vgdev->ctrlq_cmd_lock);
     virtgpu_dma_commands_free(dma, count);
+    /*
+     * printk ultimately damages and flushes the DRM-backed console.  Never
+     * print while owning ctrlq_cmd_lock: doing so recursively submits another
+     * control command and deadlocks the task that must release this gate.
+     */
+    switch (log_reason) {
+        case CTRL_LOG_NO_DESCRIPTORS :
+            plogk("virtgpu: Ctrl_cmd_batch: not enough free descriptors (count=%u, num_free=%u)\n", (unsigned)count, (unsigned)vq->num_free);
+            break;
+        case CTRL_LOG_QUEUE_ADD :
+            plogk("virtgpu: Ctrl_cmd_batch: queue add failed (index=%u, err=%d)\n", (unsigned)log_index, log_error);
+            break;
+        case CTRL_LOG_TIMEOUT :
+            plogk("virtgpu: Timed out waiting for GPU command batch (%u/%u complete)\n", completed, submitted);
+            break;
+        case CTRL_LOG_BAD_RESPONSE :
+            plogk("virtgpu: GPU command 0x%04x returned 0x%04x, expected 0x%04x\n", log_type, log_reply, log_expected);
+            break;
+        case CTRL_LOG_BAD_FENCE :
+            plogk("virtgpu: GPU command 0x%04x returned an invalid fence response.\n", log_type);
+            break;
+        default :
+            break;
+    }
     return ret;
 }
 
@@ -295,7 +347,11 @@ int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, v
 
 int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
 {
-    uint32_t len, timeout = 0;
+    uint32_t len;
+    uint32_t timeout_type = 0;
+    int      queue_error  = 0;
+    bool     timed_out    = false;
+    uint32_t timeout      = 0;
     int      ret;
     uint64_t dma_phys;
     size_t   dma_pages;
@@ -313,6 +369,8 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
     }
     dma_cmd = phys_to_virt(dma_phys);
     memcpy(dma_cmd, cmd, (size_t)cmd_size);
+    /* See the control queue: a synchronous queue owner must not yield while
+     * its stack-backed command remains in flight. */
     spin_lock(&vgdev->cursorq_cmd_lock);
     /*
      * Cursorq requests are output-only and have no protocol response.  The
@@ -321,23 +379,30 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
      */
     ret = virtqueue_add(&vgdev->cursorq, dma_cmd, cmd_size, 0);
     if (ret) {
-        plogk("virtgpu: Cursor_cmd: queue add failed (err=%d)\n", ret);
+        queue_error = ret;
         goto out;
     }
     virtqueue_kick(&vgdev->cursorq);
     while (!virtqueue_get_buf(&vgdev->cursorq, &len)) {
-        cpu_relax();
-        compiler_barrier();
         if (++timeout > 10000000) {
             struct virtio_gpu_ctrl_hdr *hdr = (struct virtio_gpu_ctrl_hdr *)cmd;
-            plogk("virtgpu: Timed out waiting for cursor command 0x%04x consumption.\n", hdr ? hdr->type : 0);
+
+            /* Close the same deadline/completion race as controlq. */
+            if (virtqueue_get_buf(&vgdev->cursorq, &len)) break;
+            timeout_type = hdr ? hdr->type : 0;
+            timed_out    = true;
             virtgpu_mark_queues_broken(vgdev);
             ret = -EIO;
             goto out;
         }
+        cpu_relax();
+        compiler_barrier();
     }
 out:
     spin_unlock(&vgdev->cursorq_cmd_lock);
     free_frames(dma_phys, dma_pages);
+    /* Logging can flush fbcon through controlq, so release cursorq first. */
+    if (queue_error) plogk("virtgpu: Cursor_cmd: queue add failed (err=%d)\n", queue_error);
+    if (timed_out) plogk("virtgpu: Timed out waiting for cursor command 0x%04x consumption.\n", timeout_type);
     return ret;
 }

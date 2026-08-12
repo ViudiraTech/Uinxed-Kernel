@@ -26,6 +26,7 @@
 /* Static context for the DRM-flush callback (set during initial modeset) */
 static struct virtio_gpu_device *vgdev_flush_ctx;
 static struct virtio_gpu_object *vgdev_flush_obj;
+static volatile uint64_t         vgdev_flush_active;
 
 /* Extern declarations for DRM core helpers used here */
 
@@ -278,9 +279,18 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
     if (width > vgdev_flush_obj->width - x) width = vgdev_flush_obj->width - x;
     if (height > vgdev_flush_obj->height - y) height = vgdev_flush_obj->height - y;
 
+    /*
+     * printk is backed by this same scanout.  A GPU error emitted while a
+     * flush is unwinding therefore re-enters this callback.  Damage is
+     * best-effort (the refresh worker retries changed rows), so drop only the
+     * recursive/concurrent flush instead of deadlocking controlq.
+     */
+    if (__atomic_exchange_n(&vgdev_flush_active, 1, __ATOMIC_ACQUIRE)) return;
+
     damage = (struct virtio_gpu_rect) {x, y, width, height};
     offset = (uint64_t)y * vgdev_flush_obj->stride + (uint64_t)x * sizeof(uint32_t);
     (void)virtgpu_cmd_update_2d(vgdev_flush_ctx, vgdev_flush_obj, &damage, offset);
+    __atomic_store_n(&vgdev_flush_active, 0, __ATOMIC_RELEASE);
 }
 
 static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height, int32_t hot_x,
@@ -291,14 +301,20 @@ static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object 
     int                       ret;
 
     if (obj) {
-        /* VirtIO 1.2 requires a 64x64 ARGB resource on the cursor fast path. */
-        if (width != 64 || height != 64 || gem->size < 64 * 64 * 4 || obj->width != 64 || obj->height != 64 || obj->format != DRM_FORMAT_ARGB8888
-            || obj->created_3d || obj->created_blob)
+        /*
+         * The VirtIO cursor command requires a 64x64 resource but does not
+         * impose a DRM fourcc.  Xorg allocates cursor storage through the
+         * dumb-buffer API, which creates XRGB8888 objects in the same way as
+         * Linux virtio-gpu.  Accept both advertised 32-bit KMS formats here.
+         */
+        if (width != 64 || height != 64 || gem->size < 64 * 64 * 4 || obj->width != 64 || obj->height != 64
+            || (obj->format != DRM_FORMAT_XRGB8888 && obj->format != DRM_FORMAT_ARGB8888) || obj->created_3d || obj->created_blob)
             return -EINVAL;
         ret = virtgpu_cmd_transfer_to_host_2d(vgdev, obj, 0);
         if (ret) return ret;
     }
-    return virtgpu_cmd_update_cursor(vgdev, (uint32_t)crtc->index, obj, crtc->x, crtc->y, hot_x, hot_y);
+    ret = virtgpu_cmd_update_cursor(vgdev, (uint32_t)crtc->index, obj, crtc->x, crtc->y, hot_x, hot_y);
+    return ret;
 }
 
 static int virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y)

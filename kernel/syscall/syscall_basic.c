@@ -59,11 +59,31 @@ static int copy_path_from_user_fwd(uint64_t upath, char *path, size_t sz)
 /* getitimer / setitimer / alarm */
 
 typedef struct linux_itimerval {
-        uint64_t it_interval_sec;
-        uint64_t it_interval_usec;
-        uint64_t it_value_sec;
-        uint64_t it_value_usec;
+        int64_t it_interval_sec;
+        int64_t it_interval_usec;
+        int64_t it_value_sec;
+        int64_t it_value_usec;
 } linux_itimerval_t;
+
+static int itimer_time_to_ticks(int64_t sec, int64_t usec, uint64_t *ticks)
+{
+    if (!ticks || sec < 0 || usec < 0 || usec >= 1000000) return -EINVAL;
+    uint64_t sub_ticks = ((uint64_t)usec * TIMER_HZ + 999999ULL) / 1000000ULL;
+    if ((uint64_t)sec > (UINT64_MAX - sub_ticks) / TIMER_HZ) return -EINVAL;
+    *ticks = (uint64_t)sec * TIMER_HZ + sub_ticks;
+    return 0;
+}
+
+static linux_itimerval_t itimer_ticks_to_value(uint64_t remaining, uint64_t interval)
+{
+    linux_itimerval_t value = {
+        .it_interval_sec  = (int64_t)(interval / TIMER_HZ),
+        .it_interval_usec = (int64_t)((interval % TIMER_HZ) * 1000000ULL / TIMER_HZ),
+        .it_value_sec     = (int64_t)(remaining / TIMER_HZ),
+        .it_value_usec    = (int64_t)((remaining % TIMER_HZ) * 1000000ULL / TIMER_HZ),
+    };
+    return value;
+}
 
 int64_t sys_getitimer_impl(uint64_t which, uint64_t curr_value, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -73,7 +93,11 @@ int64_t sys_getitimer_impl(uint64_t which, uint64_t curr_value, uint64_t arg2, u
     (void)arg5;
     if (which > 2) return -EINVAL;
     if (!curr_value) return -EFAULT;
-    linux_itimerval_t tv = {0};
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint64_t remaining = 0, interval = 0;
+    signal_itimer_get(proc, (unsigned int)which, &remaining, &interval);
+    linux_itimerval_t tv = itimer_ticks_to_value(remaining, interval);
     return copy_to_user((void *)curr_value, &tv, sizeof(tv)) ? -EFAULT : 0;
 }
 
@@ -83,10 +107,23 @@ int64_t sys_setitimer_impl(uint64_t which, uint64_t new_value, uint64_t old_valu
     (void)arg4;
     (void)arg5;
     if (which > 2) return -EINVAL;
-    (void)new_value;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    /* Linux treats a NULL new_value as a zero value (disarm). */
+    linux_itimerval_t requested = {0};
+    if (new_value && copy_from_user(&requested, (const void *)new_value, sizeof(requested))) return -EFAULT;
+    uint64_t value_ticks = 0, interval_ticks = 0;
+    int      ret = itimer_time_to_ticks(requested.it_value_sec, requested.it_value_usec, &value_ticks);
+    if (ret) return ret;
+    ret = itimer_time_to_ticks(requested.it_interval_sec, requested.it_interval_usec, &interval_ticks);
+    if (ret) return ret;
+
+    uint64_t old_remaining = 0, old_interval = 0;
+    signal_itimer_set(proc, (unsigned int)which, value_ticks, interval_ticks, &old_remaining, &old_interval);
     if (old_value) {
-        linux_itimerval_t tv = {0};
-        if (copy_to_user((void *)old_value, &tv, sizeof(tv))) return -EFAULT;
+        linux_itimerval_t previous = itimer_ticks_to_value(old_remaining, old_interval);
+        if (copy_to_user((void *)old_value, &previous, sizeof(previous))) return -EFAULT;
     }
     return 0;
 }
@@ -98,8 +135,14 @@ int64_t sys_alarm_impl(uint64_t seconds, uint64_t arg1, uint64_t arg2, uint64_t 
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    (void)seconds;
-    return 0;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint64_t value         = seconds > UINT64_MAX / TIMER_HZ ? UINT64_MAX : seconds * TIMER_HZ;
+    uint64_t old_remaining = 0;
+    signal_itimer_set(proc, 0, value, 0, &old_remaining, NULL);
+    if (!old_remaining) return 0;
+    uint64_t rounded = old_remaining / TIMER_HZ + (old_remaining % TIMER_HZ != 0);
+    return rounded > UINT32_MAX ? UINT32_MAX : (int64_t)rounded;
 }
 
 /* getgroups / setgroups */
@@ -112,11 +155,12 @@ int64_t sys_getgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (size == 0) return 1;
-    if (size < 1) return -EINVAL;
-    uint32_t gid = proc->gid;
-    if (list && copy_to_user((void *)list, &gid, sizeof(gid))) return -EFAULT;
-    return 1;
+    uint16_t count = proc->supplementary_group_count;
+    if (size == 0) return count;
+    if (size < count) return -EINVAL;
+    if (count && !list) return -EFAULT;
+    if (count && copy_to_user((void *)list, proc->supplementary_groups, (size_t)count * sizeof(uint32_t))) return -EFAULT;
+    return count;
 }
 
 int64_t sys_setgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -128,8 +172,13 @@ int64_t sys_setgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (proc->uid != 0) return -EPERM;
-    if (size > 65536) return -EINVAL;
-    (void)list;
+    if (size > PROCESS_MAX_GROUPS) return -EINVAL;
+    if (size && !list) return -EFAULT;
+
+    uint32_t groups[PROCESS_MAX_GROUPS];
+    if (size && copy_from_user(groups, (const void *)list, (size_t)size * sizeof(uint32_t))) return -EFAULT;
+    if (size) memcpy(proc->supplementary_groups, groups, (size_t)size * sizeof(uint32_t));
+    proc->supplementary_group_count = (uint16_t)size;
     return 0;
 }
 
@@ -507,8 +556,6 @@ int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
-
     if (flags == 0x100) return -EOPNOTSUPP; // AT_SYMLINK_NOFOLLOW: use fchmodat2
     if (flags != 0) return -EINVAL;
 
@@ -521,12 +568,12 @@ int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t
     ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
     if (ret != 0) return ret;
 
-    vfs_node_t node = vfs_open(resolved);
-    if (!node) return -ENOENT;
-    node->mode = (uint16_t)(mode & 07777);
-    inotify_notify(node, IN_ATTRIB);
+    int        lookup_error = EOK;
+    vfs_node_t node         = vfs_open_checked(resolved, &lookup_error);
+    if (!node) return lookup_error;
+    int result = vfs_chmod_process(node, (uint16_t)mode, proc);
     vfs_close(node);
-    return EOK;
+    return result;
 }
 
 /* times */
@@ -940,29 +987,8 @@ int64_t sys_pread64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint64_t off
     if (!buf && count) return -EFAULT;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    int64_t old = process_fd_seek(proc, (int)fd, 0, SEEK_CUR);
-    if (old < 0) return old;
-    if (process_fd_seek(proc, (int)fd, (int64_t)offset, SEEK_SET) < 0) return -EINVAL;
-    uint8_t tmp[4096];
-    size_t  done = 0;
-    while (done < count) {
-        size_t chunk = count - done;
-        if (chunk > sizeof(tmp)) chunk = sizeof(tmp);
-        int64_t n = process_fd_read(proc, (int)fd, tmp, chunk);
-        if (n < 0) {
-            process_fd_seek(proc, (int)fd, old, SEEK_SET);
-            return done ? (int64_t)done : n;
-        }
-        if (!n) break;
-        if (copy_to_user((void *)(buf + done), tmp, (size_t)n)) {
-            process_fd_seek(proc, (int)fd, old, SEEK_SET);
-            return done ? (int64_t)done : -EFAULT;
-        }
-        done += (size_t)n;
-        if ((size_t)n < chunk) break;
-    }
-    process_fd_seek(proc, (int)fd, old, SEEK_SET);
-    return (int64_t)done;
+    if (offset > SIZE_MAX) return -EOVERFLOW;
+    return process_fd_pread_user(proc, (int)fd, (void *)buf, (size_t)count, offset);
 }
 
 int64_t sys_pwrite64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint64_t offset, uint64_t arg4, uint64_t arg5)
@@ -972,29 +998,8 @@ int64_t sys_pwrite64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint64_t of
     if (!buf && count) return -EFAULT;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    int64_t old = process_fd_seek(proc, (int)fd, 0, SEEK_CUR);
-    if (old < 0) return old;
-    if (process_fd_seek(proc, (int)fd, (int64_t)offset, SEEK_SET) < 0) return -EINVAL;
-    uint8_t tmp[4096];
-    size_t  done = 0;
-    while (done < count) {
-        size_t chunk = count - done;
-        if (chunk > sizeof(tmp)) chunk = sizeof(tmp);
-        if (copy_from_user(tmp, (const void *)(buf + done), chunk)) {
-            process_fd_seek(proc, (int)fd, old, SEEK_SET);
-            return done ? (int64_t)done : -EFAULT;
-        }
-        int64_t n = process_fd_write(proc, (int)fd, tmp, chunk);
-        if (n < 0) {
-            process_fd_seek(proc, (int)fd, old, SEEK_SET);
-            return done ? (int64_t)done : n;
-        }
-        if (!n) break;
-        done += (size_t)n;
-        if ((size_t)n < chunk) break;
-    }
-    process_fd_seek(proc, (int)fd, old, SEEK_SET);
-    return (int64_t)done;
+    if (offset > SIZE_MAX) return -EOVERFLOW;
+    return process_fd_pwrite_user(proc, (int)fd, (const void *)buf, (size_t)count, offset);
 }
 
 /* getcpu */
@@ -1094,10 +1099,8 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
     vfs_node_t new_dir = open_parent_local(new_parent_path);
     if (!old_dir || !new_dir)
         ret = -ENOENT;
-    else if (old_dir != new_dir)
-        ret = -EXDEV;
     else
-        ret = vfs_rename(node, path_basename_local(new_resolved));
+        ret = vfs_move(node, new_dir, path_basename_local(new_resolved));
     if (old_dir) vfs_close(old_dir);
     if (new_dir) vfs_close(new_dir);
     vfs_close(node);
@@ -1338,39 +1341,42 @@ int64_t sys_preadv_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t off
     if (iovcnt > 1024) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    int64_t old = process_fd_seek(proc, (int)fd, 0, SEEK_CUR);
-    process_fd_seek(proc, (int)fd, (int64_t)offset, SEEK_SET);
+
+    sys_iovec_t  inline_iov[16];
+    sys_iovec_t *vectors = inline_iov;
+    if (iovcnt > 16) {
+        vectors = malloc((size_t)iovcnt * sizeof(*vectors));
+        if (!vectors) return -ENOMEM;
+    }
+    if (iovcnt && copy_from_user(vectors, (const void *)iov, (size_t)iovcnt * sizeof(*vectors))) {
+        if (vectors != inline_iov) free(vectors);
+        return -EFAULT;
+    }
+    size_t requested = 0;
+    for (uint64_t i = 0; i < iovcnt; i++) {
+        if (vectors[i].iov_len > 0x7ffff000UL - requested) {
+            if (vectors != inline_iov) free(vectors);
+            return -EINVAL;
+        }
+        requested += vectors[i].iov_len;
+    }
+
     size_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
-        sys_iovec_t v;
-        if (copy_from_user(&v, (const void *)(iov + i * sizeof(v)), sizeof(v))) {
-            process_fd_seek(proc, (int)fd, old, SEEK_SET);
-            return total ? (int64_t)total : -EFAULT;
+        if (!vectors[i].iov_len) continue;
+        if (offset > UINT64_MAX - total) {
+            if (vectors != inline_iov) free(vectors);
+            return total ? (int64_t)total : -EINVAL;
         }
-        uint8_t tmp[4096];
-        size_t  done = 0;
-        while (done < v.iov_len) {
-            size_t chunk = v.iov_len - done;
-            if (chunk > sizeof(tmp)) chunk = sizeof(tmp);
-            int64_t n = process_fd_read(proc, (int)fd, tmp, chunk);
-            if (n < 0) {
-                process_fd_seek(proc, (int)fd, old, SEEK_SET);
-                return total ? (int64_t)total : n;
-            }
-            if (!n) {
-                process_fd_seek(proc, (int)fd, old, SEEK_SET);
-                return (int64_t)total;
-            }
-            if (copy_to_user((void *)((uintptr_t)v.iov_base + done), tmp, (size_t)n)) {
-                process_fd_seek(proc, (int)fd, old, SEEK_SET);
-                return (int64_t)total;
-            }
-            done += (size_t)n;
-            total += (size_t)n;
-            if ((size_t)n < chunk) break;
+        int64_t n = process_fd_pread_user(proc, (int)fd, vectors[i].iov_base, vectors[i].iov_len, offset + total);
+        if (n < 0) {
+            if (vectors != inline_iov) free(vectors);
+            return total ? (int64_t)total : n;
         }
+        total += (size_t)n;
+        if ((size_t)n < vectors[i].iov_len) break;
     }
-    process_fd_seek(proc, (int)fd, old, SEEK_SET);
+    if (vectors != inline_iov) free(vectors);
     return (int64_t)total;
 }
 
@@ -1381,39 +1387,42 @@ int64_t sys_pwritev_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t of
     if (iovcnt > 1024) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    int64_t old = process_fd_seek(proc, (int)fd, 0, SEEK_CUR);
-    process_fd_seek(proc, (int)fd, (int64_t)offset, SEEK_SET);
+
+    sys_iovec_t  inline_iov[16];
+    sys_iovec_t *vectors = inline_iov;
+    if (iovcnt > 16) {
+        vectors = malloc((size_t)iovcnt * sizeof(*vectors));
+        if (!vectors) return -ENOMEM;
+    }
+    if (iovcnt && copy_from_user(vectors, (const void *)iov, (size_t)iovcnt * sizeof(*vectors))) {
+        if (vectors != inline_iov) free(vectors);
+        return -EFAULT;
+    }
+    size_t requested = 0;
+    for (uint64_t i = 0; i < iovcnt; i++) {
+        if (vectors[i].iov_len > 0x7ffff000UL - requested) {
+            if (vectors != inline_iov) free(vectors);
+            return -EINVAL;
+        }
+        requested += vectors[i].iov_len;
+    }
+
     size_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
-        sys_iovec_t v;
-        if (copy_from_user(&v, (const void *)(iov + i * sizeof(v)), sizeof(v))) {
-            process_fd_seek(proc, (int)fd, old, SEEK_SET);
-            return total ? (int64_t)total : -EFAULT;
+        if (!vectors[i].iov_len) continue;
+        if (offset > UINT64_MAX - total) {
+            if (vectors != inline_iov) free(vectors);
+            return total ? (int64_t)total : -EINVAL;
         }
-        uint8_t tmp[4096];
-        size_t  done = 0;
-        while (done < v.iov_len) {
-            size_t chunk = v.iov_len - done;
-            if (chunk > sizeof(tmp)) chunk = sizeof(tmp);
-            if (copy_from_user(tmp, (const void *)((uintptr_t)v.iov_base + done), chunk)) {
-                process_fd_seek(proc, (int)fd, old, SEEK_SET);
-                return (int64_t)total;
-            }
-            int64_t n = process_fd_write(proc, (int)fd, tmp, chunk);
-            if (n < 0) {
-                process_fd_seek(proc, (int)fd, old, SEEK_SET);
-                return total ? (int64_t)total : n;
-            }
-            if (!n) {
-                process_fd_seek(proc, (int)fd, old, SEEK_SET);
-                return (int64_t)total;
-            }
-            done += (size_t)n;
-            total += (size_t)n;
-            if ((size_t)n < chunk) break;
+        int64_t n = process_fd_pwrite_user(proc, (int)fd, vectors[i].iov_base, vectors[i].iov_len, offset + total);
+        if (n < 0) {
+            if (vectors != inline_iov) free(vectors);
+            return total ? (int64_t)total : n;
         }
+        total += (size_t)n;
+        if ((size_t)n < vectors[i].iov_len) break;
     }
-    process_fd_seek(proc, (int)fd, old, SEEK_SET);
+    if (vectors != inline_iov) free(vectors);
     return (int64_t)total;
 }
 

@@ -36,7 +36,7 @@ int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, 
     cdev->count      = count ? count : 1;
     cdev->node_type  = node_type;
     cdev->mode       = mode;
-    cdev->ops        = ops;
+    cdev->ops        = *ops;
 
     spin_lock(&chrdev_lock);
     cdev->next  = chrdev_list;
@@ -113,7 +113,7 @@ int chrdev_populate(void)
             else
                 (void)snprintf(path, sizeof(path), "/dev/%s", leaf);
 
-            if (devtmpfs_register_char_device(path, MKDEV(major, first + i), MKDEV(major, first + i), node_type, cdev->ops) != 0) continue;
+            if (devtmpfs_register_char_device(path, MKDEV(major, first + i), MKDEV(major, first + i), node_type, &cdev->ops) != 0) continue;
             if (mode) {
                 vfs_node_t node = vfs_open(path);
                 if (node) {

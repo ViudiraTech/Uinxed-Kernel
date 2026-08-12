@@ -12,7 +12,10 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
+#include <mem/frame.h>
 #include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
 #include <process/uaccess.h>
 
 int        tmpfs_id    = 0;
@@ -32,7 +35,6 @@ int tmpfs_mount(const char *handle, vfs_node_t node)
     if (!tmpfs_root) return -ENOMEM;
     tmpfs_root->type       = tp_file_dir;
     tmpfs_root->node_type  = file_dir;
-    tmpfs_root->node       = node;
     tmpfs_root->root       = node;
     tmpfs_root->link_count = 1;
 
@@ -64,7 +66,6 @@ int tmpfs_mk(void *parent, const char *name, vfs_node_t node, int is_dir)
     f->node_type  = is_dir ? file_dir : file_none;
     f->link_count = 1;
     node->handle  = f;
-    f->node       = node;
 
     return EOK;
 }
@@ -138,35 +139,83 @@ size_t tmpfs_read(void *file, void *addr, size_t offset, size_t size)
         spin_unlock(&f->data_lock);
         return 0;
     }
-    size_t actual = (offset + size > f->size) ? (f->size - offset) : size;
-    memcpy(addr, f->data + offset, actual);
+    size_t actual = size > f->size - offset ? f->size - offset : size;
+    for (size_t done = 0; done < actual;) {
+        size_t page    = (offset + done) / PAGE_4K_SIZE;
+        size_t in_page = (offset + done) & (PAGE_4K_SIZE - 1);
+        size_t chunk   = PAGE_4K_SIZE - in_page;
+        if (chunk > actual - done) chunk = actual - done;
+
+        if (page < f->page_count && f->pages[page]) {
+            memcpy((uint8_t *)addr + done, (uint8_t *)phys_to_virt(f->pages[page]) + in_page, chunk);
+        } else {
+            size_t position      = offset + done;
+            size_t from_external = 0;
+            if (f->external_data && position < f->external_size) {
+                from_external = f->external_size - position;
+                if (from_external > chunk) from_external = chunk;
+                memcpy((uint8_t *)addr + done, f->external_data + position, from_external);
+            }
+            if (from_external < chunk) memset((uint8_t *)addr + done + from_external, 0, chunk - from_external);
+        }
+        done += chunk;
+    }
     spin_unlock(&f->data_lock);
     return actual;
 }
 
-static int tmpfs_make_private_locked(tmpfs_file_t *f, size_t minimum_capacity)
+static int tmpfs_expand_page_array_locked(tmpfs_file_t *f, size_t count)
 {
-    size_t capacity = f->capacity;
-    char  *data;
+    if (count <= f->page_capacity) return EOK;
+    if (count > SIZE_MAX / sizeof(*f->pages)) return -EFBIG;
 
-    if (minimum_capacity <= capacity && !f->data_external) return EOK;
-    if (capacity < minimum_capacity) {
-        capacity = minimum_capacity;
-        if (capacity <= SIZE_MAX / 2) capacity *= 2;
+    size_t capacity = f->page_capacity ? f->page_capacity : 16;
+    while (capacity < count) {
+        if (capacity > SIZE_MAX / 2) {
+            capacity = count;
+            break;
+        }
+        capacity *= 2;
     }
-    if (!capacity) capacity = 1;
+    if (capacity > SIZE_MAX / sizeof(*f->pages)) return -EFBIG;
 
-    if (!f->data_external) {
-        data = realloc(f->data, capacity);
-        if (!data) return -ENOMEM;
-    } else {
-        data = malloc(capacity);
-        if (!data) return -ENOMEM;
-        if (f->size) memcpy(data, f->data, f->size);
+    uint64_t *pages = malloc(capacity * sizeof(*pages));
+    if (!pages) return -ENOMEM;
+    if (f->pages) {
+        memcpy(pages, f->pages, f->page_capacity * sizeof(*pages));
+        free(f->pages);
     }
-    f->data          = data;
-    f->capacity      = capacity;
-    f->data_external = false;
+    memset(pages + f->page_capacity, 0, (capacity - f->page_capacity) * sizeof(*pages));
+    f->pages         = pages;
+    f->page_capacity = capacity;
+    return EOK;
+}
+
+static int tmpfs_allocate_page_locked(tmpfs_file_t *f, size_t index)
+{
+    int status = tmpfs_expand_page_array_locked(f, index + 1);
+    if (status != EOK) return status;
+    if (!f->pages[index]) {
+        /*
+         * This runs with data_lock held.  Ordinary alloc_frames() may enter
+         * swap reclaim, whose file backend can re-enter tmpfs and wait on the
+         * same inode lock forever.  A filesystem backend must fail the write
+         * instead of recursing into reclaim while its inode is locked.
+         */
+        uint64_t frame = alloc_frames_noreclaim(1);
+        if (!frame) return -ENOMEM;
+
+        uint8_t *page = phys_to_virt(frame);
+        memset(page, 0, PAGE_4K_SIZE);
+        size_t position = index * PAGE_4K_SIZE;
+        if (f->external_data && position < f->external_size) {
+            size_t copy = f->external_size - position;
+            if (copy > PAGE_4K_SIZE) copy = PAGE_4K_SIZE;
+            memcpy(page, f->external_data + position, copy);
+        }
+        f->pages[index] = frame;
+    }
+    if (index >= f->page_count) f->page_count = index + 1;
     return EOK;
 }
 
@@ -174,7 +223,6 @@ static int tmpfs_make_private_locked(tmpfs_file_t *f, size_t minimum_capacity)
 static size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     tmpfs_file_t *f = (tmpfs_file_t *)file;
-    size_t        old_size;
 
     if (!f || (!addr && size)) return 0;
     if (f->device.write) return f->device.write(f->device.ctx, addr, offset, size);
@@ -183,23 +231,27 @@ static size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t si
     if (offset > SIZE_MAX - size) return 0;
     size_t end = offset + size;
     spin_lock(&f->data_lock);
-    old_size = f->size;
+    size_t done = 0;
+    while (done < size) {
+        size_t page    = (offset + done) / PAGE_4K_SIZE;
+        size_t in_page = (offset + done) & (PAGE_4K_SIZE - 1);
+        size_t chunk   = PAGE_4K_SIZE - in_page;
+        if (chunk > size - done) chunk = size - done;
 
-    if (end > f->capacity || f->data_external) {
-        if (tmpfs_make_private_locked(f, end) != EOK) {
-            plogk("tmpfs: Grow to %lu bytes failed (out of memory)\n", (unsigned long)end);
+        int status = tmpfs_allocate_page_locked(f, page);
+        if (status != EOK) {
+            plogk("tmpfs: Page allocation failed at offset %lu (%d)\n", (unsigned long)(offset + done), status);
             spin_unlock(&f->data_lock);
-            return 0;
+            return done;
         }
+        memcpy((uint8_t *)phys_to_virt(f->pages[page]) + in_page, (const uint8_t *)addr + done, chunk);
+        done += chunk;
+        if (offset + done > f->size) f->size = offset + done;
     }
-
-    if (offset > old_size) memset(f->data + old_size, 0, offset - old_size);
-
-    memcpy(f->data + offset, addr, size);
     if (end > f->size) f->size = end;
 
     spin_unlock(&f->data_lock);
-    return size;
+    return done;
 }
 
 int tmpfs_resize(void *file, uint64_t size)
@@ -209,14 +261,21 @@ int tmpfs_resize(void *file, uint64_t size)
     if (size > SIZE_MAX) return -EFBIG;
     size_t requested = (size_t)size;
     spin_lock(&f->data_lock);
-    if (requested > f->capacity || (f->data_external && requested != f->size)) {
-        int status = tmpfs_make_private_locked(f, requested);
-        if (status != EOK) {
-            spin_unlock(&f->data_lock);
-            return status;
+    if (requested < f->size) {
+        size_t first_unused = (requested + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
+        for (size_t i = first_unused; i < f->page_count; i++) {
+            if (f->pages[i]) {
+                free_frames(f->pages[i], 1);
+                f->pages[i] = 0;
+            }
         }
+        if (f->page_count > first_unused) f->page_count = first_unused;
+        if (requested && (requested & (PAGE_4K_SIZE - 1)) && first_unused <= f->page_count && f->pages[first_unused - 1]) {
+            size_t tail = requested & (PAGE_4K_SIZE - 1);
+            memset((uint8_t *)phys_to_virt(f->pages[first_unused - 1]) + tail, 0, PAGE_4K_SIZE - tail);
+        }
+        if (f->external_size > requested) f->external_size = requested;
     }
-    if (requested > f->size) memset(f->data + f->size, 0, requested - f->size);
     f->size = requested;
     spin_unlock(&f->data_lock);
     return EOK;
@@ -231,11 +290,15 @@ int tmpfs_adopt_file_data(vfs_node_t node, const void *data, size_t size)
     if (!f || f->type != tp_file_file || f->device.read || f->device.write || f->device.file_read || f->device.file_write) return -EINVAL;
 
     spin_lock(&f->data_lock);
-    if (f->data && !f->data_external) free(f->data);
-    f->data          = (char *)data;
+    for (size_t i = 0; i < f->page_count; i++)
+        if (f->pages[i]) free_frames(f->pages[i], 1);
+    free(f->pages);
+    f->pages         = NULL;
+    f->page_count    = 0;
+    f->page_capacity = 0;
+    f->external_data = data;
+    f->external_size = size;
     f->size          = size;
-    f->capacity      = size;
-    f->data_external = true;
     node->size       = size;
     spin_unlock(&f->data_lock);
     return EOK;
@@ -248,7 +311,13 @@ int tmpfs_stat(void *file, vfs_node_t node)
     if (!file0) return -ENOENT;
 
     node->type = file0->node_type;
-    node->size = file0->type == tp_file_dir ? 0 : file0->size;
+    if (file0->type == tp_file_dir) {
+        node->size = 0;
+    } else {
+        spin_lock(&file0->data_lock);
+        node->size = file0->size;
+        spin_unlock(&file0->data_lock);
+    }
     spin_lock(&file0->link_lock);
     node->nlink = file0->link_count;
     spin_unlock(&file0->link_lock);
@@ -270,6 +339,12 @@ int tmpfs_rename(void *current, const char *new_name)
     strncpy(f->name, new_name, sizeof(f->name) - 1);
     f->name[sizeof(f->name) - 1] = '\0';
     return EOK;
+}
+
+static int tmpfs_move(void *current, void *new_parent, const char *new_name)
+{
+    (void)new_parent;
+    return tmpfs_rename(current, new_name);
 }
 
 /* Poll a tmpfs file for pending events (simplified implementation) */
@@ -338,7 +413,6 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
     f->node_type                 = file_symlink;
     f->link_count                = 1;
     node->handle                 = f;
-    f->node                      = node;
 
     return EOK;
 }
@@ -365,7 +439,9 @@ int tmpfs_free(void *handle)
         free(file);
         return EOK;
     }
-    if (file->data && !file->data_external) free(file->data);
+    for (size_t i = 0; i < file->page_count; i++)
+        if (file->pages[i]) free_frames(file->pages[i], 1);
+    free(file->pages);
 
     free(file);
     return EOK;
@@ -411,8 +487,8 @@ static void *tmpfs_file_mmap(vfs_node_t node, void *private_data, size_t offset,
     if (!f) return NULL;
     if (f->device.mmap) return f->device.mmap(f->device.ctx, private_data, offset, size, flags, vma);
 
-    /* Regular tmpfs file: return the data buffer directly. */
-    if (f->data && offset < f->size) return f->data + offset;
+    /* Immutable initramfs data is contiguous; mutable files use pagecache. */
+    if (f->external_data && !f->page_count && offset < f->external_size) return (void *)(f->external_data + offset);
     return NULL;
 }
 
@@ -431,7 +507,9 @@ static int64_t tmpfs_file_write(vfs_node_t node, void *private_data, uint64_t fl
 
     if (!f) return -EINVAL;
     if (f->device.file_write) return f->device.file_write(f->device.ctx, private_data, flags, addr, offset, size);
-    return (int64_t)tmpfs_write(f, addr, offset, size);
+    int64_t result = (int64_t)tmpfs_write(f, addr, offset, size);
+    if (result > 0) node->size = f->size;
+    return result;
 }
 
 #define TMPFS_USER_IO_CHUNK 16384
@@ -540,6 +618,7 @@ static struct vfs_callback tmpfs_callbacks = {
     .file_poll             = tmpfs_file_poll,
     .file_poll_source      = tmpfs_file_poll_source,
     .resize                = tmpfs_resize,
+    .move                  = tmpfs_move,
 };
 
 /* Register tmpfs with the VFS layer (initialize tmpfs) */

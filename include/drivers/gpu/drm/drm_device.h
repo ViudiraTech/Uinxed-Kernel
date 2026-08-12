@@ -829,7 +829,7 @@ void drm_release(struct drm_file *file);
 
 /* Event delivery and consumption. */
 int          drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e);
-int          drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset);
+int          drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset, bool nonblock);
 unsigned int drm_poll(struct drm_file *file_priv, unsigned int events);
 
 /* ioctl dispatch (called from VFS ioctl wrapper). */

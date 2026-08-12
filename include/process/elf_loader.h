@@ -17,6 +17,7 @@
 #include <libs/std/stdint.h>
 
 struct process;
+struct vfs_node;
 
 #define MUSL_INTERPRETER_PATH "/lib/ld-musl-x86_64.so.1"
 
@@ -37,6 +38,8 @@ typedef struct {
 
 int elf_loader_load_user_process(struct process *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
                                  uintptr_t *entry_out, uintptr_t *rsp_out);
+int elf_loader_load_user_node(struct process *proc, struct vfs_node *node, char *const argv[], char *const envp[], uintptr_t *entry_out,
+                              uintptr_t *rsp_out);
 int elf_loader_load_initial_process(struct process *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[]);
 int elf_loader_load_initial_path(struct process *proc, const char *path, char *const argv[], char *const envp[]);
 int elf_loader_parse_elf_info(const uint8_t *elf_data, size_t elf_size, elf_load_info_t *info);

@@ -21,7 +21,9 @@
 #include <libs/std/math.h>
 #include <libs/std/stdint.h>
 #include <net/core/netdev.h>
+#include <process/process.h>
 #include <process/sched.h>
+#include <sync/signal.h>
 #include <syscall/timerfd.h>
 
 static int64_t  timer_realtime_base_ns;
@@ -57,14 +59,16 @@ uint32_t timer_realtime_seconds32(void)
 /* Timer interrupt */
 INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
     disable_intr();
-    uint32_t cpu_id = get_current_cpu_id();
+    uint32_t cpu_id      = get_current_cpu_id();
+    task_t  *interrupted = current_task();
+    if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, (frame->cs & 3U) == 3U);
     if (cpu_id == 0) tty_deferred_flush();
     send_eoi();
     sched_tick();
     timerfd_tick();
     if (cpu_id == 0) {
+        signal_itimer_real_tick(sched_ticks());
         drm_vblank_tick();
 
         /*

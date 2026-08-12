@@ -438,7 +438,6 @@ void drm_release(struct drm_file *file)
     struct drm_device *dev;
 
     if (!file) return;
-
     dev = (struct drm_device *)file->minor_unused;
 
     /*
@@ -480,7 +479,6 @@ void drm_release(struct drm_file *file)
             free(fb);
         }
     }
-
     /*
      * Drop the owning reference for every property blob created by this
      * file. Atomic states may still hold independent lookup references.

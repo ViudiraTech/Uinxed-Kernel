@@ -28,8 +28,8 @@ extern process_t *init_process;
 
 #define PROCESS_NAME_LEN     32
 #define PROCESS_MAX_MMAP     256
-#define PROCESS_MAX_ARGV     64
-#define PROCESS_MAX_ENVP     64
+#define PROCESS_MAX_ARGV     4096
+#define PROCESS_MAX_ENVP     4096
 #define PROCESS_MAX_CHILDREN 128
 #ifndef PROCESS_MAX_FD
 #    define PROCESS_MAX_FD 1024
@@ -142,7 +142,8 @@ typedef struct process_fd_stat {
         uint64_t blksz;
 } process_fd_stat_t;
 
-#define PROCESS_AT_FDCWD (-100)
+#define PROCESS_AT_FDCWD   (-100)
+#define PROCESS_MAX_GROUPS 64
 
 typedef struct process {
         task_t           *task;
@@ -157,6 +158,8 @@ typedef struct process {
         struct process   *parent;
         slist_t           children;
         wait_queue_t      child_wait; // fork/exit/wait condition queue
+        /* Persistent queue for pause/sigsuspend; never points into a syscall stack. */
+        wait_queue_t signal_wait;
         /*
          * vfork completion is separate from child exit: a successful exec
          * releases the parent while the child remains alive.  The condition
@@ -172,6 +175,8 @@ typedef struct process {
         uint32_t        gid;
         uint32_t        fsuid;
         uint32_t        fsgid;
+        uint32_t        supplementary_groups[PROCESS_MAX_GROUPS];
+        uint16_t        supplementary_group_count;
         uint16_t        umask;
         uint8_t        *kernel_stack;
         process_file_t *fds[PROCESS_MAX_FD];
@@ -185,17 +190,30 @@ typedef struct process {
         process_rlimit_t rlimits[PROCESS_RLIMIT_COUNT];
         spinlock_t       rlimit_lock;
         signal_state_t   signal;
-        uint32_t         refcount;
-        uint32_t         thread_count;
-        ilist_node_t     threads;
-        pid_t            pgid;
-        pid_t            sid;
-        tty_core_t      *controlling_tty;
-        char             name[PROCESS_NAME_LEN];
-        char             root[VFS_PATH_MAX];     // chroot path
-        char             cwd[VFS_PATH_MAX];      // current working directory
-        char             exe_path[VFS_PATH_MAX]; // executable path (procfs /proc/<pid>/exe)
+        /*
+         * Linux interval timers are process-wide.  Element 0 stores an
+         * absolute scheduler deadline for ITIMER_REAL; elements 1 and 2
+         * store the remaining user/total CPU ticks for VIRTUAL and PROF.
+         * The global interval-timer lock protects these fields and the
+         * intrusive REAL-timer list.
+         */
+        uint64_t        itimer_value[3];
+        uint64_t        itimer_interval[3];
+        struct process *itimer_real_next;
+        bool            itimer_real_linked;
+        uint32_t        refcount;
+        uint32_t        thread_count;
+        ilist_node_t    threads;
+        pid_t           pgid;
+        pid_t           sid;
+        tty_core_t     *controlling_tty;
+        char            name[PROCESS_NAME_LEN];
+        char            root[VFS_PATH_MAX];     // chroot path
+        char            cwd[VFS_PATH_MAX];      // current working directory
+        char            exe_path[VFS_PATH_MAX]; // executable path (procfs /proc/<pid>/exe)
 } process_t;
+
+bool process_in_group(const process_t *proc, uint32_t gid);
 
 /* Initialize the process management subsystem */
 void process_init(void);
@@ -280,6 +298,7 @@ process_t *process_fork_status_event(int *error, uint32_t ptrace_event);
  */
 process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, bool vfork);
 void       process_fork_publish(process_t *child);
+void       process_fork_discard(process_t *child);
 
 /* Suspend/release the vfork parent around child exec or exit. */
 void process_vfork_wait(process_t *child);
@@ -345,6 +364,8 @@ int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size);
 int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size);
 int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size);
 int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t size);
+int64_t process_fd_pread_user(process_t *proc, int fd, void *buf, size_t size, uint64_t offset);
+int64_t process_fd_pwrite_user(process_t *proc, int fd, const void *buf, size_t size, uint64_t offset);
 
 /* Move the shared file offset */
 int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence);

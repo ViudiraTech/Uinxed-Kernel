@@ -19,7 +19,9 @@
 #include <libs/std/stddef.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <process/process.h>
 #include <process/uaccess.h>
+#include <sync/signal.h>
 #include <sync/spin_lock.h>
 
 /* drm_file_alloc - allocate and initialize a drm_file */
@@ -191,7 +193,7 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
 
 /* drm_read - read events from the drm file (blocking) */
 
-int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset)
+int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset, bool nonblock)
 {
     struct drm_event_node *node;
     size_t                 copy_size;
@@ -209,6 +211,20 @@ int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset
         if (file_priv->event_closing) {
             spin_unlock(&file_priv->event_lock);
             return 0;
+        }
+        if (nonblock) {
+            spin_unlock(&file_priv->event_lock);
+            return -EAGAIN;
+        }
+        process_t *proc = process_current();
+        if (proc) {
+            spin_lock(&proc->signal.lock);
+            bool interrupted = signal_has_interrupting_pending(&proc->signal);
+            spin_unlock(&proc->signal.lock);
+            if (interrupted) {
+                spin_unlock(&file_priv->event_lock);
+                return -ERESTARTSYS;
+            }
         }
         wait_queue_prepare(&file_priv->event_wait);
         spin_unlock(&file_priv->event_lock);

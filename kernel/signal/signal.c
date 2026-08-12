@@ -42,6 +42,125 @@ static const sig_dfl_action_t sig_default_action_table[NSIG] = {
 
 static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *sender, int code);
 
+/*
+ * ITIMER_REAL timers need to fire even while their owner is asleep.  Keep an
+ * intrusive list instead of scanning the full process table on every 1 kHz
+ * timer interrupt.  VIRTUAL and PROF timers are charged directly to the
+ * interrupted process by timer_handle().
+ */
+static spinlock_t itimer_lock;
+static process_t *itimer_real_head;
+
+static uint64_t itimer_real_remaining_locked(const process_t *proc, uint64_t now)
+{
+    if (!proc->itimer_value[0] || proc->itimer_value[0] <= now) return 0;
+    return proc->itimer_value[0] - now;
+}
+
+static void itimer_real_unlink_locked(process_t *proc)
+{
+    if (!proc || !proc->itimer_real_linked) return;
+    process_t **link = &itimer_real_head;
+    while (*link && *link != proc) link = &(*link)->itimer_real_next;
+    if (*link == proc) *link = proc->itimer_real_next;
+    proc->itimer_real_next   = NULL;
+    proc->itimer_real_linked = false;
+}
+
+static void itimer_real_link_locked(process_t *proc)
+{
+    if (!proc || proc->itimer_real_linked) return;
+    proc->itimer_real_next   = itimer_real_head;
+    proc->itimer_real_linked = true;
+    itimer_real_head         = proc;
+}
+
+void signal_itimer_get(process_t *proc, unsigned int which, uint64_t *remaining, uint64_t *interval)
+{
+    if (!proc || which > 2) return;
+    spin_lock(&itimer_lock);
+    if (remaining) *remaining = which == 0 ? itimer_real_remaining_locked(proc, sched_ticks()) : proc->itimer_value[which];
+    if (interval) *interval = proc->itimer_interval[which];
+    spin_unlock(&itimer_lock);
+}
+
+void signal_itimer_set(process_t *proc, unsigned int which, uint64_t value, uint64_t interval, uint64_t *old_remaining, uint64_t *old_interval)
+{
+    if (!proc || which > 2) return;
+    spin_lock(&itimer_lock);
+    uint64_t now = sched_ticks();
+    if (old_remaining) *old_remaining = which == 0 ? itimer_real_remaining_locked(proc, now) : proc->itimer_value[which];
+    if (old_interval) *old_interval = proc->itimer_interval[which];
+
+    if (which == 0) {
+        itimer_real_unlink_locked(proc);
+        if (value) {
+            proc->itimer_value[0] = value > UINT64_MAX - now ? UINT64_MAX : now + value;
+            itimer_real_link_locked(proc);
+        } else {
+            proc->itimer_value[0] = 0;
+        }
+    } else {
+        proc->itimer_value[which] = value;
+    }
+    proc->itimer_interval[which] = interval;
+    spin_unlock(&itimer_lock);
+}
+
+void signal_itimer_real_tick(uint64_t now)
+{
+    spin_lock(&itimer_lock);
+    process_t **link = &itimer_real_head;
+    while (*link) {
+        process_t *proc     = *link;
+        uint64_t   deadline = proc->itimer_value[0];
+        if (!deadline || deadline > now) {
+            link = &proc->itimer_real_next;
+            continue;
+        }
+
+        uint64_t interval = proc->itimer_interval[0];
+        if (!interval) {
+            *link                    = proc->itimer_real_next;
+            proc->itimer_real_next   = NULL;
+            proc->itimer_real_linked = false;
+            proc->itimer_value[0]    = 0;
+        } else {
+            uint64_t periods = (now - deadline) / interval + 1;
+            if (periods > (UINT64_MAX - deadline) / interval)
+                proc->itimer_value[0] = UINT64_MAX;
+            else
+                proc->itimer_value[0] = deadline + periods * interval;
+            link = &proc->itimer_real_next;
+        }
+        (void)signal_send(proc, SIGALRM, NULL);
+    }
+    spin_unlock(&itimer_lock);
+}
+
+void signal_itimer_cpu_tick(process_t *proc, bool user_mode)
+{
+    if (!proc) return;
+    spin_lock(&itimer_lock);
+    for (unsigned int which = user_mode ? 1U : 2U; which <= 2U; which++) {
+        if (!proc->itimer_value[which]) continue;
+        if (--proc->itimer_value[which]) continue;
+        proc->itimer_value[which] = proc->itimer_interval[which];
+        (void)signal_send(proc, which == 1 ? SIGVTALRM : SIGPROF, NULL);
+    }
+    spin_unlock(&itimer_lock);
+}
+
+void signal_itimer_cancel(process_t *proc)
+{
+    if (!proc) return;
+    spin_lock(&itimer_lock);
+    itimer_real_unlink_locked(proc);
+    memset(proc->itimer_value, 0, sizeof(proc->itimer_value));
+    memset(proc->itimer_interval, 0, sizeof(proc->itimer_interval));
+    spin_unlock(&itimer_lock);
+}
+
 sig_dfl_action_t signal_default_action(int sig)
 {
     if (!sig_valid(sig)) return SIG_DFL_TERM;
@@ -106,6 +225,9 @@ static bool sigqueue_contains(const signal_state_t *state, int sig)
 
 void signal_init(void)
 {
+    itimer_lock.lock   = 0;
+    itimer_lock.rflags = 0;
+    itimer_real_head   = NULL;
     plogk("signal: POSIX signal handling available (%u signals)\n", NSIG);
 }
 
@@ -309,7 +431,6 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
         /* Wake the task if it's blocked */
         if (proc->task) task_wakeup(proc->task);
     }
-
     return ret;
 }
 
@@ -838,7 +959,8 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
  */
 int64_t sys_kill_impl(int64_t pid, int sig)
 {
-    if (!sig_valid(sig)) return -EINVAL;
+    /* Linux reserves signal 0 as an existence/permission probe. */
+    if (sig < 0 || sig >= NSIG) return -EINVAL;
 
     if (pid > 0) {
         process_t *proc = process_find_get(pid);
@@ -852,6 +974,10 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         if (signal_check_perm(cur, proc) < 0) {
             process_put(proc);
             return -EPERM;
+        }
+        if (sig == 0) {
+            process_put(proc);
+            return 0;
         }
 
         siginfo_t info;
@@ -887,13 +1013,15 @@ int64_t sys_kill_impl(int64_t pid, int sig)
                 continue;
             }
 
-            siginfo_t info;
-            memset(&info, 0, sizeof(info));
-            info.si_signo = sig;
-            info.si_code  = SI_USER;
-            info.si_pid   = cur->task->pid;
-            info.si_uid   = cur->uid;
-            signal_send(target, sig, &info);
+            if (sig != 0) {
+                siginfo_t info;
+                memset(&info, 0, sizeof(info));
+                info.si_signo = sig;
+                info.si_code  = SI_USER;
+                info.si_pid   = cur->task->pid;
+                info.si_uid   = cur->uid;
+                signal_send(target, sig, &info);
+            }
             found = 1;
             process_put(target);
         }
@@ -913,7 +1041,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
 /* sys_tkill - Send a signal to a specific thread */
 int64_t sys_tkill_impl(int64_t tid, int sig)
 {
-    if (!sig_valid(sig)) return -EINVAL;
+    if (sig < 0 || sig >= NSIG) return -EINVAL;
 
     process_t *target = process_find_get(tid);
     if (!target) return -ESRCH;
@@ -926,6 +1054,10 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
     if (signal_check_perm(cur, target) < 0) {
         process_put(target);
         return -EPERM;
+    }
+    if (sig == 0) {
+        process_put(target);
+        return 0;
     }
 
     siginfo_t info;
@@ -943,7 +1075,7 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
 /* sys_tgkill - Send a signal to a specific thread in a specific process */
 int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
 {
-    if (!sig_valid(sig)) return -EINVAL;
+    if (sig < 0 || sig >= NSIG) return -EINVAL;
 
     process_t *target = process_find_get(tgid);
     if (!target) return -ESRCH;
@@ -961,6 +1093,10 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
     if (signal_check_perm(cur, target) < 0) {
         process_put(target);
         return -EPERM;
+    }
+    if (sig == 0) {
+        process_put(target);
+        return 0;
     }
 
     siginfo_t info;
@@ -1108,9 +1244,6 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
     sigset_t new_mask;
     if (copy_from_user(&new_mask, set, sizeof(sigset_t))) return -EFAULT;
 
-    wait_queue_t wq;
-    wait_queue_init(&wq);
-
     spin_lock(&state->lock);
 
     /* Save old blocked */
@@ -1121,35 +1254,25 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
     sigdelset(&state->blocked, SIGKILL);
     sigdelset(&state->blocked, SIGSTOP);
 
-    /* Check if any signal is already pending and unblocked */
-    if (signal_has_pending(state)) {
-        /*
-         * Keep the temporary mask installed until the return-to-userspace
-         * signal pass.  Restoring old_blocked here can re-block the signal
-         * that is meant to interrupt sigsuspend before it is delivered.
-         */
-        state->saved_mask   = old_blocked;
-        state->restore_mask = true;
-        spin_unlock(&state->lock);
-        return -EINTR;
-    }
-
     /*
-     * Atomically prepare to sleep: if a signal_send calls task_wakeup
-     * between here and wait_queue_sleep(), the wakeup will be recorded
-     * in the wait queue and wait_queue_sleep() will not block.
+     * Check and enqueue while holding the same lock used by signal_send().
+     * Once the prepared wait is woken, sigsuspend must return EINTR even if
+     * the common return-to-user path has already dequeued the signal for its
+     * handler.  Requiring the pending bit to remain set here loses that wake
+     * and leaves shells sleeping after their child has already been reaped.
      */
-    wait_queue_prepare(&wq);
-    spin_unlock(&state->lock);
-
-    /* Sleep (or continue immediately if already woken by a signal) */
-    wait_queue_sleep();
+    if (!signal_has_pending(state)) {
+        /* Process-owned storage remains valid across concurrent notifications. */
+        wait_queue_prepare(&proc->signal_wait);
+        spin_unlock(&state->lock);
+        wait_queue_sleep();
+        spin_lock(&state->lock);
+    }
 
     /*
      * A handler frame must restore old_blocked after signal delivery, not
      * before it.  This is the same deferred-mask rule used by ppoll/pselect.
      */
-    spin_lock(&state->lock);
     state->saved_mask   = old_blocked;
     state->restore_mask = true;
     spin_unlock(&state->lock);
@@ -1349,19 +1472,15 @@ int64_t sys_pause(void)
     process_t *proc = process_current();
     if (!proc) return -EINTR;
 
-    wait_queue_t wq;
-    wait_queue_init(&wq);
-
     signal_state_t *state = &proc->signal;
     spin_lock(&state->lock);
-    if (signal_has_pending(state)) {
+    if (!signal_has_pending(state)) {
+        wait_queue_prepare(&proc->signal_wait);
         spin_unlock(&state->lock);
-        return -EINTR;
+        wait_queue_sleep();
+        spin_lock(&state->lock);
     }
-    wait_queue_prepare(&wq);
     spin_unlock(&state->lock);
-
-    wait_queue_sleep();
     return -EINTR;
 }
 
@@ -1591,7 +1710,7 @@ int64_t sys_getpgid(int64_t pid)
 
 static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *sender, int code)
 {
-    if (pgid <= 0 || !sig_valid(sig)) return -EINVAL;
+    if (pgid <= 0 || sig < 0 || sig >= NSIG) return -EINVAL;
 
     size_t     pos = 0;
     process_t *target;
@@ -1602,16 +1721,18 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
             process_put(target);
             continue;
         }
-        siginfo_t info;
-        memset(&info, 0, sizeof(info));
-        info.si_signo = sig;
-        info.si_code  = code;
-        if (sender) {
-            info.si_pid = sender->task ? (int64_t)sender->task->pid : 0;
-            info.si_uid = sender->uid;
+        if (sig != 0) {
+            siginfo_t info;
+            memset(&info, 0, sizeof(info));
+            info.si_signo = sig;
+            info.si_code  = code;
+            if (sender) {
+                info.si_pid = sender->task ? (int64_t)sender->task->pid : 0;
+                info.si_uid = sender->uid;
+            }
+            int ret = signal_send(target, sig, &info);
+            if (ret && !result) result = ret;
         }
-        int ret = signal_send(target, sig, &info);
-        if (ret && !result) result = ret;
         found = 1;
         process_put(target);
     }

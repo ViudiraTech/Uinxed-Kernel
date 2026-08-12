@@ -23,7 +23,6 @@ log_buffer_t serial_log;
 
 static console_t serial_consoles[UART_MAX_PORTS];
 
-static uart_port_t   uart_8250_ports[UART_MAX_PORTS];
 static uart_driver_t uart_8250_driver = {
     .name        = "ttyS",
     .major       = 4,
@@ -99,7 +98,13 @@ static void serial_console_write(console_t *c, const uint8_t *buf, size_t len)
 static tty_core_t *serial_console_get_tty(console_t *c)
 {
     uart_port_t *port = c->data;
-    return port ? port->tty : NULL;
+    tty_core_t  *tty  = NULL;
+
+    /* /dev/console reaches a serial console without opening /dev/ttyS<N>.
+     * Resolve it through the serial core so its line discipline and wait
+     * queues are initialized before init issues its first termios ioctl. */
+    if (!port || serial_tty_core(port->number, &tty)) return NULL;
+    return tty;
 }
 
 /* detection */
@@ -134,7 +139,7 @@ static int uart8250_irq_of(int number)
 static void uart8250_service(int line_irq)
 {
     for (int i = 0; i < UART_MAX_PORTS; i++) {
-        uart_port_t *port = &uart_8250_ports[i];
+        uart_port_t *port = &uart_8250_driver.ports[i];
         uint16_t     base;
 
         if (!port->present || uart8250_irq_of(i) != line_irq) continue;
@@ -173,7 +178,7 @@ void init_serial(void)
     int                   detected                     = 0;
 
     for (int i = 0; i < UART_MAX_PORTS; i++) {
-        uart_port_t *port  = &uart_8250_ports[i];
+        uart_port_t *port  = &uart_8250_driver.ports[i];
         port->number       = i;
         port->ops          = &uart8250_ops;
         port->private_data = (void *)(uintptr_t)legacy_bases[i];
@@ -186,11 +191,11 @@ void init_serial(void)
 
     uart_register_driver(&uart_8250_driver);
     for (int i = 0; i < UART_MAX_PORTS; i++) {
-        if (!uart_8250_ports[i].present) continue;
-        (void)uart_add_port(&uart_8250_driver, &uart_8250_ports[i]);
+        if (!uart_8250_driver.ports[i].present) continue;
+        (void)uart_add_port(&uart_8250_driver, &uart_8250_driver.ports[i]);
         serial_consoles[i].name    = "ttyS";
         serial_consoles[i].index   = (uint32_t)i;
-        serial_consoles[i].data    = &uart_8250_ports[i];
+        serial_consoles[i].data    = &uart_8250_driver.ports[i];
         serial_consoles[i].write   = serial_console_write;
         serial_consoles[i].get_tty = serial_console_get_tty;
         (void)register_console(&serial_consoles[i]);
@@ -207,7 +212,7 @@ void serial_irq_install(void)
     bool need_irq4 = false;
 
     for (int i = 0; i < UART_MAX_PORTS; i++) {
-        if (!uart_8250_ports[i].present) continue;
+        if (!uart_8250_driver.ports[i].present) continue;
         if (uart8250_irq_of(i) == 3)
             need_irq3 = true;
         else
@@ -220,5 +225,5 @@ void serial_irq_install(void)
 int serial_port_present(int index)
 {
     if (index < 0 || index >= UART_MAX_PORTS) return 0;
-    return uart_8250_ports[index].present;
+    return uart_8250_driver.ports[index].present;
 }

@@ -12,6 +12,7 @@
 #include <drivers/char/chrdev.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
 #define MEM_MAJOR 1
@@ -92,6 +93,19 @@ static int64_t mem_write(void *ctx, void *private_data, uint64_t flags, const vo
     return device->kind == MEM_MEM_FULL ? -ENOSPC : (int64_t)size;
 }
 
+static int64_t mem_read_user(void *ctx, void *private_data, uint64_t flags, void *buffer, size_t offset, size_t size, struct process *proc)
+{
+    mem_memory_device_t *device = ctx;
+    (void)private_data;
+    (void)flags;
+    (void)offset;
+    if (!device) return -EINVAL;
+    if (device->kind == MEM_MEM_NULL) return 0;
+    if (device->kind != MEM_MEM_ZERO && device->kind != MEM_MEM_FULL) return -ENOSYS;
+    if (clear_user_process(proc, buffer, size)) return -EFAULT;
+    return (int64_t)size;
+}
+
 static int64_t mem_write_user(void *ctx, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size,
                               struct process *proc)
 {
@@ -125,6 +139,7 @@ void memdev_init(void)
             .file_write_user = mem_write_user,
             .ctx             = &mem_devices[i],
         };
+        if (mem_devices[i].kind != MEM_MEM_RANDOM) ops.file_read_user = mem_read_user;
         (void)cdev_add("", mem_nodes[i].name, MEM_MAJOR, mem_nodes[i].minor, 1, file_stream, mem_nodes[i].mode, &ops);
     }
 }

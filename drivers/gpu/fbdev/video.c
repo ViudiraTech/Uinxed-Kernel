@@ -37,8 +37,12 @@
 static video_flush_fn_t video_flush_cb;
 static video_info_t     video_active_info;
 static spinlock_t       video_state_lock;
-static uint64_t         video_generation;
 static bool             video_refresh_worker_started;
+static bool             video_dirty;
+static uint32_t         video_dirty_x1;
+static uint32_t         video_dirty_y1;
+static uint32_t         video_dirty_x2;
+static uint32_t         video_dirty_y2;
 
 uint64_t  width;  // Screen width
 uint64_t  height; // Screen height
@@ -309,54 +313,28 @@ void *video_fb_mmap(void *ctx, void *private_data, size_t offset, size_t size, i
 
 static void video_refresh_worker(void *arg)
 {
-    uint8_t *snapshot            = NULL;
-    size_t   snapshot_size       = 0;
-    uint64_t snapshot_generation = 0;
-
     (void)arg;
     for (;;) {
         task_sleep_ticks((TIMER_HZ + 59) / 60);
 
-        /* Flip the block cursor phase; the frame-diff below flushes it. */
+        /* Cursor and console output both publish damage into the same box. */
         fbcon_cursor_tick(sched_ticks());
 
         spin_lock(&video_state_lock);
-        uint8_t         *front      = (uint8_t *)buffer;
-        uint32_t         active_w   = (uint32_t)width;
-        uint32_t         active_h   = (uint32_t)height;
-        uint32_t         active_row = (uint32_t)(stride * sizeof(uint32_t));
-        uint64_t         generation = video_generation;
-        video_flush_fn_t flush      = video_flush_cb;
+        video_flush_fn_t flush    = video_flush_cb;
+        bool             dirty    = video_dirty;
+        uint32_t         x1       = video_dirty_x1;
+        uint32_t         y1       = video_dirty_y1;
+        uint32_t         x2       = video_dirty_x2;
+        uint32_t         y2       = video_dirty_y2;
+        uint32_t         active_w = (uint32_t)width;
+        uint32_t         active_h = (uint32_t)height;
+        video_dirty               = false;
         spin_unlock(&video_state_lock);
-        if (!front || !active_w || !active_h || !flush || active_h > SIZE_MAX / active_row) continue;
-
-        size_t active_size = (size_t)active_row * active_h;
-        if (!snapshot || snapshot_size != active_size || snapshot_generation != generation) {
-            free(snapshot);
-            snapshot = malloc(active_size);
-            if (!snapshot) {
-                snapshot_size = 0;
-                flush(0, 0, active_w, active_h);
-                continue;
-            }
-            memcpy(snapshot, front, active_size);
-            snapshot_size       = active_size;
-            snapshot_generation = generation;
-            flush(0, 0, active_w, active_h);
-            continue;
-        }
-
-        uint32_t first_row = active_h;
-        uint32_t last_row  = 0;
-        for (uint32_t row = 0; row < active_h; row++) {
-            uint8_t *current = front + (size_t)row * active_row;
-            uint8_t *old     = snapshot + (size_t)row * active_row;
-            if (!memcmp(current, old, active_row)) continue;
-            memcpy(old, current, active_row);
-            if (first_row == active_h) first_row = row;
-            last_row = row;
-        }
-        if (first_row != active_h) flush(0, first_row, active_w, last_row - first_row + 1);
+        if (!dirty || !flush || !active_w || !active_h || x1 >= x2 || y1 >= y2) continue;
+        if (x2 > active_w) x2 = active_w;
+        if (y2 > active_h) y2 = active_h;
+        if (x1 < x2 && y1 < y2) flush(x1, y1, x2 - x1, y2 - y1);
     }
 }
 
@@ -391,8 +369,6 @@ void video_init(void)
     video_active_info.green_mask_shift = 8;
     video_active_info.blue_mask_size   = 8;
     video_active_info.blue_mask_shift  = 0;
-    video_generation                   = 1;
-
     if (!framebuffer) {
         buffer = NULL;
         width = height = stride = 0;
@@ -427,8 +403,15 @@ void video_init(void)
 void video_clear(void)
 {
     back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
-    if (buffer)
-        for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = back_color;
+    if (buffer) {
+        size_t    count = (size_t)stride * height;
+        uint32_t *dest  = buffer;
+#if defined(__x86_64__) || defined(__i386__)
+        __asm__ volatile("rep stosl" : "+D"(dest), "+c"(count) : "a"(back_color) : "memory");
+#else
+        for (size_t i = 0; i < count; i++) buffer[i] = back_color;
+#endif
+    }
     cx = cy = 0;
     video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
 }
@@ -437,8 +420,15 @@ void video_clear(void)
 void video_clear_color(uint32_t color)
 {
     back_color = color;
-    if (buffer)
-        for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = back_color;
+    if (buffer) {
+        size_t    count = (size_t)stride * height;
+        uint32_t *dest  = buffer;
+#if defined(__x86_64__) || defined(__i386__)
+        __asm__ volatile("rep stosl" : "+D"(dest), "+c"(count) : "a"(back_color) : "memory");
+#else
+        for (size_t i = 0; i < count; i++) buffer[i] = back_color;
+#endif
+    }
     cx = cy = 0;
     video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
 }
@@ -492,14 +482,51 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
 void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
     spin_lock(&video_state_lock);
-    video_flush_fn_t flush    = video_flush_cb;
-    uint32_t         active_w = (uint32_t)width;
-    uint32_t         active_h = (uint32_t)height;
-    spin_unlock(&video_state_lock);
-    if (!flush || !w || !h || x >= active_w || y >= active_h) return;
+    uint32_t active_w = (uint32_t)width;
+    uint32_t active_h = (uint32_t)height;
+    if (!video_flush_cb || !w || !h || x >= active_w || y >= active_h) {
+        spin_unlock(&video_state_lock);
+        return;
+    }
     if (w > active_w - x) w = active_w - x;
     if (h > active_h - y) h = active_h - y;
-    flush(x, y, w, h);
+    uint32_t x2 = x + w;
+    uint32_t y2 = y + h;
+    if (!video_dirty) {
+        video_dirty_x1 = x;
+        video_dirty_y1 = y;
+        video_dirty_x2 = x2;
+        video_dirty_y2 = y2;
+        video_dirty    = true;
+    } else {
+        if (x < video_dirty_x1) video_dirty_x1 = x;
+        if (y < video_dirty_y1) video_dirty_y1 = y;
+        if (x2 > video_dirty_x2) video_dirty_x2 = x2;
+        if (y2 > video_dirty_y2) video_dirty_y2 = y2;
+    }
+    spin_unlock(&video_state_lock);
+}
+
+/* Push the accumulated damage synchronously for framebuffer handoff paths. */
+static void video_flush_pending_now(void)
+{
+    video_flush_fn_t flush;
+    uint32_t         x1, y1, x2, y2;
+
+    spin_lock(&video_state_lock);
+    flush = video_flush_cb;
+    if (!video_dirty) {
+        spin_unlock(&video_state_lock);
+        return;
+    }
+    x1          = video_dirty_x1;
+    y1          = video_dirty_y1;
+    x2          = video_dirty_x2;
+    y2          = video_dirty_y2;
+    video_dirty = false;
+    spin_unlock(&video_state_lock);
+
+    if (flush && x1 < x2 && y1 < y2) flush(x1, y1, x2 - x1, y2 - y1);
 }
 
 /*
@@ -554,7 +581,7 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
     video_active_info.blue_mask_shift  = 0;
     video_active_info.edid_size        = 0;
     video_active_info.edid             = NULL;
-    video_generation++;
+    video_dirty                        = false;
     spin_unlock(&video_state_lock);
 
     /*
@@ -586,6 +613,7 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
 
     /* Push the carried-over frame (or the rebuilt one) to the host. */
     video_flush_rect(0, 0, w, h);
+    video_flush_pending_now();
 
     plogk("video: Switched to framebuffer %ux%u stride=%u\n", w, h, (uint32_t)stride);
 }

@@ -384,6 +384,13 @@ typedef enum {
 /* Initialize the signal subsystem */
 void signal_init(void);
 
+/* Linux process interval timers (ITIMER_REAL, ITIMER_VIRTUAL, ITIMER_PROF). */
+void signal_itimer_get(process_t *proc, unsigned int which, uint64_t *remaining, uint64_t *interval);
+void signal_itimer_set(process_t *proc, unsigned int which, uint64_t value, uint64_t interval, uint64_t *old_remaining, uint64_t *old_interval);
+void signal_itimer_real_tick(uint64_t now);
+void signal_itimer_cpu_tick(process_t *proc, bool user_mode);
+void signal_itimer_cancel(process_t *proc);
+
 /* Initialize signal state for a new process */
 void signal_state_init(signal_state_t *state);
 

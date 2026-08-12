@@ -189,8 +189,7 @@ static vfs_node_t open_path_at(process_t *proc, int dirfd, uint64_t upath, bool 
         *error = ret;
         return NULL;
     }
-    vfs_node_t node = nofollow ? vfs_open_nofollow(path) : vfs_open(path);
-    *error          = node ? EOK : -ENOENT;
+    vfs_node_t node = nofollow ? vfs_open_nofollow_checked(path, error) : vfs_open_checked(path, error);
     return node;
 }
 
@@ -299,8 +298,8 @@ static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
     int ret = copy_resolved_path_at(proc, AT_FDCWD, upath, path);
     if (ret != EOK) return ret;
 
-    vfs_node_t node = vfs_open(path);
-    if (!node) return -ENOENT;
+    vfs_node_t node = vfs_open_checked(path, &ret);
+    if (!node) return ret;
     vfs_update(node);
 
     process_fd_stat_t src = {
@@ -596,7 +595,8 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     int  copied = copy_resolved_path_at(proc, AT_FDCWD, path, name);
     if (copied != EOK) return copied;
 
-    vfs_node_t node = (flags & O_NOFOLLOW) ? vfs_open_nofollow(name) : vfs_open(name);
+    int        lookup_error = EOK;
+    vfs_node_t node         = (flags & O_NOFOLLOW) ? vfs_open_nofollow_checked(name, &lookup_error) : vfs_open_checked(name, &lookup_error);
     if (node && (flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
         vfs_close(node);
         return -EEXIST;
@@ -604,9 +604,9 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     if (!node && (flags & O_CREAT)) {
         int ret = vfs_mkfile_mode(name, (uint16_t)(mode & 07777U & ~proc->umask));
         if (ret != EOK && ret != -EEXIST) return ret;
-        node = vfs_open(name);
+        node = vfs_open_checked(name, &lookup_error);
     }
-    if (!node) return -ENOENT;
+    if (!node) return lookup_error;
     if ((node->type & file_symlink) && (flags & O_NOFOLLOW) && !(flags & O_PATH)) {
         vfs_close(node);
         return -ELOOP;
@@ -656,7 +656,8 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
     char name[SYSCALL_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, (int)dirfd, path, name);
     if (ret != EOK) return ret;
-    vfs_node_t node = (flags & O_NOFOLLOW) ? vfs_open_nofollow(name) : vfs_open(name);
+    int        lookup_error = EOK;
+    vfs_node_t node         = (flags & O_NOFOLLOW) ? vfs_open_nofollow_checked(name, &lookup_error) : vfs_open_checked(name, &lookup_error);
     if (node && (flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
         vfs_close(node);
         return -EEXIST;
@@ -664,9 +665,9 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
     if (!node && (flags & O_CREAT)) {
         ret = vfs_mkfile_mode(name, (uint16_t)(mode & 07777U & ~proc->umask));
         if (ret != EOK && ret != -EEXIST) return ret;
-        node = vfs_open(name);
+        node = vfs_open_checked(name, &lookup_error);
     }
-    if (!node) return -ENOENT;
+    if (!node) return lookup_error;
     if ((node->type & file_symlink) && (flags & O_NOFOLLOW) && !(flags & O_PATH)) {
         vfs_close(node);
         return -ELOOP;
@@ -767,17 +768,35 @@ static int64_t sys_close(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg
     return process_fd_close(proc, (int)fd);
 }
 
+static int64_t sys_read_task(task_t *task, uint64_t fd, uint64_t buf, uint64_t size)
+{
+    if (!buf && size) return -EFAULT;
+    process_t *proc = task ? task->process : NULL;
+    if (!proc) return -ESRCH;
+
+    return process_fd_read_user(proc, (int)fd, (void *)buf, (size_t)size);
+}
+
 static int64_t sys_read(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    return sys_read_task(current_task(), fd, buf, size);
+}
 
+static int64_t sys_write_task(task_t *task, uint64_t fd, uint64_t buf, uint64_t size)
+{
     if (!buf && size) return -EFAULT;
-    process_t *proc = process_current();
+    process_t *proc = task ? task->process : NULL;
     if (!proc) return -ESRCH;
 
-    return process_fd_read_user(proc, (int)fd, (void *)buf, (size_t)size);
+    /*
+     * The VFS fallback still invokes zero-length writes, preserving empty
+     * datagram semantics without forcing every ordinary write through a
+     * syscall-layer bounce buffer.
+    */
+    return process_fd_write_user(proc, (int)fd, (const void *)buf, (size_t)size);
 }
 
 static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -785,17 +804,7 @@ static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3
     (void)arg3;
     (void)arg4;
     (void)arg5;
-
-    if (!buf && size) return -EFAULT;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-
-    /*
-     * The VFS fallback still invokes zero-length writes, preserving empty
-     * datagram semantics without forcing every ordinary write through a
-     * syscall-layer bounce buffer.
-     */
-    return process_fd_write_user(proc, (int)fd, (const void *)buf, (size_t)size);
+    return sys_write_task(current_task(), fd, buf, size);
 }
 
 static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1205,10 +1214,8 @@ static int64_t sys_rename(uint64_t oldpath, uint64_t newpath, uint64_t arg2, uin
     vfs_node_t newdir = vfs_open_parent_of(newparent);
     if (!olddir || !newdir)
         ret = -ENOENT;
-    else if (olddir != newdir)
-        ret = -EXDEV;
     else
-        ret = vfs_rename(node, path_basename(newname));
+        ret = vfs_move(node, newdir, path_basename(newname));
     if (olddir) vfs_close(olddir);
     if (newdir) vfs_close(newdir);
     vfs_close(node);
@@ -1238,10 +1245,8 @@ static int64_t sys_renameat(uint64_t olddirfd, uint64_t oldpath, uint64_t newdir
     vfs_node_t newdir = vfs_open_parent_of(newparent);
     if (!olddir || !newdir)
         ret = -ENOENT;
-    else if (olddir != newdir)
-        ret = -EXDEV;
     else
-        ret = vfs_rename(node, path_basename(newname));
+        ret = vfs_move(node, newdir, path_basename(newname));
     if (olddir) vfs_close(olddir);
     if (newdir) vfs_close(newdir);
     vfs_close(node);
@@ -2029,13 +2034,12 @@ static int64_t sys_chmod_common(const char *path, uint64_t mode)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
-    vfs_node_t node = vfs_open(path);
-    if (!node) return -ENOENT;
-    node->mode = (uint16_t)(mode & 07777);
-    inotify_notify(node, IN_ATTRIB);
+    int        lookup_error = EOK;
+    vfs_node_t node         = vfs_open_checked(path, &lookup_error);
+    if (!node) return lookup_error;
+    int result = vfs_chmod_process(node, (uint16_t)mode, proc);
     vfs_close(node);
-    return EOK;
+    return result;
 }
 
 static int64_t sys_chmod_impl(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2060,13 +2064,11 @@ static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
     process_file_t *file = process_fd_get(proc, (int)fd);
     if (!file) return -EBADF;
-    file->node->mode = (uint16_t)(mode & 07777);
-    inotify_notify(file->node, IN_ATTRIB);
+    int result = vfs_chmod_process(file->node, (uint16_t)mode, proc);
     process_file_put(file);
-    return EOK;
+    return result;
 }
 
 /*
@@ -2083,20 +2085,18 @@ static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, 
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
-
     if (flags & ~(uint64_t)AT_SYMLINK_NOFOLLOW) return -EINVAL;
 
     char name[SYSCALL_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, (int)dirfd, path, name);
     if (ret != EOK) return ret;
 
-    vfs_node_t node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow(name) : vfs_open(name);
-    if (!node) return -ENOENT;
-    node->mode = (uint16_t)(mode & 07777);
-    inotify_notify(node, IN_ATTRIB);
+    int        lookup_error = EOK;
+    vfs_node_t node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(name, &lookup_error) : vfs_open_checked(name, &lookup_error);
+    if (!node) return lookup_error;
+    int result = vfs_chmod_process(node, (uint16_t)mode, proc);
     vfs_close(node);
-    return EOK;
+    return result;
 }
 
 static int64_t sys_chown_common(const char *path, uint64_t owner, uint64_t group)
@@ -2826,12 +2826,12 @@ static int64_t sys_renameat2_stub(uint64_t olddirfd, uint64_t oldpath, uint64_t 
 }
 
 static int64_t do_execve(const char *path, char *const argv[], char *const envp[], syscall_frame_t *frame);
+static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, char *const argv[], char *const envp[], syscall_frame_t *frame);
 
-#define AT_EXECVE_CHECK 0x1000
+#define AT_EXECVE_CHECK 0x10000
 
-static int64_t sys_execveat_stub(uint64_t dirfd, uint64_t path, uint64_t argv, uint64_t envp, uint64_t flags, uint64_t arg5)
+static int64_t do_execveat(uint64_t dirfd, uint64_t path, uint64_t argv, uint64_t envp, uint64_t flags, syscall_frame_t *frame)
 {
-    (void)arg5;
     if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_EXECVE_CHECK)) return -EINVAL;
 
     process_t *proc = process_current();
@@ -2841,31 +2841,29 @@ static int64_t sys_execveat_stub(uint64_t dirfd, uint64_t path, uint64_t argv, u
     char input[SYSCALL_PATH_MAX];
     int  ret;
 
-    if (!(flags & AT_EMPTY_PATH) || path) {
-        ret = copy_path_from_user(path, input);
-        if (ret != EOK) return ret;
-    } else {
-        input[0] = '\0';
-    }
+    ret = copy_path_from_user(path, input);
+    if (ret != EOK) return ret;
 
     if (!input[0] && !(flags & AT_EMPTY_PATH)) return -ENOENT;
 
     if (!input[0]) {
-        /* AT_EMPTY_PATH: execute the fd itself */
+        if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
         process_file_t *pf = process_fd_get(proc, (int)dirfd);
         if (!pf) return -EBADF;
-        if (!pf->node) {
+        vfs_node_t node = vfs_node_retain(pf->node);
+        if (!node) {
             process_file_put(pf);
             return -EBADF;
         }
-        /* We need the path; use the VFS node directly */
-        /*
-         * For now, return ENOSYS for empty-path execveat; full
-         * implementation requires path-from-node which isn't
-         * available.
-         */
         process_file_put(pf);
-        return -ENOSYS;
+
+        if (vfs_node_path(node, kpath, sizeof(kpath)) != EOK) (void)snprintf(kpath, sizeof(kpath), "/dev/fd/%d", (int)dirfd);
+        if (flags & AT_EXECVE_CHECK) {
+            int check = (node->type & file_dir) || vfs_access_check_process(node, VFS_ACCESS_X, proc) ? -EACCES : EOK;
+            vfs_close(node);
+            return check;
+        }
+        return do_execve_resolved(kpath, node, (char *const *)argv, (char *const *)envp, frame);
     }
 
     ret = process_resolve_path_at(proc, (int)dirfd, input, kpath, sizeof(kpath));
@@ -2876,13 +2874,29 @@ static int64_t sys_execveat_stub(uint64_t dirfd, uint64_t path, uint64_t argv, u
          * AT_EXECVE_CHECK: just check if the file is executable,
          * don't actually exec.
          */
-        vfs_node_t node = vfs_open(kpath);
-        if (!node) return -ENOENT;
+        int        lookup_error = EOK;
+        vfs_node_t node         = vfs_open_checked(kpath, &lookup_error);
+        if (!node) return lookup_error;
+        int check = (node->type & file_dir) || vfs_access_check_process(node, VFS_ACCESS_X, proc) ? -EACCES : EOK;
         vfs_close(node);
-        return 0;
+        return check;
     }
 
-    return do_execve(kpath, (char *const *)argv, (char *const *)envp, NULL);
+    if (flags & AT_SYMLINK_NOFOLLOW) {
+        int        lookup_error = EOK;
+        vfs_node_t node         = vfs_open_nofollow_checked(kpath, &lookup_error);
+        if (!node) return lookup_error;
+        bool symlink = (node->type & file_symlink) != 0;
+        vfs_close(node);
+        if (symlink) return -ELOOP;
+    }
+    return do_execve_resolved(kpath, NULL, (char *const *)argv, (char *const *)envp, frame);
+}
+
+static int64_t sys_execveat_stub(uint64_t dirfd, uint64_t path, uint64_t argv, uint64_t envp, uint64_t flags, uint64_t arg5)
+{
+    (void)arg5;
+    return do_execveat(dirfd, path, argv, envp, flags, NULL);
 }
 
 static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -4030,20 +4044,28 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     return 0;
 }
 
-static char **copy_argv_from_user(const char *const *uargv, int max_entries, int *out_count)
+static char **copy_argv_from_user(const char *const *uargv, int max_entries, int *out_count, size_t *total_bytes, int *out_error)
 {
     *out_count = -1;
+    *out_error = -EFAULT;
     if (!uargv) {
         *out_count = 0;
         return NULL;
     }
 
     char **kargv = calloc((size_t)max_entries + 1, sizeof(char *));
-    if (!kargv) return NULL;
+    if (!kargv) {
+        *out_error = -ENOMEM;
+        return NULL;
+    }
 
     for (int i = 0; i <= max_entries; i++) {
         char *ustr;
-        if (copy_from_user(&ustr, (const void *)&uargv[i], sizeof(ustr))) goto fail;
+        int   pointer_error = copy_from_user(&ustr, (const void *)&uargv[i], sizeof(ustr));
+        if (pointer_error) {
+            *out_error = pointer_error;
+            goto fail;
+        }
         if (!ustr) {
             if (!i) {
                 free(kargv);
@@ -4052,12 +4074,27 @@ static char **copy_argv_from_user(const char *const *uargv, int max_entries, int
             *out_count = i;
             return kargv;
         }
-        if (i == max_entries) goto fail;
+        if (i == max_entries || *total_bytes >= EXEC_STRING_MAX) {
+            *out_error = -E2BIG;
+            goto fail;
+        }
 
-        int length = strnlen_user(ustr, EXEC_STRING_MAX);
-        if (length < 1) goto fail;
+        int length = strnlen_user(ustr, EXEC_STRING_MAX - *total_bytes);
+        if (length < 1) {
+            *out_error = length == -ENAMETOOLONG ? -E2BIG : length;
+            goto fail;
+        }
         kargv[i] = malloc((size_t)length);
-        if (!kargv[i] || copy_from_user(kargv[i], ustr, (size_t)length)) goto fail;
+        if (!kargv[i]) {
+            *out_error = -ENOMEM;
+            goto fail;
+        }
+        int string_error = copy_from_user(kargv[i], ustr, (size_t)length);
+        if (string_error) {
+            *out_error = string_error;
+            goto fail;
+        }
+        *total_bytes += (size_t)length;
     }
 
 fail:
@@ -4074,30 +4111,48 @@ static void free_string_array(char **arr)
     free(arr);
 }
 
-static int64_t do_execve(const char *path, char *const argv[], char *const envp[], syscall_frame_t *frame)
+static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, char *const argv[], char *const envp[], syscall_frame_t *frame)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    char kpath[SYSCALL_PATH_MAX];
-    int  path_ret = copy_resolved_path_at(proc, AT_FDCWD, (uint64_t)path, kpath);
-    if (path_ret != EOK) return path_ret;
+    char   kpath[SYSCALL_PATH_MAX];
+    size_t path_len = path ? strlen(path) : 0;
+    if (!path_len) {
+        if (initial_node) vfs_close(initial_node);
+        return -ENOENT;
+    }
+    if (path_len >= sizeof(kpath)) {
+        if (initial_node) vfs_close(initial_node);
+        return -ENAMETOOLONG;
+    }
+    memcpy(kpath, path, path_len + 1);
     char exec_name[PROCESS_NAME_LEN];
     strncpy(exec_name, path_basename(kpath), sizeof(exec_name) - 1);
     exec_name[sizeof(exec_name) - 1] = '\0';
 
     int    argc = 0, envc = 0;
-    char **kargv = copy_argv_from_user((const char *const *)argv, PROCESS_MAX_ARGV, &argc);
-    char **kenvp = copy_argv_from_user((const char *const *)envp, PROCESS_MAX_ENVP, &envc);
-    if (argc < 0 || envc < 0) {
+    int    copy_error     = -EFAULT;
+    size_t argument_bytes = 0;
+    char **kargv          = copy_argv_from_user((const char *const *)argv, PROCESS_MAX_ARGV, &argc, &argument_bytes, &copy_error);
+    if (argc < 0) {
+        if (initial_node) vfs_close(initial_node);
+        free_string_array(kargv);
+        return copy_error;
+    }
+    char **kenvp = copy_argv_from_user((const char *const *)envp, PROCESS_MAX_ENVP, &envc, &argument_bytes, &copy_error);
+    if (envc < 0) {
+        if (initial_node) vfs_close(initial_node);
         free_string_array(kargv);
         free_string_array(kenvp);
-        return -EFAULT;
+        return copy_error;
     }
     (void)envc;
 
-    uint8_t *elf_data = NULL;
-    size_t   total    = 0;
+    uint8_t   *elf_data   = NULL;
+    size_t     total      = 0;
+    size_t     image_size = 0;
+    vfs_node_t exec_node  = NULL;
 
     /*
      * Linux binfmt_script semantics: replace argv[0] with the interpreter,
@@ -4106,38 +4161,55 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
      * interpreters so malformed shebang loops fail deterministically.
      */
     for (int depth = 0;; depth++) {
-        vfs_node_t node = vfs_open(kpath);
+        int        lookup_error = EOK;
+        vfs_node_t node;
+        if (initial_node) {
+            node         = initial_node;
+            initial_node = NULL;
+        } else {
+            node = vfs_open_checked(kpath, &lookup_error);
+        }
         if (!node) {
             free_string_array(kargv);
             free_string_array(kenvp);
-            return -ENOENT;
+            return lookup_error;
         }
+        if ((node->type & file_dir) || vfs_access_check_process(node, VFS_ACCESS_X, proc) != EOK) {
+            vfs_close(node);
+            free_string_array(kargv);
+            free_string_array(kenvp);
+            return -EACCES;
+        }
+        size_t expected_size = node->size;
         if (node->size == 0 || node->size > 0x4000000) {
+            plogk("syscall: Exec of %s node=%p handle=%p rejected with image size %llu\n", kpath, node, node->handle,
+                  (unsigned long long)node->size);
             vfs_close(node);
             free_string_array(kargv);
             free_string_array(kenvp);
             return -ENOEXEC;
         }
 
-        elf_data = malloc(node->size);
+        size_t header_size = node->size < 256 ? (size_t)node->size : 256;
+        elf_data           = malloc(header_size);
         if (!elf_data) {
-            plogk("syscall: Exec of %s failed (image allocation, %llu bytes)\n", kpath, (unsigned long long)node->size);
+            plogk("syscall: Exec of %s failed (header allocation, %llu bytes)\n", kpath, (unsigned long long)header_size);
             vfs_close(node);
             free_string_array(kargv);
             free_string_array(kenvp);
             return -ENOMEM;
         }
         total = 0;
-        while (total < node->size) {
-            size_t remaining = node->size - total;
+        while (total < header_size) {
+            size_t remaining = header_size - total;
             size_t n         = vfs_read(node, elf_data + total, total, remaining);
             if (!n || n > remaining) break;
             total += n;
         }
-        vfs_close(node);
 
         if (total >= 2 && elf_data[0] == '#' && elf_data[1] == '!') {
             if (depth >= 4) {
+                vfs_close(node);
                 free(elf_data);
                 free_string_array(kargv);
                 free_string_array(kenvp);
@@ -4148,6 +4220,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             size_t end   = 2;
             while (end < limit && elf_data[end] != '\n') end++;
             if (end == limit && (end == total || elf_data[end - 1] != '\n')) {
+                vfs_close(node);
                 free(elf_data);
                 free_string_array(kargv);
                 free_string_array(kenvp);
@@ -4159,6 +4232,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             size_t interp_end = start;
             while (interp_end < end && elf_data[interp_end] != ' ' && elf_data[interp_end] != '\t') interp_end++;
             if (interp_end == start || interp_end - start >= 256) {
+                vfs_close(node);
                 free(elf_data);
                 free_string_array(kargv);
                 free_string_array(kenvp);
@@ -4175,6 +4249,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             char **new_argv = calloc((size_t)new_argc + 1, sizeof(char *));
             if (!new_argv) {
                 plogk("syscall: Exec of %s failed (shebang argv allocation)\n", kpath);
+                vfs_close(node);
                 free(elf_data);
                 free_string_array(kargv);
                 free_string_array(kenvp);
@@ -4199,6 +4274,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
                 if (!new_argv[i]) allocation_failed = true;
             if (allocation_failed) {
                 plogk("syscall: Exec of %s failed (shebang argv element allocation)\n", kpath);
+                vfs_close(node);
                 free(elf_data);
                 free_string_array(new_argv);
                 free_string_array(kargv);
@@ -4208,12 +4284,14 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
             int resolve_status = process_resolve_path_at(proc, PROCESS_AT_FDCWD, interpreter, kpath, sizeof(kpath));
             if (resolve_status != EOK) {
+                vfs_close(node);
                 free(elf_data);
                 free_string_array(new_argv);
                 free_string_array(kargv);
                 free_string_array(kenvp);
                 return resolve_status;
             }
+            vfs_close(node);
             free(elf_data);
             elf_data = NULL;
             free_string_array(kargv);
@@ -4223,11 +4301,16 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         }
 
         if (total < sizeof(uint32_t)) {
+            plogk("syscall: Exec of %s read only %llu bytes (expected %llu)\n", kpath, (unsigned long long)total,
+                  (unsigned long long)expected_size);
+            vfs_close(node);
             free(elf_data);
             free_string_array(kargv);
             free_string_array(kenvp);
             return -ENOEXEC;
         }
+        exec_node  = node;
+        image_size = expected_size;
         break;
     }
 
@@ -4251,6 +4334,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         proc->start_brk = old_start_brk;
         proc->heap_brk  = old_heap_brk;
         proc->stack_brk = old_stack_brk;
+        vfs_close(exec_node);
         free(elf_data);
         free_string_array(kargv);
         free_string_array(kenvp);
@@ -4262,14 +4346,17 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
      * This way, if loading fails, we can restore the old address space.
      */
 
-    uintptr_t entry = 0;
-    uintptr_t rsp   = 0;
-    int       ret   = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
+    uintptr_t entry       = 0;
+    uintptr_t rsp         = 0;
+    uint32_t  image_magic = total >= sizeof(uint32_t) ? *(const uint32_t *)elf_data : 0U;
+    int       ret         = elf_loader_load_user_node(proc, exec_node, kargv, kenvp, &entry, &rsp);
+    vfs_close(exec_node);
     free(elf_data);
     free_string_array(kargv);
     free_string_array(kenvp);
 
     if (ret) {
+        plogk("syscall: Exec of %s rejected by ELF loader (%llu bytes, magic=%u)\n", kpath, (unsigned long long)image_size, image_magic);
         /*
          * Loading failed. Destroy the new (incomplete) page directory
          * and its VMAs, then restore the old address space.
@@ -4342,6 +4429,17 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         frame->ss     = 0x23;
     }
     return 0;
+}
+
+static int64_t do_execve(const char *path, char *const argv[], char *const envp[], syscall_frame_t *frame)
+{
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    char kpath[SYSCALL_PATH_MAX];
+    int  path_ret = copy_resolved_path_at(proc, AT_FDCWD, (uint64_t)path, kpath);
+    if (path_ret != EOK) return path_ret;
+    return do_execve_resolved(kpath, NULL, argv, envp, frame);
 }
 
 static int64_t sys_execve_wrap(uint64_t path, uint64_t argv, uint64_t envp, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -4501,26 +4599,25 @@ static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint6
         return -EFAULT;
     }
 
+    size_t requested = 0;
+    for (uint64_t i = 0; i < iovcnt; i++) {
+        if (vec[i].iov_len > 0x7ffff000UL - requested) {
+            if (alloc) free(vec);
+            return -EINVAL;
+        }
+        requested += vec[i].iov_len;
+    }
+
     int64_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
         if (vec[i].iov_len == 0) continue;
-        uint8_t tmp[SYSCALL_IO_CHUNK];
-        size_t  iov_done = 0;
-        while (iov_done < vec[i].iov_len) {
-            size_t chunk = (vec[i].iov_len - iov_done) < sizeof(tmp) ? (size_t)(vec[i].iov_len - iov_done) : sizeof(tmp);
-            if (copy_from_user(tmp, (const void *)((uintptr_t)vec[i].iov_base + iov_done), chunk)) {
-                if (total == 0) total = -EFAULT;
-                goto writev_done;
-            }
-            int64_t n = process_fd_write(proc, (int)fd, tmp, chunk);
-            if (n < 0) {
-                if (total == 0) total = n;
-                goto writev_done;
-            }
-            total += n;
-            iov_done += (size_t)n;
-            if ((size_t)n < chunk) break;
+        int64_t n = process_fd_write_user(proc, (int)fd, vec[i].iov_base, vec[i].iov_len);
+        if (n < 0) {
+            if (total == 0) total = n;
+            goto writev_done;
         }
+        total += n;
+        if ((size_t)n < vec[i].iov_len) break;
     }
 writev_done:
 
@@ -4556,27 +4653,25 @@ static int64_t sys_readv_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64
         return -EFAULT;
     }
 
+    size_t requested = 0;
+    for (uint64_t i = 0; i < iovcnt; i++) {
+        if (vec[i].iov_len > 0x7ffff000UL - requested) {
+            if (alloc) free(vec);
+            return -EINVAL;
+        }
+        requested += vec[i].iov_len;
+    }
+
     int64_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
         if (vec[i].iov_len == 0) continue;
-        uint8_t tmp[SYSCALL_IO_CHUNK];
-        size_t  iov_done = 0;
-        while (iov_done < vec[i].iov_len) {
-            size_t  chunk = (vec[i].iov_len - iov_done) < sizeof(tmp) ? (size_t)(vec[i].iov_len - iov_done) : sizeof(tmp);
-            int64_t n     = process_fd_read(proc, (int)fd, tmp, chunk);
-            if (n < 0) {
-                if (total == 0) total = n;
-                goto readv_done;
-            }
-            if (!n) break;
-            if (copy_to_user((void *)((uintptr_t)vec[i].iov_base + iov_done), tmp, (size_t)n)) {
-                if (total == 0) total = -EFAULT;
-                goto readv_done;
-            }
-            total += n;
-            iov_done += (size_t)n;
-            if ((size_t)n < chunk) break;
+        int64_t n = process_fd_read_user(proc, (int)fd, vec[i].iov_base, vec[i].iov_len);
+        if (n < 0) {
+            if (total == 0) total = n;
+            goto readv_done;
         }
+        total += n;
+        if (!n || (size_t)n < vec[i].iov_len) break;
     }
 readv_done:
 
@@ -5227,9 +5322,10 @@ int syscall_dispatch(syscall_frame_t *frame)
     uint64_t num           = frame->rax;
     int64_t  retval        = 0;
     task_t  *dispatch_task = current_task();
-    bool     force_iret    = dispatch_task && ptrace_tracer_pid(dispatch_task);
+    bool     traced        = dispatch_task && ptrace_tracer_pid(dispatch_task);
+    bool     force_iret    = traced;
 
-    if (dispatch_task && ptrace_tracer_pid(dispatch_task)) ptrace_syscall_enter(frame, num);
+    if (traced) ptrace_syscall_enter(frame, num);
     num = frame->rax;
     if (num == SYS_CLONE && (frame->rdi & CLONE_THREAD)) {
         uint64_t flags = frame->rdi;
@@ -5254,10 +5350,19 @@ int syscall_dispatch(syscall_frame_t *frame)
     if (num == SYS_FORK || num == SYS_VFORK || num == SYS_CLONE) {
         uint64_t clone_flags = num == SYS_CLONE ? frame->rdi : SIGCHLD;
         bool     vfork       = num == SYS_VFORK || (clone_flags & CLONE_VFORK);
-        uint64_t supported   = vfork ? (CLONE_VM | CLONE_VFORK | SIGCHLD) : SIGCHLD;
+        uint64_t tid_flags   = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
+        uint64_t supported   = SIGCHLD | tid_flags | CLONE_DETACHED;
+        if (vfork) supported |= CLONE_VM | CLONE_VFORK;
         if ((num == SYS_CLONE && (clone_flags & ~supported)) || (num == SYS_CLONE && vfork && !(clone_flags & CLONE_VM))
-            || ((clone_flags & 0xff) != SIGCHLD) || (vfork && num == SYS_CLONE && !frame->rsi)) {
+            || ((clone_flags & 0xff) != SIGCHLD) || (vfork && num == SYS_CLONE && !frame->rsi)
+            || ((clone_flags & CLONE_PARENT_SETTID) && !frame->rdx)
+            || ((clone_flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !frame->r10)) {
             frame->rax = (uint64_t)-EINVAL;
+            goto check_signals;
+        }
+        if (((clone_flags & CLONE_PARENT_SETTID) && !user_access_ok((void *)frame->rdx, sizeof(uint32_t), 1))
+            || ((clone_flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !user_access_ok((void *)frame->r10, sizeof(uint32_t), 1))) {
+            frame->rax = (uint64_t)-EFAULT;
             goto check_signals;
         }
         int        error = EOK;
@@ -5273,8 +5378,22 @@ int syscall_dispatch(syscall_frame_t *frame)
             memcpy(kstack, &child_frame, sizeof(syscall_frame_t));
             *(--kstack)              = (uint64_t)syscall_return;
             child->task->context.rsp = (uint64_t)kstack;
-            process_fork_publish(child);
+            uint32_t child_tid       = (uint32_t)child->task->pid;
+            int      tid_error       = 0;
+            if ((clone_flags & CLONE_PARENT_SETTID) && copy_to_user((void *)frame->rdx, &child_tid, sizeof(child_tid))) tid_error = -EFAULT;
+            if (!tid_error && (clone_flags & CLONE_CHILD_SETTID)
+                && (!user_access_ok_process(child, (void *)frame->r10, sizeof(child_tid), 1)
+                    || copy_to_user_process_nofault(child, (void *)frame->r10, &child_tid, sizeof(child_tid))))
+                tid_error = -EFAULT;
+            if (tid_error) {
+                process_fork_discard(child);
+                child = NULL;
+                error = tid_error;
+            } else if (clone_flags & CLONE_CHILD_CLEARTID) {
+                child->task->clear_child_tid = frame->r10;
+            }
         }
+        if (child) { process_fork_publish(child); }
         retval     = child ? (int64_t)child->task->pid : (int64_t)error;
         frame->rax = (uint64_t)retval;
         if (child) ptrace_fork_event(frame, event, child->task->pid);
@@ -5282,6 +5401,20 @@ int syscall_dispatch(syscall_frame_t *frame)
             process_vfork_wait(child);
             ptrace_fork_event(frame, PTRACE_EVENT_VFORK_DONE, child->task->pid);
         }
+        goto check_signals;
+    }
+
+    /* read/write dominate the small-block streaming path.  The dispatcher
+     * already has the task selected by current_task(), so avoid a second
+     * task lookup, the syscall-table lookup, and the indirect call. */
+    if (num == SYS_READ) {
+        retval     = sys_read_task(dispatch_task, frame->rdi, frame->rsi, frame->rdx);
+        frame->rax = (uint64_t)retval;
+        goto check_signals;
+    }
+    if (num == SYS_WRITE) {
+        retval     = sys_write_task(dispatch_task, frame->rdi, frame->rsi, frame->rdx);
+        frame->rax = (uint64_t)retval;
         goto check_signals;
     }
 
@@ -5293,8 +5426,23 @@ int syscall_dispatch(syscall_frame_t *frame)
         goto check_signals;
     }
 
+    /* sys_stub intentionally shares one implementation; record the syscall
+     * number here, where the dispatcher still has it, so userspace probes
+     * (notably Xorg) identify the missing ABI entry in the kernel log. */
+    if (syscall_table[num] == sys_stub) {
+        task_t *task = current_task();
+        plogk("syscall: syscall %llu is not implemented (pid %llu, %s)\n", num, task ? task->pid : 0, task ? task->name : "?");
+    }
+
     if (num == SYS_EXECVE) {
         retval     = do_execve((const char *)frame->rdi, (char *const *)frame->rsi, (char *const *)frame->rdx, frame);
+        frame->rax = (uint64_t)retval;
+        if (!retval) ptrace_exec_event(frame);
+        goto check_signals;
+    }
+
+    if (num == SYS_EXECVEAT) {
+        retval     = do_execveat(frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame);
         frame->rax = (uint64_t)retval;
         if (!retval) ptrace_exec_event(frame);
         goto check_signals;
@@ -5309,7 +5457,7 @@ int syscall_dispatch(syscall_frame_t *frame)
          *
          * After restoration, check for pending signals (the old
          * blocked mask was restored, which may unblock signals).
-         */
+     */
         int64_t sr_ret = do_rt_sigreturn(frame);
         if (sr_ret != 0) {
             /*
@@ -5335,7 +5483,7 @@ int syscall_dispatch(syscall_frame_t *frame)
     frame->rax = (uint64_t)retval;
 
 check_signals:
-    if (dispatch_task && ptrace_tracer_pid(dispatch_task)) {
+    if (traced) {
         force_iret = true;
         ptrace_syscall_exit(frame, (int64_t)frame->rax);
     }

@@ -43,6 +43,9 @@ void init_frame(void);
 /* Allocate memory frames */
 uint64_t alloc_frames(size_t count);
 
+/* Allocate frames without entering swap reclaim from a locked caller. */
+uint64_t alloc_frames_noreclaim(size_t count);
+
 /* Allocate 2M memory frames */
 uint64_t alloc_frames_2M(size_t count);
 

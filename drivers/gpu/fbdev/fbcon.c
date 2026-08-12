@@ -831,6 +831,10 @@ out:
 /* Flip the block cursor phase and repaint directly into the framebuffer. */
 void fbcon_cursor_tick(uint64_t now_ticks)
 {
+    bool     damaged  = false;
+    uint32_t damage_x = 0;
+    uint32_t damage_y = 0;
+
     spin_lock(&fbcon_lock);
     if (handoff_in_progress) goto out;
     if (now_ticks - cursor_last_tick < CURSOR_BLINK_INTERVAL) goto out;
@@ -841,6 +845,9 @@ void fbcon_cursor_tick(uint64_t now_ticks)
     if (cursor_drawn) {
         if (cursor_drawn_row < c_height && cursor_drawn_col < c_width)
             fbcon_redraw_row_range(cursor_drawn_row, cursor_drawn_col, cursor_drawn_col);
+        damage_x     = cursor_drawn_col * font_width;
+        damage_y     = cursor_drawn_row * font_height;
+        damaged      = true;
         cursor_drawn = false;
     }
 
@@ -859,8 +866,12 @@ void fbcon_cursor_tick(uint64_t now_ticks)
             cursor_drawn     = true;
             cursor_drawn_row = row;
             cursor_drawn_col = col;
+            damage_x         = col * font_width;
+            damage_y         = row * font_height;
+            damaged          = true;
         }
     }
 out:
     spin_unlock(&fbcon_lock);
+    if (damaged) video_flush_rect(damage_x, damage_y, font_width, font_height);
 }

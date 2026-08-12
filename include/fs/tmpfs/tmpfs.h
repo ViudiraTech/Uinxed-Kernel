@@ -73,12 +73,13 @@ enum tmpfs_type {
 typedef struct {
         enum tmpfs_type    type;
         char               name[64];
-        char              *data;
+        const char        *external_data;
+        size_t             external_size;
+        uint64_t          *pages;
+        size_t             page_count;
+        size_t             page_capacity;
         size_t             size;
-        vfs_node_t         node;
         vfs_node_t         root;
-        size_t             capacity;
-        bool               data_external;
         spinlock_t         data_lock;
         spinlock_t         link_lock;
         uint32_t           link_count;

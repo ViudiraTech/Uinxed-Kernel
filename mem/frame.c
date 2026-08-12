@@ -12,6 +12,7 @@
 #include <boot/limine.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/buddy.h>
@@ -114,7 +115,7 @@ void init_frame(void)
                      (frame_allocator.usable_frames * 4096) >> 10);
 }
 
-static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
+static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order, bool reclaim)
 {
     if (!count) return 0;
     unsigned order = buddy_order_for_units(count);
@@ -126,7 +127,7 @@ retry:
     size_t frame_index = buddy_alloc(&frame_allocator.buddy, order);
     if (frame_index == SIZE_MAX) {
         spin_unlock(&frame_allocator.lock);
-        if (count == 1 && swap_reclaim(1) > 0) goto retry;
+        if (reclaim && count == 1 && swap_reclaim(1) > 0) goto retry;
         return 0;
     }
     if (buddy_trim_allocation(&frame_allocator.buddy, frame_index, order, count)) {
@@ -144,21 +145,26 @@ retry:
 /* Allocate memory frames */
 uint64_t alloc_frames(size_t count)
 {
-    return alloc_frames_aligned(count, 0);
+    return alloc_frames_aligned(count, 0, true);
+}
+
+uint64_t alloc_frames_noreclaim(size_t count)
+{
+    return alloc_frames_aligned(count, 0, false);
 }
 
 /* Allocate 2M memory frames */
 uint64_t alloc_frames_2M(size_t count)
 {
     if (!count || count > SIZE_MAX / 512) return 0;
-    return alloc_frames_aligned(count * 512, 9);
+    return alloc_frames_aligned(count * 512, 9, true);
 }
 
 /* Allocate 1G memory frames */
 uint64_t alloc_frames_1G(size_t count)
 {
     if (!count || count > SIZE_MAX / 262144) return 0;
-    return alloc_frames_aligned(count * 262144, 18);
+    return alloc_frames_aligned(count * 262144, 18, true);
 }
 
 int frame_retain_range(uint64_t addr, size_t count)

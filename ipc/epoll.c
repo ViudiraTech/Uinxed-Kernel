@@ -22,6 +22,7 @@
 #include <process/sched.h>
 #include <process/task.h>
 #include <process/uaccess.h>
+#include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/poll.h>
 #include <syscall/syscall.h>
@@ -729,6 +730,14 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 
         if (timeout == 0 || (deadline && sched_ticks() >= deadline)) {
             ret = 0;
+            break;
+        }
+
+        spin_lock(&proc->signal.lock);
+        bool interrupted = signal_has_interrupting_pending(&proc->signal);
+        spin_unlock(&proc->signal.lock);
+        if (interrupted) {
+            ret = -ERESTARTSYS;
             break;
         }
 

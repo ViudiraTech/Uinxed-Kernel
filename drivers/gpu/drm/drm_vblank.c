@@ -20,6 +20,8 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <process/process.h>
+#include <sync/signal.h>
 #include <sync/spin_lock.h>
 
 /* drm_vblank_init: initialize vblank subsystem for @num_crtcs CRTCs */
@@ -486,6 +488,17 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         if ((int32_t)(current - target) >= 0) {
             spin_unlock(&vblank->lock);
             break;
+        }
+        process_t *proc = process_current();
+        if (proc) {
+            spin_lock(&proc->signal.lock);
+            bool interrupted = signal_has_interrupting_pending(&proc->signal);
+            spin_unlock(&proc->signal.lock);
+            if (interrupted) {
+                spin_unlock(&vblank->lock);
+                drm_crtc_vblank_put(vblank->crtc);
+                return -ERESTARTSYS;
+            }
         }
         wait_queue_prepare(&vblank->wait);
         spin_unlock(&vblank->lock);

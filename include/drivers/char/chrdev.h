@@ -22,15 +22,15 @@
  * devices.
  */
 typedef struct cdev {
-        char                      dir[64];  // /dev-relative parent dir ("" for the root)
-        char                      name[64]; // leaf node name, e.g. "null", "ttyS0", "parport0"
-        uint32_t                  major;
-        uint32_t                  minor_base;
-        uint32_t                  count;
-        uint16_t                  node_type; // file_stream, file_keyboard, ...
-        uint16_t                  mode;      // node mode; 0 selects the driver default
-        const tmpfs_device_ops_t *ops;
-        struct cdev              *next;
+        char               dir[64];  // /dev-relative parent dir ("" for the root)
+        char               name[64]; // leaf node name, e.g. "null", "ttyS0", "parport0"
+        uint32_t           major;
+        uint32_t           minor_base;
+        uint32_t           count;
+        uint16_t           node_type; // file_stream, file_keyboard, ...
+        uint16_t           mode;      // node mode; 0 selects the driver default
+        tmpfs_device_ops_t ops;
+        struct cdev       *next;
 } cdev_t;
 
 /*

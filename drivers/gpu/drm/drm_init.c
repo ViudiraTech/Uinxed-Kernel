@@ -23,6 +23,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>
+#include <syscall/fcntl.h>
 
 /* Global DRM device list (replaces singleton) */
 
@@ -408,7 +409,7 @@ size_t drm_dev_read(void *file, void *addr, size_t offset, size_t size)
     size_t           position  = offset;
 
     if (!file_priv) return (size_t)-1;
-    int ret = drm_read(file_priv, (char *)addr, size, &position);
+    int ret = drm_read(file_priv, (char *)addr, size, &position, false);
     return ret < 0 ? (size_t)-1 : (size_t)ret;
 }
 
@@ -498,8 +499,8 @@ int drm_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req
 int64_t drm_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
-    (void)flags;
-    return (int64_t)drm_dev_read(private_data, addr, offset, size);
+    size_t position = offset;
+    return drm_read((struct drm_file *)private_data, (char *)addr, size, &position, (flags & O_NONBLOCK) != 0);
 }
 
 int64_t drm_dev_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)

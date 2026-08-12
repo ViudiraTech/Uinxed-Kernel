@@ -22,6 +22,9 @@ int copy_from_user(void *dst, const void *src, size_t size);
 int copy_to_user(void *dst, const void *src, size_t size);
 int copy_from_user_process_nofault(struct process *proc, void *dst, const void *src, size_t size);
 int copy_to_user_process_nofault(struct process *proc, void *dst, const void *src, size_t size);
+int copy_from_user_process_nofault_current(struct process *proc, void *dst, const void *src, size_t size);
+int copy_to_user_process_nofault_current(struct process *proc, void *dst, const void *src, size_t size);
+int clear_user_process(struct process *proc, void *dst, size_t size);
 int strnlen_user(const char *src, size_t max_size);
 int strncpy_from_user(char *dst, const char *src, size_t max_size);
 

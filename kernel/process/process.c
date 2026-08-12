@@ -776,6 +776,22 @@ static process_file_t *process_fd_get_light(process_t *proc, int fd, bool *borro
     return process_fd_get(proc, fd);
 }
 
+/* read(2)/write(2) already obtained the current process from the syscall
+ * frame.  Their single-threaded hot path can therefore borrow the fd slot
+ * without calling current_task() a second time. */
+static process_file_t *process_fd_get_light_current(process_t *proc, int fd, bool *borrowed)
+{
+    *borrowed = false;
+    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
+
+    if (__atomic_load_n(&proc->thread_count, __ATOMIC_ACQUIRE) == 1) {
+        process_file_t *file = __atomic_load_n(&proc->fds[fd], __ATOMIC_ACQUIRE);
+        if (file) *borrowed = true;
+        return file;
+    }
+    return process_fd_get(proc, fd);
+}
+
 static void process_file_put_light(process_file_t *file, bool borrowed)
 {
     if (!borrowed) process_file_put(file);
@@ -961,6 +977,15 @@ int process_fd_dup2(process_t *proc, int oldfd, int newfd)
     return newfd;
 }
 
+bool process_in_group(const process_t *proc, uint32_t gid)
+{
+    if (!proc) return false;
+    if (proc->fsgid == gid) return true;
+    for (uint16_t i = 0; i < proc->supplementary_group_count; i++)
+        if (proc->supplementary_groups[i] == gid) return true;
+    return false;
+}
+
 int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
 {
     bool            borrowed;
@@ -1048,7 +1073,10 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
         return -EBADF;
     }
 
-    if (vfs_mount_is_readonly(file->node)) {
+    /* Pipes and stream devices do not modify a mounted file or page cache.
+     * Avoid walking the mount-parent chain for the hot read/write stream
+     * path; the device callback owns the write policy for these nodes. */
+    if (!positionless && vfs_mount_is_readonly(file->node)) {
         if (!positionless) process_file_io_unlock(file);
         process_file_put_light(file, borrowed);
         return -EROFS;
@@ -1071,7 +1099,7 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
 int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
 {
     bool            borrowed;
-    process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
+    process_file_t *file = process_fd_get_light_current(proc, fd, &borrowed);
     if (!file) return -EBADF;
 
     bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
@@ -1112,7 +1140,7 @@ int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
 int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t size)
 {
     bool            borrowed;
-    process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
+    process_file_t *file = process_fd_get_light_current(proc, fd, &borrowed);
     if (!file) return -EBADF;
 
     bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
@@ -1135,7 +1163,7 @@ int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t s
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
-    if (vfs_mount_is_readonly(file->node)) {
+    if (!positionless && vfs_mount_is_readonly(file->node)) {
         if (!positionless) process_file_io_unlock(file);
         process_file_put_light(file, borrowed);
         return -EROFS;
@@ -1151,6 +1179,57 @@ int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t s
         process_file_io_unlock(file);
     }
 
+    process_file_put_light(file, borrowed);
+    return ret;
+}
+
+int64_t process_fd_pread_user(process_t *proc, int fd, void *buf, size_t size, uint64_t offset)
+{
+    bool            borrowed;
+    process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
+    if (!file) return -EBADF;
+    if (file->node->type & (file_stream | file_pipe)) {
+        process_file_put_light(file, borrowed);
+        return -ESPIPE;
+    }
+
+    process_file_io_lock(file);
+    uint64_t flags = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
+    if ((flags & O_PATH) || (flags & O_ACCMODE) == O_WRONLY) {
+        process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
+        return -EBADF;
+    }
+    int64_t ret = vfs_file_read_user_process(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
+    process_file_io_unlock(file);
+    process_file_put_light(file, borrowed);
+    return ret;
+}
+
+int64_t process_fd_pwrite_user(process_t *proc, int fd, const void *buf, size_t size, uint64_t offset)
+{
+    bool            borrowed;
+    process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
+    if (!file) return -EBADF;
+    if (file->node->type & (file_stream | file_pipe)) {
+        process_file_put_light(file, borrowed);
+        return -ESPIPE;
+    }
+
+    process_file_io_lock(file);
+    uint64_t flags = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
+    if ((flags & O_PATH) || (flags & O_ACCMODE) == O_RDONLY) {
+        process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
+        return -EBADF;
+    }
+    if (vfs_mount_is_readonly(file->node)) {
+        process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
+        return -EROFS;
+    }
+    int64_t ret = vfs_file_write_user_process(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
+    process_file_io_unlock(file);
     process_file_put_light(file, borrowed);
     return ret;
 }
@@ -1306,6 +1385,7 @@ static void process_free(process_t *proc)
 
     process_ctty_clear(proc);
     process_fd_table_close(proc);
+    signal_itimer_cancel(proc);
     signal_state_free(&proc->signal);
     if (proc->user_page_dir) {
         page_destroy_user_space(proc->user_page_dir);
@@ -1389,6 +1469,7 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     proc->exit_code   = 0;
     slist_init(&proc->children);
     wait_queue_init(&proc->child_wait);
+    wait_queue_init(&proc->signal_wait);
     wait_queue_init(&proc->vfork_wait);
     proc->vfork_done       = true;
     proc->mmap_lock.lock   = 0;
@@ -1467,6 +1548,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     proc->exit_code   = 0;
     slist_init(&proc->children);
     wait_queue_init(&proc->child_wait);
+    wait_queue_init(&proc->signal_wait);
     wait_queue_init(&proc->vfork_wait);
     proc->vfork_done       = true;
     proc->mmap_lock.lock   = 0;
@@ -1529,6 +1611,9 @@ void process_exit(int exit_code)
         task_exit();
         return;
     }
+
+    /* Process timers cease to exist when the final thread exits. */
+    signal_itimer_cancel(proc);
 
     tty_core_t *tty = process_ctty_get(proc);
     if (tty) {
@@ -1888,16 +1973,18 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->thread_count = 1;
     ilist_init(&child->threads);
     ilist_insert_before(&child->threads, &child_task->thread_node);
-    child->task->state = TASK_READY;
-    child->uid         = parent->uid;
-    child->gid         = parent->gid;
-    child->fsuid       = parent->fsuid;
-    child->fsgid       = parent->fsgid;
-    child->umask       = parent->umask;
-    child->pgid        = parent->pgid;
-    child->sid         = parent->sid;
-    child->parent      = parent;
-    child->exit_code   = 0;
+    child->task->state               = TASK_READY;
+    child->uid                       = parent->uid;
+    child->gid                       = parent->gid;
+    child->fsuid                     = parent->fsuid;
+    child->fsgid                     = parent->fsgid;
+    child->supplementary_group_count = parent->supplementary_group_count;
+    memcpy(child->supplementary_groups, parent->supplementary_groups, sizeof(child->supplementary_groups));
+    child->umask     = parent->umask;
+    child->pgid      = parent->pgid;
+    child->sid       = parent->sid;
+    child->parent    = parent;
+    child->exit_code = 0;
     strncpy(child->name, parent->name, sizeof(child->name) - 1);
     child->name[sizeof(child->name) - 1] = '\0';
     child->start_brk                     = parent->start_brk;
@@ -1932,6 +2019,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     process_ctty_inherit(child, parent);
     slist_init(&child->children);
     wait_queue_init(&child->child_wait);
+    wait_queue_init(&child->signal_wait);
     wait_queue_init(&child->vfork_wait);
     child->vfork_done = !vfork;
 
@@ -2037,6 +2125,19 @@ void process_fork_publish(process_t *child)
     enqueue_task_initial(child->task);
     spin_unlock(&scheduler.lock);
     request_task_cpu(child->task);
+}
+
+void process_fork_discard(process_t *child)
+{
+    if (!child || !child->task) return;
+
+    /* This path is valid only before process_fork_publish(). */
+    spin_lock(&process_table_lock);
+    pid_set_locked((pid_t)child->task->tgid, NULL);
+    if (child->parent) slist_remove(&child->parent->children, child);
+    child->parent = NULL;
+    spin_unlock(&process_table_lock);
+    process_put(child);
 }
 
 process_t *process_fork_status_event(int *error, uint32_t ptrace_event)
