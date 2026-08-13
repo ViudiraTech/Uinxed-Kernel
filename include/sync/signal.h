@@ -155,23 +155,27 @@ typedef struct {
         int si_code;
         union {
                 int _pad[29];
+
                 /* kill / tkill / tgkill */
                 struct {
                         int64_t  _pid;
                         uint32_t _uid;
                 } _kill;
+
                 /* POSIX timers */
                 struct {
                         int      _tid;
                         int      _overrun;
                         sigval_t _sigval;
                 } _timer;
+
                 /* POSIX.1b signals */
                 struct {
                         int64_t  _pid;
                         uint32_t _uid;
                         sigval_t _sigval;
                 } _rt;
+
                 /* SIGCHLD */
                 struct {
                         int64_t  _pid;
@@ -180,6 +184,7 @@ typedef struct {
                         int      _utime;
                         int      _stime;
                 } _sigchld;
+
                 /* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
                 struct {
                         void *_addr;
@@ -192,11 +197,13 @@ typedef struct {
                                 uint32_t _pkey;
                         };
                 } _sigfault;
+
                 /* SIGPOLL */
                 struct {
                         int64_t _band;
                         int     _fd;
                 } _sigpoll;
+
                 /* SIGSYS */
                 struct {
                         void        *_call_addr;

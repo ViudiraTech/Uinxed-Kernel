@@ -139,10 +139,12 @@ static int  tcp_autobind(tcp_endpoint_t *endpoint, uint32_t address);
 static void tcp_records_free(tcp_tx_record_t *record);
 
 /* Wraparound-safe 32-bit sequence comparisons */
+
 static int seq_before(uint32_t a, uint32_t b)
 {
     return (int32_t)(a - b) < 0;
 }
+
 static int seq_after(uint32_t a, uint32_t b)
 {
     return (int32_t)(a - b) > 0;
@@ -152,6 +154,7 @@ int net_tcp_seq_before(uint32_t a, uint32_t b)
 {
     return seq_before(a, b);
 }
+
 int net_tcp_seq_after(uint32_t a, uint32_t b)
 {
     return seq_after(a, b);

@@ -1608,7 +1608,7 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
 
         int64_t ret = read_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
-        if (ret > 0) { inotify_notify(file, IN_ACCESS); }
+        if (ret > 0) inotify_notify(file, IN_ACCESS);
         return ret;
     }
 
@@ -1681,7 +1681,7 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
 
         int64_t ret = write_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
-        if (ret > 0) { inotify_notify(file, IN_MODIFY); }
+        if (ret > 0) inotify_notify(file, IN_MODIFY);
         return ret;
     }
 
@@ -2447,7 +2447,6 @@ int vfs_rename(vfs_node_t node, vfs_node_t new_parent, const char *new_name_arg,
     if (target) vfs_close(target);
     free(old_name);
     return EOK;
-
 unlock_error:
     spin_unlock(&vfs_namespace_lock);
 out:

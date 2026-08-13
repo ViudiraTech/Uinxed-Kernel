@@ -61,6 +61,7 @@ static inline uint8_t sb16_inb(uint16_t port)
 {
     return inb(port);
 }
+
 static inline void sb16_outb(uint16_t port, uint8_t val)
 {
     outb(port, val);

@@ -181,6 +181,7 @@ struct drm_control {
         __s32 func;
         __s32 irq;
 };
+
 #define DRM_ADD_COMMAND    0
 #define DRM_RM_COMMAND     1
 #define DRM_INST_HANDLER   2
@@ -287,6 +288,7 @@ struct drm_buf_desc {
         __u32 flags;
         __u64 agp_start;
 };
+
 #define _DRM_PAGE_ALIGN    0x01
 #define _DRM_AGP_BUFFER    0x02
 #define _DRM_SG_BUFFER     0x04
@@ -380,6 +382,7 @@ enum drm_vblank_seq_type {
     _DRM_VBLANK_SECONDARY      = 0x20000000,
     _DRM_VBLANK_SIGNAL         = 0x40000000,
 };
+
 #define _DRM_VBLANK_HIGH_CRTC_SHIFT 1
 #define _DRM_VBLANK_TYPES_MASK      (_DRM_VBLANK_ABSOLUTE | _DRM_VBLANK_RELATIVE)
 #define _DRM_VBLANK_FLAGS_MASK      (_DRM_VBLANK_EVENT | _DRM_VBLANK_SIGNAL | _DRM_VBLANK_SECONDARY | _DRM_VBLANK_NEXTONMISS)
@@ -414,16 +417,19 @@ struct drm_modeset_ctl {
 struct drm_agp_mode {
         __u64 mode;
 };
+
 struct drm_agp_buffer {
         __u64 size;
         __u64 handle;
         __u64 type;
         __u64 physical;
 };
+
 struct drm_agp_binding {
         __u64 handle;
         __u64 offset;
 };
+
 struct drm_agp_info {
         __s32 agp_version_major;
         __s32 agp_version_minor;
@@ -435,6 +441,7 @@ struct drm_agp_info {
         __u16 id_vendor;
         __u16 id_device;
 };
+
 struct drm_scatter_gather {
         __u64 size;
         __u64 handle;

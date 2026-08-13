@@ -437,9 +437,11 @@ int64_t sys_sched_getparam_impl(uint64_t pid, uint64_t param, uint64_t arg2, uin
     (void)arg4;
     (void)arg5;
     if (!param) return -EFAULT;
+
     struct {
             int32_t sched_priority;
     } p = {.sched_priority = 0};
+
     return copy_to_user((void *)param, &p, sizeof(p)) ? -EFAULT : 0;
 }
 
@@ -1875,10 +1877,12 @@ int64_t sys_settimeofday_impl(uint64_t tv, uint64_t tz, uint64_t arg2, uint64_t 
     (void)arg4;
     (void)arg5;
     if (!tv) return -EFAULT;
+
     struct {
             int64_t tv_sec;
             int64_t tv_usec;
     } timeval;
+
     if (copy_from_user(&timeval, (const void *)tv, sizeof(timeval))) return -EFAULT;
     timer_realtime_set_ns(timeval.tv_sec * 1000000000LL + timeval.tv_usec * 1000LL);
     return 0;

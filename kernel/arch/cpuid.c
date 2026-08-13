@@ -262,6 +262,7 @@ void cpu_build_flags(char *buf, size_t size)
 
     /* Leaf 1, EDX (d) */
     cpuid_safe(0x00000001, 0, &a, &b, &c, &d);
+
     static const struct {
             uint32_t    bit;
             const char *name;
@@ -294,6 +295,7 @@ void cpu_build_flags(char *buf, size_t size)
         {30, "ia64"   },
         {31, "pbe"    },
     };
+
     for (i = 0; i < sizeof(ed1) / sizeof(ed1[0]) && pos + 12 < size; i++)
         if (d & (1U << ed1[i].bit)) {
             buf[pos++] = ' ';
@@ -331,6 +333,7 @@ void cpu_build_flags(char *buf, size_t size)
         {30, "rdrand"      },
         {31, "hypervisor"  },
     };
+
     for (i = 0; i < sizeof(ec1) / sizeof(ec1[0]) && pos + 12 < size; i++)
         if (c & (1U << ec1[i].bit)) {
             buf[pos++] = ' ';
@@ -341,6 +344,7 @@ void cpu_build_flags(char *buf, size_t size)
 
     /* Leaf 7 (sub 0), EBX (b) */
     cpuid_safe(0x00000007, 0, &a, &b, &c, &d);
+
     static const struct {
             uint32_t    bit;
             const char *name;
@@ -372,6 +376,7 @@ void cpu_build_flags(char *buf, size_t size)
         {30, "avx512bw"  },
         {31, "avx512vl"  },
     };
+
     for (i = 0; i < sizeof(eb7) / sizeof(eb7[0]) && pos + 12 < size; i++)
         if (b & (1U << eb7[i].bit)) {
             buf[pos++] = ' ';
@@ -399,6 +404,7 @@ void cpu_build_flags(char *buf, size_t size)
         {14, "avx512vpopcntdq"},
         {22, "rdpid"          },
     };
+
     for (i = 0; i < sizeof(ec7) / sizeof(ec7[0]) && pos + 12 < size; i++)
         if (c & (1U << ec7[i].bit)) {
             buf[pos++] = ' ';
@@ -409,6 +415,7 @@ void cpu_build_flags(char *buf, size_t size)
 
     /* Leaf 0x80000001, EDX (d) */
     cpuid_safe(0x80000001, 0, &a, &b, &c, &d);
+
     static const struct {
             uint32_t    bit;
             const char *name;
@@ -419,6 +426,7 @@ void cpu_build_flags(char *buf, size_t size)
         {27, "rdtscp" },
         {29, "lm"     },
     };
+
     for (i = 0; i < sizeof(ed8) / sizeof(ed8[0]) && pos + 12 < size; i++)
         if (d & (1U << ed8[i].bit)) {
             buf[pos++] = ' ';
@@ -440,6 +448,7 @@ void cpu_build_flags(char *buf, size_t size)
         {16, "fma4"         },
         {22, "topoext"      },
     };
+
     for (i = 0; i < sizeof(ec8) / sizeof(ec8[0]) && pos + 12 < size; i++)
         if (c & (1U << ec8[i].bit)) {
             buf[pos++] = ' ';

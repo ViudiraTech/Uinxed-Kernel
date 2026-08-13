@@ -132,6 +132,7 @@ size_t audio_card_count(void)
 {
     return audio_cards_count;
 }
+
 size_t audio_device_node_count(void)
 {
     return audio_nodes_count;

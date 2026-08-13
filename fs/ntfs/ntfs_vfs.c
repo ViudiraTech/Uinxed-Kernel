@@ -210,14 +210,17 @@ typedef struct {
 } ntfs_handle_t;
 
 /* little-endian accessors */
+
 static inline u64 le64(const u8 *p)
 {
     return (u64)p[0] | ((u64)p[1] << 8) | ((u64)p[2] << 16) | ((u64)p[3] << 24) | ((u64)p[4] << 32) | ((u64)p[5] << 40) | ((u64)p[6] << 48) | ((u64)p[7] << 56);
 }
+
 static inline u32 le32(const u8 *p)
 {
     return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
 }
+
 static inline u16 le16(const u8 *p)
 {
     return (u16)p[0] | ((u16)p[1] << 8);
@@ -4410,10 +4413,12 @@ static int ntfs_vfs_mkdir(void *p, const char *n, vfs_node_t nd)
 {
     return ntfs_namespace_create(p, n, nd, 1);
 }
+
 static int ntfs_vfs_mkfile(void *p, const char *n, vfs_node_t nd)
 {
     return ntfs_namespace_create(p, n, nd, 0);
 }
+
 static int ntfs_vfs_link(void *p, const char *target_name, vfs_node_t node)
 {
     vfs_node_t target;
@@ -4429,6 +4434,7 @@ static int ntfs_vfs_link(void *p, const char *target_name, vfs_node_t node)
     vfs_close(target);
     return status;
 }
+
 static int ntfs_vfs_symlink(void *p, const char *target_name, vfs_node_t node)
 {
     if (!node || !node->name) return -EINVAL;

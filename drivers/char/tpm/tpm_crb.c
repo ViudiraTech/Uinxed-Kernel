@@ -109,6 +109,7 @@ static void crb_relinquish_locality(tpm_device_t *dev, int l)
 }
 
 /* No-op versions for method 2 (locality managed by ACPI/firmware) */
+
 static int crb_nop_req_locality(tpm_device_t *dev, int l)
 {
     (void)dev;
@@ -116,6 +117,7 @@ static int crb_nop_req_locality(tpm_device_t *dev, int l)
     dev->locality = 0;
     return 0;
 }
+
 static void crb_nop_rel_locality(tpm_device_t *dev, int l)
 {
     (void)dev;

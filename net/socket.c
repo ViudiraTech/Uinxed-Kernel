@@ -2429,6 +2429,7 @@ static void socket_release_rights(process_file_t **rights, size_t rights_count)
 static int socket_collect_rights(socket_t *sk, const msghdr_t *kmsg, process_file_t **rights, size_t *rights_count)
 {
     enum { CONTROL_MAX = 4096 };
+
     uint8_t   *control;
     size_t     offset = 0;
     process_t *proc;

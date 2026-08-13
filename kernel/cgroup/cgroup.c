@@ -406,10 +406,12 @@ cgroup_t *cgroup_parent(cgroup_t *cg)
 {
     return cg ? cg->parent : NULL;
 }
+
 const char *cgroup_name(cgroup_t *cg)
 {
     return cg ? cg->name : NULL;
 }
+
 uint64_t cgroup_subtree_control(cgroup_t *cg)
 {
     return cg ? cg->subtree_control : 0;

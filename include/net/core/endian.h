@@ -18,22 +18,27 @@ static inline uint16_t net_bswap16(uint16_t value)
 {
     return __builtin_bswap16(value);
 }
+
 static inline uint32_t net_bswap32(uint32_t value)
 {
     return __builtin_bswap32(value);
 }
+
 static inline uint16_t net_htons(uint16_t value)
 {
     return net_bswap16(value);
 }
+
 static inline uint16_t net_ntohs(uint16_t value)
 {
     return net_bswap16(value);
 }
+
 static inline uint32_t net_htonl(uint32_t value)
 {
     return net_bswap32(value);
 }
+
 static inline uint32_t net_ntohl(uint32_t value)
 {
     return net_bswap32(value);

@@ -177,14 +177,17 @@ void net_packet_get(net_packet_t *packet)
 {
     net_pbuf_ref(packet);
 }
+
 void net_packet_put(net_packet_t *packet)
 {
     net_pbuf_free(packet);
 }
+
 void *net_packet_data(net_packet_t *packet)
 {
     return packet ? packet->data : NULL;
 }
+
 size_t net_packet_length(const net_packet_t *packet)
 {
     return packet ? packet->length : 0;
@@ -312,6 +315,7 @@ netdev_t *netdev_find(const char *name)
 {
     return netdev_get_by_name(name);
 }
+
 void netdev_get(netdev_t *device)
 {
     if (!device) return;
@@ -319,6 +323,7 @@ void netdev_get(netdev_t *device)
     device->refs++;
     spin_unlock(&device->lock);
 }
+
 void *netdev_private(netdev_t *device)
 {
     return device ? device->driver_data : NULL;
@@ -516,6 +521,7 @@ size_t netdev_get_dns_servers(net_device_t *device, uint32_t *servers, size_t ca
 int netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data, size_t length)
 {
     enum { UDP_HEADER_LENGTH = 8 };
+
     if (!device || !source_port || !destination_port || (!data && length)) return -EINVAL;
     if (length > UINT16_MAX - UDP_HEADER_LENGTH - IPV4_HEADER_MIN || length + UDP_HEADER_LENGTH + IPV4_HEADER_MIN > device->mtu) return -EMSGSIZE;
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LENGTH + length, NET_PBUF_HEADROOM);

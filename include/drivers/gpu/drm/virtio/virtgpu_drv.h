@@ -443,6 +443,7 @@ struct drm_virtgpu_resource_create {
 
 #define VIRTGPU_EXECBUF_SYNCOBJ_RESET 0x01
 #define VIRTGPU_EXECBUF_SYNCOBJ_FLAGS VIRTGPU_EXECBUF_SYNCOBJ_RESET
+
 struct drm_virtgpu_execbuffer_syncobj {
         uint32_t handle;
         uint32_t flags;
@@ -476,6 +477,7 @@ struct drm_virtgpu_3d_wait {
         uint32_t handle;
         uint32_t flags;
 };
+
 #define VIRTGPU_WAIT_NOWAIT 0x01
 
 struct drm_virtgpu_get_caps {

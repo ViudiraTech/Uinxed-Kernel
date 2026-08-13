@@ -43,48 +43,56 @@ static evdev_t *input_evdev(struct device *dev)
 {
     return dev ? dev->driver_data : NULL;
 }
+
 static ssize_t name_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->name : "");
 }
+
 static ssize_t phys_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->phys : "");
 }
+
 static ssize_t uniq_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->uniq : "");
 }
+
 static ssize_t bustype_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%04x\n", evdev && evdev->input_dev ? evdev->input_dev->id.bustype : 0);
 }
+
 static ssize_t vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%04x\n", evdev && evdev->input_dev ? evdev->input_dev->id.vendor : 0);
 }
+
 static ssize_t product_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%04x\n", evdev && evdev->input_dev ? evdev->input_dev->id.product : 0);
 }
+
 static ssize_t version_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%04x\n", evdev && evdev->input_dev ? evdev->input_dev->id.version : 0);
 }
+
 static ssize_t bitmap_show(char *buf, const uint32_t *bits, size_t words)
 {
     int at = 0;
@@ -92,51 +100,61 @@ static ssize_t bitmap_show(char *buf, const uint32_t *bits, size_t words)
     for (size_t word = words; word > 0; word--) at += sysfs_emit_at(buf, at, word == 1 ? "%08x\n" : "%08x ", bits[word - 1]);
     return at;
 }
+
 static ssize_t ev_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->evbit, (EV_CNT + 31) / 32);
 }
+
 static ssize_t key_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->keybit, (KEY_CNT + 31) / 32);
 }
+
 static ssize_t rel_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->relbit, (REL_CNT + 31) / 32);
 }
+
 static ssize_t abs_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->absbit, (ABS_CNT + 31) / 32);
 }
+
 static ssize_t msc_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->mscbit, (MSC_CNT + 31) / 32);
 }
+
 static ssize_t led_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->ledbit, (LED_CNT + 31) / 32);
 }
+
 static ssize_t snd_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->sndbit, (SND_CNT + 31) / 32);
 }
+
 static ssize_t sw_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->swbit, (SW_CNT + 31) / 32);
 }
+
 static ssize_t ff_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->ffbit, (FF_CNT + 31) / 32);
 }
+
 static ssize_t properties_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;

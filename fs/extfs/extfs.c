@@ -867,6 +867,7 @@ static int extfs_rmdir_impl(void *parent, const char *name)
     free(child_h);
     return EOK;
 }
+
 static int extfs_adjust_directory_links(extfs_handle_t *directory, int delta)
 {
     if (!directory || (delta != -1 && delta != 1)) return -EINVAL;

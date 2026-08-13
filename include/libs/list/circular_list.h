@@ -46,8 +46,8 @@
 
 typedef void (*free_t)(void *ptr);
 typedef void *(*alloc_t)(size_t size);
-
 typedef struct clist *clist_t;
+
 struct clist {
         union {
                 void   *data;

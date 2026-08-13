@@ -70,7 +70,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             result = newfd;
             break;
         }
-
         case F_DUPFD_CLOEXEC : {
             int      start = (int)arg;
             uint32_t limit = process_fd_limit(proc);
@@ -107,14 +106,12 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             result = newfd;
             break;
         }
-
         case F_GETFD : {
             spin_lock(&proc->fd_lock);
             result = proc->fds[fd] ? proc->fd_flags[fd] : -EBADF;
             spin_unlock(&proc->fd_lock);
             break;
         }
-
         case F_SETFD : {
             if (arg & ~(uint64_t)FD_CLOEXEC) {
                 result = -EINVAL;
@@ -130,7 +127,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             spin_unlock(&proc->fd_lock);
             break;
         }
-
         case F_GETFL : {
             /* Return file access mode and status flags */
             spin_lock(&file->lock);
@@ -138,7 +134,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             spin_unlock(&file->lock);
             break;
         }
-
         case F_SETFL : {
             /* Only O_NONBLOCK and O_APPEND can be changed */
             uint64_t settable = O_NONBLOCK | O_APPEND;
@@ -159,7 +154,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             if (result == EOK) result = seals;
             break;
         }
-
         case F_GETLK : {
             /* Advisory file locking - not supported, always return success */
             if (arg) {
@@ -171,6 +165,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
                         int64_t l_len;
                         int32_t l_pid;
                 } fl = {F_UNLCK, 0, 0, 0, 0};
+
                 if (copy_to_user((void *)arg, &fl, sizeof(fl))) {
                     result = -EFAULT;
                     break;
@@ -187,7 +182,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             /* Non-blocking / blocking lock - no-op (no mandatory locking) */
             result = 0;
             break;
-
         case F_GETOWN_EX : {
             /* Get owner (struct f_owner_ex) - return empty */
             if (arg) {
@@ -195,6 +189,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
                         int32_t type;
                         int32_t pid;
                 } owner = {F_OWNER_PID, 0};
+
                 if (copy_to_user((void *)arg, &owner, sizeof(owner))) {
                     result = -EFAULT;
                     break;
@@ -211,7 +206,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             result = -EINVAL;
             break;
     }
-
     process_file_put(file);
     return result;
 }

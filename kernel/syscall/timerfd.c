@@ -142,16 +142,19 @@ static int timerfd_vfs_free(void *handle)
 }
 
 /* Generic stubs */
+
 static void timerfd_stub_unmount(void *root)
 {
     (void)root;
 }
+
 static int timerfd_stub_stat(void *f, vfs_node_t n)
 {
     (void)f;
     (void)n;
     return EOK;
 }
+
 static int timerfd_stub_mk(void *p, const char *nm, vfs_node_t n)
 {
     (void)p;
@@ -159,6 +162,7 @@ static int timerfd_stub_mk(void *p, const char *nm, vfs_node_t n)
     (void)n;
     return -ENOSYS;
 }
+
 static size_t timerfd_stub_write(void *f, const void *a, size_t o, size_t s)
 {
     (void)f;
@@ -167,6 +171,7 @@ static size_t timerfd_stub_write(void *f, const void *a, size_t o, size_t s)
     (void)s;
     return (size_t)-1;
 }
+
 static size_t timerfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 {
     (void)n;
@@ -175,6 +180,7 @@ static size_t timerfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
     (void)s;
     return (size_t)-1;
 }
+
 static int timerfd_stub_ioctl(void *f, size_t o, void *a)
 {
     (void)f;
@@ -182,22 +188,26 @@ static int timerfd_stub_ioctl(void *f, size_t o, void *a)
     (void)a;
     return -ENOSYS;
 }
+
 static vfs_node_t timerfd_stub_dup(vfs_node_t n)
 {
     (void)n;
     return NULL;
 }
+
 static int timerfd_stub_del(void *p, vfs_node_t n)
 {
     (void)p;
     (void)n;
     return -ENOSYS;
 }
+
 static int timerfd_stub_rename(const vfs_rename_context_t *context)
 {
     (void)context;
     return -ENOSYS;
 }
+
 static int timerfd_stub_mount(const char *s, vfs_node_t n)
 {
     (void)s;
