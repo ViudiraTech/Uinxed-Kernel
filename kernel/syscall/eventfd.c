@@ -212,10 +212,9 @@ static int eventfd_stub_del(void *p, vfs_node_t n)
     (void)n;
     return -ENOSYS;
 }
-static int eventfd_stub_rename(void *c, const char *nm)
+static int eventfd_stub_rename(const vfs_rename_context_t *context)
 {
-    (void)c;
-    (void)nm;
+    (void)context;
     return -ENOSYS;
 }
 static int eventfd_stub_mount(const char *s, vfs_node_t n)

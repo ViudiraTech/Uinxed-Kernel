@@ -1366,6 +1366,9 @@ int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat)
     stat->rdev  = file->node->rdev;
     stat->size  = file->node->size;
     stat->blksz = file->node->blksz;
+    stat->atime = file->node->readtime;
+    stat->mtime = file->node->writetime;
+    stat->ctime = file->node->createtime;
 
     process_file_put(file);
     return EOK;

@@ -744,10 +744,9 @@ static int sysfs_delete(void *parent, vfs_node_t node)
     return -EROFS;
 }
 
-static int sysfs_rename_node(void *current, const char *new_name)
+static int sysfs_rename_node(const vfs_rename_context_t *context)
 {
-    (void)current;
-    (void)new_name;
+    (void)context;
     return -EROFS;
 }
 

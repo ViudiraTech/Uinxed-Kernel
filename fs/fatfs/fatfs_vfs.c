@@ -142,28 +142,6 @@ static void fatfs_invalidate_directory(vfs_node_t node)
     node->visited = 0;
 }
 
-/* Build the renamed path by replacing the last component. */
-static char *fatfs_rename_target(const char *path, const char *new_name)
-{
-    char  *target;
-    char  *slash;
-    size_t prefix_len;
-    size_t name_len;
-
-    if (!path || !new_name || !new_name[0]) return 0;
-
-    slash      = strrchr(path, '/');
-    prefix_len = slash ? (size_t)(slash - path + 1) : 0;
-    name_len   = strlen(new_name);
-    target     = malloc(prefix_len + name_len + 1);
-    if (!target) return 0;
-
-    if (prefix_len) memcpy(target, path, prefix_len);
-    memcpy(target + prefix_len, new_name, name_len);
-    target[prefix_len + name_len] = '\0';
-    return target;
-}
-
 /* Re-query the node's stat data and refresh its VFS fields. */
 static int fatfs_refresh_node(vfs_node_t node)
 {
@@ -681,19 +659,34 @@ static int fatfs_vfs_delete(void *parent, vfs_node_t node)
     return EOK;
 }
 
-/* Rename a FatFs file within the same directory. */
-static int fatfs_vfs_rename(void *current, const char *new_name)
+/* FatFs can move within a volume, but cannot atomically replace a victim. */
+static int fatfs_vfs_rename(const vfs_rename_context_t *context)
 {
-    fatfs_handle_t *handle = current;
+    fatfs_handle_t *handle;
+    fatfs_handle_t *new_parent;
     char           *new_path;
     FRESULT         res;
 
-    if (!handle || !handle->path || !new_name) return -EINVAL;
-    if (!new_name[0]) return -EINVAL;
+    if (!context || !context->source || !context->new_parent || !context->new_name) return -EINVAL;
+    if (context->target) return -EOPNOTSUPP;
+    if (context->source->type & file_dir) return -EOPNOTSUPP;
+    handle     = context->source->handle;
+    new_parent = context->new_parent->handle;
+    if (!handle || !handle->path || !new_parent || !new_parent->path || handle->mount != new_parent->mount) return -EXDEV;
 
-    new_path = fatfs_rename_target(handle->path, new_name);
+    new_path = fatfs_join_path(new_parent->path, context->new_name);
     if (!new_path) return -ENOMEM;
 
+    /* FatFs keeps an open FIL locked; close it before changing its path. */
+    if (handle->opened) {
+        res = f_close(&handle->file);
+        if (res != FR_OK) {
+            free(new_path);
+            return fatfs_result_to_errno(res);
+        }
+        handle->opened    = 0;
+        handle->open_mode = 0;
+    }
     res = f_rename(handle->path, new_path);
     if (res != FR_OK) {
         free(new_path);
@@ -702,8 +695,6 @@ static int fatfs_vfs_rename(void *current, const char *new_name)
 
     free(handle->path);
     handle->path      = new_path;
-    handle->opened    = 0;
-    handle->open_mode = 0;
     return EOK;
 }
 

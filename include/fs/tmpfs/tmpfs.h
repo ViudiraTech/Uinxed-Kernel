@@ -122,9 +122,6 @@ int tmpfs_stat(void *file, vfs_node_t node);
 /* Delete a tmpfs file/directory and free its resources */
 int tmpfs_delete(void *parent, vfs_node_t node);
 
-/* Rename a tmpfs file/directory */
-int tmpfs_rename(void *current, const char *new_name);
-
 /* Poll a tmpfs file for pending events (simplified implementation) */
 int tmpfs_poll(void *file, size_t events);
 

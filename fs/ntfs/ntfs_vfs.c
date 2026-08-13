@@ -4657,9 +4657,10 @@ unlock:
 }
 
 /* Rename a file's directory entry and file-name attribute. */
-static int ntfs_vfs_rename(void *c, const char *nn)
+static int ntfs_vfs_rename(const vfs_rename_context_t *context)
 {
-    ntfs_handle_t *child = c;
+    ntfs_handle_t *child;
+    const char    *nn;
     ntfs_mount_t  *mnt;
     u8            *parent_record     = NULL;
     u8            *old_parent_record = NULL;
@@ -4676,7 +4677,11 @@ static int ntfs_vfs_rename(void *c, const char *nn)
     int      transaction_started = 0;
 #endif
 
-    if (!child || !child->mnt || !nn || !child->name || !child->name_length) return -EINVAL;
+    if (!context || !context->source || !context->new_name) return -EINVAL;
+    if (context->old_parent != context->new_parent || context->target) return -EOPNOTSUPP;
+    child = context->source->handle;
+    nn    = context->new_name;
+    if (!child || !child->mnt || !child->name || !child->name_length) return -EINVAL;
     mnt = child->mnt;
     if (!mnt->write_enabled || mnt->dev.read_only) return -EROFS;
     status = ntfs_name_from_utf8(nn, &new_name, &new_length);

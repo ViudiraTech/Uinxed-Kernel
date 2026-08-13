@@ -114,7 +114,7 @@ void inotify_init(void);
 void     inotify_notify(vfs_node_t node, uint32_t mask);
 void     inotify_notify_create(vfs_node_t parent, vfs_node_t node);
 void     inotify_notify_delete(vfs_node_t node);
-void     inotify_notify_move(vfs_node_t node, const char *old_name, const char *new_name);
+void     inotify_notify_move(vfs_node_t node, vfs_node_t old_parent, const char *old_name, const char *new_name);
 void     inotify_notify_unmount(vfs_node_t mount_root);
 uint32_t inotify_next_cookie(void);
 

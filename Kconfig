@@ -132,8 +132,8 @@ menu "Process management"
 
   config PROCESS_KERNEL_STACK_SIZE
     int "Kernel stack size per process (bytes)"
-    default 32768
-    range 4096 262144
+    default 65536
+    range 65536 262144
     help
       Size of the kernel-mode stack allocated for each process.
 

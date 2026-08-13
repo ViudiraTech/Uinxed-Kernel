@@ -280,10 +280,9 @@ static int free_handle(void *handle)
 }
 
 /* Rename is not supported for control files. */
-static int no_rename(void *handle, const char *name)
+static int no_rename(const vfs_rename_context_t *context)
 {
-    (void)handle;
-    (void)name;
+    (void)context;
     return -EOPNOTSUPP;
 }
 

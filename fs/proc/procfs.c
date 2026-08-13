@@ -2224,10 +2224,9 @@ static int procfs_delete(void *parent, vfs_node_t node)
     return -EROFS;
 }
 
-static int procfs_rename(void *current, const char *new_name)
+static int procfs_rename(const vfs_rename_context_t *context)
 {
-    (void)current;
-    (void)new_name;
+    (void)context;
     return -EROFS;
 }
 

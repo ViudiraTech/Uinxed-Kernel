@@ -711,6 +711,39 @@ int extfs_make_empty_dir(extfs_handle_t *dir_h, uint32_t self_ino, uint32_t pare
     return EOK;
 }
 
+/* Update the ".." entry while moving a directory between parents. */
+int extfs_dir_set_parent(extfs_handle_t *dir_h, uint32_t parent_ino)
+{
+    if (!dir_h || !dir_h->sb || !parent_ino || parent_ino > dir_h->sb->es->s_inodes_count) return -EINVAL;
+
+    ext2_inode_t raw;
+    int          status = extfs_read_inode_raw(dir_h->sb, dir_h->inode_no, &raw);
+    if (status != EOK) return status;
+    if ((raw.i_mode & 0xF000) != EXT2_S_IFDIR) return -ENOTDIR;
+
+    uint32_t physical = extfs_map_block(dir_h, 0, 0);
+    if (!physical) return -EIO;
+    uint8_t *block = malloc(dir_h->sb->block_size);
+    if (!block) return -ENOMEM;
+    status = extfs_read_block(dir_h->sb, physical, block);
+    if (status != EOK || !extfs_dir_block_verify(dir_h, 0, block)) {
+        free(block);
+        return status != EOK ? status : -EIO;
+    }
+
+    ext2_dir_entry_t *dot    = (ext2_dir_entry_t *)block;
+    ext2_dir_entry_t *dotdot = dot->rec_len <= dir_h->sb->block_size - 8 ? (ext2_dir_entry_t *)(block + dot->rec_len) : NULL;
+    if (!dotdot || !extfs_dirent_valid(dir_h->sb, dot, 0) || !extfs_dirent_valid(dir_h->sb, dotdot, dot->rec_len) || dot->name_len != 1 || dot->name[0] != '.' || dotdot->name_len != 2
+        || dotdot->name[0] != '.' || dotdot->name[1] != '.') {
+        free(block);
+        return -EIO;
+    }
+    dotdot->inode = parent_ino;
+    status        = extfs_dir_write_leaf(dir_h, physical, block);
+    free(block);
+    return status;
+}
+
 /* Check whether a directory contains only "." and "..". */
 int extfs_dir_empty(extfs_handle_t *dir_h)
 {

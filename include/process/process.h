@@ -37,6 +37,9 @@ extern process_t *init_process;
 #ifndef PROCESS_KERNEL_STACK
 #    define PROCESS_KERNEL_STACK 0x10000
 #endif
+#if PROCESS_KERNEL_STACK < 0x10000
+#    error "PROCESS_KERNEL_STACK must be at least 64 KiB"
+#endif
 #ifndef PROCESS_STACK_SIZE
 #    define PROCESS_STACK_SIZE (4 * 1024 * 1024)
 #endif
@@ -140,6 +143,9 @@ typedef struct process_fd_stat {
         uint64_t rdev;
         uint64_t size;
         uint64_t blksz;
+        int64_t  atime;
+        int64_t  mtime;
+        int64_t  ctime;
 } process_fd_stat_t;
 
 #define PROCESS_AT_FDCWD   (-100)

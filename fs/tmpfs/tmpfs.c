@@ -337,20 +337,14 @@ int tmpfs_delete(void *parent, vfs_node_t node)
     return EOK;
 }
 
-/* Rename a tmpfs file/directory */
-int tmpfs_rename(void *current, const char *new_name)
+/* Commit a tmpfs rename; its directory namespace is owned by the VFS. */
+static int tmpfs_rename(const vfs_rename_context_t *context)
 {
-    tmpfs_file_t *f = (tmpfs_file_t *)current;
-    strncpy(f->name, new_name, sizeof(f->name) - 1);
+    if (!context || !context->source || !context->source->handle || !context->new_name) return -EINVAL;
+    tmpfs_file_t *f = context->source->handle;
+    strncpy(f->name, context->new_name, sizeof(f->name) - 1);
     f->name[sizeof(f->name) - 1] = '\0';
     return EOK;
-}
-
-/* Move a file, which only requires renaming it. */
-static int tmpfs_move(void *current, void *new_parent, const char *new_name)
-{
-    (void)new_parent;
-    return tmpfs_rename(current, new_name);
 }
 
 /* Poll a tmpfs file for pending events (simplified implementation) */
@@ -518,7 +512,7 @@ static int64_t tmpfs_file_write(vfs_node_t node, void *private_data, uint64_t fl
     return result;
 }
 
-#define TMPFS_USER_IO_CHUNK 16384
+#define TMPFS_USER_IO_CHUNK PAGE_4K_SIZE
 
 static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc)
 {
@@ -526,18 +520,37 @@ static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_
     if (!f) return -EINVAL;
     if (f->device.file_read_user) return f->device.file_read_user(f->device.ctx, private_data, flags, addr, offset, size, proc);
 
-    uint8_t tmp[TMPFS_USER_IO_CHUNK];
-    size_t  done = 0;
+    if (!size) return 0;
+
+    size_t   capacity = size < TMPFS_USER_IO_CHUNK ? size : TMPFS_USER_IO_CHUNK;
+    uint8_t *tmp      = malloc(capacity);
+    if (!tmp) return -ENOMEM;
+
+    size_t  done   = 0;
+    int64_t result = 0;
     while (done < size) {
-        size_t  chunk = size - done < sizeof(tmp) ? size - done : sizeof(tmp);
+        size_t  chunk = size - done < capacity ? size - done : capacity;
         int64_t ret   = tmpfs_file_read(node, private_data, flags, tmp, offset + done, chunk);
-        if (ret < 0) return done ? (int64_t)done : ret;
+        if (ret < 0) {
+            result = done ? (int64_t)done : ret;
+            goto out;
+        }
         if (!ret) break;
-        if (copy_to_user((uint8_t *)addr + done, tmp, (size_t)ret)) return done ? (int64_t)done : -EFAULT;
+        if ((uint64_t)ret > chunk) {
+            result = done ? (int64_t)done : -EIO;
+            goto out;
+        }
+        if (copy_to_user((uint8_t *)addr + done, tmp, (size_t)ret)) {
+            result = done ? (int64_t)done : -EFAULT;
+            goto out;
+        }
         done += (size_t)ret;
         if ((size_t)ret < chunk) break;
     }
-    return (int64_t)done;
+    result = (int64_t)done;
+out:
+    free(tmp);
+    return result;
 }
 
 static int64_t tmpfs_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc)
@@ -551,18 +564,35 @@ static int64_t tmpfs_file_write_user(vfs_node_t node, void *private_data, uint64
         return tmpfs_file_write(node, private_data, flags, &empty, offset, 0);
     }
 
-    uint8_t tmp[TMPFS_USER_IO_CHUNK];
-    size_t  done = 0;
+    size_t   capacity = size < TMPFS_USER_IO_CHUNK ? size : TMPFS_USER_IO_CHUNK;
+    uint8_t *tmp      = malloc(capacity);
+    if (!tmp) return -ENOMEM;
+
+    size_t  done   = 0;
+    int64_t result = 0;
     while (done < size) {
-        size_t chunk = size - done < sizeof(tmp) ? size - done : sizeof(tmp);
-        if (copy_from_user(tmp, (const uint8_t *)addr + done, chunk)) return done ? (int64_t)done : -EFAULT;
+        size_t chunk = size - done < capacity ? size - done : capacity;
+        if (copy_from_user(tmp, (const uint8_t *)addr + done, chunk)) {
+            result = done ? (int64_t)done : -EFAULT;
+            goto out;
+        }
         int64_t ret = tmpfs_file_write(node, private_data, flags, tmp, offset + done, chunk);
-        if (ret < 0) return done ? (int64_t)done : ret;
+        if (ret < 0) {
+            result = done ? (int64_t)done : ret;
+            goto out;
+        }
         if (!ret) break;
+        if ((uint64_t)ret > chunk) {
+            result = done ? (int64_t)done : -EIO;
+            goto out;
+        }
         done += (size_t)ret;
         if ((size_t)ret < chunk) break;
     }
-    return (int64_t)done;
+    result = (int64_t)done;
+out:
+    free(tmp);
+    return result;
 }
 
 static int tmpfs_file_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
@@ -622,7 +652,6 @@ static struct vfs_callback tmpfs_callbacks = {
     .file_poll             = tmpfs_file_poll,
     .file_poll_source      = tmpfs_file_poll_source,
     .resize                = tmpfs_resize,
-    .move                  = tmpfs_move,
 };
 
 /* Register tmpfs with the VFS layer (initialize tmpfs) */

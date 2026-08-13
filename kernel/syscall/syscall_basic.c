@@ -249,28 +249,142 @@ int64_t sys_flock_impl(uint64_t fd, uint64_t operation, uint64_t arg2, uint64_t 
     return 0;
 }
 
-/* utime / utimes */
+/* utime / utimes / futimesat / utimensat */
+
+#define LINUX_UTIME_NOW  1073741823LL
+#define LINUX_UTIME_OMIT 1073741822LL
+
+typedef struct linux_utimbuf {
+        int64_t actime;
+        int64_t modtime;
+} linux_utimbuf_t;
+
+typedef struct linux_utimeval {
+        int64_t tv_sec;
+        int64_t tv_usec;
+} linux_utimeval_t;
+
+static int64_t utime_now_seconds(void)
+{
+    int64_t nanoseconds = timer_realtime_ns();
+    return nanoseconds / (int64_t)TIMER_NSEC_PER_SEC;
+}
+
+static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_timespec64_t requested[2], uint64_t flags)
+{
+    if (!proc) return -ESRCH;
+
+    int64_t  atime      = utime_now_seconds();
+    int64_t  mtime      = atime;
+    uint32_t time_flags = VFS_SET_TIME_ATIME | VFS_SET_TIME_MTIME;
+
+    if (requested) {
+        const int64_t  nanoseconds[2] = {requested[0].tv_nsec, requested[1].tv_nsec};
+        int64_t       *seconds[2]     = {&atime, &mtime};
+        const uint32_t bits[2]        = {VFS_SET_TIME_ATIME, VFS_SET_TIME_MTIME};
+
+        for (size_t i = 0; i < 2; i++) {
+            if (nanoseconds[i] == LINUX_UTIME_OMIT) {
+                time_flags &= ~bits[i];
+                continue;
+            }
+            if (nanoseconds[i] == LINUX_UTIME_NOW) continue;
+            if (nanoseconds[i] < 0 || nanoseconds[i] >= (int64_t)TIMER_NSEC_PER_SEC) return -EINVAL;
+            *seconds[i] = requested[i].tv_sec;
+            time_flags |= VFS_SET_TIME_EXPLICIT;
+        }
+        /* Linux does not even resolve the path when both fields are omitted. */
+        if (!(time_flags & (VFS_SET_TIME_ATIME | VFS_SET_TIME_MTIME))) return EOK;
+    }
+    if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) return -EINVAL;
+
+    vfs_node_t      node = NULL;
+    process_file_t *file = NULL;
+    int             ret  = EOK;
+
+    if (!upath) {
+        if (dirfd == PROCESS_AT_FDCWD) return -EFAULT;
+        if (flags) return -EINVAL;
+        file = process_fd_get(proc, dirfd);
+        if (!file) return -EBADF;
+        node = file->node;
+    } else {
+        char input[SYSCALL_PATH_MAX];
+        ret = copy_path_from_user_fwd(upath, input, sizeof(input));
+        if (ret != EOK) return ret;
+
+        if (!input[0]) {
+            if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
+            if (dirfd == PROCESS_AT_FDCWD) {
+                char resolved[SYSCALL_PATH_MAX];
+                ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, ".", resolved, sizeof(resolved));
+                if (ret == EOK) node = vfs_open_checked(resolved, &ret);
+            } else {
+                file = process_fd_get(proc, dirfd);
+                if (!file) return -EBADF;
+                node = file->node;
+            }
+        } else {
+            char resolved[SYSCALL_PATH_MAX];
+            ret = process_resolve_path_at(proc, dirfd, input, resolved, sizeof(resolved));
+            if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(resolved, &ret) : vfs_open_checked(resolved, &ret);
+        }
+    }
+
+    if (!node) {
+        if (file) process_file_put(file);
+        return ret == EOK ? -ENOENT : ret;
+    }
+    vfs_update(node);
+    ret = vfs_set_times_process(node, atime, mtime, time_flags, proc);
+    if (file)
+        process_file_put(file);
+    else
+        vfs_close(node);
+    return ret;
+}
 
 int64_t sys_utime_impl(uint64_t filename, uint64_t times, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)filename;
-    (void)times;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return 0;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    linux_timespec64_t requested[2];
+    linux_utimbuf_t    legacy;
+    if (times) {
+        if (copy_from_user(&legacy, (const void *)times, sizeof(legacy))) return -EFAULT;
+        requested[0].tv_sec  = legacy.actime;
+        requested[0].tv_nsec = 0;
+        requested[1].tv_sec  = legacy.modtime;
+        requested[1].tv_nsec = 0;
+    }
+    return set_times_at(proc, PROCESS_AT_FDCWD, filename, times ? requested : NULL, 0);
 }
 
 int64_t sys_utimes_impl(uint64_t filename, uint64_t times, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)filename;
-    (void)times;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return 0;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    linux_timespec64_t requested[2];
+    linux_utimeval_t   legacy[2];
+    if (times) {
+        if (copy_from_user(legacy, (const void *)times, sizeof(legacy))) return -EFAULT;
+        for (size_t i = 0; i < 2; i++) {
+            if (legacy[i].tv_usec < 0 || legacy[i].tv_usec >= 1000000) return -EINVAL;
+            requested[i].tv_sec  = legacy[i].tv_sec;
+            requested[i].tv_nsec = legacy[i].tv_usec * 1000;
+        }
+    }
+    return set_times_at(proc, PROCESS_AT_FDCWD, filename, times ? requested : NULL, 0);
 }
 
 /* getpriority / setpriority */
@@ -522,42 +636,84 @@ int64_t sys_get_robust_list_impl(uint64_t pid, uint64_t head_ptr, uint64_t len_p
 
 int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_t group, uint64_t flags, uint64_t arg5)
 {
-    (void)dirfd;
-    (void)path;
-    (void)owner;
-    (void)group;
-    (void)flags;
     (void)arg5;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
-    return 0;
+    if (!proc) return -ESRCH;
+    if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) return -EINVAL;
+
+    vfs_node_t      node = NULL;
+    process_file_t *file = NULL;
+    int             ret  = EOK;
+    if (!path) {
+        if (!(flags & AT_EMPTY_PATH) || (int)dirfd == PROCESS_AT_FDCWD) return -EFAULT;
+        file = process_fd_get(proc, (int)dirfd);
+        if (!file) return -EBADF;
+        node = file->node;
+    } else {
+        char input[SYSCALL_PATH_MAX];
+        ret = copy_path_from_user_fwd(path, input, sizeof(input));
+        if (ret != EOK) return ret;
+
+        if (!input[0]) {
+            if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
+            if ((int)dirfd == PROCESS_AT_FDCWD) {
+                char resolved[SYSCALL_PATH_MAX];
+                ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, ".", resolved, sizeof(resolved));
+                if (ret == EOK) node = vfs_open_checked(resolved, &ret);
+            } else {
+                file = process_fd_get(proc, (int)dirfd);
+                if (!file) return -EBADF;
+                node = file->node;
+            }
+        } else {
+            char resolved[SYSCALL_PATH_MAX];
+            ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
+            if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(resolved, &ret) : vfs_open_checked(resolved, &ret);
+        }
+    }
+
+    if (!node) {
+        if (file) process_file_put(file);
+        return ret == EOK ? -ENOENT : ret;
+    }
+    vfs_update(node);
+    ret = vfs_chown_process(node, (uint32_t)owner, (uint32_t)group, proc);
+    if (file)
+        process_file_put(file);
+    else
+        vfs_close(node);
+    return ret;
 }
 
 int64_t sys_futimesat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)dirfd;
-    (void)path;
-    (void)times;
     (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 0;
-}
-
-/*
- * fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
- *
- * Linux: flags must be 0; AT_SYMLINK_NOFOLLOW is not supported by the
- * classic call (use fchmodat2), and anything else is -EINVAL.
- */
-int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t flags, uint64_t arg4, uint64_t arg5)
-{
     (void)arg4;
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (flags == 0x100) return -EOPNOTSUPP; // AT_SYMLINK_NOFOLLOW: use fchmodat2
-    if (flags != 0) return -EINVAL;
+
+    linux_timespec64_t requested[2];
+    linux_utimeval_t   legacy[2];
+    if (times) {
+        if (copy_from_user(legacy, (const void *)times, sizeof(legacy))) return -EFAULT;
+        for (size_t i = 0; i < 2; i++) {
+            if (legacy[i].tv_usec < 0 || legacy[i].tv_usec >= 1000000) return -EINVAL;
+            requested[i].tv_sec  = legacy[i].tv_sec;
+            requested[i].tv_nsec = legacy[i].tv_usec * 1000;
+        }
+    }
+    return set_times_at(proc, (int)dirfd, path, times ? requested : NULL, 0);
+}
+
+/* Linux's legacy fchmodat syscall has three arguments; flags belong to fchmodat2. */
+int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
 
     char input[SYSCALL_PATH_MAX];
     int  ret = copy_path_from_user_fwd(path, input, sizeof(input));
@@ -1064,6 +1220,7 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
 #define RENAME_NOREPLACE 1
 #define RENAME_EXCHANGE  2
     if (flags & ~3ULL) return -EINVAL;
+    if ((flags & RENAME_NOREPLACE) && (flags & RENAME_EXCHANGE)) return -EINVAL;
     if (!oldpath || !newpath) return -EFAULT;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -1080,14 +1237,7 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
     ret = process_resolve_path_at(proc, (int)newdirfd, new_name, new_resolved, sizeof(new_resolved));
     if (ret) return ret;
 
-    if (flags & RENAME_NOREPLACE) {
-        vfs_node_t exist = vfs_open(new_resolved);
-        if (exist) {
-            vfs_close(exist);
-            return -EEXIST;
-        }
-    }
-    if (flags & RENAME_EXCHANGE) return -ENOSYS; // not supported
+    if (flags & RENAME_EXCHANGE) return -EOPNOTSUPP;
 
     vfs_node_t node = vfs_open_nofollow(old_resolved);
     if (!node) return -ENOENT;
@@ -1100,7 +1250,7 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
     if (!old_dir || !new_dir)
         ret = -ENOENT;
     else
-        ret = vfs_move(node, new_dir, path_basename_local(new_resolved));
+        ret = vfs_rename(node, new_dir, path_basename_local(new_resolved), (flags & RENAME_NOREPLACE) ? VFS_RENAME_NOREPLACE : 0);
     if (old_dir) vfs_close(old_dir);
     if (new_dir) vfs_close(new_dir);
     vfs_close(node);
@@ -1170,13 +1320,14 @@ int64_t sys_clock_getres_impl(uint64_t clockid, uint64_t res, uint64_t arg2, uin
 
 int64_t sys_utimensat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
-    (void)dirfd;
-    (void)path;
-    (void)times;
-    (void)flags;
     (void)arg4;
     (void)arg5;
-    return 0; // accepted but timestamps not stored in most FS backends
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    linux_timespec64_t requested[2];
+    if (times && copy_from_user(requested, (const void *)times, sizeof(requested))) return -EFAULT;
+    return set_times_at(proc, (int)dirfd, path, times ? requested : NULL, flags);
 }
 
 /* fallocate */

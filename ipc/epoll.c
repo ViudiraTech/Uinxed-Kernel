@@ -449,10 +449,9 @@ static int epoll_stub_del(void *parent, vfs_node_t node)
     return -ENOSYS;
 }
 
-static int epoll_stub_rename(void *current, const char *new_name)
+static int epoll_stub_rename(const vfs_rename_context_t *context)
 {
-    (void)current;
-    (void)new_name;
+    (void)context;
     return -ENOSYS;
 }
 

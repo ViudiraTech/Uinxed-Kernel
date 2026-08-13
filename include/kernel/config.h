@@ -267,7 +267,7 @@
 #endif
 
 #ifndef PROCESS_KERNEL_STACK
-#    define PROCESS_KERNEL_STACK 32768
+#    define PROCESS_KERNEL_STACK 65536
 #endif
 
 #ifndef PROCESS_MAX_FD

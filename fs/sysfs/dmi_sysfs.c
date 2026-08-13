@@ -111,7 +111,7 @@ static const uint8_t *dmi_table_base(size_t *capacity)
     if (!entry || !capacity) return NULL;
     if (*(uint8_t *)entry == 0x5F && ((uint8_t *)entry)[1] == 0x53 && ((uint8_t *)entry)[2] == 0x4D && ((uint8_t *)entry)[3] == 0x33) {
         entry_point_64_t *ep = entry;
-        *capacity            = 0x100000; // entry points do not carry the length
+        *capacity            = ep->max_structure_size;
         return (const uint8_t *)phys_to_virt(ep->structure_table_address);
     }
     entry_point_32_t *ep = entry;
@@ -158,6 +158,34 @@ static struct bin_attribute dmi_tables_attr = {
     .read = dmi_tables_read,
 };
 
+/* Return the firmware-provided entry-point length after validating its anchor. */
+static size_t smbios_entry_length(void)
+{
+    const uint8_t *entry = smbios_entry();
+    if (!entry) return 0;
+    if (memcmp(entry, "_SM3_", 5) == 0) return entry[6] >= 24 && entry[6] <= 32 ? entry[6] : 0;
+    if (memcmp(entry, "_SM_", 4) == 0) return entry[5] >= 30 && entry[5] <= 32 ? entry[5] : 0;
+    return 0;
+}
+
+static ssize_t smbios_entry_point_read(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count)
+{
+    const uint8_t *entry  = smbios_entry();
+    size_t         length = smbios_entry_length();
+    (void)kobj;
+    (void)attr;
+    if (!entry || !length) return -ENOENT;
+    if (pos < 0 || (uint64_t)pos >= length) return 0;
+    if (count > length - (size_t)pos) count = length - (size_t)pos;
+    memcpy(buffer, entry + pos, count);
+    return (ssize_t)count;
+}
+
+static struct bin_attribute smbios_entry_point_attr = {
+    .attr = __ATTR(smbios_entry_point, 0400),
+    .read = smbios_entry_point_read,
+};
+
 /* Registration */
 
 /* Register the DMI class and firmware tables in sysfs. */
@@ -165,7 +193,9 @@ void dmi_sysfs_init(void)
 {
 #if CONFIG_SYSFS
     struct kobject *firmware_kobj;
+    struct kobject *dmi_kobj;
     struct kobject *tables_kobj;
+    bool            tables_registered = false;
 
     if (dmi_sysfs_ready) return;
     if (!smbios_entry()) return;
@@ -183,16 +213,34 @@ void dmi_sysfs_init(void)
         }
     }
     if (firmware_kobj) {
-        tables_kobj = kobject_create_and_add("tables", firmware_kobj);
+        dmi_kobj    = kobject_create_and_add("dmi", firmware_kobj);
+        tables_kobj = dmi_kobj ? kobject_create_and_add("tables", dmi_kobj) : NULL;
         if (tables_kobj) {
-            if (sysfs_create_bin_file(tables_kobj, &dmi_tables_attr) != EOK) {
+            size_t         capacity      = 0;
+            const uint8_t *table         = dmi_table_base(&capacity);
+            smbios_entry_point_attr.size = smbios_entry_length();
+            dmi_tables_attr.size         = table ? dmi_table_walk(table, capacity) : 0;
+
+            int entry_status = sysfs_create_bin_file(tables_kobj, &smbios_entry_point_attr);
+            int table_status = entry_status == EOK ? sysfs_create_bin_file(tables_kobj, &dmi_tables_attr) : entry_status;
+            if (entry_status != EOK || table_status != EOK) {
+                if (entry_status == EOK) sysfs_remove_bin_file(tables_kobj, &smbios_entry_point_attr);
                 kobject_del(tables_kobj);
                 kobject_put(tables_kobj);
-            }
+                kobject_del(dmi_kobj);
+                kobject_put(dmi_kobj);
+            } else
+                tables_registered = true;
+        } else if (dmi_kobj) {
+            kobject_del(dmi_kobj);
+            kobject_put(dmi_kobj);
         }
     }
 
     dmi_sysfs_ready = true;
-    plogk("dmi_sysfs: /sys/class/dmi/id and /sys/firmware/dmi/tables registered.\n");
+    if (tables_registered)
+        plogk("dmi_sysfs: /sys/class/dmi/id and /sys/firmware/dmi/tables registered.\n");
+    else
+        plogk("dmi_sysfs: Failed to register /sys/firmware/dmi/tables.\n");
 #endif
 }

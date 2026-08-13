@@ -251,6 +251,9 @@ static void fill_linux_stat(linux_stat_t *st, uint64_t uid, uint64_t gid, const 
     st->st_size    = (int64_t)src->size;
     st->st_blksize = src->blksz ? (int64_t)src->blksz : 4096;
     st->st_blocks  = (st->st_size + 511) / 512;
+    st->st_atime   = (int64_t)src->atime;
+    st->st_mtime   = (int64_t)src->mtime;
+    st->st_ctime   = (int64_t)src->ctime;
 }
 
 static vfs_node_t vfs_containing_mount(vfs_node_t node)
@@ -265,20 +268,23 @@ static vfs_node_t vfs_containing_mount(vfs_node_t node)
 static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, const process_fd_stat_t *src, vfs_node_t node)
 {
     memset(stx, 0, sizeof(*stx));
-    stx->stx_mask       = STATX_BASIC_STATS;
-    stx->stx_blksize    = src->blksz ? (uint32_t)src->blksz : 4096;
-    stx->stx_nlink      = src->nlink ? src->nlink : 1;
-    stx->stx_uid        = (uint32_t)uid;
-    stx->stx_gid        = (uint32_t)gid;
-    stx->stx_mode       = (uint16_t)linux_mode_from_type(src->type, src->mode);
-    stx->stx_ino        = src->inode;
-    stx->stx_size       = src->size;
-    stx->stx_blocks     = (src->size + 511) / 512;
-    stx->stx_rdev_major = MAJOR(src->rdev);
-    stx->stx_rdev_minor = MINOR(src->rdev);
-    stx->stx_dev_major  = MAJOR(src->dev);
-    stx->stx_dev_minor  = MINOR(src->dev);
-    vfs_node_t mount    = vfs_containing_mount(node);
+    stx->stx_mask         = STATX_BASIC_STATS;
+    stx->stx_blksize      = src->blksz ? (uint32_t)src->blksz : 4096;
+    stx->stx_nlink        = src->nlink ? src->nlink : 1;
+    stx->stx_uid          = (uint32_t)uid;
+    stx->stx_gid          = (uint32_t)gid;
+    stx->stx_mode         = (uint16_t)linux_mode_from_type(src->type, src->mode);
+    stx->stx_ino          = src->inode;
+    stx->stx_size         = src->size;
+    stx->stx_blocks       = (src->size + 511) / 512;
+    stx->stx_rdev_major   = MAJOR(src->rdev);
+    stx->stx_rdev_minor   = MINOR(src->rdev);
+    stx->stx_dev_major    = MAJOR(src->dev);
+    stx->stx_dev_minor    = MINOR(src->dev);
+    stx->stx_atime.tv_sec = (int64_t)src->atime;
+    stx->stx_mtime.tv_sec = (int64_t)src->mtime;
+    stx->stx_ctime.tv_sec = (int64_t)src->ctime;
+    vfs_node_t mount      = vfs_containing_mount(node);
     if (mount) {
         stx->stx_mask |= STATX_MNT_ID;
         stx->stx_mnt_id = mount->mount_id;
@@ -310,6 +316,9 @@ static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
         .rdev  = node->rdev,
         .size  = node->size,
         .blksz = node->blksz,
+        .atime = node->readtime,
+        .mtime = node->writetime,
+        .ctime = node->createtime,
     };
     linux_stat_t st;
     fill_linux_stat(&st, node->owner, node->group, &src);
@@ -330,6 +339,9 @@ static int64_t stat_node_to_user(vfs_node_t node, uint64_t ubuf)
         .rdev  = node->rdev,
         .size  = node->size,
         .blksz = node->blksz,
+        .atime = node->readtime,
+        .mtime = node->writetime,
+        .ctime = node->createtime,
     };
     linux_stat_t st;
     fill_linux_stat(&st, node->owner, node->group, &src);
@@ -350,6 +362,9 @@ static int64_t statx_node_to_user(vfs_node_t node, uint64_t ubuf)
         .rdev  = node->rdev,
         .size  = node->size,
         .blksz = node->blksz,
+        .atime = node->readtime,
+        .mtime = node->writetime,
+        .ctime = node->createtime,
     };
     linux_statx_t stx;
     fill_linux_statx(&stx, node->owner, node->group, &src, node);
@@ -934,6 +949,9 @@ static int64_t sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t arg2, uint64_t 
         .rdev  = file->node->rdev,
         .size  = file->node->size,
         .blksz = file->node->blksz,
+        .atime = file->node->readtime,
+        .mtime = file->node->writetime,
+        .ctime = file->node->createtime,
     };
     uint32_t owner = file->node->owner;
     uint32_t group = file->node->group;
@@ -1214,7 +1232,7 @@ static int64_t sys_rename(uint64_t oldpath, uint64_t newpath, uint64_t arg2, uin
     if (!olddir || !newdir)
         ret = -ENOENT;
     else
-        ret = vfs_move(node, newdir, path_basename(newname));
+        ret = vfs_rename(node, newdir, path_basename(newname), 0);
     if (olddir) vfs_close(olddir);
     if (newdir) vfs_close(newdir);
     vfs_close(node);
@@ -1245,7 +1263,7 @@ static int64_t sys_renameat(uint64_t olddirfd, uint64_t oldpath, uint64_t newdir
     if (!olddir || !newdir)
         ret = -ENOENT;
     else
-        ret = vfs_move(node, newdir, path_basename(newname));
+        ret = vfs_rename(node, newdir, path_basename(newname), 0);
     if (olddir) vfs_close(olddir);
     if (newdir) vfs_close(newdir);
     vfs_close(node);
@@ -2098,18 +2116,15 @@ static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, 
     return result;
 }
 
-static int64_t sys_chown_common(const char *path, uint64_t owner, uint64_t group)
+static int64_t sys_chown_common(const char *path, uint64_t owner, uint64_t group, bool nofollow)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
-    vfs_node_t node = vfs_open(path);
+    vfs_node_t node = nofollow ? vfs_open_nofollow(path) : vfs_open(path);
     if (!node) return -ENOENT;
-    node->owner = (uint32_t)owner;
-    node->group = (uint32_t)group;
-    inotify_notify(node, IN_ATTRIB);
+    int result = vfs_chown_process(node, (uint32_t)owner, (uint32_t)group, proc);
     vfs_close(node);
-    return EOK;
+    return result;
 }
 
 static int64_t sys_chown_impl(uint64_t path, uint64_t owner, uint64_t group, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2122,7 +2137,20 @@ static int64_t sys_chown_impl(uint64_t path, uint64_t owner, uint64_t group, uin
     char name[SYSCALL_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
     if (ret != EOK) return ret;
-    return sys_chown_common(name, owner, group);
+    return sys_chown_common(name, owner, group, false);
+}
+
+static int64_t sys_lchown_impl(uint64_t path, uint64_t owner, uint64_t group, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    char name[SYSCALL_PATH_MAX];
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
+    if (ret != EOK) return ret;
+    return sys_chown_common(name, owner, group, true);
 }
 
 static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2132,14 +2160,11 @@ static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
     process_file_t *file = process_fd_get(proc, (int)fd);
     if (!file) return -EBADF;
-    file->node->owner = (uint32_t)owner;
-    file->node->group = (uint32_t)group;
-    inotify_notify(file->node, IN_ATTRIB);
+    int result = vfs_chown_process(file->node, (uint32_t)owner, (uint32_t)group, proc);
     process_file_put(file);
-    return EOK;
+    return result;
 }
 
 static int64_t sys_mknod_impl(uint64_t path, uint64_t mode, uint64_t dev, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -3127,10 +3152,9 @@ static int pidfd_stub_del(void *p, vfs_node_t n)
     (void)n;
     return -ENOSYS;
 }
-static int pidfd_stub_rename(void *c, const char *nm)
+static int pidfd_stub_rename(const vfs_rename_context_t *context)
 {
-    (void)c;
-    (void)nm;
+    (void)context;
     return -ENOSYS;
 }
 static int pidfd_stub_mount(const char *s, vfs_node_t n)
@@ -5040,7 +5064,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FCHMOD]                 = sys_fchmod_impl,
     [SYS_CHOWN]                  = sys_chown_impl,
     [SYS_FCHOWN]                 = sys_fchown_impl,
-    [SYS_LCHOWN]                 = sys_chown_impl,
+    [SYS_LCHOWN]                 = sys_lchown_impl,
     [SYS_UMASK]                  = sys_umask_impl,
     [SYS_GETTIMEOFDAY]           = sys_gettimeofday,
     [SYS_GETRLIMIT]              = sys_getrlimit_impl,

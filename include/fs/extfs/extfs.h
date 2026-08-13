@@ -351,6 +351,7 @@ int extfs_dir_add_entry(extfs_handle_t *dir_h, const char *name, uint32_t ino, u
 int extfs_dir_remove_entry(extfs_handle_t *dir_h, const char *name);
 int extfs_dir_read_entries(extfs_handle_t *dir_h, void *buf, size_t bufsize, size_t *done);
 int extfs_make_empty_dir(extfs_handle_t *dir_h, uint32_t self_ino, uint32_t parent_ino);
+int extfs_dir_set_parent(extfs_handle_t *dir_h, uint32_t parent_ino);
 int extfs_dir_empty(extfs_handle_t *dir_h);
 int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *block);
 

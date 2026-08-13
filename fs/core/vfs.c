@@ -12,6 +12,7 @@
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
@@ -20,6 +21,7 @@
 #include <mem/page.h>
 #include <mem/pagecache.h>
 #include <process/process.h>
+#include <process/task.h>
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
@@ -27,10 +29,59 @@
 #define VFS_ACCESS_W 2
 
 #ifndef VFS_PATH_TEST_ONLY
-vfs_node_t        rootdir = 0;
-static spinlock_t vfs_namespace_lock;
-static uint64_t   vfs_next_ino      = 1;
-static uint64_t   vfs_next_mount_id = 1;
+vfs_node_t          rootdir = 0;
+static spinlock_t   vfs_namespace_lock;
+static spinlock_t   vfs_rename_serial_lock;
+static wait_queue_t vfs_rename_wait;
+static bool         vfs_rename_serial_busy;
+static uint64_t     vfs_next_ino      = 1;
+static uint64_t     vfs_next_mount_id = 1;
+
+/* Filesystem callbacks may sleep, so serialize rename transactions with a wait queue. */
+static void vfs_rename_serial_acquire(void)
+{
+    spin_lock(&vfs_rename_serial_lock);
+    while (vfs_rename_serial_busy) {
+        wait_queue_prepare(&vfs_rename_wait);
+        spin_unlock(&vfs_rename_serial_lock);
+        wait_queue_sleep();
+        spin_lock(&vfs_rename_serial_lock);
+    }
+    vfs_rename_serial_busy = true;
+    spin_unlock(&vfs_rename_serial_lock);
+}
+
+static void vfs_rename_serial_release(void)
+{
+    spin_lock(&vfs_rename_serial_lock);
+    vfs_rename_serial_busy = false;
+    spin_unlock(&vfs_rename_serial_lock);
+    wait_queue_wake_all(&vfs_rename_wait);
+}
+
+static int64_t vfs_now_seconds(void)
+{
+    int64_t nanoseconds = timer_realtime_ns();
+    return nanoseconds / (int64_t)TIMER_NSEC_PER_SEC;
+}
+
+static void vfs_touch_access(vfs_node_t node)
+{
+    if (node) node->readtime = vfs_now_seconds();
+}
+
+static void vfs_touch_modify(vfs_node_t node)
+{
+    if (!node) return;
+    int64_t now      = vfs_now_seconds();
+    node->writetime  = now;
+    node->createtime = now;
+}
+
+static void vfs_touch_change(vfs_node_t node)
+{
+    if (node) node->createtime = vfs_now_seconds();
+}
 
 /*
  * Check file access permissions against the current process.
@@ -60,11 +111,58 @@ int vfs_access_check(vfs_node_t node, uint32_t access_mask)
 int vfs_chmod_process(vfs_node_t node, uint16_t mode, process_t *proc)
 {
     if (!node || !proc) return -EINVAL;
+    if (vfs_mount_is_readonly(node)) return -EROFS;
     if (proc->fsuid != 0 && proc->fsuid != node->owner) return -EPERM;
     mode &= 07777;
     if (proc->fsuid != 0 && !process_in_group(proc, node->group)) mode &= (uint16_t)~02000;
     node->mode        = mode;
     node->permissions = mode;
+    vfs_touch_change(node);
+    inotify_notify(node, IN_ATTRIB);
+    return EOK;
+}
+
+/* Change ownership, treating UINT32_MAX as Linux's "leave unchanged" value. */
+int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, process_t *proc)
+{
+    if (!node || !proc) return -EINVAL;
+    if (vfs_mount_is_readonly(node)) return -EROFS;
+
+    bool change_owner = owner != UINT32_MAX;
+    bool change_group = group != UINT32_MAX;
+    if (proc->fsuid != 0) {
+        if (proc->fsuid != node->owner) return -EPERM;
+        if (change_owner && owner != node->owner) return -EPERM;
+        if (change_group && !process_in_group(proc, group)) return -EPERM;
+    }
+
+    if (change_owner) node->owner = owner;
+    if (change_group) node->group = group;
+    if ((change_owner || change_group) && !(node->type & file_dir)) {
+        node->mode &= (uint16_t)~06000;
+        node->permissions = node->mode;
+    }
+    vfs_touch_change(node);
+    inotify_notify(node, IN_ATTRIB);
+    return EOK;
+}
+
+/* Change file timestamps on behalf of a process. */
+int vfs_set_times_process(vfs_node_t node, int64_t atime, int64_t mtime, uint32_t flags, process_t *proc)
+{
+    uint32_t which = flags & (VFS_SET_TIME_ATIME | VFS_SET_TIME_MTIME);
+    if (!node || !proc) return -EINVAL;
+    if (!which) return EOK;
+    if (vfs_mount_is_readonly(node)) return -EROFS;
+
+    if (proc->fsuid != 0 && proc->fsuid != node->owner) {
+        if (flags & VFS_SET_TIME_EXPLICIT) return -EPERM;
+        if (vfs_access_check_process(node, VFS_ACCESS_W, proc) != EOK) return -EACCES;
+    }
+
+    if (which & VFS_SET_TIME_ATIME) node->readtime = atime;
+    if (which & VFS_SET_TIME_MTIME) node->writetime = mtime;
+    vfs_touch_change(node);
     inotify_notify(node, IN_ATTRIB);
     return EOK;
 }
@@ -432,11 +530,12 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
      */
     node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
     if (!node->inode) node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
-    node->nlink    = 1;
-    node->refcount = 0;
-    node->blksz    = PAGE_4K_SIZE;
-    node->mode     = 0777;
-    node->linkto   = 0;
+    node->nlink      = 1;
+    node->refcount   = 0;
+    node->blksz      = PAGE_4K_SIZE;
+    node->mode       = 0777;
+    node->linkto     = 0;
+    node->createtime = node->readtime = node->writetime = vfs_now_seconds();
     vfs_poll_source_init(&node->poll_source);
 
     if (parent) parent->child = clist_prepend(parent->child, node);
@@ -689,6 +788,11 @@ static vfs_node_t vfs_reserve_child(vfs_node_t parent, const char *name, int *st
 {
     if (status) *status = -ENOMEM;
     spin_lock(&vfs_namespace_lock);
+    if (parent->flags & VFS_NODE_RENAME_BUSY) {
+        spin_unlock(&vfs_namespace_lock);
+        if (status) *status = -EBUSY;
+        return NULL;
+    }
     if (vfs_child_find_reserved(parent, name)) {
         spin_unlock(&vfs_namespace_lock);
         if (status) *status = -EEXIST;
@@ -734,6 +838,7 @@ int vfs_mkdir_mode(const char *name, uint16_t mode)
         vfs_abort_created_node(parent, node);
     } else {
         do_update(node);
+        vfs_touch_modify(parent);
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
     }
@@ -772,6 +877,7 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
         plogk("vfs: Mkfile %s failed (%d)\n", name, status);
         vfs_abort_created_node(parent, node);
     } else {
+        vfs_touch_modify(parent);
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
     }
@@ -830,6 +936,7 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
     entry->size  = child->size;
     entry->inode = child->inode;
     spin_unlock(&vfs_namespace_lock);
+    if (index == 0) vfs_touch_access(dir);
     inotify_notify(dir, IN_ACCESS);
     return EOK;
 }
@@ -922,6 +1029,8 @@ static int vfs_link_internal(const char *name, const char *target_name, bool fol
     if (status != EOK) {
         vfs_abort_created_node(parent, node);
     } else {
+        vfs_touch_change(target);
+        vfs_touch_modify(parent);
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
     }
@@ -974,6 +1083,7 @@ int vfs_symlink(const char *name, const char *target_name)
     if (status != EOK) {
         vfs_abort_created_node(parent, node);
     } else {
+        vfs_touch_modify(parent);
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
     }
@@ -1076,7 +1186,7 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
         spin_unlock(&vfs_namespace_lock);
         return same_filesystem ? EOK : -EBUSY;
     }
-    if (node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING)) {
+    if (node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY)) {
         spin_unlock(&vfs_namespace_lock);
         return -EBUSY;
     }
@@ -1345,7 +1455,10 @@ size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size)
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
     int64_t              result  = mapping ? pagecache_read(mapping, addr, offset, size) : (int64_t)callbackof(file, read)(file->handle, addr, offset, size);
     if (mapping) file->size = pagecache_size(mapping);
-    if (result > 0) inotify_notify(file, IN_ACCESS);
+    if (result > 0) {
+        vfs_touch_access(file);
+        inotify_notify(file, IN_ACCESS);
+    }
     return (size_t)result;
 }
 
@@ -1381,7 +1494,10 @@ size_t vfs_write(vfs_node_t file, const void *addr, size_t offset, size_t size)
         file->size = pagecache_size(mapping);
     else
         do_update(file);
-    if (ret > 0) inotify_notify(file, IN_MODIFY);
+    if (ret > 0) {
+        vfs_touch_modify(file);
+        inotify_notify(file, IN_MODIFY);
+    }
     return (size_t)ret;
 }
 
@@ -1412,7 +1528,10 @@ int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flag
         plogk("vfs: Read overrun from %s callback: returned %lld for %lu requested.\n", file->name, (long long)result, (unsigned long)size);
         return -EIO;
     }
-    if (result > 0) inotify_notify(file, IN_ACCESS);
+    if (result > 0) {
+        vfs_touch_access(file);
+        inotify_notify(file, IN_ACCESS);
+    }
     return result;
 }
 
@@ -1452,7 +1571,10 @@ int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t fla
     if (ret > 0 && (uint64_t)ret > size) return -EIO;
 
     if (!mapping) do_update(file);
-    if (ret > 0) inotify_notify(file, IN_MODIFY);
+    if (ret > 0) {
+        vfs_touch_modify(file);
+        inotify_notify(file, IN_MODIFY);
+    }
     return ret;
 }
 
@@ -1461,7 +1583,7 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
     return vfs_file_write_process(file, private_data, flags, addr, offset, size, process_current());
 }
 
-#    define VFS_USER_IO_CHUNK 16384
+#    define VFS_USER_IO_CHUNK PAGE_4K_SIZE
 
 /*
  * Userspace I/O is carried through VFS instead of being unconditionally
@@ -1486,7 +1608,7 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
 
         int64_t ret = read_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
-        if (ret > 0) inotify_notify(file, IN_ACCESS);
+        if (ret > 0) { inotify_notify(file, IN_ACCESS); }
         return ret;
     }
 
@@ -1504,22 +1626,44 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
 
         int64_t ret = read_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
-        if (ret > 0) inotify_notify(file, IN_ACCESS);
+        if (ret > 0) {
+            vfs_touch_access(file);
+            inotify_notify(file, IN_ACCESS);
+        }
         return ret;
     }
 
-    uint8_t tmp[VFS_USER_IO_CHUNK];
-    size_t  done = 0;
+    if (!size) return 0;
+
+    size_t   capacity = size < VFS_USER_IO_CHUNK ? size : VFS_USER_IO_CHUNK;
+    uint8_t *tmp      = malloc(capacity);
+    if (!tmp) return -ENOMEM;
+
+    size_t  done   = 0;
+    int64_t result = 0;
     while (done < size) {
-        size_t  chunk = size - done < sizeof(tmp) ? size - done : sizeof(tmp);
+        size_t  chunk = size - done < capacity ? size - done : capacity;
         int64_t ret   = vfs_file_read_process(file, private_data, flags, tmp, offset + done, chunk, proc);
-        if (ret < 0) return done ? (int64_t)done : ret;
+        if (ret < 0) {
+            result = done ? (int64_t)done : ret;
+            goto out;
+        }
         if (!ret) break;
-        if (copy_to_user((uint8_t *)addr + done, tmp, (size_t)ret)) return done ? (int64_t)done : -EFAULT;
+        if ((uint64_t)ret > chunk) {
+            result = done ? (int64_t)done : -EIO;
+            goto out;
+        }
+        if (copy_to_user((uint8_t *)addr + done, tmp, (size_t)ret)) {
+            result = done ? (int64_t)done : -EFAULT;
+            goto out;
+        }
         done += (size_t)ret;
         if ((size_t)ret < chunk) break;
     }
-    return (int64_t)done;
+    result = (int64_t)done;
+out:
+    free(tmp);
+    return result;
 }
 
 int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
@@ -1537,7 +1681,7 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
 
         int64_t ret = write_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
-        if (ret > 0) inotify_notify(file, IN_MODIFY);
+        if (ret > 0) { inotify_notify(file, IN_MODIFY); }
         return ret;
     }
 
@@ -1551,7 +1695,10 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
         int64_t ret = write_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
         if (ret >= 0) do_update(file);
-        if (ret > 0) inotify_notify(file, IN_MODIFY);
+        if (ret > 0) {
+            vfs_touch_modify(file);
+            inotify_notify(file, IN_MODIFY);
+        }
         return ret;
     }
 
@@ -1560,18 +1707,35 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
         return vfs_file_write_process(file, private_data, flags, &empty, offset, 0, proc);
     }
 
-    uint8_t tmp[VFS_USER_IO_CHUNK];
-    size_t  done = 0;
+    size_t   capacity = size < VFS_USER_IO_CHUNK ? size : VFS_USER_IO_CHUNK;
+    uint8_t *tmp      = malloc(capacity);
+    if (!tmp) return -ENOMEM;
+
+    size_t  done   = 0;
+    int64_t result = 0;
     while (done < size) {
-        size_t chunk = size - done < sizeof(tmp) ? size - done : sizeof(tmp);
-        if (copy_from_user(tmp, (const uint8_t *)addr + done, chunk)) return done ? (int64_t)done : -EFAULT;
+        size_t chunk = size - done < capacity ? size - done : capacity;
+        if (copy_from_user(tmp, (const uint8_t *)addr + done, chunk)) {
+            result = done ? (int64_t)done : -EFAULT;
+            goto out;
+        }
         int64_t ret = vfs_file_write_process(file, private_data, flags, tmp, offset + done, chunk, proc);
-        if (ret < 0) return done ? (int64_t)done : ret;
+        if (ret < 0) {
+            result = done ? (int64_t)done : ret;
+            goto out;
+        }
         if (!ret) break;
+        if ((uint64_t)ret > chunk) {
+            result = done ? (int64_t)done : -EIO;
+            goto out;
+        }
         done += (size_t)ret;
         if ((size_t)ret < chunk) break;
     }
-    return (int64_t)done;
+    result = (int64_t)done;
+out:
+    free(tmp);
+    return result;
 }
 
 /* Check whether the node's mount subtree is read-only. */
@@ -1630,6 +1794,7 @@ int vfs_truncate(vfs_node_t file, uint64_t size)
         result = -EOPNOTSUPP;
     if (!result) {
         file->size = size;
+        vfs_touch_modify(file);
         inotify_notify(file, IN_MODIFY);
     }
     return result;
@@ -1973,7 +2138,7 @@ int vfs_namespace_unlink(vfs_node_t node)
     if (!node->parent) return -EINVAL;
 
     spin_lock(&vfs_namespace_lock);
-    if (node->flags & (VFS_NODE_UNLINKED | VFS_NODE_UNLINKING)) {
+    if ((node->flags & (VFS_NODE_UNLINKED | VFS_NODE_UNLINKING | VFS_NODE_RENAME_BUSY)) || !node->parent || (node->parent->flags & VFS_NODE_RENAME_BUSY)) {
         spin_unlock(&vfs_namespace_lock);
         return -ENOENT;
     }
@@ -2015,7 +2180,7 @@ void vfs_namespace_detach(vfs_node_t node)
     if (!node || node == rootdir) return;
 
     spin_lock(&vfs_namespace_lock);
-    if (node->flags & (VFS_NODE_UNLINKED | VFS_NODE_UNLINKING | VFS_NODE_FINALIZING)) {
+    if (node->flags & (VFS_NODE_UNLINKED | VFS_NODE_UNLINKING | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY)) {
         spin_unlock(&vfs_namespace_lock);
         return;
     }
@@ -2057,7 +2222,8 @@ int vfs_delete(vfs_node_t node)
 
     do_update(node);
     spin_lock(&vfs_namespace_lock);
-    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING)) || (node->type & file_delete)) {
+    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY)) || (node->parent && (node->parent->flags & VFS_NODE_RENAME_BUSY))
+        || (node->type & file_delete)) {
         spin_unlock(&vfs_namespace_lock);
         return -ENOENT;
     }
@@ -2085,6 +2251,7 @@ int vfs_delete(vfs_node_t node)
         node->flags |= VFS_NODE_EVENT_DELETE;
         inotify_notify_delete(node);
     }
+    if (node->parent) vfs_touch_modify(node->parent);
     spin_lock(&vfs_namespace_lock);
     node->type |= file_delete;
     node->flags &= ~VFS_NODE_UNLINKING;
@@ -2103,213 +2270,198 @@ delete_failed:
     return status;
 }
 
-/* Rename a VFS (Virtual File System) node to a new name */
-int vfs_rename(vfs_node_t node, const char *new)
+static int vfs_rename_sticky_check(vfs_node_t parent, vfs_node_t victim)
 {
-    if (!node || !new || !new[0] || strchr(new, '/') || streq(new, ".") || streq(new, "..")) return -EINVAL;
-    if (strlen(new) > VFS_NAME_MAX) return -ENAMETOOLONG;
-    if (node->flags & VFS_NODE_SWAPFILE) return -EBUSY;
-    if (!node->parent) return -EINVAL;
-    if (vfs_access_check(node->parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK) return -EACCES;
-
-    char *old      = strdup(node->name);
-    char *new_name = strdup(new);
-    if (!old || !new_name) {
-        free(old);
-        free(new_name);
-        return -ENOMEM;
-    }
-
-    spin_lock(&vfs_namespace_lock);
-    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING)) || (node->type & file_delete)) {
-        spin_unlock(&vfs_namespace_lock);
-        free(old);
-        free(new_name);
-        return -ENOENT;
-    }
-    if (streq(node->name, new)) {
-        spin_unlock(&vfs_namespace_lock);
-        free(old);
-        free(new_name);
-        return EOK;
-    }
-    vfs_node_t collision = vfs_child_find_reserved(node->parent, new);
-    if (collision && collision != node) {
-        /*
-         * rename(2) replaces an existing destination atomically.  A number
-         * of normal userspace writers (notably udev's database and xauth)
-         * rely on the write-temp-then-rename pattern.  Treat two names for
-         * the same inode as the POSIX no-op case, otherwise retain the
-         * destination while it is removed below.
-         */
-        bool same_inode = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
-        if (same_inode) {
-            spin_unlock(&vfs_namespace_lock);
-            free(old);
-            free(new_name);
-            return EOK;
-        }
-
-        bool source_is_dir   = (node->type & file_dir) != 0;
-        bool target_is_dir   = (collision->type & file_dir) != 0;
-        int  collision_error = EOK;
-        if (source_is_dir && !target_is_dir)
-            collision_error = -ENOTDIR;
-        else if (!source_is_dir && target_is_dir)
-            collision_error = -EISDIR;
-        else if (target_is_dir && vfs_directory_has_visible_children(collision))
-            collision_error = -ENOTEMPTY;
-        else if (collision->is_mount || (collision->flags & VFS_NODE_SWAPFILE))
-            collision_error = -EBUSY;
-
-        if (collision_error != EOK) {
-            spin_unlock(&vfs_namespace_lock);
-            free(old);
-            free(new_name);
-            return collision_error;
-        }
-        collision->refcount++;
-    }
-    node->flags |= VFS_NODE_INITIALIZING;
-    spin_unlock(&vfs_namespace_lock);
-
-    if (collision && collision != node) {
-        int delete_result = vfs_delete(collision);
-        vfs_close(collision); // NOLINT(clang-analyzer-unix.Malloc) - refcount incremented above guarantees node is live
-        if (delete_result != EOK) {
-            spin_lock(&vfs_namespace_lock);
-            node->flags &= ~VFS_NODE_INITIALIZING;
-            spin_unlock(&vfs_namespace_lock);
-            free(old);
-            free(new_name);
-            return delete_result;
-        }
-    }
-
-    int res = callbackof(node, rename)(node->handle, new);
-    if (res != EOK) {
-        spin_lock(&vfs_namespace_lock);
-        node->flags &= ~VFS_NODE_INITIALIZING;
-        spin_unlock(&vfs_namespace_lock);
-        free(old);
-        free(new_name);
-        return res;
-    }
-
-    spin_lock(&vfs_namespace_lock);
-    free(node->name);
-    node->name = new_name;
-    node->flags &= ~VFS_NODE_INITIALIZING;
-    if (node->parent) node->parent->visited = 0;
-    spin_unlock(&vfs_namespace_lock);
-    inotify_notify_move(node, old, new);
-    free(old);
-    return EOK;
+    process_t *process = process_current();
+    if (!process || process->fsuid == 0 || !(parent->mode & 01000)) return EOK;
+    return process->fsuid == parent->owner || process->fsuid == victim->owner ? EOK : -EPERM;
 }
 
-/* Move a node to a new parent directory within the same filesystem. */
-int vfs_move(vfs_node_t node, vfs_node_t new_parent, const char *new)
+/* Rename is a single backend transaction followed by one VFS namespace commit. */
+int vfs_rename(vfs_node_t node, vfs_node_t new_parent, const char *new_name_arg, uint32_t flags)
 {
-    if (!node || !new_parent || !new || !new[0] || strchr(new, '/') || streq(new, ".") || streq(new, "..")) return -EINVAL;
-    if (strlen(new) > VFS_NAME_MAX) return -ENAMETOOLONG;
-    if (!node->parent || !(new_parent->type & file_dir)) return -ENOTDIR;
-    if (node->parent == new_parent) return vfs_rename(node, new);
+    int        status   = EOK;
+    char      *old_name = NULL, *new_name = NULL;
+    clist_t    new_link   = NULL;
+    vfs_node_t old_parent = NULL, target = NULL;
+    bool       target_retained = false;
+
+    if (!node || !new_parent || !new_name_arg || !new_name_arg[0] || strchr(new_name_arg, '/') || streq(new_name_arg, ".") || streq(new_name_arg, "..")) return -EINVAL;
+    if (flags & ~VFS_RENAME_NOREPLACE) return -EINVAL;
+    if (strlen(new_name_arg) > VFS_NAME_MAX) return -ENAMETOOLONG;
+    if (!(new_parent->type & file_dir)) return -ENOTDIR;
+    if (!node->parent) return -EINVAL;
     if (node->fsid != new_parent->fsid || node->root != new_parent->root) return -EXDEV;
     if (node->is_mount || (node->flags & VFS_NODE_SWAPFILE)) return -EBUSY;
-    if (vfs_access_check(node->parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK || vfs_access_check(new_parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK) return -EACCES;
+    if (vfs_mount_is_readonly(node) || vfs_mount_is_readonly(new_parent)) return -EROFS;
+    if (callbackof(node, rename) == vfs_empty_callback.rename) return -EOPNOTSUPP;
 
-    for (vfs_node_t parent = new_parent; parent; parent = parent->parent) {
-        if (parent == node) return -EINVAL;
-        if (parent == parent->parent) break;
+    vfs_rename_serial_acquire();
+    old_parent = node->parent;
+    if (!old_parent) {
+        status = -ENOENT;
+        goto out;
     }
-    if (callbackof(node, move) == vfs_empty_callback.move) return -EXDEV;
+    if (vfs_access_check(old_parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK || vfs_access_check(new_parent, VFS_ACCESS_W | VFS_ACCESS_X) != EOK) {
+        status = -EACCES;
+        goto out;
+    }
+    status = vfs_rename_sticky_check(old_parent, node);
+    if (status != EOK) goto out;
 
-    char   *old      = strdup(node->name);
-    char   *new_name = strdup(new);
-    clist_t new_link = clist_alloc(node);
-    if (!old || !new_name || !new_link) {
-        free(old);
-        free(new_name);
-        free(new_link);
-        return -ENOMEM;
+    old_name = strdup(node->name);
+    new_name = strdup(new_name_arg);
+    if (!old_name || !new_name) {
+        status = -ENOMEM;
+        goto out;
+    }
+    if (old_parent != new_parent) {
+        new_link = clist_alloc(node);
+        if (!new_link) {
+            status = -ENOMEM;
+            goto out;
+        }
     }
 
     spin_lock(&vfs_namespace_lock);
-    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING)) || (node->type & file_delete)) {
-        spin_unlock(&vfs_namespace_lock);
-        free(old);
-        free(new_name);
-        free(new_link);
-        return -ENOENT;
+    if (node->parent != old_parent || (node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY)) || (node->type & file_delete)
+        || (old_parent->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY)) || (old_parent->type & file_delete)
+        || (new_parent->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY)) || (new_parent->type & file_delete)) {
+        status = -EBUSY;
+        goto unlock_error;
     }
-    vfs_node_t collision = vfs_child_find_reserved(new_parent, new);
-    if (collision && collision != node) {
-        bool same_inode = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
+    if (old_parent == new_parent && streq(node->name, new_name_arg)) {
+        spin_unlock(&vfs_namespace_lock);
+        status = EOK;
+        goto out;
+    }
+    for (vfs_node_t ancestor = new_parent; ancestor; ancestor = ancestor->parent) {
+        if (ancestor == node) {
+            status = -EINVAL;
+            goto unlock_error;
+        }
+        if (ancestor == ancestor->parent) break;
+    }
+
+    target = vfs_child_find_reserved(new_parent, new_name_arg);
+    if (target == node) {
+        spin_unlock(&vfs_namespace_lock);
+        status = EOK;
+        goto out;
+    }
+    if (target) {
+        if (flags & VFS_RENAME_NOREPLACE) {
+            status = -EEXIST;
+            goto unlock_error;
+        }
+        if (target->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY)) {
+            status = -EBUSY;
+            goto unlock_error;
+        }
+        bool same_inode = target->handle == node->handle || (target->fsid == node->fsid && target->inode && target->inode == node->inode);
         if (same_inode) {
             spin_unlock(&vfs_namespace_lock);
-            free(old);
-            free(new_name);
-            free(new_link);
-            return EOK;
+            status = EOK;
+            goto out;
         }
-        collision->refcount++;
+        bool source_is_dir = (node->type & file_dir) != 0;
+        bool target_is_dir = (target->type & file_dir) != 0;
+        if (source_is_dir && !target_is_dir)
+            status = -ENOTDIR;
+        else if (!source_is_dir && target_is_dir)
+            status = -EISDIR;
+        else if (target_is_dir && vfs_directory_has_visible_children(target))
+            status = -ENOTEMPTY;
+        else if (target->is_mount || (target->flags & VFS_NODE_SWAPFILE))
+            status = -EBUSY;
+        else
+            status = vfs_rename_sticky_check(new_parent, target);
+        if (status != EOK) goto unlock_error;
+        if (target->refcount == UINT32_MAX) {
+            status = -EOVERFLOW;
+            goto unlock_error;
+        }
+        target->refcount++;
+        target_retained = true;
+        target->flags |= VFS_NODE_INITIALIZING;
     }
     node->flags |= VFS_NODE_INITIALIZING;
+    old_parent->flags |= VFS_NODE_RENAME_BUSY;
+    new_parent->flags |= VFS_NODE_RENAME_BUSY;
     spin_unlock(&vfs_namespace_lock);
 
-    if (collision && collision != node) {
-        bool source_is_dir   = (node->type & file_dir) != 0;
-        bool target_is_dir   = (collision->type & file_dir) != 0;
-        int  collision_error = EOK;
-        if (source_is_dir && !target_is_dir)
-            collision_error = -ENOTDIR;
-        else if (!source_is_dir && target_is_dir)
-            collision_error = -EISDIR;
-        else if (target_is_dir && vfs_directory_has_visible_children(collision))
-            collision_error = -ENOTEMPTY;
-        else if (collision->is_mount || (collision->flags & VFS_NODE_SWAPFILE))
-            collision_error = -EBUSY;
-        if (collision_error == EOK) collision_error = vfs_delete(collision);
-        vfs_close(collision);
-        if (collision_error != EOK) {
-            spin_lock(&vfs_namespace_lock);
-            node->flags &= ~VFS_NODE_INITIALIZING;
-            spin_unlock(&vfs_namespace_lock);
-            free(old);
-            free(new_name);
-            free(new_link);
-            return collision_error;
-        }
-    }
-
-    int result = callbackof(node, move)(node->handle, new_parent->handle, new);
-    if (result != EOK) {
+    vfs_rename_context_t context = {
+        .old_parent = old_parent,
+        .source     = node,
+        .new_parent = new_parent,
+        .target     = target,
+        .new_name   = new_name,
+        .flags      = flags,
+    };
+    status = callbackof(node, rename)(&context);
+    if (status != EOK) {
         spin_lock(&vfs_namespace_lock);
         node->flags &= ~VFS_NODE_INITIALIZING;
+        old_parent->flags &= ~VFS_NODE_RENAME_BUSY;
+        new_parent->flags &= ~VFS_NODE_RENAME_BUSY;
+        if (target) target->flags &= ~VFS_NODE_INITIALIZING;
         spin_unlock(&vfs_namespace_lock);
-        free(old);
-        free(new_name);
-        free(new_link);
-        return result;
+        goto out;
     }
 
+    if (target && !(target->flags & VFS_NODE_EVENT_DELETE)) {
+        target->flags |= VFS_NODE_EVENT_DELETE;
+        inotify_notify_delete(target);
+    }
     spin_lock(&vfs_namespace_lock);
-    vfs_node_t old_parent = node->parent;
-    old_parent->child     = clist_delete(old_parent->child, node);
-    new_link->next        = new_parent->child;
-    if (new_parent->child) new_parent->child->prev = new_link;
-    new_parent->child = new_link;
-    node->parent      = new_parent;
+    if (target) {
+        new_parent->child = clist_delete(new_parent->child, target);
+        target->parent    = NULL;
+        target->type |= file_delete;
+        target->flags &= ~VFS_NODE_INITIALIZING;
+        target->flags |= VFS_NODE_DELETE_COMMITTED | VFS_NODE_UNLINKED;
+    }
+    if (old_parent != new_parent) {
+        old_parent->child = clist_delete(old_parent->child, node);
+        new_link->next    = new_parent->child;
+        if (new_parent->child) new_parent->child->prev = new_link;
+        new_parent->child = new_link;
+        new_link          = NULL;
+        node->parent      = new_parent;
+    }
     free(node->name);
     node->name = new_name;
+    new_name   = NULL;
     node->flags &= ~VFS_NODE_INITIALIZING;
+    old_parent->flags &= ~VFS_NODE_RENAME_BUSY;
+    new_parent->flags &= ~VFS_NODE_RENAME_BUSY;
     old_parent->visited = 0;
     new_parent->visited = 0;
+    vfs_touch_change(node);
+    vfs_touch_modify(old_parent);
+    if (new_parent != old_parent) vfs_touch_modify(new_parent);
     spin_unlock(&vfs_namespace_lock);
 
-    inotify_notify_move(node, old, new);
-    free(old);
+    vfs_rename_serial_release();
+    inotify_notify_move(node, old_parent, old_name, node->name);
+    if (target) vfs_close(target);
+    free(old_name);
     return EOK;
+
+unlock_error:
+    spin_unlock(&vfs_namespace_lock);
+out:
+    vfs_rename_serial_release();
+    if (target_retained && (target->flags & VFS_NODE_INITIALIZING)) {
+        spin_lock(&vfs_namespace_lock);
+        target->flags &= ~VFS_NODE_INITIALIZING;
+        spin_unlock(&vfs_namespace_lock);
+    }
+    if (target_retained) vfs_close(target);
+    free(new_link);
+    free(new_name);
+    free(old_name);
+    return status;
 }
 
 /* Send control commands to a device or file */
@@ -2372,6 +2524,8 @@ void vfs_free(vfs_node_t vfs)
 void init_vfs(void)
 {
     for (size_t i = 0; i < sizeof(struct vfs_callback) / sizeof(void *); i++) ((void **)&vfs_empty_callback)[i] = empty_func;
+    wait_queue_init(&vfs_rename_wait);
+    vfs_rename_serial_busy          = false;
     pagecache_allocator_t allocator = {.alloc = vfs_page_alloc, .free = vfs_page_free};
     size_t                max_pages = frame_allocator.origin_frames / 2;
     if (max_pages < 256) max_pages = 256;

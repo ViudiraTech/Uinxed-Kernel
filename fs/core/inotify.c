@@ -289,12 +289,12 @@ uint32_t inotify_next_cookie(void)
 }
 
 /* Report a rename with paired moved-from/moved-to events. */
-void inotify_notify_move(vfs_node_t node, const char *old_name, const char *new_name)
+void inotify_notify_move(vfs_node_t node, vfs_node_t old_parent, const char *old_name, const char *new_name)
 {
-    if (!node || !node->parent || !old_name || !new_name) return;
+    if (!node || !old_parent || !node->parent || !old_name || !new_name) return;
     uint32_t cookie    = inotify_next_cookie();
     uint32_t type_mask = (node->type & file_dir) ? IN_ISDIR : 0;
-    inotify_emit(node->parent, IN_MOVED_FROM | type_mask, cookie, old_name, false);
+    inotify_emit(old_parent, IN_MOVED_FROM | type_mask, cookie, old_name, false);
     inotify_emit(node->parent, IN_MOVED_TO | type_mask, cookie, new_name, false);
     inotify_emit(node, IN_MOVE_SELF | type_mask, 0, NULL, false);
 }

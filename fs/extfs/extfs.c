@@ -867,30 +867,38 @@ static int extfs_rmdir_impl(void *parent, const char *name)
     free(child_h);
     return EOK;
 }
-/* Rename a directory entry within the same directory. */
-static int extfs_rename_impl(void *current, const char *new_name)
+static int extfs_adjust_directory_links(extfs_handle_t *directory, int delta)
 {
-    vfs_node_t       node = current;
-    extfs_handle_t  *old_h;
-    extfs_handle_t  *parent_h;
-    extfs_sb_info_t *sb;
+    if (!directory || (delta != -1 && delta != 1)) return -EINVAL;
+    ext2_inode_t raw;
+    int          status = extfs_read_inode_raw(directory->sb, directory->inode_no, &raw);
+    if (status != EOK) return status;
+    if ((raw.i_mode & 0xF000) != EXT2_S_IFDIR) return -ENOTDIR;
+    if ((delta < 0 && raw.i_links_count <= 2) || (delta > 0 && raw.i_links_count == UINT16_MAX)) return -EMLINK;
+    raw.i_links_count = (uint16_t)(raw.i_links_count + delta);
+    raw.i_ctime = raw.i_mtime = timer_realtime_seconds32();
+    return extfs_write_inode_raw(directory->sb, directory->inode_no, &raw);
+}
+
+/* Commit the complete old-parent/source/new-parent/target rename transaction. */
+static int extfs_rename_impl(const vfs_rename_context_t *context)
+{
+    if (!context || !context->source || !context->old_parent || !context->new_parent || !context->new_name) return -EINVAL;
+    extfs_handle_t *source_h     = extfs_get_handle(context->source);
+    extfs_handle_t *old_parent_h = extfs_get_handle(context->old_parent);
+    extfs_handle_t *new_parent_h = extfs_get_handle(context->new_parent);
+    extfs_handle_t *target_h     = extfs_get_handle(context->target);
+    if (!source_h || !old_parent_h || !new_parent_h || (context->target && !target_h)) return -EINVAL;
+    if (source_h->sb != old_parent_h->sb || source_h->sb != new_parent_h->sb || (target_h && source_h->sb != target_h->sb)) return -EXDEV;
+
+    extfs_sb_info_t *sb = source_h->sb;
     ext2_inode_t     raw;
     uint8_t          file_type;
+    uint32_t         existing;
     int              status;
 
-    if (!node || !new_name) return -EINVAL;
-    if (strcmp(node->name, new_name) == 0) return EOK;
-
-    old_h = extfs_get_handle(node);
-    if (!old_h) return -EINVAL;
-
-    parent_h = extfs_get_handle(node->parent);
-    if (!parent_h) return -EINVAL;
-
-    sb = old_h->sb;
-
     /* Determine file type */
-    status = extfs_read_inode_raw(sb, old_h->inode_no, &raw);
+    status = extfs_read_inode_raw(sb, source_h->inode_no, &raw);
     if (status != EOK) return status;
 
     if ((raw.i_mode & 0xF000) == EXT2_S_IFDIR)
@@ -900,19 +908,34 @@ static int extfs_rename_impl(void *current, const char *new_name)
     else
         file_type = EXT2_FT_REG_FILE;
 
-    uint32_t existing;
-    status = extfs_dir_lookup(parent_h, new_name, &existing);
-    if (status == EOK) return -EEXIST;
-    if (status != -ENOENT) return status;
+    status = extfs_dir_lookup(new_parent_h, context->new_name, &existing);
+    if (context->target) {
+        if (status != EOK) return status;
+        if (existing != target_h->inode_no) return -EIO;
+        status = (context->target->type & file_dir) ? extfs_rmdir_impl(context->new_parent, context->new_name) : extfs_delete_impl(context->new_parent, context->target);
+        if (status != EOK) return status;
+    } else if (status != -ENOENT) {
+        return status == EOK ? -EEXIST : status;
+    }
 
-    /* The transaction makes the add/remove pair atomic to crash recovery. */
-    status = extfs_dir_add_entry(parent_h, new_name, old_h->inode_no, file_type);
+    status = extfs_dir_add_entry(new_parent_h, context->new_name, source_h->inode_no, file_type);
     if (status != EOK) return status;
-    status = extfs_dir_remove_entry(parent_h, node->name);
+    status = extfs_dir_remove_entry(old_parent_h, context->source->name);
     if (status != EOK) return status;
-    status = extfs_touch_inode(sb, old_h->inode_no, 0);
+
+    if ((context->source->type & file_dir) && context->old_parent != context->new_parent) {
+        status = extfs_dir_set_parent(source_h, new_parent_h->inode_no);
+        if (status != EOK) return status;
+        status = extfs_adjust_directory_links(old_parent_h, -1);
+        if (status != EOK) return status;
+        status = extfs_adjust_directory_links(new_parent_h, 1);
+        if (status != EOK) return status;
+    }
+    status = extfs_touch_inode(sb, source_h->inode_no, 0);
     if (status != EOK) return status;
-    return extfs_touch_inode(sb, parent_h->inode_no, 1);
+    status = extfs_touch_inode(sb, old_parent_h->inode_no, 1);
+    if (status != EOK) return status;
+    return context->new_parent == context->old_parent ? EOK : extfs_touch_inode(sb, new_parent_h->inode_no, 1);
 }
 
 /* Commit a mutation transaction, aborting it on failure. */
@@ -1019,21 +1042,25 @@ static int extfs_rmdir(void *parent, const char *name)
 }
 
 /* VFS callback: rename inside a transaction. */
-static int extfs_rename_cb(void *current, const char *new_name)
+static int extfs_rename_cb(const vfs_rename_context_t *context)
 {
-    vfs_node_t      node = current;
-    extfs_handle_t *h    = node ? extfs_get_handle(node) : 0;
+    vfs_node_t      node = context ? context->source : NULL;
+    extfs_handle_t *h    = extfs_get_handle(node);
     fs_txn_t        transaction;
     int             status;
     if (!h) return -EINVAL;
-    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    status = extfs_transaction_begin(h->sb, &transaction, 65536);
     if (status != EOK) return status;
-    status = extfs_rename_impl(current, new_name);
+    status = extfs_rename_impl(context);
     status = extfs_finish_mutation(h->sb, &transaction, status);
     if (status != EOK) {
         (void)extfs_load_inode(h);
-        extfs_handle_t *parent_h = node && node->parent ? extfs_get_handle(node->parent) : 0;
-        if (parent_h) (void)extfs_load_inode(parent_h);
+        extfs_handle_t *old_parent_h = context ? extfs_get_handle(context->old_parent) : 0;
+        extfs_handle_t *new_parent_h = context ? extfs_get_handle(context->new_parent) : 0;
+        extfs_handle_t *target_h     = context ? extfs_get_handle(context->target) : 0;
+        if (old_parent_h) (void)extfs_load_inode(old_parent_h);
+        if (new_parent_h && new_parent_h != old_parent_h) (void)extfs_load_inode(new_parent_h);
+        if (target_h) (void)extfs_load_inode(target_h);
     }
     return status;
 }

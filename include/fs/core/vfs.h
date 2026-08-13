@@ -32,6 +32,7 @@
 #define VFS_NODE_EVENT_DELETE     (1ULL << 55)
 #define VFS_NODE_SWAPFILE         (1ULL << 54)
 #define VFS_NODE_PARENT_RETAINED  (1ULL << 53)
+#define VFS_NODE_RENAME_BUSY      (1ULL << 52)
 
 /* Persistent mount attributes kept on the namespace mount-point node. */
 #define MOUNT_FLAG_RDONLY (1ULL << 0)
@@ -43,6 +44,23 @@ typedef struct vfs_node             *vfs_node_t;
 typedef struct pagecache_mapping     pagecache_mapping_t;
 typedef struct vfs_poll_subscription vfs_poll_subscription_t;
 struct process;
+
+#define VFS_RENAME_NOREPLACE (1U << 0)
+
+/*
+ * A rename is one filesystem operation, not a delete followed by a move.
+ * Supplying both parents and the optional victim lets the backend commit or
+ * reject the complete namespace change without destroying the destination on
+ * failure.
+ */
+typedef struct vfs_rename_context {
+        vfs_node_t  old_parent;
+        vfs_node_t  source;
+        vfs_node_t  new_parent;
+        vfs_node_t  target;
+        const char *new_name;
+        uint32_t    flags;
+} vfs_rename_context_t;
 
 typedef void (*vfs_poll_notify_t)(vfs_poll_subscription_t *subscription, uint32_t events);
 
@@ -89,8 +107,7 @@ typedef size_t (*vfs_readlink_t)(vfs_node_t node, void *addr, size_t offset, siz
 typedef int (*vfs_stat_t)(void *file, vfs_node_t node);
 typedef int (*vfs_mk_t)(void *parent, const char *name, vfs_node_t node);
 typedef int (*vfs_del_t)(void *parent, vfs_node_t node);
-typedef int (*vfs_rename_t)(void *current, const char *new);
-typedef int (*vfs_move_t)(void *current, void *new_parent, const char *new);
+typedef int (*vfs_rename_t)(const vfs_rename_context_t *context);
 typedef int (*vfs_ioctl_t)(void *file, size_t req, void *arg);
 typedef vfs_node_t (*vfs_dup_t)(vfs_node_t node);
 typedef int (*vfs_poll_t)(void *file, size_t events);
@@ -164,7 +181,6 @@ typedef struct vfs_callback {
         vfs_file_poll_source_cb_t   file_poll_source;      // Per-open readiness notification source
         vfs_resize_t                resize;                // Change the persistent file size
         vfs_sync_t                  sync;                  // Commit data and metadata to stable storage
-        vfs_move_t                  move;                  // Move to another directory in the same filesystem
 } *vfs_callback_t;
 
 extern vfs_callback_t fs_callbacks[];
@@ -176,9 +192,9 @@ typedef struct vfs_node {
         char                *linkname;     // Symbolic link name
         uint64_t             realsize;     // Actual space occupied by the project (optional)
         uint64_t             size;         // File size or 0 if it is a folder
-        uint64_t             createtime;   // Creation time
-        uint64_t             readtime;     // Last read time
-        uint64_t             writetime;    // Last write time
+        int64_t              createtime;   // Status-change time (legacy field name)
+        int64_t              readtime;     // Last read time
+        int64_t              writetime;    // Last write time
         uint64_t             inode;        // Node number
         uint32_t             nlink;        // Number of namespace links to the inode
         uint64_t             blksz;        // Block size
@@ -248,6 +264,14 @@ vfs_node_t vfs_node_retain(vfs_node_t node);
 int vfs_access_check(vfs_node_t node, uint32_t access_mask);
 int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, struct process *proc);
 int vfs_chmod_process(vfs_node_t node, uint16_t mode, struct process *proc);
+int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, struct process *proc);
+
+#define VFS_SET_TIME_ATIME    (1U << 0)
+#define VFS_SET_TIME_MTIME    (1U << 1)
+#define VFS_SET_TIME_EXPLICIT (1U << 2)
+
+/* Change atime/mtime and advance ctime using Linux ownership rules. */
+int vfs_set_times_process(vfs_node_t node, int64_t atime, int64_t mtime, uint32_t flags, struct process *proc);
 
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name);
@@ -355,9 +379,8 @@ int vfs_namespace_unlink(vfs_node_t node);
 /* Detach a kernel-owned virtual subtree, deferring frees until open references close. */
 void vfs_namespace_detach(vfs_node_t node);
 
-/* Rename a VFS (Virtual File System) node to a new name */
-int vfs_rename(vfs_node_t node, const char *new);
-int vfs_move(vfs_node_t node, vfs_node_t new_parent, const char *new);
+/* Atomically rename a node within one mounted filesystem. */
+int vfs_rename(vfs_node_t node, vfs_node_t new_parent, const char *new_name, uint32_t flags);
 
 /* Send control commands to a device or file */
 int vfs_ioctl(vfs_node_t device, size_t options, void *arg);

@@ -176,7 +176,12 @@ static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t 
         target[filesize] = '\0';
         status           = vfs_symlink(path, target);
         free(target);
-        return status == -EEXIST ? EOK : status;
+        if (status != EOK && status != -EEXIST) return status;
+        vfs_node_t node = vfs_open_nofollow(path);
+        if (!node) return -ENOENT;
+        cpio_set_metadata(node, mode, uid, gid, mtime);
+        vfs_close(node);
+        return EOK;
     }
 
     if (file_type != CPIO_MODE_IFREG) return -EOPNOTSUPP;
@@ -189,7 +194,6 @@ static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t 
         vfs_close(node);
         return -EINVAL;
     }
-    cpio_set_metadata(node, mode, uid, gid, mtime);
     if (zero_copy) {
         status = tmpfs_adopt_file_data(node, filedata, filesize);
     } else {
@@ -199,6 +203,7 @@ static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t 
             status          = written < 0 ? (int)written : (size_t)written == filesize ? EOK : -EIO;
         }
     }
+    if (status == EOK) cpio_set_metadata(node, mode, uid, gid, mtime);
     vfs_close(node);
     return status;
 }

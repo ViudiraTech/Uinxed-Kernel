@@ -121,12 +121,7 @@ static void fpu_state_set_initial(void *state)
     if (!state) return;
     memset(state, 0, fpu_save_size);
     *(uint16_t *)state = FPU_DEFAULT_FCW;
-    if (fpu_use_xsave) {
-        memset((uint8_t *)state + 4, 0x03, 8); // XSAVE FTW: 8-bit per tag, empty
-        *(uint64_t *)((uint8_t *)state + 512) = fpu_xstate_mask;
-    } else {
-        *(uint16_t *)((uint8_t *)state + 4) = 0xFFFF; // FXSAVE FTW: packed, all empty
-    }
+    if (fpu_use_xsave) *(uint64_t *)((uint8_t *)state + 512) = fpu_xstate_mask;
     *(uint32_t *)((uint8_t *)state + 24) = FPU_DEFAULT_MXCSR;
 }
 
