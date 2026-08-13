@@ -225,7 +225,7 @@ Contributions are welcome! Follow these steps:
 4. Format your code: `make format`
 5. Submit your changes using one of the following methods:
    * Push to your fork and open a Pull Request against `master`.
-   * Create a patch and send it to the project maintainer's email address [see below](#contact).
+   * Create a patch and send it to the project maintainer's email address [(see below)](#contact).
 
 It is recommended to submit a patch so that maintainers can test and review your changes before merging.
 
