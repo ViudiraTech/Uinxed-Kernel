@@ -46,7 +46,6 @@ int parport_register_port(const char *name, uint16_t base, int irq, void *privat
     parport_list = p;
     spin_unlock(&parport_lock);
 
-    plogk("parport: %s at 0x%03x (IRQ %d) registered.\n", p->name, base, irq);
     return 0;
 }
 

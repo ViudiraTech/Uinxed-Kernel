@@ -239,6 +239,7 @@ void kernel_entry(void)
     /* Hardware Bus & Input */       //
     pci_init();                      // Peripheral Component Interconnect
     init_ps2();                      // PS/2 Controller
+    parport_pc_init();               // PC Parallel Port (SPP)
                                      //
     log_buffer_print(&serial_log);   //
     log_buffer_print(&parallel_log); //

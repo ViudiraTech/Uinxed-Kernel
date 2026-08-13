@@ -241,6 +241,6 @@ void dmi_sysfs_init(void)
     if (tables_registered)
         plogk("dmi_sysfs: /sys/class/dmi/id and /sys/firmware/dmi/tables registered.\n");
     else
-        plogk("dmi_sysfs: Failed to register /sys/firmware/dmi/tables.\n");
+        plogk("dmi_sysfs: Failed to register /sys/firmware/dmi/tables\n");
 #endif
 }

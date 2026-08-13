@@ -694,7 +694,7 @@ static int fatfs_vfs_rename(const vfs_rename_context_t *context)
     }
 
     free(handle->path);
-    handle->path      = new_path;
+    handle->path = new_path;
     return EOK;
 }
 

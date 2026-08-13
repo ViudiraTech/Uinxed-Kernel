@@ -514,7 +514,7 @@ void init_ahci(void)
             dev->sector_size = 2048;
             dev->size        = 0;
             ahci_write32(port->port_mmio, PORT_CMD, ahci_read32(port->port_mmio, PORT_CMD) | PORT_CMD_ATAPI);
-            plogk("ahci: Port %u: ATAPI optical device detected.\n", i);
+            plogk("ahci: Port %u: SATAPI optical device detected.\n", i);
             ahci_device_count++;
             satapi_count++;
             ahci_port_count++;

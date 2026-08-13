@@ -130,7 +130,6 @@ int register_console(console_t *c)
     console_list = c;
     spin_unlock(&console_lock);
 
-    plogk("console: Registered \"%s%u\" %s.\n", c->name, c->index, enabled ? "(enabled)" : "");
     return 0;
 }
 
