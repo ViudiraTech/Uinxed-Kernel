@@ -205,7 +205,7 @@ static void dispatch_gpes(void)
     for (int i = 0; i < gpe_handler_count; i++) {
         uint8_t block, bit;
         if (gpe_number_to_bit(gpe_handlers[i].gpe_number, &block, &bit)) {
-            plogk("acpi: GPE %u no longer maps to a GPE block; handler dropped.\n", gpe_handlers[i].gpe_number);
+            plogk("acpi-event: GPE %u no longer maps to a GPE block; handler dropped.\n", gpe_handlers[i].gpe_number);
             continue;
         }
         uint8_t sts = acpi_gpe_status(block);
@@ -255,7 +255,7 @@ int acpi_sci_init(void)
     sci_vector = IRQ_0 + irq;
 
     register_interrupt_handler(sci_vector, (void *)sci_handler, 0, 0x8e);
-    plogk("acpi: SCI handler registered on vector %u (IRQ %u)\n", sci_vector, irq);
+    plogk("acpi-event: SCI handler registered on vector %u (IRQ %u)\n", sci_vector, irq);
     return 0;
 }
 
@@ -278,7 +278,7 @@ void acpi_event_poll(void)
 static void power_button_handler(void *context)
 {
     (void)context;
-    plogk("acpi: Power button pressed, shutting down...\n");
+    plogk("acpi-event: Power button pressed, shutting down...\n");
     power_off();
 }
 
@@ -294,8 +294,6 @@ void acpi_event_init(void)
 
     /* Register default power button handler */
     acpi_register_fixed_event(ACPI_EVENT_POWER_BUTTON, power_button_handler, 0);
-
-    if (acpi_sci_init()) plogk("acpi: SCI init failed, falling back to polled events.\n");
-
-    plogk("acpi: Event subsystem registered.\n");
+    if (acpi_sci_init()) plogk("acpi-event: SCI init failed, falling back to polled events.\n");
+    plogk("acpi-event: Event subsystem registered.\n");
 }

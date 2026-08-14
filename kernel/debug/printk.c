@@ -185,19 +185,19 @@ void wfmt_arg(writer *writer, args_fmter *fmter, va_list args)
         switch (**fmt_ptr) {
             case '-' :
                 num_flag.left = 1;
-                break;
+                continue;
             case '+' :
                 num_flag.plus = 1;
-                break;
+                continue;
             case ' ' :
                 num_flag.space = 1;
-                break;
+                continue;
             case '#' :
                 num_flag.special = 1;
-                break;
+                continue;
             case '0' :
                 num_flag.zeropad = 1;
-                break;
+                continue;
             default :
                 break;
         }

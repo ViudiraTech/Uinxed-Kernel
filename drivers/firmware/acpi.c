@@ -42,13 +42,43 @@ void *find_table(const char *name)
     for (uint32_t i = 0; i < entry_count; i++) {
         uint64_t           phys_addr = (entry_size == 8) ? ((const uint64_t *)entry_base)[i] : ((const uint32_t *)entry_base)[i];
         acpi_sdt_header_t *header    = (acpi_sdt_header_t *)phys_to_virt(phys_addr);
-        if (*(const uint32_t *)header->signature == target_sig) {
-            plogk("acpi: %.4s found at %p\n", name, header);
-            return header;
-        }
+        if (*(const uint32_t *)header->signature == target_sig) { return header; }
     }
-    plogk("acpi: Table %.4s not found in %s\n", name, use_xsdt ? "XSDT" : "RSDT");
     return 0;
+}
+
+/* List all ACPI tables in the RSDT/XSDT along with their headers. */
+static void list_acpi_tables(void)
+{
+    int use_xsdt = xsdt != 0;
+    if (!use_xsdt && !rsdt) {
+        plogk("acpi: No RSDT/XSDT available.\n");
+        return;
+    }
+
+    uint32_t len = use_xsdt ? xsdt->header.length : rsdt->header.length;
+    if (len < sizeof(acpi_sdt_header_t)) {
+        plogk("acpi: Bogus SDT length %u\n", len);
+        return;
+    }
+
+    const uint32_t entry_size  = use_xsdt ? 8 : 4;
+    const uint32_t entry_count = (len - sizeof(acpi_sdt_header_t)) / entry_size;
+    const char    *entry_base  = (char *)(use_xsdt ? (void *)xsdt : (void *)rsdt) + sizeof(acpi_sdt_header_t);
+
+    for (uint32_t i = 0; i < entry_count; i++) {
+        uint64_t           phys_addr  = (entry_size == 8) ? ((const uint64_t *)entry_base)[i] : ((const uint32_t *)entry_base)[i];
+        acpi_sdt_header_t *header     = (acpi_sdt_header_t *)phys_to_virt(phys_addr);
+        char               sig[5]     = {0};
+        char               oem_id[7]  = {0};
+        char               oem_tab[9] = {0};
+
+        for (int j = 0; j < 4; j++) sig[j] = header->signature[j];
+        for (int j = 0; j < 6; j++) oem_id[j] = header->oem_id[j];
+        for (int j = 0; j < 8; j++) oem_tab[j] = header->oem_table_id[j];
+
+        plogk("acpi: Table %s at %p (v%02u %-6s %-8s %08u)\n", sig, header, header->revision, oem_id, oem_tab, header->oem_revision);
+    }
 }
 
 /* Initialize ACPI */
@@ -59,6 +89,7 @@ void acpi_init(void)
         return;
     }
     rsdp_t *rsdp = (rsdp_t *)rsdp_request.response->address;
+
     plogk("acpi: Version %s\n", rsdp->revision ? "2.0+" : "1.0");
     plogk("acpi: RSDP found at %p\n", rsdp);
 
@@ -79,10 +110,11 @@ void acpi_init(void)
         rsdt                    = (rsdt_t *)phys_to_virt(rsdt_ptr.val);
         plogk("acpi: RSDT found at %p\n", rsdt);
     }
+
+    list_acpi_tables();
     load_table(HPET, hpet_init);
     load_table(APIC, apic_init);
     load_table(FACP, facp_init);
     load_table(MCFG, mcfg_init);
-
     acpi_event_init();
 }
