@@ -19,6 +19,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <process/kthread.h>
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
@@ -683,7 +684,7 @@ int drm_atomic_commit(struct drm_atomic_state *state)
 }
 
 /* Worker task that performs a queued nonblocking commit. */
-static void drm_atomic_nonblock_worker(void *arg)
+static int drm_atomic_nonblock_worker(void *arg)
 {
     struct drm_atomic_state *state     = (struct drm_atomic_state *)arg;
     struct drm_device       *dev       = state->dev;
@@ -698,6 +699,7 @@ static void drm_atomic_nonblock_worker(void *arg)
         wait_queue_wake_all(&file_priv->event_wait);
     }
     drm_dev_put(dev);
+    return 0;
 }
 
 /* Queue a nonblocking commit, or complete it synchronously for sync-flip drivers. */
@@ -763,7 +765,7 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
         return -EBUSY;
     }
     state->commit_seq = ++config->commit_queue_next;
-    worker            = kthread_create("drm-atomic", drm_atomic_nonblock_worker, state);
+    worker            = kthread_run("drm-atomic", drm_atomic_nonblock_worker, state);
     if (!worker) config->commit_queue_next--;
     spin_unlock(&config->commit_queue_lock);
     if (!worker) {

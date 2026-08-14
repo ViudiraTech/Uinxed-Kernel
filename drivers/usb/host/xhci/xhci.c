@@ -951,22 +951,23 @@ static void xhci_service_port(xhci_controller_t *controller, uint8_t port_id)
 }
 
 /* Hub worker: service pending port changes. */
-static void xhci_worker(void *argument)
+static int xhci_worker(void *argument)
 {
     xhci_controller_t *controller = argument;
-    while (!controller->stopping) {
+    while (!controller->stopping && !kthread_should_stop()) {
         uint64_t flags            = spin_lock_irqsave(&controller->port_lock);
         uint64_t ports            = controller->pending_ports;
         controller->pending_ports = 0;
-        if (!ports && !controller->stopping) wait_queue_prepare(&controller->worker_wait);
+        if (!ports && !controller->stopping && !kthread_should_stop()) wait_queue_prepare(&controller->worker_wait);
         spin_unlock_irqrestore(&controller->port_lock, flags);
-        if (!ports && !controller->stopping) {
+        if (!ports && !controller->stopping && !kthread_should_stop()) {
             wait_queue_sleep();
             continue;
         }
         for (uint8_t port = 1; port <= controller->max_ports; port++)
             if (ports & (1ULL << (port - 1))) xhci_service_port(controller, port);
     }
+    return 0;
 }
 
 /* ISR: acknowledge event/port interrupts and drain the event ring. */
@@ -1236,7 +1237,7 @@ void xhci_init(void)
     }
 }
 
-/* Start the hub worker task of every registered controller. */
+/* Register the hub worker task of every controller for unified creation. */
 void xhci_start_workers(void)
 {
 #if !CONFIG_USB_XHCI
@@ -1245,11 +1246,8 @@ void xhci_start_workers(void)
     for (size_t i = 0; i < xhci_controller_count; i++) {
         xhci_controller_t *controller = xhci_controllers[i];
         if (!controller || controller->worker_started) continue;
-        controller->worker_task = kthread_create("xhci-hub", xhci_worker, controller);
-        if (!controller->worker_task) continue;
         controller->worker_started = true;
-        task_wakeup(controller->worker_task);
-        if (controller->pending_ports) wait_queue_wake_one(&controller->worker_wait);
+        kernel_worker_register("xhci-hub", xhci_worker, controller, &controller->worker_task);
     }
 }
 

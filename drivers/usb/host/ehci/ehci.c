@@ -88,7 +88,9 @@ typedef struct ehci_controller {
         uint64_t                  pending_ports;
         spinlock_t                lock;
         volatile bool             io_busy;
+        wait_queue_t              worker_wait;
         task_t                   *worker_task;
+        bool                      worker_started;
         bool                      running;
 } ehci_controller_t;
 
@@ -652,13 +654,14 @@ static void ehci_service_periodic(ehci_controller_t *ctrl)
 }
 
 /* Hub worker: handle port changes, enumerate devices, poll periodic. */
-static void ehci_worker(void *argument)
+static int ehci_worker(void *argument)
 {
     ehci_controller_t *ctrl = argument;
-    while (ctrl->running) {
+    while (ctrl->running && !kthread_should_stop()) {
         uint64_t flags      = spin_lock_irqsave(&ctrl->lock);
         uint64_t ports      = ctrl->pending_ports;
         ctrl->pending_ports = 0;
+        if (!ports && ctrl->running && !kthread_should_stop()) wait_queue_prepare(&ctrl->worker_wait);
         spin_unlock_irqrestore(&ctrl->lock, flags);
         for (uint8_t port = 0; port < ctrl->num_ports; port++) {
             if (!(ports & (1ULL << port))) continue;
@@ -677,8 +680,10 @@ static void ehci_worker(void *argument)
             }
         }
         ehci_service_periodic(ctrl);
-        msleep(1);
+
+        if (!ports && ctrl->running && !kthread_should_stop()) wait_queue_wait_timed(&ctrl->worker_wait, sched_ticks() + timer_ns_to_ticks_ceil(1000000ULL));
     }
+    return 0;
 }
 
 /* ISR: acknowledge status bits and flag port-change work. */
@@ -695,6 +700,7 @@ static void ehci_interrupt_handler(void *frame)
             uint64_t flags = spin_lock_irqsave(&ctrl->lock);
             ctrl->pending_ports |= (1ULL << ctrl->num_ports) - 1;
             spin_unlock_irqrestore(&ctrl->lock, flags);
+            if (ctrl->worker_started) wait_queue_wake_one(&ctrl->worker_wait);
         }
         if (sts & EHCI_STS_INT) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_INT);
         if (sts & EHCI_STS_ERR) {
@@ -722,6 +728,7 @@ static void ehci_host_stop(usb_host_t *host)
 {
     ehci_controller_t *ctrl = container_of(host, ehci_controller_t, hcd);
     ctrl->running           = false;
+    wait_queue_wake_all(&ctrl->worker_wait);
     ehci_write32(ctrl->operational, EHCI_OP_USBCMD, 0);
     ehci_write32(ctrl->operational, EHCI_OP_USBINTR, 0);
 }
@@ -859,9 +866,8 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     if (msi_vector >= 0) ctrl->vector = msi_vector;
     if (ctrl->vector > 0) register_interrupt_handler((uint16_t)ctrl->vector, ehci_interrupt_handler, 0, 0x8e);
 
-    ctrl->running     = true;
-    ctrl->worker_task = kthread_create("ehci-hub", ehci_worker, ctrl);
-    if (ctrl->worker_task) task_wakeup(ctrl->worker_task);
+    wait_queue_init(&ctrl->worker_wait);
+    ctrl->running                             = true;
     ehci_controllers[ehci_controller_count++] = ctrl;
     usb_host_register(&ctrl->hcd);
 
@@ -901,4 +907,10 @@ void ehci_start_workers(void)
 #if !CONFIG_USB_EHCI
     return;
 #endif
+    for (size_t i = 0; i < ehci_controller_count; i++) {
+        ehci_controller_t *ctrl = ehci_controllers[i];
+        if (!ctrl || ctrl->worker_started) continue;
+        ctrl->worker_started = true;
+        kernel_worker_register("ehci-hub", ehci_worker, ctrl, &ctrl->worker_task);
+    }
 }

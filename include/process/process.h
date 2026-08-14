@@ -17,6 +17,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/page.h>
+#include <process/kthread.h>
 #include <process/task.h>
 #include <sync/signal.h>
 
@@ -86,16 +87,6 @@ typedef enum {
     VM_SHARED = 0x8,
     VM_LAZY   = 0x10,
 } vm_flags_t;
-
-typedef enum {
-    PROCESS_LOADING,
-    PROCESS_READY,
-    PROCESS_RUNNING,
-    PROCESS_BLOCKED,
-    PROCESS_SLEEPING,
-    PROCESS_ZOMBIE,
-    PROCESS_DEAD,
-} process_state_t;
 
 typedef enum {
     VM_REGION_CODE,
@@ -223,19 +214,34 @@ typedef struct process {
         char            exe_path[VFS_PATH_MAX]; // executable path (procfs /proc/<pid>/exe)
 } process_t;
 
+/*
+ * Linux is_global_init(): the global init is the thread-group leader whose PID
+ * is 1.  It carries SIGNAL_UNKILLABLE semantics and is never reparented.
+ */
+static inline bool is_global_init(const process_t *proc)
+{
+    return proc && proc->task && proc->task->pid == 1;
+}
+
 bool process_in_group(const process_t *proc, uint32_t gid);
 
 /* Initialize the process management subsystem */
 void process_init(void);
 
 /* Create a new user process skeleton */
-process_t *process_create(const char *name, void (*entry)(void *), void *arg);
+process_t *process_create(const char *name);
 
 /* Set up user page directory for a process (used by ELF loader) */
 int setup_process_page_dir(process_t *proc);
 
-/* Create a kernel process (task with no user address space) */
-process_t *process_create_kernel(const char *name, void (*entry)(void *), void *arg);
+/*
+ * Wrap an already-allocated task in a minimal kernel-thread process bundle.
+ * The task must have been created by task_alloc(); its kernel stack and entry
+ * trampoline are the caller's responsibility (see kernel/process/kthread.c).
+ * Sets task->flags |= PF_KTHREAD, parents the process under kthreadd, and
+ * publishes it in the process table.
+ */
+process_t *process_create_kthread(task_t *task, const char *name);
 
 /* Terminate the current process and release its resources */
 void process_exit(int exit_code);
@@ -255,14 +261,8 @@ int  process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid
 void process_child_stopped(process_t *child, int signal);
 void process_child_continued(process_t *child);
 
-/* Send a signal to terminate the given process */
-int process_kill(pid_t pid);
-
 /* Find the process structure for the given pid, or NULL if not found */
 process_t *process_find(pid_t pid);
-
-/* Iterate all processes. Set *pos = 0 to start, returns NULL when done */
-process_t *process_iterate(size_t *pos);
 
 /* Pinned process-table access. Call process_put() on non-NULL results. */
 process_t *process_find_get(pid_t pid);
@@ -293,15 +293,6 @@ int  process_setpgid(process_t *caller, pid_t pid, pid_t pgid);
 int  process_setsid(process_t *proc, pid_t *sid);
 bool process_pgrp_is_orphaned(pid_t pgid, pid_t sid);
 
-/* Clone the current process (fork semantics) */
-process_t *process_fork(void);
-
-/* Clone the current process and preserve the allocation/admission errno. */
-process_t *process_fork_status(int *error);
-
-/* Fork while propagating a Linux ptrace creation event before enqueue. */
-process_t *process_fork_status_event(int *error, uint32_t ptrace_event);
-
 /*
  * Fork with a pre-published vfork completion state.  The state must be set
  * before the child is runnable, otherwise a fast exec/exit can be lost.
@@ -314,14 +305,8 @@ void       process_fork_discard(process_t *child);
 void process_vfork_wait(process_t *child);
 void process_vfork_complete(process_t *proc);
 
-/* Clone the current process and make the child return from the syscall frame */
-process_t *process_fork_from_syscall(syscall_frame_t *frame);
-
 /* Create a pthread-style task sharing the current process resources. */
 task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid, uintptr_t child_clear_tid, uintptr_t tls, int *error);
-
-/* Return the next available pid */
-pid_t process_next_pid(void);
 
 /* Allocate a new vm_area struct */
 vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags);

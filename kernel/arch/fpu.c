@@ -205,11 +205,17 @@ void fpu_init(void)
 
             /*
              * The heap is not available this early, so the initial-state
-             * template cannot be grown at runtime.  Truncating the area
-             * would corrupt every XRSTOR, so refuse to continue on CPUs
-             * whose enabled XSAVE area exceeds the static template.
+             * template cannot be grown at runtime.  Rather than refuse to
+             * boot, drop back to legacy x87/SSE state (XCR0_FPU_MASK),
+             * whose XSAVE area always fits the static template.
              */
-            if (fpu_save_size > sizeof(fpu_initial_state)) panic("fpu: XSAVE area (%zu B) exceeds the initial-state template (%zu B)\n", fpu_save_size, sizeof(fpu_initial_state));
+            if (fpu_save_size > sizeof(fpu_initial_state)) {
+                plogk("fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state\n", fpu_save_size, sizeof(fpu_initial_state));
+                xcr0_mask = XCR0_FPU_MASK;
+                __asm__ volatile("xsetbv" : : "a"((uint32_t)xcr0_mask), "d"((uint32_t)(xcr0_mask >> 32)), "c"(0) : "memory");
+                cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
+                fpu_save_size = (ebx + FPU_STATE_ALIGNMENT - 1) & ~(FPU_STATE_ALIGNMENT - 1);
+            }
             cpuid_count(0x0000000d, 1, &eax, &ebx, &ecx, &edx);
 
             fpu_xstate_mask  = xcr0_mask;

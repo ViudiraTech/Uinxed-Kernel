@@ -25,7 +25,7 @@ static volatile uint32_t wake_all_woken;
 #    define WAKE_ALL_TEST_WAITERS 24
 
 /* Demo thread that logs a few sleep-ticks iterations */
-static void scheduler_demo_thread(void *arg)
+static int scheduler_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
 
@@ -33,10 +33,11 @@ static void scheduler_demo_thread(void *arg)
         plogk("sched: %s iteration %llu on task %llu cpu %u\n", name, i, current_task()->pid, current_task()->cpu_id);
         task_sleep_ticks(2);
     }
+    return 0;
 }
 
 /* Demo thread that burns CPU in chunks to exercise preemption */
-static void preempt_demo_thread(void *arg)
+static int preempt_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
 
@@ -46,50 +47,55 @@ static void preempt_demo_thread(void *arg)
         plogk("sched: %s busy chunk %llu cpu %u\n", name, chunk, current_task()->cpu_id);
     }
     plogk("sched: %s busy loop done.\n", name);
+    return 0;
 }
 
 /* Demo thread that blocks on the shared wait queue */
-static void wait_demo_thread(void *arg)
+static int wait_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
 
     plogk("sched: %s waiting at tick %llu\n", name, sched_ticks());
     wait_queue_wait(&demo_wait_queue);
     plogk("sched: %s woke at tick %llu on task %llu cpu %u\n", name, sched_ticks(), current_task()->pid, current_task()->cpu_id);
+    return 0;
 }
 
 /* Demo thread that wakes one task off the shared wait queue */
-static void wake_demo_thread(void *arg)
+static int wake_demo_thread(void *arg)
 {
     (void)arg;
 
     task_sleep_ticks(8);
     task_t *task = wait_queue_wake_one(&demo_wait_queue);
     plogk("sched: Wait queue wake_one target task %llu\n", task ? task->pid : 0);
+    return 0;
 }
 
 /* Demo thread that blocks waiting for a keyboard input event */
-static void keyboard_wait_thread(void *arg)
+static int keyboard_wait_thread(void *arg)
 {
     (void)arg;
 
     plogk("init: Keyboard waiter blocking for an input event.\n");
     ps2kbd_wait_events();
     plogk("init: Keyboard waiter received an input event.\n");
+    return 0;
 }
 
 /* Demo thread that blocks on the migration wait queue */
-static void migration_wait_thread(void *arg)
+static int migration_wait_thread(void *arg)
 {
     (void)arg;
 
     plogk("sched: Migration waiter started on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
     wait_queue_wait(&migration_wait_queue);
     plogk("sched: Migration waiter woke on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
+    return 0;
 }
 
 /* Demo thread that migrates the waiter to CPU 1 and wakes it */
-static void migration_wake_thread(void *arg)
+static int migration_wake_thread(void *arg)
 {
     (void)arg;
 
@@ -100,10 +106,11 @@ static void migration_wake_thread(void *arg)
     }
     task_t *task = wait_queue_wake_one(&migration_wait_queue);
     plogk("sched: Migration wake target task %llu\n", task ? task->pid : 0);
+    return 0;
 }
 
 /* One waiter among many that prepares on the shared wake-all queue */
-static void wake_all_wait_thread(void *arg)
+static int wake_all_wait_thread(void *arg)
 {
     (void)arg;
 
@@ -111,10 +118,11 @@ static void wake_all_wait_thread(void *arg)
     __atomic_add_fetch(&wake_all_ready, 1, __ATOMIC_RELEASE);
     wait_queue_sleep();
     __atomic_add_fetch(&wake_all_woken, 1, __ATOMIC_RELEASE);
+    return 0;
 }
 
 /* Demo thread that wakes all waiters and reports pass/fail */
-static void wake_all_test_thread(void *arg)
+static int wake_all_test_thread(void *arg)
 {
     (void)arg;
 
@@ -124,10 +132,11 @@ static void wake_all_test_thread(void *arg)
 
     while (__atomic_load_n(&wake_all_woken, __ATOMIC_ACQUIRE) < WAKE_ALL_TEST_WAITERS) sched_yield();
     plogk("sched: wake_all test %s (%llu/%u waiters)\n", count == WAKE_ALL_TEST_WAITERS ? "passed" : "failed", count, WAKE_ALL_TEST_WAITERS);
+    return 0;
 }
 
 /* Demo thread that burns CPU and yields to exercise load balancing */
-static void balance_demo_thread(void *arg)
+static int balance_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
 
@@ -136,10 +145,11 @@ static void balance_demo_thread(void *arg)
         plogk("sched: %s balance chunk %llu task %llu cpu %u\n", name, chunk, current_task()->pid, current_task()->cpu_id);
         sched_yield();
     }
+    return 0;
 }
 
 /* Spawn the scheduler demo threads and keep the init thread alive */
-static void kernel_init_thread(void *arg)
+static int kernel_init_thread(void *arg)
 {
     (void)arg;
 
@@ -147,21 +157,21 @@ static void kernel_init_thread(void *arg)
     wait_queue_init(&demo_wait_queue);
     wait_queue_init(&migration_wait_queue);
     wait_queue_init(&wake_all_wait_queue);
-    kthread_create("preempt-demo", preempt_demo_thread, "preempt-demo");
-    kthread_create("demo-a", scheduler_demo_thread, "demo-a");
-    kthread_create("demo-b", scheduler_demo_thread, "demo-b");
-    kthread_create("wait-demo", wait_demo_thread, "wait-demo");
-    kthread_create("wake-demo", wake_demo_thread, NULL);
-    kthread_create("keyboard-wait", keyboard_wait_thread, NULL);
-    migration_task = kthread_create_on_cpu("migration-wait", migration_wait_thread, NULL, 0);
-    kthread_create("migration-wake", migration_wake_thread, NULL);
-    for (uint32_t i = 0; i < WAKE_ALL_TEST_WAITERS; i++) kthread_create("wake-all-wait", wake_all_wait_thread, NULL);
-    kthread_create("wake-all-test", wake_all_test_thread, NULL);
+    kthread_run("preempt-demo", preempt_demo_thread, "preempt-demo");
+    kthread_run("demo-a", scheduler_demo_thread, "demo-a");
+    kthread_run("demo-b", scheduler_demo_thread, "demo-b");
+    kthread_run("wait-demo", wait_demo_thread, "wait-demo");
+    kthread_run("wake-demo", wake_demo_thread, NULL);
+    kthread_run("keyboard-wait", keyboard_wait_thread, NULL);
+    migration_task = kthread_run_on_cpu("migration-wait", migration_wait_thread, NULL, 0);
+    kthread_run("migration-wake", migration_wake_thread, NULL);
+    for (uint32_t i = 0; i < WAKE_ALL_TEST_WAITERS; i++) kthread_run("wake-all-wait", wake_all_wait_thread, NULL);
+    kthread_run("wake-all-test", wake_all_test_thread, NULL);
     if (sched_cpu_count() > 1) {
-        kthread_create_on_cpu("balance-a", balance_demo_thread, "balance-a", 0);
-        kthread_create_on_cpu("balance-b", balance_demo_thread, "balance-b", 0);
-        kthread_create_on_cpu("balance-c", balance_demo_thread, "balance-c", 0);
-        kthread_create_on_cpu("balance-d", balance_demo_thread, "balance-d", 0);
+        kthread_run_on_cpu("balance-a", balance_demo_thread, "balance-a", 0);
+        kthread_run_on_cpu("balance-b", balance_demo_thread, "balance-b", 0);
+        kthread_run_on_cpu("balance-c", balance_demo_thread, "balance-c", 0);
+        kthread_run_on_cpu("balance-d", balance_demo_thread, "balance-d", 0);
     }
 
     while (1) task_sleep_ticks(250);
@@ -172,6 +182,6 @@ static void kernel_init_thread(void *arg)
 void sched_test_init(void)
 {
 #if SCHED_DEBUG_DEMO
-    kthread_create("kernel-init", kernel_init_thread, NULL);
+    kthread_run("kernel-init", kernel_init_thread, NULL);
 #endif
 }

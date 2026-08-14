@@ -200,14 +200,34 @@ void tty_print_str(const char *str)
     }
 }
 
-/* tty_core emit: forward output to the console buffer. */
+/* tty_core emit for the VT console: render to the framebuffer console only.
+ * printk broadcasts through console_write_all() to every enabled console, but
+ * a VT's line-discipline output (keyboard echo, writes to /dev/ttyN) belongs
+ * solely to the framebuffer console.  Routing it through console_write_all()
+ * would leak it onto a serial console selected with console=ttyS<N>.
+ */
 static int console_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
 {
     (void)context;
     (void)flags;
     spin_lock(&console_emit_lock);
-    for (size_t i = 0; i < size; i++) tty_print_ch((char)data[i]);
-    tty_deferred_flush();
+    spin_lock(&tty_flush_spinlock);
+    if (console_tty_ready && tty_core_graphics_mode(&console_tty)) {
+        spin_unlock(&tty_flush_spinlock);
+        spin_unlock(&console_emit_lock);
+        return (int)size;
+    }
+    for (size_t i = 0; i < size; i++) {
+        tty_vga_queue_push((char)data[i]);
+        if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_vga_flush_locked();
+    }
+    /*
+     * Drain a partial line immediately: a userspace write() without a trailing
+     * newline - e.g. printf("Press any key..."); fflush(stdout) - must not sit
+     * in the queue until the next newline or a panic, leaving the prompt blank.
+     */
+    tty_vga_flush_locked();
+    spin_unlock(&tty_flush_spinlock);
     spin_unlock(&console_emit_lock);
     return (int)size;
 }

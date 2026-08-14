@@ -91,7 +91,6 @@
 #include <net/ipv4/dhcp.h>
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
-#include <process/boot_process.h>
 #include <process/elf_loader.h>
 #include <process/process.h>
 #include <process/sched.h>
@@ -105,10 +104,32 @@
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
 
+/* Executable entry */
+void executable_entry(void)
+{
+    const char *msg     = "Theoretically you should use Limine to boot this kernel, not execute it directly.\n";
+    size_t      msg_len = 0;
+    while (msg[msg_len]) msg_len++;
+
+    __asm__ volatile("mov $1, %%rax\n\t"
+                     "mov $1, %%rdi\n\t"
+                     "mov %1, %%rsi\n\t"
+                     "mov %2, %%rdx\n\t"
+                     "syscall\n\t"
+                     "mov $60, %%rax\n\t"
+                     "mov $1, %%rdi\n\t"
+                     "syscall\n\t"
+                     :
+                     : "r"(msg), "r"(msg), "r"(msg_len)
+                     : "%rax", "%rdi", "%rsi", "%rdx", "memory");
+
+    while (1) __asm__ volatile("cli; hlt");
+}
+
 /* Create init process */
 static void swapper_run_init(void)
 {
-    process_t *init = process_create("init", NULL, NULL);
+    process_t *init = process_create("init");
     if (!init) panic("Failed to create init process.");
     if (!init->task || init->task->pid != 1) panic("User init did not receive PID 1.");
 
@@ -127,26 +148,50 @@ static void swapper_run_init(void)
     static const char *const init_paths[] = {"/sbin/init", "/etc/init", "/bin/init", "/bin/sh"};
     const char              *chosen_path  = NULL;
 
+    /*
+     * Search for a runnable init in the conventional locations (Linux
+     * kernel_init / try_to_run_init_process).  -ENOENT is skipped silently:
+     * that covers a genuinely absent file as well as a present init whose
+     * dynamic interpreter (or /dev/console) is missing, both of which the ELF
+     * loader reports as -ENOENT.  A file that exists but cannot be executed is
+     * a real error and is reported immediately; success ends the search.
+     */
     for (size_t i = 0; i < sizeof(init_paths) / sizeof(init_paths[0]); i++) {
         char *init_argv[] = {(char *)init_paths[i], NULL};
-        if (!elf_loader_load_initial_path(init, init_paths[i], init_argv, NULL)) {
+        int   status      = elf_loader_load_initial_path(init, init_paths[i], init_argv, NULL);
+        if (!status) {
             chosen_path = init_paths[i];
             break;
         }
+        if (status != -ENOENT) plogk("Starting init: %s exists but couldn't execute it (error %d)\n", init_paths[i], -status);
     }
+
+    /*
+     * All conventional init paths failed.  Fall back to a bootloader-supplied
+     * Limine resource module named "init" (the Linux initramfs /init
+     * analogue): if one was provided, run it as the first userspace process.
+     */
+    if (!chosen_path) {
+        lmodule_t *init_mod = get_lmodule("init");
+        if (init_mod && init_mod->data && init_mod->size) {
+            char *init_argv[] = {init_mod->path ? init_mod->path : init_mod->name, NULL};
+            int   status      = elf_loader_load_initial_process(init, init_mod->data, init_mod->size, init_argv, NULL);
+            if (!status) {
+                chosen_path = init_mod->path ? init_mod->path : init_mod->name;
+            } else if (status != -ENOENT) {
+                plogk("Starting init: %s exists but couldn't execute it (error %d)\n", init_mod->name, -status);
+            }
+        }
+    }
+
     if (!chosen_path) panic("No working init found.");
 
     strncpy(init->exe_path, chosen_path, sizeof(init->exe_path) - 1);
     init->exe_path[sizeof(init->exe_path) - 1] = '\0';
 
-    spin_lock(&scheduler.lock);
-    enqueue_task(init->task);
-    spin_unlock(&scheduler.lock);
-    request_task_cpu(init->task);
-
     for (uint32_t i = 0; i < sched_cpu_count(); i++)
         if (cpu_rqs[i].idle) cpu_rqs[i].idle->process = init;
-    plogk("swapper/0: Init process (pid=1) ready: %s\n", chosen_path);
+    plogk("swapper/0: init found and loaded from %s\n", chosen_path);
 
     /*
      * Kernel init is complete: hand the full screen back to the console.
@@ -155,30 +200,15 @@ static void swapper_run_init(void)
      * behaviour).
      */
     fbcon_release_logo();
-    video_start_refresh_worker();
 }
 
-/* Executable entry */
-void executable_entry(void)
+/* Make init runnable only after driver init is complete (Linux kernel_init_freeable). */
+static void swapper_enqueue_init(void)
 {
-    const char *msg = "Theoretically you should use Limine to boot this kernel, not execute it directly.\n";
-
-    size_t msg_len = 0;
-    while (msg[msg_len]) msg_len++;
-
-    __asm__ volatile("mov $1, %%rax\n\t"
-                     "mov $1, %%rdi\n\t"
-                     "mov %1, %%rsi\n\t"
-                     "mov %2, %%rdx\n\t"
-                     "syscall\n\t"
-                     "mov $60, %%rax\n\t"
-                     "mov $1, %%rdi\n\t"
-                     "syscall\n\t"
-                     :
-                     : "r"(msg), "r"(msg), "r"(msg_len)
-                     : "%rax", "%rdi", "%rsi", "%rdx", "memory");
-
-    while (1) __asm__ volatile("cli; hlt");
+    spin_lock(&scheduler.lock);
+    enqueue_task(init_process->task);
+    spin_unlock(&scheduler.lock);
+    request_task_cpu(init_process->task);
 }
 
 /* Kernel entry */
@@ -330,12 +360,32 @@ void kernel_entry(void)
     if (virtio_gpu_init() != 0)                                    // Prefer VirtIO-GPU for card0/renderD128
         drm_init_fallback();                                       // Software fallback only without VirtIO-GPU
 
-    boot_start_init_before_debug(swapper_run_init, sched_test_init);
-    e1000_start_workers();
-    rtl8169_start_workers();
-    rtl8139_start_workers();
-    usb_host_start_workers();
+    /*
+     * kthreadd must be live before any subsystem creates a kernel worker,
+     * while init must remain non-runnable until kernel bootstrap work has
+     * completed. kthread_create() may sleep waiting for kthreadd; the
+     * bootstrap scheduler can already perform task switches at this stage,
+     * allowing kthreadd to service requests before sched_start() is entered.
+     */
+    swapper_run_init();           // Create init (PID 1), but keep it dormant
+    kthreadd_init();              // Create and enqueue kthreadd (PID 2)
+    sched_test_init();            // Install scheduler test tasks, if enabled
+                                  //
+    e1000_start_workers();        // Register e1000 workers
+    rtl8169_start_workers();      // Register rtl8169 workers
+    rtl8139_start_workers();      // Register rtl8139 workers
+    usb_host_start_workers();     // Register USB host workers
+    video_start_refresh_worker(); // Register display refresh worker
+    kernel_workers_start();       // Create every registered kernel worker
+    swapper_enqueue_init();       // Finally make init runnable
+                                  //
+    enable_intr();                // Enable interrupts
+    sched_start();                // Hand execution over to the scheduler
 
-    enable_intr();
-    sched_start();
+    /*
+     * sched_start() must never return. Reaching this point means the
+     * scheduler violated its non-returning contract; do not allow
+     * execution to fall through the end of kernel_entry().
+     */
+    panic("Scheduler returned.");
 }

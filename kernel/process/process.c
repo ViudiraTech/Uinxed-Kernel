@@ -41,12 +41,13 @@
 #include <syscall/syscall.h>
 
 #ifndef PROCESS_TABLE_SIZE
-#    define PROCESS_TABLE_SIZE 4096
+#    define PROCESS_TABLE_SIZE TASK_PID_MAX
 #endif
 
 static process_t *process_table[PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
 process_t        *init_process;
+process_t        *kthreadd_process;
 
 static process_t *pid_to_process(pid_t pid)
 {
@@ -1391,7 +1392,6 @@ static void process_free(process_t *proc)
         free(proc->user_page_dir);
     }
     mmap_list_free(proc, pid);
-    if (task && task->kernel_stack == proc->kernel_stack) task->kernel_stack = NULL;
     free(proc->kernel_stack);
     slist_destroy(&proc->children, NULL);
     ilist_node_t *node = proc->threads.next;
@@ -1412,11 +1412,8 @@ void process_init(void)
     plogk("process: Process table initialized (%u slots)\n", PROCESS_TABLE_SIZE);
 }
 
-process_t *process_create(const char *name, void (*entry)(void *), void *arg)
+process_t *process_create(const char *name)
 {
-    (void)entry;
-    (void)arg;
-
     process_t *proc = calloc(1, sizeof(process_t));
     if (!proc) {
         plogk("process: Process '%s' creation failed (control block OOM)\n", name ? name : "?");
@@ -1490,41 +1487,19 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     return proc;
 }
 
-process_t *process_create_kernel(const char *name, void (*entry)(void *), void *arg)
+process_t *process_create_kthread(task_t *task, const char *name)
 {
+    if (!task) return NULL;
+
     process_t *proc = calloc(1, sizeof(process_t));
     if (!proc) {
-        plogk("process: Kernel process '%s' creation failed (control block OOM)\n", name ? name : "?");
+        plogk("process: Kernel thread '%s' creation failed (control block OOM)\n", name ? name : "?");
         return NULL;
     }
 
-    proc->kernel_stack = malloc(PROCESS_KERNEL_STACK);
-    if (!proc->kernel_stack) {
-        plogk("process: Kernel process '%s' kernel stack allocation failed (%d bytes)\n", name ? name : "?", PROCESS_KERNEL_STACK);
-        free(proc);
-        return NULL;
-    }
-
-    task_t *task;
-    if (entry) {
-        task = kthread_create(name, (kthread_entry_t)entry, arg);
-    } else {
-        task = task_alloc(name);
-        if (!task) {
-            free(proc->kernel_stack);
-            free(proc);
-            return NULL;
-        }
-    }
-    if (!task) {
-        plogk("process: Kernel process '%s' task allocation failed.\n", name ? name : "?");
-        free(proc->kernel_stack);
-        free(proc);
-        return NULL;
-    }
-
-    proc->task         = task;
-    task->process      = proc;
+    proc->task    = task;
+    task->process = proc;
+    task->flags |= PF_KTHREAD;
     proc->refcount     = 1;
     proc->thread_count = 1;
     ilist_init(&proc->threads);
@@ -1532,19 +1507,18 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     proc->kernel_page_dir = get_kernel_pagedir();
     proc->user_page_dir   = NULL;
 
-    proc->task->state = TASK_READY;
-    proc->uid         = 0;
-    proc->gid         = 0;
-    proc->fsuid       = 0;
-    proc->fsgid       = 0;
-    proc->umask       = 022;
-    proc->pgid        = 0;
-    proc->sid         = 0;
-    proc->start_brk   = 0;
-    proc->heap_brk    = 0;
-    proc->stack_brk   = 0;
-    proc->parent      = init_process;
-    proc->exit_code   = 0;
+    proc->uid       = 0;
+    proc->gid       = 0;
+    proc->fsuid     = 0;
+    proc->fsgid     = 0;
+    proc->umask     = 022;
+    proc->pgid      = 0;
+    proc->sid       = 0;
+    proc->start_brk = 0;
+    proc->heap_brk  = 0;
+    proc->stack_brk = 0;
+    proc->parent    = kthreadd_process;
+    proc->exit_code = 0;
     slist_init(&proc->children);
     wait_queue_init(&proc->child_wait);
     wait_queue_init(&proc->signal_wait);
@@ -1557,6 +1531,13 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     process_fd_table_init(proc);
     process_rlimit_init(proc);
     signal_state_init(&proc->signal);
+    /*
+     * Linux: kthreadd calls ignore_signals() and kernel threads inherit that
+     * disposition.  Each kthread here owns a fresh signal state, so we apply
+     * the same policy directly: ignore every signal, SIGKILL and SIGSTOP
+     * included.  A kernel thread is stopped only by kthread_stop().
+     */
+    signal_ignore_all(&proc->signal);
     task_name_copy(task, name);
     strncpy(proc->name, name ? name : "kthread", PROCESS_NAME_LEN - 1);
     proc->name[PROCESS_NAME_LEN - 1] = '\0';
@@ -1580,8 +1561,10 @@ void process_exit(int exit_code)
     process_t *proc = current->process;
     if (proc == init_process) panic("init: Attempt to kill init!");
 
-    ptrace_exit_event(exit_code);
-    ptrace_tracer_exit((int64_t)current->pid);
+    if (!(current->flags & PF_KTHREAD)) {
+        ptrace_exit_event(exit_code);
+        ptrace_tracer_exit((int64_t)current->pid);
+    }
 
     spin_lock(&process_table_lock);
     bool sibling_exit = proc->thread_count > 1;
@@ -1606,7 +1589,7 @@ void process_exit(int exit_code)
             copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero));
             sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
         }
-        ptrace_exit_notify(exit_code);
+        if (!(current->flags & PF_KTHREAD)) ptrace_exit_notify(exit_code);
         task_exit();
         return;
     }
@@ -1614,16 +1597,18 @@ void process_exit(int exit_code)
     /* Process timers cease to exist when the final thread exits. */
     signal_itimer_cancel(proc);
 
-    tty_core_t *tty = process_ctty_get(proc);
-    if (tty) {
-        pid_t sid  = proc->sid;
-        pid_t pgid = sid == (pid_t)current->tgid ? process_ctty_disassociate(tty, sid) : -1;
-        if (pgid < 0) process_ctty_clear(proc);
-        if (pgid > 0) {
-            signal_send_pgrp_session(pgid, sid, SIGHUP);
-            signal_send_pgrp_session(pgid, sid, SIGCONT);
+    if (!(current->flags & PF_KTHREAD)) {
+        tty_core_t *tty = process_ctty_get(proc);
+        if (tty) {
+            pid_t sid  = proc->sid;
+            pid_t pgid = sid == (pid_t)current->tgid ? process_ctty_disassociate(tty, sid) : -1;
+            if (pgid < 0) process_ctty_clear(proc);
+            if (pgid > 0) {
+                signal_send_pgrp_session(pgid, sid, SIGHUP);
+                signal_send_pgrp_session(pgid, sid, SIGCONT);
+            }
+            tty_core_release(tty);
         }
-        tty_core_release(tty);
     }
 
     disable_intr();
@@ -1661,6 +1646,11 @@ void process_exit(int exit_code)
         spin_lock(&parent->child_wait.lock);
         wait_queue_wake_all(&parent->child_wait);
         spin_unlock(&parent->child_wait.lock);
+        if (parent == kthreadd_process) {
+            spin_lock(&kthreadd_wait.lock);
+            wait_queue_wake_one(&kthreadd_wait);
+            spin_unlock(&kthreadd_wait.lock);
+        }
         process_put(parent);
     }
 
@@ -1679,9 +1669,8 @@ void process_exit(int exit_code)
      */
     process_vfork_complete(proc);
 
-    ptrace_exit_notify(exit_code);
+    if (!(current->flags & PF_KTHREAD)) ptrace_exit_notify(exit_code);
 
-    proc->task->state = TASK_ZOMBIE;
     task_exit();
 }
 
@@ -1882,47 +1871,9 @@ int process_wait(pid_t pid, int *exit_code)
     return 0;
 }
 
-int process_kill(pid_t pid)
-{
-    process_t *proc = process_find_get(pid);
-    if (!proc) return 1;
-    if (proc->task->state == TASK_ZOMBIE) {
-        process_put(proc);
-        return 1;
-    }
-    if (proc == init_process) panic("Attempt to kill init!");
-
-    process_t *cur = process_current();
-    if (cur && cur->uid != 0 && cur->uid != proc->uid) {
-        process_put(proc);
-        return -EPERM;
-    }
-
-    int ret = signal_send(proc, SIGKILL, NULL);
-    process_put(proc);
-    return ret;
-}
-
 process_t *process_find(pid_t pid)
 {
     return pid_to_process(pid);
-}
-
-process_t *process_iterate(size_t *pos)
-{
-    if (!pos) return NULL;
-
-    spin_lock(&process_table_lock);
-    for (; *pos < PROCESS_TABLE_SIZE; (*pos)++) {
-        process_t *proc = process_table[*pos];
-        if (proc) {
-            (*pos)++;
-            spin_unlock(&process_table_lock);
-            return proc;
-        }
-    }
-    spin_unlock(&process_table_lock);
-    return NULL;
 }
 
 process_t *process_current(void)
@@ -2138,11 +2089,6 @@ void process_fork_discard(process_t *child)
     process_put(child);
 }
 
-process_t *process_fork_status_event(int *error, uint32_t ptrace_event)
-{
-    return process_fork_status_event_mode(error, ptrace_event, false);
-}
-
 void process_vfork_wait(process_t *child)
 {
     if (!child) return;
@@ -2189,37 +2135,6 @@ task_t *process_task_find_get(pid_t pid, process_t **owner)
     }
     spin_unlock(&process_table_lock);
     return NULL;
-}
-
-process_t *process_fork_status(int *error)
-{
-    return process_fork_status_event(error, PTRACE_EVENT_FORK);
-}
-
-process_t *process_fork(void)
-{
-    return process_fork_status(NULL);
-}
-
-process_t *process_fork_from_syscall(syscall_frame_t *frame)
-{
-    task_t    *current = current_task();
-    process_t *child   = process_fork();
-
-    if (!child || !frame || !current || !current->process) return child;
-
-    uint64_t  kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
-    uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
-
-    syscall_frame_t child_frame = *frame;
-    child_frame.rax             = 0;
-
-    kstack -= sizeof(syscall_frame_t) / sizeof(uint64_t);
-    memcpy(kstack, &child_frame, sizeof(syscall_frame_t));
-    *(--kstack)              = (uint64_t)syscall_return;
-    child->task->context.rsp = (uint64_t)kstack;
-    process_fork_publish(child);
-    return child;
 }
 
 task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid, uintptr_t child_clear_tid, uintptr_t tls, int *error)
@@ -2293,11 +2208,6 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     spin_unlock(&scheduler.lock);
     request_task_cpu(child);
     return child;
-}
-
-pid_t process_next_pid(void)
-{
-    return (pid_t)task_next_pid();
 }
 
 int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flags)

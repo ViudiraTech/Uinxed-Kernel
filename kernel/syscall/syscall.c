@@ -4383,7 +4383,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
     free_string_array(kenvp);
 
     if (ret) {
-        plogk("syscall: Exec of %s rejected by ELF loader (%llu bytes, magic=%u)\n", kpath, (unsigned long long)image_size, image_magic);
+        plogk("syscall: Exec of %s rejected by ELF loader (errno %d, %llu bytes, magic=%u)\n", kpath, -ret, (unsigned long long)image_size, image_magic);
 
         /*
          * Loading failed. Destroy the new (incomplete) page directory
@@ -4401,7 +4401,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
         proc->task->thread.fs_base = old_fs_base;
         proc->task->thread.gs_base = old_gs_base;
         proc->task->context        = old_context;
-        return -ENOEXEC;
+        return ret;
     }
 
     /*

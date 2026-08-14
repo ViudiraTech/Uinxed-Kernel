@@ -457,18 +457,6 @@ static void update_tss_stack(task_t *task)
     }
 }
 
-/* Mark the current task blocked; it is already outside the EEVDF timeline */
-void sched_dequeue_current(void)
-{
-    eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = rq->curr;
-
-    if (curr && curr != rq->idle) {
-        /* rq->curr is already outside the RB-tree while it executes. */
-        curr->state = TASK_BLOCKED;
-    }
-}
-
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 {
     if (!task || task->state == TASK_ZOMBIE || task->state == TASK_IDLE) return;
@@ -660,6 +648,44 @@ static void idle_thread(void *arg)
     }
 }
 
+/*
+ * Allocate an idle (swapper/N) task with PID 0.  Idle tasks are not real
+ * schedulable tasks: they are absent from the PID hash and cgroup, and are
+ * never reaped.  They are never created through task_alloc().
+ */
+static task_t *idle_task_alloc(uint32_t cpu_id)
+{
+    task_t *idle = calloc(1, sizeof(task_t));
+    if (!idle) return NULL;
+
+    idle->pid            = 0;
+    idle->tgid           = 0;
+    idle->state          = TASK_IDLE;
+    idle->cpu_id         = cpu_id;
+    idle->page_directory = get_kernel_pagedir();
+    idle->weight         = SCHED_NICE_0_LOAD;
+    idle->base_weight    = SCHED_NICE_0_LOAD;
+    idle->pi_weight      = SCHED_NICE_0_LOAD;
+    ilist_init(&idle->sched_node);
+    ilist_init(&idle->timer_node);
+    ilist_init(&idle->thread_node);
+    ilist_init(&idle->cgroup_node);
+    (void)snprintf(idle->name, sizeof(idle->name), "swapper/%u", cpu_id);
+
+    idle->kernel_stack = malloc(TASK_KERNEL_STACK);
+    if (!idle->kernel_stack) {
+        free(idle);
+        return NULL;
+    }
+
+    uint64_t *stack      = (uint64_t *)ALIGN_DOWN((uint64_t)(idle->kernel_stack + TASK_KERNEL_STACK), 16ULL);
+    *(--stack)           = (uint64_t)idle_thread;
+    idle->context.rsp    = (uint64_t)stack;
+    idle->context.rdi    = (uint64_t)(uintptr_t)NULL; // NOLINT(bugprone-casting-through-void)
+    idle->context.rflags = 0x202;
+    return idle;
+}
+
 /* sched_init - bootstrap the scheduler */
 
 void sched_init(void)
@@ -699,20 +725,8 @@ void sched_init(void)
     cpu_rqs[0].idle = &boot_task;
 
     for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
-        cpu_rqs[i].idle = task_alloc("swapper");
+        cpu_rqs[i].idle = idle_task_alloc(i);
         if (!cpu_rqs[i].idle) panic("sched: Cannot create idle task.");
-        (void)snprintf(cpu_rqs[i].idle->name, sizeof(cpu_rqs[i].idle->name), "swapper/%u", i);
-        cpu_rqs[i].idle->pid          = 0;
-        cpu_rqs[i].idle->state        = TASK_IDLE;
-        cpu_rqs[i].idle->cpu_id       = i;
-        cpu_rqs[i].idle->weight       = SCHED_NICE_0_LOAD;
-        cpu_rqs[i].idle->kernel_stack = malloc(TASK_KERNEL_STACK);
-        if (!cpu_rqs[i].idle->kernel_stack) panic("sched: Cannot allocate idle kernel stack.");
-        uint64_t *stack                 = (uint64_t *)ALIGN_DOWN((uint64_t)(cpu_rqs[i].idle->kernel_stack + TASK_KERNEL_STACK), 16ULL);
-        *(--stack)                      = (uint64_t)idle_thread;
-        cpu_rqs[i].idle->context.rsp    = (uint64_t)stack;
-        cpu_rqs[i].idle->context.rdi    = (uint64_t)(uintptr_t)NULL; // NOLINT(bugprone-casting-through-void)
-        cpu_rqs[i].idle->context.rflags = 0x202;
     }
     plogk("task: Created task 0 (swapper/0) on CPU 0\n");
     for (unsigned int i = 1; i < cpu_scheduler_count; i++) plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
@@ -839,8 +853,14 @@ static void sched_switch(bool account_runtime)
         if ((int64_t)(avg - rq->min_vruntime) > 0) rq->min_vruntime = avg;
     }
 
-    /* Dequeue the selected task from the timeline */
-    if (next != rq->idle && next->state == TASK_READY) {
+    /*
+     * Dequeue the selected task.  During bootstrap swapper/0 (also rq->idle)
+     * blocks on a kthread_create() wait queue and is re-enqueued, so it can be
+     * selected here as a TASK_READY entity and must be dequeued like any other
+     * task.  A normally-idle task is never enqueued (TASK_IDLE), so
+     * next->state == TASK_READY still excludes it.
+     */
+    if (next->state == TASK_READY) {
         dequeue_entity(rq, next);
         next->state      = TASK_RUNNING;
         next->time_slice = 0;

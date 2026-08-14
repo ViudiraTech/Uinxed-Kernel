@@ -312,10 +312,10 @@ void *video_fb_mmap(void *ctx, void *private_data, size_t offset, size_t size, i
 }
 
 /* Refresh worker: blinks the cursor and flushes pending frame damage. */
-static void video_refresh_worker(void *arg)
+static int video_refresh_worker(void *arg)
 {
     (void)arg;
-    for (;;) {
+    while (!kthread_should_stop()) {
         task_sleep_ticks((TIMER_HZ + 59) / 60);
 
         /* Cursor and console output both publish damage into the same box. */
@@ -337,16 +337,17 @@ static void video_refresh_worker(void *arg)
         if (y2 > active_h) y2 = active_h;
         if (x1 < x2 && y1 < y2) flush(x1, y1, x2 - x1, y2 - y1);
     }
+    return 0;
 }
 
-/* Start the background video refresh worker thread. */
+/* Register the background video refresh worker for unified creation. */
 void video_start_refresh_worker(void)
 {
     spin_lock(&video_state_lock);
     bool should_start = video_flush_cb && !video_refresh_worker_started;
     if (should_start) video_refresh_worker_started = true;
     spin_unlock(&video_state_lock);
-    if (should_start && !kthread_create("virtgpu-refresh", video_refresh_worker, NULL)) {
+    if (should_start && kernel_worker_register("video-refresh", video_refresh_worker, NULL, NULL)) {
         spin_lock(&video_state_lock);
         video_refresh_worker_started = false;
         spin_unlock(&video_state_lock);

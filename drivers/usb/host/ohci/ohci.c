@@ -85,7 +85,9 @@ typedef struct ohci_controller {
         usb_device_t             *devices[OHCI_MAX_PORTS];
         ohci_periodic_transfer_t *periodic[OHCI_MAX_PERIODIC];
         uint64_t                  pending_ports;
+        wait_queue_t              worker_wait;
         task_t                   *worker_task;
+        bool                      worker_started;
         bool                      running;
 } ohci_controller_t;
 
@@ -663,13 +665,14 @@ static void ohci_service_periodic(ohci_controller_t *ctrl)
 }
 
 /* Hub worker: handle port changes, enumerate devices, poll periodic. */
-static void ohci_worker(void *argument)
+static int ohci_worker(void *argument)
 {
     ohci_controller_t *ctrl = argument;
-    while (ctrl->running) {
+    while (ctrl->running && !kthread_should_stop()) {
         uint64_t flags      = spin_lock_irqsave(&ctrl->lock);
         uint64_t ports      = ctrl->pending_ports;
         ctrl->pending_ports = 0;
+        if (!ports && ctrl->running && !kthread_should_stop()) wait_queue_prepare(&ctrl->worker_wait);
         spin_unlock_irqrestore(&ctrl->lock, flags);
         for (uint8_t port = 0; port < ctrl->num_ports; port++) {
             if (!(ports & (1ULL << port))) continue;
@@ -687,8 +690,10 @@ static void ohci_worker(void *argument)
             }
         }
         ohci_service_periodic(ctrl);
-        msleep(1);
+
+        if (!ports && ctrl->running && !kthread_should_stop()) wait_queue_wait_timed(&ctrl->worker_wait, sched_ticks() + timer_ns_to_ticks_ceil(1000000ULL));
     }
+    return 0;
 }
 
 /* ISR: acknowledge status bits and flag port-change work. */
@@ -705,6 +710,7 @@ static void ohci_interrupt_handler(void *frame)
             uint64_t flags = spin_lock_irqsave(&ctrl->lock);
             ctrl->pending_ports |= (1ULL << ctrl->num_ports) - 1;
             spin_unlock_irqrestore(&ctrl->lock, flags);
+            if (ctrl->worker_started) wait_queue_wake_one(&ctrl->worker_wait);
         }
         if (sts & OHCI_INTR_WDH) ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_WDH);
         if (sts & OHCI_INTR_UE) {
@@ -731,7 +737,8 @@ static void ohci_host_stop(usb_host_t *host)
 {
     ohci_controller_t *ctrl = container_of(host, ohci_controller_t, hcd);
     ctrl->running           = false;
-    uint32_t control        = ohci_read32(ctrl, OHCI_HcControl);
+    wait_queue_wake_all(&ctrl->worker_wait);
+    uint32_t control = ohci_read32(ctrl, OHCI_HcControl);
     control &= ~OHCI_CTRL_HCFS_MASK;
     control |= OHCI_CTRL_HCFS_RESET;
     ohci_write32(ctrl, OHCI_HcControl, control);
@@ -869,9 +876,8 @@ static int ohci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     if (msi_vector >= 0) ctrl->vector = msi_vector;
     if (ctrl->vector > 0) register_interrupt_handler((uint16_t)ctrl->vector, ohci_interrupt_handler, 0, 0x8e);
 
-    ctrl->running     = true;
-    ctrl->worker_task = kthread_create("ohci-hub", ohci_worker, ctrl);
-    if (ctrl->worker_task) task_wakeup(ctrl->worker_task);
+    wait_queue_init(&ctrl->worker_wait);
+    ctrl->running                             = true;
     ohci_controllers[ohci_controller_count++] = ctrl;
     usb_host_register(&ctrl->hcd);
 
@@ -893,6 +899,12 @@ void ohci_start_workers(void)
 #if !CONFIG_USB_OHCI
     return;
 #endif
+    for (size_t i = 0; i < ohci_controller_count; i++) {
+        ohci_controller_t *ctrl = ohci_controllers[i];
+        if (!ctrl || ctrl->worker_started) continue;
+        ctrl->worker_started = true;
+        kernel_worker_register("ohci-hub", ohci_worker, ctrl, &ctrl->worker_task);
+    }
 }
 
 /* Probe every OHCI controller in the PCI device cache. */

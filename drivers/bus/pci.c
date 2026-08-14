@@ -217,8 +217,13 @@ void mcfg_init(mcfg_info_t *mcfg)
             .write = pci_mcfg_write,
         };
     } else {
-        /* Unreachable: mcfg is validated before this function is called. */
-        panic("pci: mcfg is unexpectedly empty.");
+        /* No MCFG table: fall back to legacy CF8/CFC config-space access. */
+        plogk("mcfg: No MCFG table; falling back to legacy PCI config access.\n");
+        mcfg_info.enabled = 0;
+        pci_ops           = (pci_ops_t) {
+                      .read  = pci_legacy_read,
+                      .write = pci_legacy_write,
+        };
     }
 };
 

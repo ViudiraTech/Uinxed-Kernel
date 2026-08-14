@@ -14,8 +14,6 @@
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
-#include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/sched.h>
 #include <process/task.h>
@@ -81,45 +79,37 @@ task_t *pid_find_task(uint64_t pid)
     return task;
 }
 
-typedef struct {
-        kthread_entry_t entry;
-        void           *arg;
-} kthread_bootstrap_t;
-
-/* Bootstrap a kthread: free the bootstrap record, run the entry, then exit */
-static void kthread_trampoline(kthread_bootstrap_t *bootstrap)
+/* Test whether a PID is still in use (called with pid_hash_lock held). */
+static bool pid_hash_contains_locked(uint64_t pid)
 {
-    kthread_entry_t entry = bootstrap->entry;
-    void           *arg   = bootstrap->arg;
-
-    free(bootstrap);
-    entry(arg);
-    task_exit();
+    for (pid_entry_t *entry = pid_hash[pid_hash_index(pid)]; entry; entry = entry->next) {
+        if (entry->task && entry->task->pid == pid) return true;
+    }
+    return false;
 }
 
-/* Allocate a kernel stack and seed the initial context for a kthread */
-static int setup_kernel_stack(task_t *task, kthread_bootstrap_t *bootstrap)
+/*
+ * Allocate a PID in [1, TASK_PID_MAX), reusing freed PIDs once the monotonically
+ * increasing next_pid wraps.  A task's PID is removed from the hash in task_free(),
+ * so the hash is the authoritative "in use" set.  PIDs 1 (init) and 2 (kthreadd)
+ * are naturally reserved because their tasks never leave the hash.
+ */
+static uint64_t alloc_pid_locked(void)
 {
-    task->kernel_stack = malloc(TASK_KERNEL_STACK);
-    if (!task->kernel_stack) {
-        plogk("task: %s: kernel stack allocation failed (%d bytes)\n", task->name, TASK_KERNEL_STACK);
-        return 1;
+    uint64_t start = scheduler.next_pid;
+    if (start < 1 || start >= TASK_PID_MAX) start = 1;
+
+    for (uint64_t i = 0; i < TASK_PID_MAX; i++) {
+        uint64_t candidate = start + i;
+        if (candidate >= TASK_PID_MAX) candidate -= (TASK_PID_MAX - 1);
+
+        if (!pid_hash_contains_locked(candidate)) {
+            scheduler.next_pid = candidate + 1;
+            if (scheduler.next_pid >= TASK_PID_MAX) scheduler.next_pid = 1;
+            return candidate;
+        }
     }
-
-    uint64_t *stack = (uint64_t *)ALIGN_DOWN((uint64_t)(task->kernel_stack + TASK_KERNEL_STACK), 16ULL);
-    *(--stack)      = 0;
-    *(--stack)      = (uint64_t)kthread_trampoline;
-
-    task->context.rsp    = (uint64_t)stack;
-    task->context.rbx    = 0;
-    task->context.rbp    = 0;
-    task->context.r12    = (uint64_t)bootstrap;
-    task->context.r13    = 0;
-    task->context.r14    = 0;
-    task->context.r15    = 0;
-    task->context.rflags = 0x202;
-    task->context.rdi    = (uint64_t)bootstrap;
-    return 0;
+    return 0; /* exhausted */
 }
 
 void task_name_copy(task_t *task, const char *name)
@@ -179,6 +169,7 @@ task_t *task_alloc_status(const char *name, int *error)
     ilist_init(&task->timer_node);
     ilist_init(&task->thread_node);
     ilist_init(&task->cgroup_node);
+    wait_queue_init(&task->kthread.exit_wait);
 
     if (cgroup_root()) parent = current_task();
     int status = cgroup_task_fork(task, parent);
@@ -192,7 +183,17 @@ task_t *task_alloc_status(const char *name, int *error)
     }
 
     spin_lock(&pid_hash_lock);
-    task->pid  = scheduler.next_pid++;
+    task->pid = alloc_pid_locked();
+    if (!task->pid) {
+        spin_unlock(&pid_hash_lock);
+        plogk("task: %s: PID space exhausted.\n", name ? name : "unnamed");
+        cgroup_task_exit(task);
+        free(pid_entry);
+        fpu_task_destroy(task);
+        free(task);
+        if (error) *error = -EAGAIN;
+        return NULL;
+    }
     task->tgid = task->pid;
     pid_hash_add(task, pid_entry);
     spin_unlock(&pid_hash_lock);
@@ -218,60 +219,4 @@ void task_free(task_t *task)
     free(task->kernel_stack);
     fpu_task_destroy(task);
     free(task);
-}
-
-uint64_t task_next_pid(void)
-{
-    spin_lock(&pid_hash_lock);
-    uint64_t pid = scheduler.next_pid;
-    spin_unlock(&pid_hash_lock);
-    return pid;
-}
-
-/* Create a kthread pinned to a specific CPU and queue it for scheduling */
-task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id)
-{
-    if (!entry) return NULL;
-    if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
-
-    kthread_bootstrap_t *bootstrap = malloc(sizeof(kthread_bootstrap_t));
-    if (!bootstrap) {
-        plogk("task: Kthread '%s' bootstrap allocation failed.\n", name ? name : "unnamed");
-        return NULL;
-    }
-
-    task_t *task = task_alloc(name);
-    if (!task) {
-        plogk("task: Kthread '%s' creation failed.\n", name ? name : "unnamed");
-        free(bootstrap);
-        return NULL;
-    }
-    task->cpu_id = cpu_id;
-
-    bootstrap->entry = entry;
-    bootstrap->arg   = arg;
-
-    if (setup_kernel_stack(task, bootstrap)) {
-        plogk("task: Kthread '%s' kernel stack setup failed.\n", name ? name : "unnamed");
-        free(bootstrap);
-        task_free(task);
-        return NULL;
-    }
-
-    spin_lock(&scheduler.lock);
-    enqueue_task_initial(task);
-    spin_unlock(&scheduler.lock);
-    request_task_cpu(task);
-
-    return task;
-}
-
-task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg)
-{
-    uint32_t cpu_id;
-
-    spin_lock(&scheduler.lock);
-    cpu_id = choose_task_cpu_locked();
-    spin_unlock(&scheduler.lock);
-    return kthread_create_on_cpu(name, entry, arg, cpu_id);
 }

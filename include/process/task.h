@@ -12,6 +12,7 @@
 #define INCLUDE_TASK_H_
 
 #include <libs/list/intrusive_list.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/util/rbtree.h>
@@ -26,7 +27,20 @@ typedef struct cgroup  cgroup_t;
 #define TASK_KERNEL_STACK  0x10000
 #define TASK_DEFAULT_SLICE 5
 
-typedef void (*kthread_entry_t)(void *arg);
+/*
+ * Upper bound of the PID space.  Must match PROCESS_TABLE_SIZE (process.h):
+ * the process table is indexed by pid, so a pid at or beyond this value can
+ * never be registered.  PIDs 1..TASK_PID_MAX-1 are allocatable; 0 is reserved
+ * for the idle/swapper tasks.
+ */
+#define TASK_PID_MAX 4096
+
+/*
+ * PF_KTHREAD marks a kernel thread (Linux PF_KTHREAD).  Kernel threads have
+ * no user address space, are children of kthreadd, and take a distinct exit
+ * path that skips user-only teardown (ptrace, controlling tty, vfork).
+ */
+#define PF_KTHREAD 0x00200000ULL
 
 typedef struct wait_queue {
         ilist_node_t tasks;
@@ -71,6 +85,20 @@ typedef struct {
         uint64_t rdi;
 } task_context_t;
 
+/*
+ * Kernel-thread lifecycle state (valid only when PF_KTHREAD is set).
+ * `data` is the argument passed to the thread function; `should_stop` is set
+ * by kthread_stop() and observed via kthread_should_stop(); `exited`/
+ * `exit_code` are published by kthread_exit() and consumed by kthread_stop().
+ */
+typedef struct kthread_info {
+        void        *data;
+        bool         should_stop;
+        bool         exited;
+        int          exit_code;
+        wait_queue_t exit_wait;
+} kthread_info_t;
+
 struct task {
         uint64_t           pid;
         uint64_t           tgid;
@@ -111,7 +139,9 @@ struct task {
          */
         uintptr_t      uaccess_fault_resume;
         uint8_t        uaccess_fault_nofault;
-        ptrace_state_t ptrace; // Linux ptrace state is per-thread
+        ptrace_state_t ptrace;  // Linux ptrace state is per-thread
+        uint64_t       flags;   // PF_KTHREAD etc.
+        kthread_info_t kthread; // kernel-thread lifecycle (PF_KTHREAD only)
 };
 
 /* Initialize a wait queue */
@@ -168,19 +198,10 @@ task_t *task_alloc_status(const char *name, int *error);
 /* Free a task structure */
 void task_free(task_t *task);
 
-/* Create a kernel thread and put it into the ready queue */
-task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg);
-
-/* Create a kernel thread on a specific CPU */
-task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id);
-
 /* Copy a name into a task's name field */
 void task_name_copy(task_t *task, const char *name);
 
 /* Find a task by PID (for PI futex) */
 task_t *pid_find_task(uint64_t pid);
-
-/* Return the next PID that will be allocated */
-uint64_t task_next_pid(void);
 
 #endif // INCLUDE_TASK_H_

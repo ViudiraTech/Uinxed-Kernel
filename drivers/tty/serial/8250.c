@@ -110,6 +110,15 @@ static tty_core_t *serial_console_get_tty(console_t *c)
      * Resolve it through the serial core so its line discipline and wait
      * queues are initialized before init issues its first termios ioctl. */
     if (!port || serial_tty_core(port->number, &tty)) return NULL;
+    /*
+     * serial_tty_core() only initialises the line discipline; it does not
+     * enable the port's RX interrupt.  serial_tty_open() performs that step
+     * via startup(), but the /dev/console path bypasses serial_tty_open(), so
+     * IER is left at 0 and the UART never raises the receive interrupt - the
+     * console would print but never accept a byte typed on the serial line.
+     * Enable RX here (startup() is idempotent) to match the ttyS<N> open path.
+     */
+    if (port->ops && port->ops->startup) port->ops->startup(port);
     return tty;
 }
 

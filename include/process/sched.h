@@ -14,6 +14,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/util/rbtree.h>
+#include <process/kthread.h>
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
@@ -48,7 +49,7 @@ typedef struct {
         ilist_node_t timer_queue; // timed wait-queue tasks (wake on deadline)
 } scheduler_t;
 
-/* External interface (unchanged) */
+/* External interface */
 
 extern scheduler_t scheduler;
 extern eevdf_rq_t *cpu_rqs;
@@ -68,9 +69,6 @@ int task_set_cpu(task_t *task, uint32_t cpu_id);
 
 /* Yield the current CPU to another runnable task */
 void sched_yield(void);
-
-/* Remove the current task from the runqueue (used by init to yield permanently) */
-void sched_dequeue_current(void);
 
 /* Sleep the current task for at least the specified number of scheduler ticks */
 void task_sleep_ticks(uint64_t ticks);

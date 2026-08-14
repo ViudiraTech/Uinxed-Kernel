@@ -150,10 +150,8 @@ typedef struct rtl8139_device {
         uint32_t               work_pending;
         uint32_t               interrupts_pending;
         int                    worker_started;
-        int                    worker_exited;
         task_t                *worker_task;
         wait_queue_t           work_wait;
-        wait_queue_t           exit_wait;
         spinlock_t             work_lock;
         volatile uint8_t      *rx_ring;
         uint64_t               rx_ring_phys;
@@ -591,24 +589,21 @@ static void rtl8139_process_work(rtl8139_device_t *device, uint32_t cause)
 }
 
 /* Worker task: drains interrupt work and re-enables the interrupt mask. */
-static void rtl8139_worker(void *arg)
+static int rtl8139_worker(void *arg)
 {
     rtl8139_device_t *device = arg;
 
-    for (;;) {
+    while (!kthread_should_stop()) {
         uint64_t rflags = spin_lock_irqsave(&device->work_lock);
-        while (!device->work_pending && !device->stopping) {
+        while (!device->work_pending && !device->stopping && !kthread_should_stop()) {
             wait_queue_prepare(&device->work_wait);
             spin_unlock_irqrestore(&device->work_lock, rflags);
             wait_queue_sleep();
             rflags = spin_lock_irqsave(&device->work_lock);
         }
-        if (device->stopping) {
-            device->worker_exited  = 1;
-            device->worker_started = 0;
-            wait_queue_wake_all(&device->exit_wait);
+        if (device->stopping || kthread_should_stop()) {
             spin_unlock_irqrestore(&device->work_lock, rflags);
-            return;
+            break;
         }
         uint32_t cause             = device->work_pending;
         uint32_t interrupts        = device->interrupts_pending;
@@ -636,28 +631,27 @@ static void rtl8139_worker(void *arg)
         spin_unlock_irqrestore(&device->work_lock, rflags);
         if (more) sched_yield();
     }
+    return 0;
 }
 
-/* Spawn the device worker task if it is not already running. */
+/* Register the device worker for unified creation by kernel_workers_start(). */
 static int rtl8139_start_worker(rtl8139_device_t *device)
 {
     if (device->worker_started) return 0;
 
     uint64_t rflags        = spin_lock_irqsave(&device->work_lock);
     device->worker_started = 1;
-    device->worker_exited  = 0;
     device->work_pending   = RTL8139_WORK_INITIAL;
     spin_unlock_irqrestore(&device->work_lock, rflags);
 
-    task_t *worker = kthread_create("rtl8139-rx", rtl8139_worker, device);
-    if (!worker) {
+    int ret = kernel_worker_register("rtl8139-poll", rtl8139_worker, device, &device->worker_task);
+    if (ret) {
         rflags                 = spin_lock_irqsave(&device->work_lock);
         device->worker_started = 0;
         device->work_pending   = 0;
         spin_unlock_irqrestore(&device->work_lock, rflags);
-        return -ENOMEM;
+        return ret;
     }
-    device->worker_task = worker;
     return 0;
 }
 
@@ -830,18 +824,9 @@ static void rtl8139_destroy(rtl8139_device_t *device)
     spin_unlock_irqrestore(&device->work_lock, rflags);
     rtl8139_release_interrupt(device);
     if (device->worker_task) {
-        rflags = spin_lock_irqsave(&device->work_lock);
-        wait_queue_wake_all(&device->work_wait);
-        while (!device->worker_exited) {
-            wait_queue_prepare(&device->exit_wait);
-            spin_unlock_irqrestore(&device->work_lock, rflags);
-            wait_queue_sleep();
-            rflags = spin_lock_irqsave(&device->work_lock);
-        }
-        spin_unlock_irqrestore(&device->work_lock, rflags);
-        while (__atomic_load_n(&device->worker_task->state, __ATOMIC_ACQUIRE) != TASK_ZOMBIE || __atomic_load_n(&device->worker_task->on_cpu, __ATOMIC_ACQUIRE)) sched_yield();
-        task_free(device->worker_task);
-        device->worker_task = NULL;
+        kthread_stop(device->worker_task);
+        device->worker_task    = NULL;
+        device->worker_started = 0;
     }
     if (device->netdev_registered) {
         netdev_unregister(&device->netdev);
@@ -889,7 +874,6 @@ int rtl8139_probe(pci_device_cache_t *pci)
     device->vector        = -1;
     device->saved_command = pci_read_command_status(pci) & 0xffff;
     wait_queue_init(&device->work_wait);
-    wait_queue_init(&device->exit_wait);
     const char *stage = "I/O port mapping";
 
     /* BAR sizing writes all ones, so memory and I/O decoding must be off. */
@@ -970,7 +954,7 @@ int rtl8139_init(void)
     return found ? found : -ENODEV;
 }
 
-/* Start the worker task of every registered device. */
+/* Register the worker task of every device for unified creation. */
 int rtl8139_start_workers(void)
 {
 #if !CONFIG_RTL8139
@@ -989,7 +973,7 @@ int rtl8139_start_workers(void)
             continue;
         }
         failed = 1;
-        plogk("rtl8139: %s: Worker startup failed.\n", device->netdev.name);
+        plogk("rtl8139: %s: Worker registration failed.\n", device->netdev.name);
         *link = device->next;
         rtl8139_device_count--;
         rtl8139_destroy(device);

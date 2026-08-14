@@ -257,6 +257,18 @@ void signal_state_init(signal_state_t *state)
     state->child_exit_pending = 0;
 }
 
+/*
+ * Linux ignore_signals(): mark every signal as SIG_IGN.  Kernel threads call
+ * this so they ignore every signal, SIGKILL and SIGSTOP included (Linux
+ * sig_handler_ignored() treats SIG_IGN as ignored for all signals).  The only
+ * ways to stop one are kthread_stop() or the driver shutting itself down.
+ */
+void signal_ignore_all(signal_state_t *state)
+{
+    if (!state) return;
+    for (int i = 0; i < SIG_ACTION_NUM; i++) state->sighand[i].sa_handler = SIG_IGN;
+}
+
 /* Release all queued signal data */
 void signal_state_free(signal_state_t *state)
 {
@@ -369,9 +381,70 @@ int signal_check_perm(const process_t *from, const process_t *to)
 
 /* Signal sending */
 
-static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, const siginfo_t *info, bool *newly_pending)
+/*
+ * Linux sig_ignored()/prepare_signal(): whether a signal should be dropped
+ * before it is enqueued.  This is the single choke point that keeps the global
+ * init from being terminated by signals and drops every signal that a kernel
+ * thread ignores (SIG_IGN, including SIGKILL/SIGSTOP), regardless of the
+ * sending path (kill(2), kernel send_sig, ptrace, job control, itimer, ...).
+ *
+ * Caller holds state->lock (state == &proc->signal), so the disposition and
+ * blocked mask are stable.
+ */
+static bool signal_task_ignored(const process_t *proc, int sig)
+{
+    /* Linux sig_ignored(): a blocked signal is never ignored, since its
+     * disposition may change before it is unblocked. */
+    if (sigismember(&proc->signal.blocked, sig)) return false;
+
+    /* SIGKILL and SIGSTOP may not be sent to the global init (PID 1). */
+    if (is_global_init(proc) && (sig == SIGKILL || sig == SIGSTOP)) return true;
+
+    /* SIGNAL_UNKILLABLE: the global init ignores any signal whose disposition
+     * is SIG_DFL; it only receives signals for which it has a handler. */
+    if (is_global_init(proc) && proc->signal.sighand[sig].sa_handler == SIG_DFL) return true;
+
+    /*
+     * SIGCONT must never be reported as ignored here: its resume side effect
+     * (task_continue in signal_send/signal_send_thread) runs after this check,
+     * and an ignored result would take the early return in signal_send() and
+     * skip the resume.  Linux orders this the same way - prepare_signal()
+     * resumes the task before sig_ignored() may drop the signal.  The signal
+     * itself is discarded later at delivery (SIG_DFL -> SIG_DFL_CONT, SIG_IGN
+     * -> handled).
+     */
+    if (sig == SIGCONT) return false;
+
+    /* Linux sig_handler_ignored(): a signal is dropped before enqueue when its
+     * disposition is explicitly SIG_IGN, or implicitly SIG_DFL for a
+     * sig_kernel_ignore() signal (SIGCHLD, SIGWINCH, SIGURG).  Kernel threads
+     * set every signal to SIG_IGN via ignore_signals(), so they ignore all
+     * signals — SIGKILL and SIGSTOP included — and are stopped only by
+     * kthread_stop(). */
+    if (proc->signal.sighand[sig].sa_handler == SIG_IGN) return true;
+    if (proc->signal.sighand[sig].sa_handler == SIG_DFL && (sig == SIGCHLD || sig == SIGWINCH || sig == SIGURG)) return true;
+
+    return false;
+}
+
+/*
+ * Enqueue `sig` for `proc` while holding `state->lock`.  The out-params are
+ * NULL-safe: `*newly_pending` is set true when the signal became pending;
+ * `*ignored` is set true when the signal was dropped as ignored (SIG_IGN
+ * disposition, or SIG_DFL/SIGKILL/SIGSTOP targeting the global init).
+ * Returns 0 on success or a negative errno.
+ */
+static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, const siginfo_t *info, bool *newly_pending, bool *ignored)
 {
     if (newly_pending) *newly_pending = false;
+    if (ignored) *ignored = false;
+
+    /* Drop signals ignored for this task before enqueueing (Linux prepare_signal). */
+    if (signal_task_ignored(proc, sig)) {
+        if (ignored) *ignored = true;
+        return 0;
+    }
+
     /* Standard signals coalesce, but Linux retains the first siginfo. */
     if (!sig_is_rt(sig)) {
         if (sigismember(&state->pending, sig)) return 0;
@@ -416,9 +489,13 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
     spin_lock(&state->lock);
 
     bool newly_pending;
-    int  ret = signal_send_locked(state, proc, sig, info, &newly_pending);
+    bool ignored;
+    int  ret = signal_send_locked(state, proc, sig, info, &newly_pending, &ignored);
 
     spin_unlock(&state->lock);
+
+    /* Linux kill()/send_signal() report success when the signal is ignored. */
+    if (ignored) return 0;
 
     /*
      * signalfd consumes blocked signals, so it must be notified when the
@@ -450,9 +527,12 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
     spin_lock(&state->lock);
 
     bool newly_pending;
-    int  ret = signal_send_locked(state, proc, sig, info, &newly_pending);
+    bool ignored;
+    int  ret = signal_send_locked(state, proc, sig, info, &newly_pending, &ignored);
 
     spin_unlock(&state->lock);
+
+    if (ignored) return 0;
 
     if (ret == 0 && newly_pending) signalfd_deliver(proc, sig, info);
 
@@ -628,11 +708,20 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     signal_state_t *state = &proc->signal;
     sigaction_t    *sa    = &state->sighand[sig];
 
-    /* Check if signal is ignored */
+    /* Check if signal is ignored.  SIGKILL is not special-cased here: a user
+     * process can never set it to SIG_IGN (sigaction rejects it), and a kernel
+     * thread's SIG_IGN is dropped at send time in signal_task_ignored(). */
     if (sa->sa_handler == SIG_IGN) return SIG_DELIV_HANDLED;
 
     /* Check if signal is default */
     if (sa->sa_handler == SIG_DFL) {
+        /*
+         * Global init gets no signals it doesn't want (Linux get_signal():
+         * a SIGNAL_UNKILLABLE task skips SIG_DFL signals other than the
+         * uncatchable SIGKILL/SIGSTOP).  This closes the blocked-then-
+         * unblocked window that the send-time check cannot observe.
+         */
+        if (is_global_init(proc) && sig != SIGKILL && sig != SIGSTOP) return SIG_DELIV_HANDLED;
         int ret = signal_handle_default(proc, sig);
         if (ret == 1) return SIG_DELIV_TERM;
         return SIG_DELIV_HANDLED;
@@ -919,7 +1008,7 @@ void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_cod
     info.si_status = exit_code;
 
     bool newly_pending;
-    signal_send_locked(state, parent, SIGCHLD, &info, &newly_pending);
+    signal_send_locked(state, parent, SIGCHLD, &info, &newly_pending, NULL);
 
     spin_unlock(&state->lock);
 
@@ -943,7 +1032,7 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
         info.si_code   = code;
         info.si_pid    = child_pid;
         info.si_status = status;
-        signal_send_locked(state, parent, SIGCHLD, &info, &newly_pending);
+        signal_send_locked(state, parent, SIGCHLD, &info, &newly_pending, NULL);
     }
     spin_unlock(&state->lock);
     if (newly_pending) signalfd_deliver(parent, SIGCHLD, &info);
@@ -1010,7 +1099,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         int        found = 0;
 
         while ((target = process_iterate_get(&pos))) {
-            if (target == cur || !target->task || target->task->pid == 1 || signal_check_perm(cur, target) < 0) {
+            if (target == cur || !target->task || is_global_init(target) || signal_check_perm(cur, target) < 0) {
                 process_put(target);
                 continue;
             }

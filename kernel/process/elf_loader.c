@@ -12,7 +12,6 @@
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/module/elf.h>
-#include <kernel/printk.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -50,12 +49,12 @@ typedef struct elf_source {
 /* Read from the ELF source (memory buffer or VFS node), using the window when useful */
 static int elf_source_read(elf_source_t *source, size_t offset, void *buffer, size_t size)
 {
-    if (!source || (!buffer && size) || offset > source->size || size > source->size - offset) return -1;
+    if (!source || (!buffer && size) || offset > source->size || size > source->size - offset) return -EINVAL;
     if (source->data) {
         memcpy(buffer, source->data + offset, size);
         return 0;
     }
-    if (!source->node) return -1;
+    if (!source->node) return -EIO;
 
     if (source->window && size <= source->window_capacity) {
         bool cached = offset >= source->window_offset && size <= source->window_size && offset - source->window_offset <= source->window_size - size;
@@ -67,7 +66,7 @@ static int elf_source_read(elf_source_t *source, size_t offset, void *buffer, si
             size_t loaded = 0;
             while (loaded < source->window_size) {
                 size_t amount = vfs_read(source->node, source->window + loaded, source->window_offset + loaded, source->window_size - loaded);
-                if (!amount || amount == (size_t)-1 || amount > source->window_size - loaded) return -1;
+                if (!amount || amount == (size_t)-1 || amount > source->window_size - loaded) return -EIO;
                 loaded += amount;
             }
         }
@@ -78,7 +77,7 @@ static int elf_source_read(elf_source_t *source, size_t offset, void *buffer, si
     size_t done = 0;
     while (done < size) {
         size_t amount = vfs_read(source->node, (uint8_t *)buffer + done, offset + done, size - done);
-        if (!amount || amount == (size_t)-1 || amount > size - done) return -1;
+        if (!amount || amount == (size_t)-1 || amount > size - done) return -EIO;
         done += amount;
     }
     return 0;
@@ -87,23 +86,23 @@ static int elf_source_read(elf_source_t *source, size_t offset, void *buffer, si
 /* Validate the ELF header fields relevant to a process image */
 static int validate_ehdr(const Elf64_Ehdr *ehdr, size_t size)
 {
-    if (!ehdr || size < sizeof(Elf64_Ehdr)) return -1;
-    if (*(const uint32_t *)ehdr->e_ident != ELF_MAGIC) return -1;
-    if (ehdr->e_ident[4] != 2 || ehdr->e_ident[5] != 1 || ehdr->e_ident[6] != 1) return -1;
-    if (ehdr->e_machine != 0x3e) return -1;
-    if (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN) return -1;
-    if (ehdr->e_phentsize != sizeof(Elf64_Phdr)) return -1;
-    if (ehdr->e_phoff > size) return -1;
-    if (ehdr->e_phnum > (size - ehdr->e_phoff) / sizeof(Elf64_Phdr)) return -1;
+    if (!ehdr || size < sizeof(Elf64_Ehdr)) return -ENOEXEC;
+    if (*(const uint32_t *)ehdr->e_ident != ELF_MAGIC) return -ENOEXEC;
+    if (ehdr->e_ident[4] != 2 || ehdr->e_ident[5] != 1 || ehdr->e_ident[6] != 1) return -ENOEXEC;
+    if (ehdr->e_machine != 0x3e) return -ENOEXEC;
+    if (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN) return -ENOEXEC;
+    if (ehdr->e_phentsize != sizeof(Elf64_Phdr)) return -ENOEXEC;
+    if (ehdr->e_phoff > size) return -ENOEXEC;
+    if (ehdr->e_phnum > (size - ehdr->e_phoff) / sizeof(Elf64_Phdr)) return -ENOEXEC;
     return 0;
 }
 
 /* Validate the image and return its ELF header */
 static int validate_elf(const uint8_t *data, size_t size, Elf64_Ehdr **ehdr_out)
 {
-    if (!data || size < sizeof(Elf64_Ehdr)) return -1;
+    if (!data || size < sizeof(Elf64_Ehdr)) return -ENOEXEC;
     Elf64_Ehdr *ehdr = (Elf64_Ehdr *)data;
-    if (validate_ehdr(ehdr, size)) return -1;
+    if (validate_ehdr(ehdr, size)) return -ENOEXEC;
     *ehdr_out = ehdr;
     return 0;
 }
@@ -114,7 +113,7 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
     memset(info, 0, sizeof(*info));
 
     Elf64_Ehdr *ehdr = NULL;
-    if (validate_elf(data, size, &ehdr)) return -1;
+    if (validate_elf(data, size, &ehdr)) return -ENOEXEC;
 
     info->entry      = ehdr->e_entry;
     info->phdr       = (uintptr_t)(data + ehdr->e_phoff);
@@ -127,11 +126,11 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
     for (int i = 0; i < ehdr->e_phnum; i++) {
         switch (phdr[i].type) {
             case PT_INTERP :
-                if (info->has_interp) return -1;
+                if (info->has_interp) return -ENOEXEC;
                 if (phdr[i].filesz > 1 && phdr[i].filesz < sizeof(info->interp_path)) {
                     if (phdr[i].offset + phdr[i].filesz > size) break;
                     const char *interp = (const char *)data + phdr[i].offset;
-                    if (interp[phdr[i].filesz - 1] != '\0') return -1;
+                    if (interp[phdr[i].filesz - 1] != '\0') return -ENOEXEC;
                     memcpy(info->interp_path, interp, phdr[i].filesz);
                     info->has_interp = 1;
                 }
@@ -156,15 +155,15 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
 static int elf_segment_range(const Elf64_Phdr *segment, uintptr_t load_bias, uintptr_t *base_out, uintptr_t *start_out, uintptr_t *end_out)
 {
     if (segment->memsz == 0) return 0;
-    if (segment->vaddr > UINT64_MAX - load_bias) return -1;
+    if (segment->vaddr > UINT64_MAX - load_bias) return -ENOEXEC;
 
     uintptr_t base = segment->vaddr + load_bias;
-    if (base > UINT64_MAX - segment->memsz) return -1;
+    if (base > UINT64_MAX - segment->memsz) return -ENOEXEC;
 
     uintptr_t mem_end = base + segment->memsz;
-    if (mem_end > UINT64_MAX - (PAGE_4K_SIZE - 1)) return -1;
+    if (mem_end > UINT64_MAX - (PAGE_4K_SIZE - 1)) return -ENOEXEC;
     uintptr_t end = ALIGN_UP(mem_end, PAGE_4K_SIZE);
-    if (end < mem_end) return -1;
+    if (end < mem_end) return -ENOEXEC;
 
     if (base_out) *base_out = base;
     if (start_out) *start_out = ALIGN_DOWN(base, PAGE_4K_SIZE);
@@ -216,18 +215,14 @@ static int insert_elf_vma(process_t *proc, uintptr_t start, uintptr_t end, vm_fl
     if (start >= end) return 0;
 
     vm_area_t *vma = calloc(1, sizeof(*vma));
-    if (!vma) {
-        plogk("elf_loader: PT_LOAD VMA allocation failed at %p\n", (void *)start);
-        return 1;
-    }
+    if (!vma) return -ENOMEM;
     vma->start = start;
     vma->end   = end;
     vma->flags = flags;
     vma->type  = VM_REGION_MMAP;
     if (vm_area_insert(proc, vma)) {
-        plogk("elf_loader: PT_LOAD VMA insert failed at %p\n", (void *)start);
         free(vma);
-        return 1;
+        return -ENOMEM;
     }
     return 0;
 }
@@ -239,20 +234,20 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
 
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdr[i].type != PT_LOAD) continue;
-        if (phdr[i].filesz > phdr[i].memsz) return 1;
-        if (phdr[i].offset > source->size || phdr[i].filesz > source->size - phdr[i].offset) return 1;
-        if (phdr[i].align > 1 && ((phdr[i].align & (phdr[i].align - 1)) || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1)))) return 1;
+        if (phdr[i].filesz > phdr[i].memsz) return -ENOEXEC;
+        if (phdr[i].offset > source->size || phdr[i].filesz > source->size - phdr[i].offset) return -ENOEXEC;
+        if (phdr[i].align > 1 && ((phdr[i].align & (phdr[i].align - 1)) || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1)))) return -ENOEXEC;
 
         uintptr_t seg_start, seg_end;
         int       range = elf_segment_range(&phdr[i], load_bias, NULL, &seg_start, &seg_end);
-        if (range < 0) return 1;
+        if (range < 0) return -ENOEXEC;
         if (range == 0) continue;
-        if (seg_start < PROCESS_HEAP_START || seg_end > PROCESS_USER_STACK_TOP) return 1;
+        if (seg_start < PROCESS_HEAP_START || seg_end > PROCESS_USER_STACK_TOP) return -ENOEXEC;
         if (seg_start < lowest_start) lowest_start = seg_start;
         if (seg_end > highest_end) highest_end = seg_end;
     }
 
-    if (lowest_start == UINT64_MAX) return 1;
+    if (lowest_start == UINT64_MAX) return -ENOEXEC;
 
     /*
      * Map each virtual page once, then copy all PT_LOAD portions into it.
@@ -267,17 +262,13 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
         (void)vm_flags;
 
         uint64_t frame = alloc_frames(1);
-        if (!frame) {
-            plogk("elf_loader: PT_LOAD frame allocation failed at %p\n", (void *)va);
-            return 1;
-        }
+        if (!frame) return -ENOMEM;
 
         uint8_t *page = phys_to_virt(frame);
         memset(page, 0, PAGE_4K_SIZE);
         if (page_map_new_to(proc->user_page_dir, va, frame, pte_flags)) {
             (void)frame_release_range(frame, 1);
-            plogk("elf_loader: PT_LOAD page collision at %p\n", (void *)va);
-            return 1;
+            return -ENOMEM;
         }
 
         for (int i = 0; i < ehdr->e_phnum; i++) {
@@ -290,11 +281,12 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
             if (file_start >= file_end) continue;
 
             uintptr_t file_delta = file_start - base;
-            if (phdr[i].offset > source->size || file_delta > source->size - phdr[i].offset) return 1;
+            if (phdr[i].offset > source->size || file_delta > source->size - phdr[i].offset) return -ENOEXEC;
             uint64_t file_offset = phdr[i].offset + file_delta;
             size_t   copy_size   = file_end - file_start;
-            if (copy_size > source->size - file_offset) return 1;
-            if (elf_source_read(source, file_offset, page + (file_start - va), copy_size)) return 1;
+            if (copy_size > source->size - file_offset) return -ENOEXEC;
+            int read_ret = elf_source_read(source, file_offset, page + (file_start - va), copy_size);
+            if (read_ret) return read_ret;
         }
     }
 
@@ -306,7 +298,7 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
         uint64_t   pte_flags;
         vm_flags_t vm_flags;
         if (!elf_page_attributes(phdr, ehdr->e_phnum, load_bias, va, &pte_flags, &vm_flags)) {
-            if (run_start && insert_elf_vma(proc, run_start, run_end, run_flags)) return 1;
+            if (run_start && insert_elf_vma(proc, run_start, run_end, run_flags)) return -ENOMEM;
             run_start = 0;
             continue;
         }
@@ -317,7 +309,7 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
             run_end   = va + PAGE_4K_SIZE;
             run_flags = vm_flags;
         } else if (run_end != va || run_flags != vm_flags) {
-            if (insert_elf_vma(proc, run_start, run_end, run_flags)) return 1;
+            if (insert_elf_vma(proc, run_start, run_end, run_flags)) return -ENOMEM;
             run_start = va;
             run_end   = va + PAGE_4K_SIZE;
             run_flags = vm_flags;
@@ -325,7 +317,7 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
             run_end += PAGE_4K_SIZE;
         }
     }
-    if (run_start && insert_elf_vma(proc, run_start, run_end, run_flags)) return 1;
+    if (run_start && insert_elf_vma(proc, run_start, run_end, run_flags)) return -ENOMEM;
 
     if (set_brk && highest_end > PROCESS_HEAP_START) proc->start_brk = proc->heap_brk = highest_end;
     return 0;
@@ -364,7 +356,7 @@ static int write_user(process_t *proc, uintptr_t dst, const void *src, size_t si
     while (size) {
         void *out = user_ptr(proc, dst);
         if (!out && process_demand_fault(proc, dst, 1, 0) == 0) out = user_ptr(proc, dst);
-        if (!out) return -1;
+        if (!out) return -EFAULT;
         size_t chunk = PAGE_4K_SIZE - (dst & (PAGE_4K_SIZE - 1));
         if (chunk > size) chunk = size;
         memcpy(out, in, chunk);
@@ -415,25 +407,21 @@ static uintptr_t compute_load_bias(const Elf64_Ehdr *ehdr, const Elf64_Phdr *phd
 int elf_loader_load_interpreter(struct process *proc, const char *interp_path, Elf64_Addr *base_out, Elf64_Addr *entry_out)
 {
     char resolved_path[VFS_PATH_MAX];
-    if (process_resolve_path_at(proc, PROCESS_AT_FDCWD, interp_path, resolved_path, sizeof(resolved_path)) != EOK) return -1;
+    int  resolve_status = process_resolve_path_at(proc, PROCESS_AT_FDCWD, interp_path, resolved_path, sizeof(resolved_path));
+    if (resolve_status != EOK) return resolve_status;
 
     vfs_node_t node = vfs_open(resolved_path);
-    if (!node) {
-        plogk("elf_loader: Interpreter not found: %s\n", interp_path);
-        return -1;
-    }
+    if (!node) return -ENOENT;
 
     if (node->size == 0 || node->size > 0x400000) {
-        plogk("elf_loader: Interpreter invalid size: %s\n", interp_path);
         vfs_close(node);
-        return -1;
+        return -EINVAL;
     }
 
     uint8_t *elf_data = malloc(node->size);
     if (!elf_data) {
-        plogk("elf_loader: Interpreter image allocation failed (%llu bytes): %s\n", (unsigned long long)node->size, interp_path);
         vfs_close(node);
-        return -1;
+        return -ENOMEM;
     }
 
     size_t total = 0;
@@ -446,16 +434,14 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     vfs_close(node);
 
     if (total < sizeof(Elf64_Ehdr)) {
-        plogk("elf_loader: Interpreter truncated (%lu bytes): %s\n", (unsigned long)total, interp_path);
         free(elf_data);
-        return -1;
+        return -ENOEXEC;
     }
 
     Elf64_Ehdr *iehdr = NULL;
     if (validate_elf(elf_data, total, &iehdr)) {
-        plogk("elf_loader: Invalid interpreter ELF: %s\n", interp_path);
         free(elf_data);
-        return -1;
+        return -ENOEXEC;
     }
 
     const Elf64_Phdr *iphdr       = (const Elf64_Phdr *)(elf_data + iehdr->e_phoff);
@@ -469,24 +455,22 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         if (end > image_end) image_end = end;
     }
     if (image_start == UINT64_MAX || image_end <= image_start) {
-        plogk("elf_loader: Interpreter has no PT_LOAD segment: %s\n", interp_path);
         free(elf_data);
-        return -1;
+        return -ENOEXEC;
     }
 
     uintptr_t interp_base = find_free_range(proc, INTERP_LOAD_BASE, INTERP_LOAD_END, image_end - image_start);
     if (!interp_base) {
-        plogk("elf_loader: No free space for interpreter.\n");
         free(elf_data);
-        return -1;
+        return -ENOMEM;
     }
 
     uintptr_t load_bias = compute_load_bias(iehdr, iphdr, interp_base);
 
-    if (load_elf_segments(proc, iehdr, elf_data, total, load_bias, 0)) {
-        plogk("elf_loader: Failed to load interpreter segments.\n");
+    int load_ret = load_elf_segments(proc, iehdr, elf_data, total, load_bias, 0);
+    if (load_ret) {
         free(elf_data);
-        return -1;
+        return load_ret;
     }
 
     int valid_entry = 0;
@@ -499,9 +483,8 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         if (valid_entry) break;
     }
     if (!valid_entry) {
-        plogk("elf_loader: Interpreter entry %#lx outside any executable segment: %s\n", (unsigned long)(iehdr->e_entry + load_bias), interp_path);
         free(elf_data);
-        return -1;
+        return -ENOEXEC;
     }
 
     *base_out  = load_bias;
@@ -530,7 +513,8 @@ static size_t string_array_size(char *const arr[])
 }
 
 /* Build the initial user stack: argv/envp/auxv vectors and the strings they point to */
-static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base, uintptr_t main_entry, char *const argv[], char *const envp[])
+static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base, uintptr_t main_entry, char *const argv[], char *const envp[],
+                            uintptr_t *rsp_out)
 {
     int         argc      = count_string_array(argv);
     int         envc      = count_string_array(envp);
@@ -542,7 +526,7 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     size_t       vector_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + aux_pairs * 2;
     size_t       strings_size = argv_strs + envp_strs + strlen(execfn) + 1 + sizeof("x86_64") + 16;
     size_t       total_needed = ALIGN_UP(vector_words * sizeof(uint64_t) + strings_size + 16, 16);
-    if (total_needed > (size_t)PROCESS_STACK_SIZE) return 0;
+    if (total_needed > (size_t)PROCESS_STACK_SIZE) return -ENOMEM;
     uintptr_t base_rsp    = ALIGN_DOWN(PROCESS_USER_STACK_TOP - total_needed, 16);
     uintptr_t string_area = base_rsp + vector_words * sizeof(uint64_t);
     uint64_t *vectors     = calloc(vector_words, sizeof(uint64_t));
@@ -550,7 +534,7 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     if (!vectors || !strings) {
         free(vectors);
         free(strings);
-        return 0;
+        return -ENOMEM;
     }
 
     uint8_t *sp       = strings;
@@ -624,12 +608,14 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     vectors[n++] = AT_NULL;
     vectors[n++] = 0;
 
-    int failed = write_user(proc, base_rsp, vectors, vector_words * sizeof(uint64_t)) || write_user(proc, string_area, strings, strings_size);
+    int ret = write_user(proc, base_rsp, vectors, vector_words * sizeof(uint64_t));
+    if (!ret) ret = write_user(proc, string_area, strings, strings_size);
     free(vectors);
     free(strings);
-    if (failed) return 0;
+    if (ret) return ret;
 
-    return base_rsp;
+    *rsp_out = base_rsp;
+    return 0;
 }
 
 /* Trampoline that enters the user image with a clean register file via IRETQ */
@@ -652,16 +638,10 @@ __attribute__((naked)) static void user_process_enter(void)
 int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[], uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console)
 {
     Elf64_Ehdr *ehdr = NULL;
-    if (validate_elf(elf_data, elf_size, &ehdr)) {
-        plogk("elf_loader: Invalid ELF binary.\n");
-        return 1;
-    }
+    if (validate_elf(elf_data, elf_size, &ehdr)) return -ENOEXEC;
 
     elf_load_info_t info;
-    if (elf_loader_parse_elf_info(elf_data, elf_size, &info)) {
-        plogk("elf_loader: Failed to parse ELF info.\n");
-        return 1;
-    }
+    if (elf_loader_parse_elf_info(elf_data, elf_size, &info)) return -ENOEXEC;
 
     uintptr_t load_bias = 0;
     if (ehdr->e_type == ET_DYN) {
@@ -690,37 +670,28 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
         }
     }
 
-    if (load_elf_segments(proc, ehdr, elf_data, elf_size, load_bias, 1)) {
-        plogk("elf_loader: Failed to load ELF segments.\n");
-        return 1;
-    }
+    int load_ret = load_elf_segments(proc, ehdr, elf_data, elf_size, load_bias, 1);
+    if (load_ret) return load_ret;
 
-    if (process_mmap(proc, proc->stack_brk, (size_t)PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) {
-        plogk("elf_loader: Failed to allocate user stack.\n");
-        return 1;
-    }
+    if (process_mmap(proc, proc->stack_brk, (size_t)PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) return -ENOMEM;
 
     if (acquire_console) {
         vfs_node_t console = vfs_open("/dev/console");
-        if (!console) {
-            plogk("elf_loader: PID 1 cannot open /dev/console\n");
-            return 1;
-        }
+        if (!console) return -ENOENT;
 
         int std_fd = process_fd_install(proc, console, O_RDWR | O_NOCTTY);
         if (std_fd != 0) {
             if (std_fd < 0) vfs_close(console);
-            plogk("elf_loader: PID 1 failed to install /dev/console on standard input.\n");
-            return 1;
+            return std_fd < 0 ? std_fd : -EIO;
         }
 
         int stdout_fd = process_fd_dup2(proc, 0, 1);
         int stderr_fd = process_fd_dup2(proc, 0, 2);
         int ctty      = tty_console_acquire(proc, O_RDWR);
-        if (stdout_fd != 1 || stderr_fd != 2 || ctty) {
-            plogk("elf_loader: PID 1 failed to acquire /dev/console as its controlling terminal.\n");
-            return 1;
-        }
+        if (stdout_fd < 0) return stdout_fd;
+        if (stderr_fd < 0) return stderr_fd;
+        if (stdout_fd != 1 || stderr_fd != 2) return -EIO;
+        if (ctty) return ctty;
     }
 
     proc->task->thread.fs_base = 0;
@@ -731,10 +702,8 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     uintptr_t  actual_entry      = ehdr->e_entry + load_bias;
 
     if (info.has_interp) {
-        if (elf_loader_load_interpreter(proc, info.interp_path, &interpreter_base, &interpreter_entry)) {
-            plogk("elf_loader: Failed to load required interpreter.\n");
-            return 1;
-        }
+        int interp_ret = elf_loader_load_interpreter(proc, info.interp_path, &interpreter_base, &interpreter_entry);
+        if (interp_ret) return interp_ret;
         actual_entry = interpreter_entry;
     }
 
@@ -748,16 +717,11 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
             break;
         }
     }
-    if (!valid_entry) {
-        plogk("elf_loader: Entry point not within any loaded segment.\n");
-        return 1;
-    }
+    if (!valid_entry) return -ENOEXEC;
 
-    uintptr_t user_rsp = setup_user_stack(proc, phdr_addr, ehdr->e_phnum, ehdr->e_phentsize, interpreter_base, ehdr->e_entry + load_bias, argv, envp);
-    if (!user_rsp) {
-        plogk("elf_loader: Failed to initialize user stack.\n");
-        return 1;
-    }
+    uintptr_t user_rsp  = 0;
+    int       stack_ret = setup_user_stack(proc, phdr_addr, ehdr->e_phnum, ehdr->e_phentsize, interpreter_base, ehdr->e_entry + load_bias, argv, envp, &user_rsp);
+    if (stack_ret) return stack_ret;
 
     proc->task->context.rbx    = 0;
     proc->task->context.rbp    = 0;
@@ -796,36 +760,40 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
  */
 int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv[], char *const envp[], uintptr_t *entry_out, uintptr_t *rsp_out)
 {
-    if (!proc || !node || !node->size || node->size > SIZE_MAX) return 1;
+    if (!proc || !node || !node->size || node->size > SIZE_MAX) return -EINVAL;
 
     elf_source_t source = {.data = NULL, .node = node, .size = (size_t)node->size};
     Elf64_Ehdr   ehdr;
-    if (elf_source_read(&source, 0, &ehdr, sizeof(ehdr)) || validate_ehdr(&ehdr, source.size)) {
-        plogk("elf_loader: Invalid node-backed ELF binary.\n");
-        return 1;
-    }
+    int          header_ret = elf_source_read(&source, 0, &ehdr, sizeof(ehdr));
+    if (header_ret) return header_ret;
+    if (validate_ehdr(&ehdr, source.size)) return -ENOEXEC;
 
     size_t      phdr_size = (size_t)ehdr.e_phnum * sizeof(Elf64_Phdr);
     Elf64_Phdr *phdrs     = malloc(phdr_size);
-    if (!phdrs) {
-        plogk("elf_loader: Program-header allocation failed.\n");
-        return 1;
-    }
-    if (elf_source_read(&source, (size_t)ehdr.e_phoff, phdrs, phdr_size)) {
-        plogk("elf_loader: Program-header read failed.\n");
+    if (!phdrs) return -ENOMEM;
+
+    int phdr_ret = elf_source_read(&source, (size_t)ehdr.e_phoff, phdrs, phdr_size);
+    if (phdr_ret) {
         free(phdrs);
-        return 1;
+        return phdr_ret;
     }
 
     char interp_path[256] = {0};
     int  has_interp       = 0;
     for (int i = 0; i < ehdr.e_phnum; i++) {
         if (phdrs[i].type != PT_INTERP) continue;
-        if (has_interp || phdrs[i].filesz <= 1 || phdrs[i].filesz >= sizeof(interp_path) || elf_source_read(&source, (size_t)phdrs[i].offset, interp_path, (size_t)phdrs[i].filesz)
-            || interp_path[phdrs[i].filesz - 1] != '\0') {
-            plogk("elf_loader: Invalid PT_INTERP.\n");
+        if (has_interp || phdrs[i].filesz <= 1 || phdrs[i].filesz >= sizeof(interp_path)) {
             free(phdrs);
-            return 1;
+            return -ENOEXEC;
+        }
+        int interp_ret = elf_source_read(&source, (size_t)phdrs[i].offset, interp_path, (size_t)phdrs[i].filesz);
+        if (interp_ret) {
+            free(phdrs);
+            return interp_ret;
+        }
+        if (interp_path[phdrs[i].filesz - 1] != '\0') {
+            free(phdrs);
+            return -ENOEXEC;
         }
         has_interp = 1;
     }
@@ -856,17 +824,16 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
         }
     }
 
-    if (load_elf_segments_source(proc, &ehdr, phdrs, &source, load_bias, 1)) {
-        plogk("elf_loader: Failed to stream ELF segments.\n");
+    int seg_ret = load_elf_segments_source(proc, &ehdr, phdrs, &source, load_bias, 1);
+    if (seg_ret) {
         free(source.window);
         free(phdrs);
-        return 1;
+        return seg_ret;
     }
     if (process_mmap(proc, proc->stack_brk, (size_t)PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) {
-        plogk("elf_loader: Failed to allocate user stack.\n");
         free(source.window);
         free(phdrs);
-        return 1;
+        return -ENOMEM;
     }
 
     proc->task->thread.fs_base = 0;
@@ -876,11 +843,11 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
     Elf64_Addr interpreter_entry = 0;
     uintptr_t  actual_entry      = ehdr.e_entry + load_bias;
     if (has_interp) {
-        if (elf_loader_load_interpreter(proc, interp_path, &interpreter_base, &interpreter_entry)) {
-            plogk("elf_loader: Failed to load required interpreter.\n");
+        int interp_ret = elf_loader_load_interpreter(proc, interp_path, &interpreter_base, &interpreter_entry);
+        if (interp_ret) {
             free(source.window);
             free(phdrs);
-            return 1;
+            return interp_ret;
         }
         actual_entry = interpreter_entry;
     }
@@ -896,18 +863,17 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
         }
     }
     if (!valid_entry) {
-        plogk("elf_loader: Entry point not within any loaded segment.\n");
         free(source.window);
         free(phdrs);
-        return 1;
+        return -ENOEXEC;
     }
 
-    uintptr_t user_rsp = setup_user_stack(proc, phdr_addr, ehdr.e_phnum, ehdr.e_phentsize, interpreter_base, ehdr.e_entry + load_bias, argv, envp);
-    if (!user_rsp) {
-        plogk("elf_loader: Failed to initialize user stack.\n");
+    uintptr_t user_rsp  = 0;
+    int       stack_ret = setup_user_stack(proc, phdr_addr, ehdr.e_phnum, ehdr.e_phentsize, interpreter_base, ehdr.e_entry + load_bias, argv, envp, &user_rsp);
+    if (stack_ret) {
         free(source.window);
         free(phdrs);
-        return 1;
+        return stack_ret;
     }
 
     proc->task->context.rbx    = 0;
@@ -935,17 +901,12 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
     if (!proc || !path || !path[0]) return -EINVAL;
 
     vfs_node_t node = vfs_open(path);
-    if (!node) {
-        plogk("elf_loader: Init executable not found: %s\n", path);
-        return -ENOENT;
-    }
+    if (!node) return -ENOENT;
     if (node->type & file_dir) {
-        plogk("elf_loader: Init path is a directory: %s\n", path);
         vfs_close(node);
         return -EISDIR;
     }
     if (!node->size || node->size > 64ULL * 1024ULL * 1024ULL) {
-        plogk("elf_loader: Init executable has invalid size: %s (%llu bytes)\n", path, (unsigned long long)node->size);
         vfs_close(node);
         return -EINVAL;
     }
@@ -953,7 +914,6 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
     size_t   image_size = (size_t)node->size;
     uint8_t *image      = malloc(image_size);
     if (!image) {
-        plogk("elf_loader: Unable to allocate init image (%llu bytes)\n", (unsigned long long)image_size);
         vfs_close(node);
         return -ENOMEM;
     }
@@ -962,13 +922,11 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
     while (loaded < image_size) {
         size_t amount = vfs_read(node, image + loaded, loaded, image_size - loaded);
         if (amount == (size_t)-1 || amount == 0) {
-            plogk("elf_loader: Failed to read init executable: %s\n", path);
             free(image);
             vfs_close(node);
             return -EIO;
         }
         if (amount > image_size - loaded) {
-            plogk("elf_loader: Init executable read overrun: %s\n", path);
             free(image);
             vfs_close(node);
             return -EIO;
@@ -976,8 +934,6 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
         loaded += amount;
     }
     vfs_close(node);
-
-    plogk("elf_loader: Init executable found: %s (%llu bytes)\n", path, (unsigned long long)image_size);
 
     int status = elf_loader_load_initial_process(proc, image, image_size, argv, envp);
     free(image);

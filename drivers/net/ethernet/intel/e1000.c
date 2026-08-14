@@ -170,10 +170,8 @@ typedef struct e1000_device {
         uint32_t                  work_pending;
         uint32_t                  interrupts_pending;
         int                       worker_started;
-        int                       worker_exited;
         task_t                   *worker_task;
         wait_queue_t              work_wait;
-        wait_queue_t              exit_wait;
         spinlock_t                work_lock;
         volatile e1000_rx_desc_t *rx_ring;
         volatile e1000_tx_desc_t *tx_ring;
@@ -705,24 +703,21 @@ static void e1000_process_work(e1000_device_t *device, uint32_t cause)
 }
 
 /* Worker task: drains interrupt work and re-enables the interrupt mask. */
-static void e1000_worker(void *arg)
+static int e1000_worker(void *arg)
 {
     e1000_device_t *device = arg;
 
-    for (;;) {
+    while (!kthread_should_stop()) {
         uint64_t rflags = spin_lock_irqsave(&device->work_lock);
-        while (!device->work_pending && !device->stopping) {
+        while (!device->work_pending && !device->stopping && !kthread_should_stop()) {
             wait_queue_prepare(&device->work_wait);
             spin_unlock_irqrestore(&device->work_lock, rflags);
             wait_queue_sleep();
             rflags = spin_lock_irqsave(&device->work_lock);
         }
-        if (device->stopping) {
-            device->worker_exited  = 1;
-            device->worker_started = 0;
-            wait_queue_wake_all(&device->exit_wait);
+        if (device->stopping || kthread_should_stop()) {
             spin_unlock_irqrestore(&device->work_lock, rflags);
-            return;
+            break;
         }
         uint32_t cause             = device->work_pending;
         uint32_t interrupts        = device->interrupts_pending;
@@ -750,28 +745,27 @@ static void e1000_worker(void *arg)
         spin_unlock_irqrestore(&device->work_lock, rflags);
         if (more) sched_yield();
     }
+    return 0;
 }
 
-/* Spawn the device worker task if it is not already running. */
+/* Register the device worker for unified creation by kernel_workers_start(). */
 static int e1000_start_worker(e1000_device_t *device)
 {
     if (device->worker_started) return 0;
 
     uint64_t rflags        = spin_lock_irqsave(&device->work_lock);
     device->worker_started = 1;
-    device->worker_exited  = 0;
     device->work_pending   = E1000_WORK_INITIAL;
     spin_unlock_irqrestore(&device->work_lock, rflags);
 
-    task_t *worker = kthread_create("e1000-rx", e1000_worker, device);
-    if (!worker) {
+    int ret = kernel_worker_register("e1000-poll", e1000_worker, device, &device->worker_task);
+    if (ret) {
         rflags                 = spin_lock_irqsave(&device->work_lock);
         device->worker_started = 0;
         device->work_pending   = 0;
         spin_unlock_irqrestore(&device->work_lock, rflags);
-        return -ENOMEM;
+        return ret;
     }
-    device->worker_task = worker;
     return 0;
 }
 
@@ -929,18 +923,9 @@ static void e1000_destroy(e1000_device_t *device)
     spin_unlock_irqrestore(&device->work_lock, rflags);
     e1000_release_interrupt(device);
     if (device->worker_task) {
-        rflags = spin_lock_irqsave(&device->work_lock);
-        wait_queue_wake_all(&device->work_wait);
-        while (!device->worker_exited) {
-            wait_queue_prepare(&device->exit_wait);
-            spin_unlock_irqrestore(&device->work_lock, rflags);
-            wait_queue_sleep();
-            rflags = spin_lock_irqsave(&device->work_lock);
-        }
-        spin_unlock_irqrestore(&device->work_lock, rflags);
-        while (__atomic_load_n(&device->worker_task->state, __ATOMIC_ACQUIRE) != TASK_ZOMBIE || __atomic_load_n(&device->worker_task->on_cpu, __ATOMIC_ACQUIRE)) sched_yield();
-        task_free(device->worker_task);
-        device->worker_task = NULL;
+        kthread_stop(device->worker_task);
+        device->worker_task    = NULL;
+        device->worker_started = 0;
     }
     if (device->netdev_registered) {
         netdev_unregister(&device->netdev);
@@ -990,7 +975,6 @@ int e1000_probe(pci_device_cache_t *pci)
     device->vector        = -1;
     device->saved_command = pci_read_command_status(pci) & 0xffff;
     wait_queue_init(&device->work_wait);
-    wait_queue_init(&device->exit_wait);
     const char *stage = "BAR mapping";
 
     /* BAR sizing writes all ones, so memory decoding and DMA must be off. */
@@ -1085,7 +1069,7 @@ int e1000_init(void)
     return found ? found : -ENODEV;
 }
 
-/* Start the worker task of every registered device. */
+/* Register the worker task of every device for unified creation. */
 int e1000_start_workers(void)
 {
 #if !CONFIG_E1000
@@ -1104,7 +1088,7 @@ int e1000_start_workers(void)
             continue;
         }
         failed = 1;
-        plogk("e1000: %s: Worker startup failed.\n", device->netdev.name);
+        plogk("e1000: %s: Worker registration failed.\n", device->netdev.name);
         *link = device->next;
         e1000_device_count--;
         e1000_destroy(device);
