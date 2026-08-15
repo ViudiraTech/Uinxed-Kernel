@@ -186,7 +186,6 @@ static void swapper_run_init(void)
             }
         }
     }
-
     if (!chosen_path) panic("No working init found.");
 
     strncpy(init->exe_path, chosen_path, sizeof(init->exe_path) - 1);
