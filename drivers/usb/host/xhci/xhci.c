@@ -1234,7 +1234,7 @@ int xhci_init(void)
         int bus_number = usb_host_allocate_bus_number();
         if (bus_number < 0) break;
         int status = xhci_probe(pci, (uint8_t)bus_number);
-        if (status != EOK) { plogk("usb: xhci: Controller %04x:%02x:%02x.%u initialization failed: %d\n", pci->device->domain, pci->device->bus, pci->device->slot, pci->device->func, status); }
+        if (status != EOK) plogk("usb: xhci: Controller %04x:%02x:%02x.%u initialization failed: %d\n", pci->device->domain, pci->device->bus, pci->device->slot, pci->device->func, status);
     }
     return (int)(xhci_controller_count - before);
 }
@@ -1249,6 +1249,7 @@ void xhci_start_workers(void)
         xhci_controller_t *controller = xhci_controllers[i];
         if (!controller || controller->worker_started) continue;
         controller->worker_started = true;
+
         /* Enumerate already-connected root ports on the first worker pass. */
         for (uint8_t port = 1; port <= controller->max_ports; port++) {
             size_t   offset = XHCI_OP_PORTS + (size_t)(port - 1) * XHCI_PORT_STRIDE;

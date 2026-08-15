@@ -276,6 +276,10 @@ void module_sysfs_init(void)
             break;
         }
     }
+    if (!module_kobj)
+        plogk("module_sysfs: /sys/module/ not found.\n");
+    else
+        plogk("module_sysfs: /sys/module/ located.\n");
 #endif
 }
 
@@ -290,6 +294,7 @@ int module_sysfs_create(struct module *module, module_sysfs_t **handle)
     entry->module = module;
     int ret       = kobject_init_and_add(&entry->kobj, &module_ktype, module_kobj, "%s", module->name);
     if (ret != EOK) {
+        plogk("module_sysfs: Failed to create /sys/module/%s: %d\n", module->name, ret);
         kobject_put(&entry->kobj);
         return ret;
     }

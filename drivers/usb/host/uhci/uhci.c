@@ -766,13 +766,6 @@ static void uhci_interrupt_handler(void *frame)
     send_eoi();
 }
 
-/* host_ops: controller is already running after probe. */
-static int uhci_host_start(usb_host_t *host)
-{
-    (void)host;
-    return EOK;
-}
-
 /* host_ops: stop the controller and its interrupts. */
 static void uhci_host_stop(usb_host_t *host)
 {
@@ -784,8 +777,7 @@ static void uhci_host_stop(usb_host_t *host)
 }
 
 static usb_host_controller_ops_t uhci_controller_ops = {
-    .host_start = uhci_host_start,
-    .host_stop  = uhci_host_stop,
+    .host_stop = uhci_host_stop,
 };
 
 /* Probe a UHCI PCI device: reset, allocate pools, and start. */
@@ -873,6 +865,7 @@ static int uhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     ctrl->running                             = true;
     uhci_controllers[uhci_controller_count++] = ctrl;
     usb_host_register(&ctrl->hcd);
+    ctrl->hcd.running = true;
 
     plogk("usb: uhci: Controller at I/O 0x%04x, bus usb%u\n", io_base, bus_number);
     return EOK;
@@ -905,6 +898,7 @@ void uhci_start_workers(void)
         uhci_controller_t *ctrl = uhci_controllers[i];
         if (!ctrl || ctrl->worker_started) continue;
         ctrl->worker_started = true;
+
         /* Enumerate every root port on the first worker pass. */
         ctrl->pending_ports |= (1ULL << UHCI_MAX_PORTS) - 1;
         kernel_worker_register("uhci-hub", uhci_worker, ctrl, &ctrl->worker_task);

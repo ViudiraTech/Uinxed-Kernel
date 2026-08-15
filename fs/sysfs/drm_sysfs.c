@@ -156,7 +156,11 @@ void drm_sysfs_init(void)
 {
 #if CONFIG_SYSFS
     int ret = class_register(&drm_class);
-    if (ret != EOK) plogk("drm_sysfs: Class_register(drm) failed: %d\n", ret);
+    if (ret != EOK) {
+        plogk("drm_sysfs: Class_register(drm) failed: %d\n", ret);
+        return;
+    }
+    plogk("drm_sysfs: /sys/class/drm registered.\n");
 #endif
 }
 
@@ -165,8 +169,7 @@ void drm_sysfs_register_device(struct drm_device *dev)
 {
 #if CONFIG_SYSFS
     if (!dev || !dev->primary) return;
-    struct device *ddev = device_create(&drm_class, NULL, MKDEV(226, dev->primary->index), dev, "card%d", dev->primary->index);
-    if (ddev) plogk("drm_sysfs: Created /sys/class/drm/%s\n", kobject_name(&ddev->kobj));
+    if (!device_create(&drm_class, NULL, MKDEV(226, dev->primary->index), dev, "card%d", dev->primary->index)) plogk("drm_sysfs: Failed to create /sys/class/drm/card%d\n", dev->primary->index);
 #endif
 }
 
@@ -179,7 +182,10 @@ void drm_sysfs_connector_add(struct drm_connector *connector)
 
     (void)snprintf(name, sizeof(name), "card%u-%s-%u", connector->dev->primary->index, drm_connector_type_name(connector->connector_type), connector->connector_type_id);
     struct device *cdev = device_create(&drm_class, NULL, 0, connector, "%s", name);
-    if (!cdev) return;
+    if (!cdev) {
+        plogk("drm_sysfs: Failed to create /sys/class/drm/%s\n", name);
+        return;
+    }
 
     (void)device_create_file(cdev, &dev_attr_status);
     (void)device_create_file(cdev, &dev_attr_enabled);

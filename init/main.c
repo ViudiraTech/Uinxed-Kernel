@@ -315,19 +315,19 @@ void kernel_entry(void)
     /* Sysfs Population */                                         //
     kernel_sysfs_init();                                           // /sys/kernel/{version,cmdline,hostname,...}
     pci_sysfs_init();                                              // /sys/bus/pci/ + /sys/devices/pci*
-    input_sysfs_init();                                            // /sys/class/input/eventX
+    i2c_sysfs_init();                                              // /sys/bus/i2c + /sys/class/i2c-dev
+    usb_sysfs_init();                                              // /sys/bus/usb/ + /sys/bus/usb/devices/
     block_sysfs_init();                                            // /sys/block/{hdX,sdX,nvme*}
     tty_sysfs_init();                                              // /sys/class/tty/
     net_sysfs_init();                                              // /sys/class/net/<interface>/
+    input_sysfs_init();                                            // /sys/class/input/eventX
     fb_sysfs_init();                                               // /sys/class/graphics/fb0 + platform topology
     mem_sysfs_init();                                              // /sys/class/mem/ (null, zero, full, random, urandom)
     sound_sysfs_init();                                            // /sys/class/sound/cardN + ALSA node sub-devices
+    rtc_sysfs_init();                                              // /sys/class/rtc/rtc0
     tpm_vfs_init();                                                // /dev/tpm0, /dev/tpmrm0
     tpm_sysfs_init();                                              // /sys/class/tpm{,rm}
-    rtc_sysfs_init();                                              // /sys/class/rtc/rtc0
-    i2c_sysfs_init();                                              // /sys/bus/i2c + /sys/class/i2c-dev
     dmi_sysfs_init();                                              // /sys/class/dmi/id + /sys/firmware/dmi/tables
-    usb_sysfs_init();                                              // /sys/bus/usb/ + /sys/bus/usb/devices/
     drm_sysfs_init();                                              // /sys/class/drm/
     module_sysfs_init();                                           // /sys/module/<name>/
                                                                    //

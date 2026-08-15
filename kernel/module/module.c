@@ -113,6 +113,7 @@ static module_internal_t          *module_list;
 static spinlock_t                  module_lock;
 static volatile uint32_t           module_operation;
 static module_signature_verifier_t signature_verifier;
+
 /* Overflow-checked helpers used throughout module metadata parsing */
 
 static int size_add(size_t left, size_t right, size_t *result)

@@ -727,13 +727,6 @@ static void ohci_interrupt_handler(void *frame)
     send_eoi();
 }
 
-/* host_ops: controller is already running after probe. */
-static int ohci_host_start(usb_host_t *host)
-{
-    (void)host;
-    return EOK;
-}
-
 /* host_ops: reset the controller and disable its interrupts. */
 static void ohci_host_stop(usb_host_t *host)
 {
@@ -748,8 +741,7 @@ static void ohci_host_stop(usb_host_t *host)
 }
 
 static usb_host_controller_ops_t ohci_controller_ops = {
-    .host_start = ohci_host_start,
-    .host_stop  = ohci_host_stop,
+    .host_stop = ohci_host_stop,
 };
 
 /* Probe an OHCI PCI device: reset, allocate pools, and start. */
@@ -855,6 +847,7 @@ static int ohci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     ctrl->running                             = true;
     ohci_controllers[ohci_controller_count++] = ctrl;
     usb_host_register(&ctrl->hcd);
+    ctrl->hcd.running = true;
 
     plogk("usb: ohci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
     return EOK;
@@ -869,6 +862,7 @@ void ohci_start_workers(void)
         ohci_controller_t *ctrl = ohci_controllers[i];
         if (!ctrl || ctrl->worker_started) continue;
         ctrl->worker_started = true;
+
         /* Enumerate every root port on the first worker pass. */
         ctrl->pending_ports |= (1ULL << ctrl->num_ports) - 1;
         kernel_worker_register("ohci-hub", ohci_worker, ctrl, &ctrl->worker_task);

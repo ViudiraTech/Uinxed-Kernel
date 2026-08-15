@@ -30,7 +30,6 @@ typedef enum {
 struct usb_host;
 
 typedef struct usb_host_controller_ops {
-        int (*host_start)(struct usb_host *host);
         void (*host_stop)(struct usb_host *host);
 } usb_host_controller_ops_t;
 

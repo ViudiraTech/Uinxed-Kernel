@@ -112,21 +112,9 @@ void usb_host_pci_scan(void)
     plogk("usb: host: Found %d controller(s)\n", count);
 }
 
-/* Start every registered controller and its hub worker. */
+/* Start the hub worker of every registered controller. */
 void usb_host_start_workers(void)
 {
-    uint64_t flags = spin_lock_irqsave(&usb_host_lock);
-    for (usb_host_t *host = usb_host_list; host; host = host->next) {
-        if (host->controller_ops && host->controller_ops->host_start && !host->running) {
-            int ret = host->controller_ops->host_start(host);
-            if (ret == EOK) {
-                host->running = true;
-            } else {
-                plogk("usb: host: %s: start failed (%d)\n", host->name[0] ? host->name : "controller", ret);
-            }
-        }
-    }
-    spin_unlock_irqrestore(&usb_host_lock, flags);
     xhci_start_workers();
     uhci_start_workers();
     ohci_start_workers();

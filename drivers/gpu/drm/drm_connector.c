@@ -50,12 +50,10 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
         plogk("drm_connector: Failed to allocate object id (ret=%d)\n", ret);
         return ret;
     }
-
     drm_modeset_lock_init(&connector->mutex);
 
     ilist_init(&connector->modes);
     ilist_init(&connector->user_modes);
-
     ilist_insert_after(&dev->mode_config.connector_list, &connector->head);
 
     connector->dev                     = dev;
@@ -85,7 +83,6 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
     memset(connector->name, 0, sizeof(connector->name));
 
     dev->mode_config.num_connector++;
-
     ret = drm_object_attach_property(&connector->base, dev->mode_config.prop_crtc_id, 0);
     if (ret) {
         plogk("drm_connector: Failed to attach crtc_id property (ret=%d)\n", ret);
@@ -140,7 +137,6 @@ int drm_connector_register(struct drm_connector *connector)
         plogk("drm_connector: Register with NULL connector.\n");
         return -EINVAL;
     }
-
     drm_sysfs_connector_add(connector);
     return 0;
 }

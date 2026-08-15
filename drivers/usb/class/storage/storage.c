@@ -448,7 +448,7 @@ int usb_storage_probe(usb_interface_t *interface)
         storage->lun_count++;
     }
     if (!storage->lun_count) {
-        plogk("usb: storage: %s: no usable LUN\n", interface->device->path);
+        plogk("usb: storage: %s: no usable LUN.\n", interface->device->path);
         storage->connected = false;
         free(storage);
         return -ENOMEDIUM;
