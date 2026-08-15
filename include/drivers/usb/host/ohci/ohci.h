@@ -23,21 +23,21 @@
 #define OHCI_HcInterruptEnable  0x10
 #define OHCI_HcInterruptDisable 0x14
 #define OHCI_HcHCCA             0x18
-#define OHCI_HcPeriodCurrentED  0x20
-#define OHCI_HcControlHeadED    0x24
-#define OHCI_HcControlCurrentED 0x28
-#define OHCI_HcBulkHeadED       0x2c
-#define OHCI_HcBulkCurrentED    0x30
-#define OHCI_HcDoneHead         0x34
-#define OHCI_HcFmInterval       0x38
-#define OHCI_HcFmRemaining      0x3c
-#define OHCI_HcFmNumber         0x40
-#define OHCI_HcPeriodicStart    0x44
-#define OHCI_HcLSThreshold      0x48
-#define OHCI_HcRhDescriptorA    0x4c
-#define OHCI_HcRhDescriptorB    0x50
-#define OHCI_HcRhStatus         0x54
-#define OHCI_HcRhPortStatus     0x58
+#define OHCI_HcPeriodCurrentED  0x1c
+#define OHCI_HcControlHeadED    0x20
+#define OHCI_HcControlCurrentED 0x24
+#define OHCI_HcBulkHeadED       0x28
+#define OHCI_HcBulkCurrentED    0x2c
+#define OHCI_HcDoneHead         0x30
+#define OHCI_HcFmInterval       0x34
+#define OHCI_HcFmRemaining      0x38
+#define OHCI_HcFmNumber         0x3c
+#define OHCI_HcPeriodicStart    0x40
+#define OHCI_HcLSThreshold      0x44
+#define OHCI_HcRhDescriptorA    0x48
+#define OHCI_HcRhDescriptorB    0x4c
+#define OHCI_HcRhStatus         0x50
+#define OHCI_HcRhPortStatus     0x54
 
 /* HcControl bits */
 #define OHCI_CTRL_CBSR_SHIFT 0
@@ -73,13 +73,6 @@
 #define OHCI_INTR_RHSC (1U << 6)
 #define OHCI_INTR_OC   (1U << 7)
 #define OHCI_INTR_MIE  (1U << 31)
-
-/* HcRhStatus bits */
-#define OHCI_RHS_LPSC (1U << 0)
-#define OHCI_RHS_POCI (1U << 1)
-#define OHCI_RHS_OCI  (1U << 17)
-#define OHCI_RHS_LPS  (1U << 16)
-#define OHCI_RHS_DRWA (1U << 17)
 
 /* HcRhPortStatus bits */
 #define OHCI_PORT_CCS         (1U << 0)

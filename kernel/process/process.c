@@ -1531,6 +1531,7 @@ process_t *process_create_kthread(task_t *task, const char *name)
     process_fd_table_init(proc);
     process_rlimit_init(proc);
     signal_state_init(&proc->signal);
+
     /*
      * Linux: kthreadd calls ignore_signals() and kernel threads inherit that
      * disposition.  Each kthread here owns a fresh signal state, so we apply
@@ -1670,7 +1671,6 @@ void process_exit(int exit_code)
     process_vfork_complete(proc);
 
     if (!(current->flags & PF_KTHREAD)) ptrace_exit_notify(exit_code);
-
     task_exit();
 }
 

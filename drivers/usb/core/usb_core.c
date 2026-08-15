@@ -9,17 +9,16 @@
  */
 
 #include <drivers/usb/core/usb.h>
+#include <fs/sysfs/usb_sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 
-#define min(a, b)                       ((a) < (b) ? (a) : (b))
 #define USB_MAX_STRING_DESC_SIZE        256
 #define USB_MAX_ENDPOINTS_PER_INTERFACE 31
 
-struct bus_type usb_bus_type = {.name = "usb", .dev_name = NULL};
-static bool     usb_core_ready;
+static bool usb_core_ready;
 
 /* Read a little-endian 16-bit value from a USB descriptor. */
 uint16_t usb_get_le16(const void *address)
@@ -28,71 +27,12 @@ uint16_t usb_get_le16(const void *address)
     return (uint16_t)bytes[0] | (uint16_t)bytes[1] << 8;
 }
 
-static ssize_t id_vendor_show(struct device *dev, struct device_attribute *attribute, char *buffer)
-{
-    (void)attribute;
-    usb_device_t *device = dev ? dev->driver_data : NULL;
-    return sysfs_emit(buffer, "%04x\n", device ? device->descriptor.vendor_id : 0);
-}
-
-static ssize_t id_product_show(struct device *dev, struct device_attribute *attribute, char *buffer)
-{
-    (void)attribute;
-    usb_device_t *device = dev ? dev->driver_data : NULL;
-    return sysfs_emit(buffer, "%04x\n", device ? device->descriptor.product_id : 0);
-}
-
-static ssize_t product_show(struct device *dev, struct device_attribute *attribute, char *buffer)
-{
-    (void)attribute;
-    usb_device_t *device = dev ? dev->driver_data : NULL;
-    return sysfs_emit(buffer, "%s\n", device ? device->product : "");
-}
-
-static ssize_t manufacturer_show(struct device *dev, struct device_attribute *attribute, char *buffer)
-{
-    (void)attribute;
-    usb_device_t *device = dev ? dev->driver_data : NULL;
-    return sysfs_emit(buffer, "%s\n", device ? device->manufacturer : "");
-}
-
-static ssize_t serial_show(struct device *dev, struct device_attribute *attribute, char *buffer)
-{
-    (void)attribute;
-    usb_device_t *device = dev ? dev->driver_data : NULL;
-    return sysfs_emit(buffer, "%s\n", device ? device->serial : "");
-}
-
-static ssize_t speed_show(struct device *dev, struct device_attribute *attribute, char *buffer)
-{
-    (void)attribute;
-    usb_device_t *device        = dev ? dev->driver_data : NULL;
-    const char   *speed_table[] = {"0", "1.5", "12", "480", "5000", "10000"};
-    const char   *speed         = "0";
-    if (device && device->speed > 0 && device->speed <= USB_SPEED_SUPER_PLUS) speed = speed_table[device->speed];
-    return sysfs_emit(buffer, "%s\n", speed);
-}
-
-static DEVICE_ATTR(idVendor, 0444, id_vendor_show, NULL);
-static DEVICE_ATTR(idProduct, 0444, id_product_show, NULL);
-static DEVICE_ATTR(product, 0444, product_show, NULL);
-static DEVICE_ATTR(manufacturer, 0444, manufacturer_show, NULL);
-static DEVICE_ATTR(serial, 0444, serial_show, NULL);
-static DEVICE_ATTR(speed, 0444, speed_show, NULL);
-
-static struct attribute *usb_device_attributes[] = {
-    &dev_attr_idVendor.attr, &dev_attr_idProduct.attr, &dev_attr_product.attr, &dev_attr_manufacturer.attr, &dev_attr_serial.attr, &dev_attr_speed.attr, NULL,
-};
-static const struct attribute_group  usb_device_group    = {.attrs = usb_device_attributes};
-static const struct attribute_group *usb_device_groups[] = {&usb_device_group, NULL};
-
-/* Register the usb bus type (once). */
+/* Mark the USB core ready for device registration (bus registered by usb_sysfs_init). */
 int usb_core_init(void)
 {
     if (usb_core_ready) return EOK;
-    int result = bus_register(&usb_bus_type);
-    if (result == EOK) usb_core_ready = true;
-    return result;
+    usb_core_ready = true;
+    return EOK;
 }
 
 /* Issue one control transfer to the HCD. */
@@ -280,13 +220,17 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
     if (config_header->length < sizeof(*config_header) || length < config_header->length) return -EINVAL;
 
     int result = usb_parse_configuration(device, configuration, length);
-    if (result != EOK) return result;
+    if (result != EOK) {
+        plogk("usb: core: %s: configuration descriptor parse failed: %d\n", device->path, result);
+        return result;
+    }
 
     for (size_t interface_index = 0; interface_index < device->interface_count; interface_index++) {
         usb_interface_t *interface = &device->interfaces[interface_index];
         for (size_t endpoint_index = 0; endpoint_index < interface->endpoint_count; endpoint_index++) {
             result = device->hcd_ops->configure_endpoint(&interface->endpoints[endpoint_index]);
             if (result != EOK) {
+                plogk("usb: core: %s: endpoint 0x%02x configuration failed: %d\n", device->path, interface->endpoints[endpoint_index].descriptor.endpoint_address, result);
                 usb_cleanup_endpoints(device, interface_index, endpoint_index);
                 return result;
             }
@@ -296,12 +240,14 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
     int temp_result
         = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION, device->configuration.configuration_value, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
     if (temp_result != EOK) {
+        plogk("usb: core: %s: SET_CONFIGURATION failed: %d\n", device->path, temp_result);
         usb_cleanup_endpoints(device, device->interface_count, 0);
         return temp_result;
     }
     device->configured = true;
     result             = usb_register_device_model(device);
     if (result != EOK) {
+        plogk("usb: core: %s: device model registration failed: %d\n", device->path, result);
         device->configured = false;
         for (size_t i = 0; i < device->interface_count; i++) {
             if (device->interfaces[i].registered) {
@@ -313,7 +259,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
         usb_cleanup_endpoints(device, device->interface_count, 0);
 
         temp_result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION, 0U, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
-        if (temp_result != EOK) plogk("usb-core: Failed to reset device configuration: %d\n", temp_result);
+        if (temp_result != EOK) plogk("usb: core: Failed to reset device configuration: %d\n", temp_result);
         return result;
     }
 
@@ -331,7 +277,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
 void usb_disconnect_device(usb_device_t *device)
 {
     if (!device || !device->connected) return;
-    plogk("usb-core: Device %s (addr %u) disconnected.\n", device->path, device->address);
+    plogk("usb: core: Device %s (addr %u) disconnected.\n", device->path, device->address);
     device->connected = false;
     for (size_t i = 0; i < device->interface_count; i++) {
         usb_interface_t *interface = &device->interfaces[i];

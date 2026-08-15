@@ -298,6 +298,7 @@ fail_registered:
 fail_inputs:
     hid_unregister_inputs(hid);
 fail:
+    plogk("usb: hid: %s: probe failed: %d\n", interface->device->path, result);
     free(hid->report_descriptor);
     free(hid);
     return result;

@@ -56,11 +56,13 @@
 #include <fs/proc/procfs.h>
 #include <fs/sysfs/block_sysfs.h>
 #include <fs/sysfs/dmi_sysfs.h>
+#include <fs/sysfs/drm_sysfs.h>
 #include <fs/sysfs/fb_sysfs.h>
 #include <fs/sysfs/i2c_sysfs.h>
 #include <fs/sysfs/input_sysfs.h>
 #include <fs/sysfs/kernel_sysfs.h>
 #include <fs/sysfs/mem_sysfs.h>
+#include <fs/sysfs/module_sysfs.h>
 #include <fs/sysfs/net_sysfs.h>
 #include <fs/sysfs/pci_sysfs.h>
 #include <fs/sysfs/rtc_sysfs.h>
@@ -68,6 +70,7 @@
 #include <fs/sysfs/sysfs.h>
 #include <fs/sysfs/tpm_sysfs.h>
 #include <fs/sysfs/tty_sysfs.h>
+#include <fs/sysfs/usb_sysfs.h>
 #include <fs/tmpfs/tmpfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
@@ -324,6 +327,9 @@ void kernel_entry(void)
     rtc_sysfs_init();                                              // /sys/class/rtc/rtc0
     i2c_sysfs_init();                                              // /sys/bus/i2c + /sys/class/i2c-dev
     dmi_sysfs_init();                                              // /sys/class/dmi/id + /sys/firmware/dmi/tables
+    usb_sysfs_init();                                              // /sys/bus/usb/ + /sys/bus/usb/devices/
+    drm_sysfs_init();                                              // /sys/class/drm/
+    module_sysfs_init();                                           // /sys/module/<name>/
                                                                    //
     /* Filesystem Drivers */                                       //
     fatfs_vfs_regist();                                            // FAT File System
@@ -356,7 +362,6 @@ void kernel_entry(void)
     socket_init();                                                 // UNIX Domain Sockets
                                                                    //
     /* Graphics Stack */                                           // Initialise before /dev/fb0 snapshots its size
-    drm_init();                                                    // DRM core services
     if (virtio_gpu_init() != 0)                                    // Prefer VirtIO-GPU for card0/renderD128
         drm_init_fallback();                                       // Software fallback only without VirtIO-GPU
 

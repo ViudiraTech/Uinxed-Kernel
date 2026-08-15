@@ -14,6 +14,7 @@
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <fs/devtmpfs/devtmpfs.h>
+#include <fs/sysfs/drm_sysfs.h>
 #include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -228,10 +229,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     if (dev->driver) { DRM_INFO("Initialized %s %d.%d.%d %s\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel, dev->driver->date); }
 
     /* Register under /sys/class/drm/ (one entry per GPU) */
-    if (drm_class_registered && dev->primary) {
-        struct device *ddev = device_create(&drm_class, NULL, MKDEV(226, dev->primary->index), dev, "card%d", dev->primary->index);
-        if (ddev) DRM_INFO("Created /sys/class/drm/%s\n", kobject_name(&ddev->kobj));
-    }
+    drm_sysfs_register_device(dev);
 
     /* Register /dev/dri/cardN via devtmpfs. */
     if (dev->primary) {

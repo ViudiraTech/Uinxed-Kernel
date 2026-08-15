@@ -164,14 +164,14 @@ static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun
     }
     if (status != EOK) goto recover;
     if (csw.signature != USB_MSC_CSW_SIGNATURE || csw.tag != tag || csw.residue > data_length || csw.status > 2) {
-        plogk("usb-storage: %s: CSW protocol error sig=0x%08x tag=0x%08x residue=%u\n", storage->interface->device->path, csw.signature, csw.tag, csw.residue);
+        plogk("usb: storage: %s: CSW protocol error sig=0x%08x tag=0x%08x residue=%u\n", storage->interface->device->path, csw.signature, csw.tag, csw.residue);
         status = -EPROTO;
         goto recover;
     }
     uint32_t expected_residue = data_length - transferred;
     if (csw.status == 0) return csw.residue == expected_residue && csw.residue == 0 ? EOK : -EREMOTEIO;
     if (csw.status == 1) {
-        plogk("usb-storage: %s: device reported SCSI check condition (residue=%u)\n", storage->interface->device->path, csw.residue);
+        plogk("usb: storage: %s: device reported SCSI check condition (residue=%u)\n", storage->interface->device->path, csw.residue);
         return -EIO;
     }
     status = -EPROTO;
@@ -440,11 +440,15 @@ int usb_storage_probe(usb_interface_t *interface)
         lun->lun               = index;
         if (usb_storage_wait_ready(lun) != EOK || usb_storage_capacity(lun) != EOK) continue;
         usb_storage_mode_sense(lun);
-        if (usb_storage_register_lun(lun) != EOK) continue;
+        int status = usb_storage_register_lun(lun);
+        if (status != EOK) {
+            plogk("usb: storage: %s: LUN %u registration failed: %d\n", interface->device->path, index, status);
+            continue;
+        }
         storage->lun_count++;
-        plogk("usb-storage: %s: %llu sectors, %u-byte logical blocks%s.\n", lun->name, (unsigned long long)lun->sector_count, lun->sector_size, lun->read_only ? ", read-only" : "");
     }
     if (!storage->lun_count) {
+        plogk("usb: storage: %s: no usable LUN\n", interface->device->path);
         storage->connected = false;
         free(storage);
         return -ENOMEDIUM;

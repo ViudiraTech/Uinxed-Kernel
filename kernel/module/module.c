@@ -10,7 +10,7 @@
 
 #define UINXED_MODULE_CORE
 #include <boot/limine.h>
-#include <fs/sysfs/sysfs.h>
+#include <fs/sysfs/module_sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/module/elf.h>
 #include <kernel/module/module.h>
@@ -71,12 +71,8 @@ typedef struct module_section_layout {
         bool      alloc;
         bool      init;
         bool      ro_after_init;
+        char     *name;
 } module_section_layout_t;
-
-typedef struct module_sysfs {
-        struct kobject kobj;
-        struct module *module;
-} module_sysfs_t;
 
 typedef struct module_internal {
         struct module              *module;
@@ -89,6 +85,8 @@ typedef struct module_internal {
         size_t                      section_count;
         module_dependency_t        *dependencies;
         module_string_allocation_t *parameter_strings;
+        const struct kernel_param  *parameters;
+        size_t                      parameter_count;
         const struct kernel_symbol *exports;
         size_t                      export_count;
         int (*init)(void);
@@ -115,19 +113,6 @@ static module_internal_t          *module_list;
 static spinlock_t                  module_lock;
 static volatile uint32_t           module_operation;
 static module_signature_verifier_t signature_verifier;
-static struct kobject             *module_kobj;
-
-static struct attribute module_state_attr    = {.name = "state", .mode = 0444};
-static struct attribute module_refcnt_attr   = {.name = "refcnt", .mode = 0444};
-static struct attribute module_taint_attr    = {.name = "taint", .mode = 0444};
-static struct attribute module_version_attr  = {.name = "version", .mode = 0444};
-static struct attribute module_coresize_attr = {.name = "coresize", .mode = 0444};
-static struct attribute module_initsize_attr = {.name = "initsize", .mode = 0444};
-
-static struct attribute *module_attrs[] = {
-    &module_state_attr, &module_refcnt_attr, &module_taint_attr, &module_version_attr, &module_coresize_attr, &module_initsize_attr, NULL,
-};
-
 /* Overflow-checked helpers used throughout module metadata parsing */
 
 static int size_add(size_t left, size_t right, size_t *result)
@@ -232,7 +217,7 @@ static int module_name_valid(const char *name)
     return length != 0;
 }
 
-static const char *module_state_name(enum module_state state)
+const char *module_state_name(enum module_state state)
 {
     switch (state) {
         case MODULE_STATE_COMING :
@@ -244,6 +229,136 @@ static const char *module_state_name(enum module_state state)
         default :
             return "unformed";
     }
+}
+
+/* Return the module's version string, or "" when absent. */
+const char *module_version(const struct module *module)
+{
+    if (!module) return "";
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    return internal && internal->version ? internal->version : "";
+}
+
+/* Return the module's srcversion string, or "" when absent. */
+const char *module_srcversion(const struct module *module)
+{
+    if (!module) return "";
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    return internal && internal->srcversion ? internal->srcversion : "";
+}
+
+/* Return the number of allocatable sections in a module. */
+size_t module_section_count(const struct module *module)
+{
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    return internal ? internal->section_count : 0;
+}
+
+/* Return the name of the index-th section, or NULL when out of range. */
+const char *module_section_name(const struct module *module, size_t index)
+{
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    if (!internal || index >= internal->section_count || !internal->sections[index].alloc) return NULL;
+    return internal->sections[index].name;
+}
+
+/* Return the load address of the index-th section, or 0 when out of range. */
+uintptr_t module_section_address(const struct module *module, size_t index)
+{
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    if (!internal || index >= internal->section_count) return 0;
+    return internal->sections[index].address;
+}
+
+/* Return the number of module parameters. */
+size_t module_param_count(const struct module *module)
+{
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    return internal ? internal->parameter_count : 0;
+}
+
+/* Return the name of the index-th parameter, or NULL when out of range. */
+const char *module_param_name(const struct module *module, size_t index)
+{
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    if (!internal || index >= internal->parameter_count) return NULL;
+    return internal->parameters[index].name;
+}
+
+/* Format the current value of the index-th parameter into buf. */
+int module_param_value(const struct module *module, size_t index, char *buf, size_t size)
+{
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    if (!internal || index >= internal->parameter_count || !buf || !size) return -EINVAL;
+    const struct kernel_param *param = &internal->parameters[index];
+    switch (param->type) {
+        case MODULE_PARAM_BYTE :
+            return snprintf(buf, size, "%hhd", *(const signed char *)param->arg);
+        case MODULE_PARAM_SHORT :
+            return snprintf(buf, size, "%hd", *(const short *)param->arg);
+        case MODULE_PARAM_USHORT :
+            return snprintf(buf, size, "%hu", *(const unsigned short *)param->arg);
+        case MODULE_PARAM_INT :
+            return snprintf(buf, size, "%d", *(const int *)param->arg);
+        case MODULE_PARAM_UINT :
+            return snprintf(buf, size, "%u", *(const unsigned int *)param->arg);
+        case MODULE_PARAM_LONG :
+            return snprintf(buf, size, "%ld", *(const long *)param->arg);
+        case MODULE_PARAM_ULONG :
+            return snprintf(buf, size, "%lu", *(const unsigned long *)param->arg);
+        case MODULE_PARAM_BOOL :
+            return snprintf(buf, size, "%c", *(const bool *)param->arg ? 'Y' : 'N');
+        case MODULE_PARAM_CHARP :
+            return snprintf(buf, size, "%s", *(const char *const *)param->arg ? *(const char *const *)param->arg : "");
+        default :
+            return -EINVAL;
+    }
+}
+
+/* Return the number of modules that hold (depend on) this module. */
+size_t module_holder_count(const struct module *module)
+{
+    if (!module) return 0;
+    size_t   count = 0;
+    uint64_t irq   = spin_lock_irqsave(&module_lock);
+    for (module_internal_t *consumer = module_list; consumer; consumer = consumer->next)
+        for (module_dependency_t *dep = consumer->dependencies; dep; dep = dep->next)
+            if (dep->owner == module) {
+                count++;
+                break;
+            }
+    spin_unlock_irqrestore(&module_lock, irq);
+    return count;
+}
+
+/* Return the index-th module that holds (depends on) this module. */
+struct module *module_holder(const struct module *module, size_t index)
+{
+    if (!module) return NULL;
+    size_t   seen = 0;
+    uint64_t irq  = spin_lock_irqsave(&module_lock);
+    for (module_internal_t *consumer = module_list; consumer; consumer = consumer->next) {
+        for (module_dependency_t *dep = consumer->dependencies; dep; dep = dep->next) {
+            if (dep->owner == module) {
+                if (seen == index) {
+                    struct module *holder = consumer->module;
+                    spin_unlock_irqrestore(&module_lock, irq);
+                    return holder;
+                }
+                seen++;
+                break;
+            }
+        }
+    }
+    spin_unlock_irqrestore(&module_lock, irq);
+    return NULL;
+}
+
+/* Return the sysfs kobject of a module, or NULL. */
+struct kobject *module_sysfs_object(const struct module *module)
+{
+    module_internal_t *internal = __atomic_load_n((module_internal_t **)&module->loader_private, __ATOMIC_ACQUIRE);
+    return internal ? module_sysfs_kobj(internal->sysfs) : NULL;
 }
 
 static int license_gpl_compatible(const char *license)
@@ -597,6 +712,8 @@ static int layout_sections(module_internal_t *internal, const module_elf_view_t 
         layout->alloc                   = true;
         const char *name                = section_name(view, index);
         if (!name) return -ENOEXEC;
+        layout->name = strdup(name);
+        if (!layout->name) return -ENOMEM;
         layout->init          = !strncmp(name, ".init", 5);
         layout->ro_after_init = streq(name, ".data..ro_after_init");
         if (layout->init)
@@ -1027,14 +1144,21 @@ static int tokenize_parameter(char **cursor_ptr, char **name_out, char **value_o
 
 static int apply_parameters(module_internal_t *internal, const module_elf_view_t *view, const char *arguments)
 {
-    if (!arguments || !arguments[0]) return EOK;
     size_t            section_index = 0;
     const Elf64_Shdr *section       = find_section(view, "__param", &section_index);
-    if (!section || section->sh_size % sizeof(struct kernel_param)) return -EINVAL;
-    module_section_layout_t *layout = &internal->sections[section_index];
-    if (!layout->alloc) return -ENOEXEC;
-    const struct kernel_param *parameters = (const struct kernel_param *)layout->address;
-    size_t                     count      = section->sh_size / sizeof(struct kernel_param);
+    if (section && section->sh_size % sizeof(struct kernel_param) == 0) {
+        module_section_layout_t *layout = &internal->sections[section_index];
+        if (layout->alloc) {
+            internal->parameters      = (const struct kernel_param *)layout->address;
+            internal->parameter_count = section->sh_size / sizeof(struct kernel_param);
+        }
+    }
+
+    if (!arguments || !arguments[0]) return EOK;
+
+    const struct kernel_param *parameters = internal->parameters;
+    size_t                     count      = internal->parameter_count;
+    if (!parameters || !count) return EOK;
 
     char *copy = strdup(arguments);
     if (!copy) return -ENOMEM;
@@ -1097,85 +1221,12 @@ static int protect_module(module_internal_t *internal, int after_init)
     return EOK;
 }
 
-static ssize_t module_attr_show(struct kobject *kobj, struct attribute *attribute, char *buffer)
+static void module_sysfs_teardown(module_internal_t *internal)
 {
-    module_sysfs_t *entry  = (module_sysfs_t *)((char *)kobj - offsetof(module_sysfs_t, kobj));
-    struct module  *module = __atomic_load_n(&entry->module, __ATOMIC_ACQUIRE);
-    if (!module || !try_module_get(module)) return -ENODEV;
-    ssize_t result;
-    if (attribute == &module_state_attr) {
-        result = (ssize_t)sysfs_emit(buffer, "%s\n", module_state_name(module->state));
-    } else if (attribute == &module_refcnt_attr) {
-        uint32_t refs = module_refcount(module);
-        result        = (ssize_t)sysfs_emit(buffer, "%u\n", refs ? refs - 1 : 0);
-    } else if (attribute == &module_taint_attr) {
-        char   taint[8];
-        size_t length = 0;
-        if (module->taints & MODULE_TAINT_PROPRIETARY) taint[length++] = 'P';
-        if (module->taints & MODULE_TAINT_FORCED) taint[length++] = 'F';
-        if (module->taints & MODULE_TAINT_UNSIGNED) taint[length++] = 'E';
-        if (module->taints & MODULE_TAINT_OUT_OF_TREE) taint[length++] = 'O';
-        taint[length] = 0;
-        result        = (ssize_t)sysfs_emit(buffer, "%s\n", taint);
-    } else if (attribute == &module_version_attr) {
-        module_internal_t *internal = module->loader_private;
-        result                      = (ssize_t)sysfs_emit(buffer, "%s\n", internal && internal->version ? internal->version : "");
-    } else if (attribute == &module_coresize_attr) {
-        result = (ssize_t)sysfs_emit(buffer, "%zu\n", module->core_size);
-    } else if (attribute == &module_initsize_attr) {
-        result = (ssize_t)sysfs_emit(buffer, "%zu\n", module->init_size);
-    } else {
-        result = -EIO;
-    }
-    module_put(module);
-    return result;
-}
-
-static const struct sysfs_ops module_sysfs_ops = {
-    .show  = module_attr_show,
-    .store = NULL,
-};
-
-static void module_kobject_release(struct kobject *kobj)
-{
-    module_sysfs_t *entry = (module_sysfs_t *)((char *)kobj - offsetof(module_sysfs_t, kobj));
-    free(entry);
-}
-
-static struct kobj_type module_ktype = {
-    .release       = module_kobject_release,
-    .sysfs_ops     = &module_sysfs_ops,
-    .default_attrs = module_attrs,
-};
-
-static int create_module_sysfs(module_internal_t *internal)
-{
-#if CONFIG_SYSFS
-    if (!module_kobj) return -ENODEV;
-    module_sysfs_t *entry = calloc(1, sizeof(*entry));
-    if (!entry) return -ENOMEM;
-    entry->module = internal->module;
-    int ret       = kobject_init_and_add(&entry->kobj, &module_ktype, module_kobj, "%s", internal->module->name);
-    if (ret != EOK) {
-        kobject_put(&entry->kobj);
-        return ret;
-    }
-    internal->sysfs = entry;
-    (void)kobject_uevent(&entry->kobj, KOBJ_ADD);
-#else
-    (void)internal;
-#endif
-    return EOK;
-}
-
-static void destroy_module_sysfs(module_internal_t *internal)
-{
-    if (!internal || !internal->sysfs) return;
     module_sysfs_t *entry = internal->sysfs;
-    internal->sysfs       = NULL;
-    __atomic_store_n(&entry->module, NULL, __ATOMIC_RELEASE);
-    kobject_del(&entry->kobj);
-    kobject_put(&entry->kobj);
+    if (!entry) return;
+    internal->sysfs = NULL;
+    module_sysfs_destroy(entry);
 }
 
 static void remove_registry(module_internal_t *internal)
@@ -1196,7 +1247,7 @@ static void remove_registry(module_internal_t *internal)
 static void destroy_internal(module_internal_t *internal)
 {
     if (!internal) return;
-    destroy_module_sysfs(internal);
+    module_sysfs_teardown(internal);
     release_dependencies(internal);
     module_string_allocation_t *allocation = internal->parameter_strings;
     while (allocation) {
@@ -1206,6 +1257,7 @@ static void destroy_internal(module_internal_t *internal)
         allocation = next;
     }
     unmap_module(internal);
+    for (size_t i = 0; i < internal->section_count; i++) free(internal->sections[i].name);
     free(internal->sections);
     free(internal->license);
     free(internal->version);
@@ -1304,7 +1356,7 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
         goto out_destroy;
     }
     __atomic_store_n(&module->state, MODULE_STATE_LIVE, __ATOMIC_RELEASE);
-    result = create_module_sysfs(internal);
+    result = module_sysfs_create(internal->module, &internal->sysfs);
     if (result != EOK) {
         __atomic_store_n(&module->state, MODULE_STATE_GOING, __ATOMIC_RELEASE);
         if (internal->exit) internal->exit();
@@ -1369,7 +1421,7 @@ int module_unload(const char *name, unsigned int flags)
         wait_queue_sleep();
     }
 
-    destroy_module_sysfs(internal);
+    module_sysfs_teardown(internal);
     if (internal->exit) internal->exit();
     remove_registry(internal);
     destroy_internal(internal);
@@ -1435,14 +1487,4 @@ void module_subsystem_init(void)
     memset(&module_lock, 0, sizeof(module_lock));
     module_list      = NULL;
     module_operation = 0;
-#if CONFIG_SYSFS
-    if (!sysfs_root_kobj) return;
-    for (clist_t node = sysfs_root_kobj->children; node; node = node->next) {
-        struct kobject *child = node->data;
-        if (child && child->name && streq(child->name, "module")) {
-            module_kobj = child;
-            break;
-        }
-    }
-#endif
 }

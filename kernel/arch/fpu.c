@@ -210,7 +210,7 @@ void fpu_init(void)
              * whose XSAVE area always fits the static template.
              */
             if (fpu_save_size > sizeof(fpu_initial_state)) {
-                plogk("fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state\n", fpu_save_size, sizeof(fpu_initial_state));
+                plogk("fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state.\n", fpu_save_size, sizeof(fpu_initial_state));
                 xcr0_mask = XCR0_FPU_MASK;
                 __asm__ volatile("xsetbv" : : "a"((uint32_t)xcr0_mask), "d"((uint32_t)(xcr0_mask >> 32)), "c"(0) : "memory");
                 cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);

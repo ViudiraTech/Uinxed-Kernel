@@ -166,6 +166,7 @@ typedef struct {
 } xhci_command_wait_t;
 
 typedef struct xhci_controller {
+        usb_host_t           host;
         pci_device_cache_t  *pci;
         volatile uint8_t    *capability;
         volatile uint8_t    *operational;
@@ -403,7 +404,7 @@ static int xhci_wait_flag(xhci_controller_t *controller, volatile bool *complete
     while (!__atomic_load_n(completed, __ATOMIC_ACQUIRE)) {
         xhci_process_events(controller);
         if (xhci_read32(controller->operational, XHCI_OP_USBSTS) & XHCI_STS_FATAL) {
-            plogk("xhci: Host system error on bus %u\n", controller->bus_number);
+            plogk("usb: xhci: Host system error on bus %u\n", controller->bus_number);
             return -EIO;
         }
         if (nano_time() >= deadline) return -ETIMEDOUT;
@@ -418,7 +419,7 @@ static int xhci_command(xhci_controller_t *controller, uint64_t parameter, uint3
     xhci_command_wait_t wait = {0};
     spin_lock(&controller->command_lock);
     if (!xhci_ring_enqueue(&controller->command_ring, parameter, status, control, &wait.trb_physical)) {
-        plogk("xhci: Command ring full on bus %u\n", controller->bus_number);
+        plogk("usb: xhci: Command ring full on bus %u\n", controller->bus_number);
         spin_unlock(&controller->command_lock);
         return -EIO;
     }
@@ -429,7 +430,7 @@ static int xhci_command(xhci_controller_t *controller, uint64_t parameter, uint3
     if (result == EOK) result = xhci_completion_status(wait.completion_code);
     if (result == EOK && slot_id) *slot_id = wait.slot_id;
     spin_unlock(&controller->command_lock);
-    if (result != EOK) plogk("xhci: Command failed on bus %u (%d)\n", controller->bus_number, result);
+    if (result != EOK) plogk("usb: xhci: Command failed on bus %u (%d)\n", controller->bus_number, result);
     return result;
 }
 
@@ -438,7 +439,7 @@ static int xhci_wait_transfer(xhci_transfer_t *transfer, uint32_t timeout_ms)
 {
     int result = xhci_wait_flag(transfer->slot->controller, &transfer->completed, timeout_ms);
     if (result != EOK) {
-        plogk("xhci: Transfer timed out on bus %u slot %u\n", transfer->slot->controller->bus_number, transfer->slot->slot_id);
+        plogk("usb: xhci: Transfer timed out on bus %u slot %u\n", transfer->slot->controller->bus_number, transfer->slot->slot_id);
         uint8_t dci = transfer->endpoint ? xhci_endpoint_dci(transfer->endpoint) : 1;
         if (__atomic_load_n(&transfer->slot->pending[dci], __ATOMIC_ACQUIRE) == transfer) __atomic_store_n(&transfer->slot->pending[dci], NULL, __ATOMIC_RELEASE);
         (void)xhci_command(transfer->slot->controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_STOP_ENDPOINT) | ((uint32_t)dci << 16) | ((uint32_t)transfer->slot->slot_id << 24), NULL);
@@ -463,7 +464,7 @@ static int xhci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     if (length) {
         transfer.dma_virtual = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
         if (!transfer.dma_virtual) {
-            plogk("xhci: Control transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
+            plogk("usb: xhci: Control transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
             return -ENOMEM;
         }
         if (!(setup->request_type & USB_DIR_IN)) memcpy(transfer.dma_virtual, buffer, length);
@@ -502,7 +503,7 @@ static int xhci_transfer(usb_endpoint_t *usb_endpoint, void *buffer, size_t leng
     xhci_transfer_t        transfer = {.slot = slot, .endpoint = usb_endpoint, .endpoint_state = endpoint, .length = length, .active = true};
     transfer.dma_virtual            = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
     if (!transfer.dma_virtual) {
-        plogk("xhci: Bulk transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
+        plogk("usb: xhci: Bulk transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
         return -ENOMEM;
     }
     bool input = (usb_endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
@@ -539,7 +540,7 @@ static int xhci_interrupt_start(usb_endpoint_t *usb_endpoint, size_t length, usb
     transfer->active         = true;
     transfer->dma_virtual    = xhci_dma_alloc(length, &transfer->dma_physical, &transfer->dma_pages);
     if (!transfer->dma_virtual) {
-        plogk("xhci: Interrupt transfer DMA allocation failed on bus %u (%zu bytes)\n", transfer->slot->controller->bus_number, length);
+        plogk("usb: xhci: Interrupt transfer DMA allocation failed on bus %u (%zu bytes)\n", transfer->slot->controller->bus_number, length);
         free(transfer);
         return -ENOMEM;
     }
@@ -665,10 +666,12 @@ static int xhci_clear_halt(usb_endpoint_t *usb_endpoint)
     return xhci_command(slot->controller, dequeue, 0, XHCI_TRB_TYPE(XHCI_TRB_SET_TR_DEQUEUE) | ((uint32_t)dci << 16) | ((uint32_t)slot->slot_id << 24), NULL);
 }
 
-/* Device teardown is handled per-slot by the disconnect path. */
+/* Stop every interrupt transfer of a device before it goes away. */
 static void xhci_disable_device(usb_device_t *device)
 {
-    (void)device;
+    if (!device) return;
+    for (size_t i = 0; i < device->interface_count; i++)
+        for (size_t j = 0; j < device->interfaces[i].endpoint_count; j++) xhci_interrupt_stop(&device->interfaces[i].endpoints[j]);
 }
 
 static const usb_hcd_ops_t xhci_hcd_ops = {
@@ -731,7 +734,7 @@ static int xhci_allocate_slot(xhci_controller_t *controller, uint8_t port_id, ui
 {
     xhci_slot_t *slot = calloc(1, sizeof(*slot));
     if (!slot) {
-        plogk("xhci: Slot allocation failed on bus %u\n", controller->bus_number);
+        plogk("usb: xhci: Slot allocation failed on bus %u\n", controller->bus_number);
         return -ENOMEM;
     }
     slot->controller           = controller;
@@ -743,7 +746,7 @@ static int xhci_allocate_slot(xhci_controller_t *controller, uint8_t port_id, ui
     xhci_endpoint_state_t *ep0 = &slot->endpoints[1];
     ep0->ring.trbs             = xhci_dma_alloc(PAGE_4K_SIZE, &ep0->ring_physical, NULL);
     if (!slot->output_context || !slot->input_context || !ep0->ring.trbs || xhci_ring_init(&ep0->ring, ep0->ring.trbs, ep0->ring_physical, XHCI_RING_TRBS, true) != EOK) {
-        plogk("xhci: Slot %u context/ring allocation failed on bus %u\n", slot_id, controller->bus_number);
+        plogk("usb: xhci: Slot %u context/ring allocation failed on bus %u\n", slot_id, controller->bus_number);
         xhci_dma_free(slot->output_context_physical, 1);
         xhci_dma_free(slot->input_context_physical, 1);
         xhci_dma_free(ep0->ring_physical, 1);
@@ -946,7 +949,8 @@ static void xhci_service_port(xhci_controller_t *controller, uint8_t port_id)
     } else if ((status & XHCI_PORT_CSC) || !slot) {
         if (slot) xhci_disconnect_port(controller, port_id);
         msleep(100);
-        (void)xhci_enumerate_port(controller, port_id);
+        int result = xhci_enumerate_port(controller, port_id);
+        if (result != EOK) plogk("usb: xhci: Port %u enumeration failed: %d\n", port_id, result);
     }
 }
 
@@ -1197,15 +1201,16 @@ static int xhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     if (result != EOK) goto fail;
     xhci_controllers[xhci_controller_count++] = controller;
 
-    for (uint8_t port = 1; port <= controller->max_ports; port++) {
-        size_t   offset = XHCI_OP_PORTS + (size_t)(port - 1) * XHCI_PORT_STRIDE;
-        uint32_t status = xhci_read32(controller->operational, offset);
-        xhci_write32(controller->operational, offset, status);
-        if (status & XHCI_PORT_CCS) {
-            int port_status = xhci_enumerate_port(controller, port);
-            if (port_status != EOK) plogk("xhci: Port %u enumeration failed: %d\n", port, port_status);
-        }
-    }
+    controller->host.type       = USB_HOST_XHCI;
+    controller->host.bus_number = bus_number;
+    controller->host.max_ports  = controller->max_ports;
+    controller->host.pci_dev    = pci;
+    controller->host.hcd_ops    = &xhci_hcd_ops;
+    controller->host.hc_private = controller;
+    (void)snprintf(controller->host.name, sizeof(controller->host.name), "xhci-usb%u", bus_number);
+    usb_host_register(&controller->host);
+
+    plogk("usb: xhci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, controller->max_ports);
     return EOK;
 fail:
     xhci_release_controller(controller);
@@ -1216,25 +1221,22 @@ invalid:
 }
 
 /* Probe every xHCI controller in the PCI device cache. */
-void xhci_init(void)
+int xhci_init(void)
 {
 #if !CONFIG_USB_XHCI
-    return;
+    return 0;
 #endif
-    if (usb_core_init() != EOK) return;
-    pci_devices_cache_t *cache = pci_get_devices_cache();
-    if (!cache) return;
+    size_t               before = xhci_controller_count;
+    pci_devices_cache_t *cache  = pci_get_devices_cache();
+    if (!cache) return 0;
     for (pci_device_cache_t *pci = cache->head; pci && xhci_controller_count < USB_MAX_CONTROLLERS; pci = pci->next) {
         if (pci->class_code != XHCI_PCI_CLASS) continue;
         int bus_number = usb_host_allocate_bus_number();
         if (bus_number < 0) break;
         int status = xhci_probe(pci, (uint8_t)bus_number);
-        if (status == EOK) {
-            plogk("xhci: Controller %04x:%02x:%02x.%u registered as usb%u\n", pci->device->domain, pci->device->bus, pci->device->slot, pci->device->func, bus_number);
-        } else {
-            plogk("xhci: Controller %04x:%02x:%02x.%u initialization failed: %d\n", pci->device->domain, pci->device->bus, pci->device->slot, pci->device->func, status);
-        }
+        if (status != EOK) { plogk("usb: xhci: Controller %04x:%02x:%02x.%u initialization failed: %d\n", pci->device->domain, pci->device->bus, pci->device->slot, pci->device->func, status); }
     }
+    return (int)(xhci_controller_count - before);
 }
 
 /* Register the hub worker task of every controller for unified creation. */
@@ -1247,6 +1249,12 @@ void xhci_start_workers(void)
         xhci_controller_t *controller = xhci_controllers[i];
         if (!controller || controller->worker_started) continue;
         controller->worker_started = true;
+        /* Enumerate already-connected root ports on the first worker pass. */
+        for (uint8_t port = 1; port <= controller->max_ports; port++) {
+            size_t   offset = XHCI_OP_PORTS + (size_t)(port - 1) * XHCI_PORT_STRIDE;
+            uint32_t status = xhci_read32(controller->operational, offset);
+            if (status & XHCI_PORT_CCS) controller->pending_ports |= 1ULL << (port - 1);
+        }
         kernel_worker_register("xhci-hub", xhci_worker, controller, &controller->worker_task);
     }
 }

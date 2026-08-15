@@ -32,9 +32,6 @@ struct usb_host;
 typedef struct usb_host_controller_ops {
         int (*host_start)(struct usb_host *host);
         void (*host_stop)(struct usb_host *host);
-        int (*port_reset)(struct usb_host *host, uint8_t port);
-        int (*port_speed)(struct usb_host *host, uint8_t port);
-        int (*port_connected)(struct usb_host *host, uint8_t port);
 } usb_host_controller_ops_t;
 
 typedef struct usb_host {
@@ -78,11 +75,11 @@ usb_host_t *usb_host_find_by_bus(uint8_t bus_number);
 /* Look up the index-th host controller of a given type. */
 usb_host_t *usb_host_find_by_type(usb_host_type_t type, int index);
 
-/* Per-controller PCI probing and driver entry points. */
-void uhci_init(void);
-void ohci_init(void);
-void ehci_init(void);
-void xhci_init(void);
+/* Per-controller PCI probing and driver entry points (return count registered). */
+int  uhci_init(void);
+int  ohci_init(void);
+int  ehci_init(void);
+int  xhci_init(void);
 void xhci_start_workers(void);
 void xhci_shutdown(void);
 void uhci_start_workers(void);

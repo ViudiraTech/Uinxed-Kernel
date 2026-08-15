@@ -636,41 +636,7 @@ void drm_vfs_close_cb(void *current)
     node->handle = NULL;
 }
 
-/* DRM class (global, shared by all DRM devices) */
-
-static int drm_device_uevent(struct device *dev, struct kobj_uevent_env *env)
-{
-    (void)dev;
-    /* Match the Linux DRM minor contract consumed by eudev/libudev. */
-    return add_uevent_var(env, "DEVTYPE=drm_minor");
-}
-
-struct class drm_class = {
-    .name       = "drm",
-    .dev_uevent = drm_device_uevent,
-};
-int drm_class_registered = 0;
-
 /* Public init */
-
-/* Register the DRM device class once at kernel startup. */
-int drm_init(void)
-{
-#if CONFIG_DRM
-    /*
-     * Register core DRM services first.  The software fallback must not
-     * claim card0/renderD128 before a hardware driver probes.
-     */
-    if (!drm_class_registered) {
-        int ret = class_register(&drm_class);
-        if (ret != EOK) return ret;
-        drm_class_registered = 1;
-    }
-    return 0;
-#else
-    return -ENODEV;
-#endif
-}
 
 /* Allocate and register the software fallback DRM device. */
 int drm_init_fallback(void)

@@ -13,6 +13,7 @@
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
+#include <fs/sysfs/drm_sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -131,8 +132,7 @@ int drm_connector_attach_encoder(struct drm_connector *connector, struct drm_enc
  * drm_connector_register - Register a connector with userspace.
  * @connector: connector to register
  *
- * Validates the connector; late-registration callbacks and sysfs
- * exposure are handled elsewhere.
+ * Validates the connector and exposes it under /sys/class/drm/.
  */
 int drm_connector_register(struct drm_connector *connector)
 {
@@ -141,6 +141,7 @@ int drm_connector_register(struct drm_connector *connector)
         return -EINVAL;
     }
 
+    drm_sysfs_connector_add(connector);
     return 0;
 }
 

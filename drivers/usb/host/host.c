@@ -47,7 +47,7 @@ int usb_host_register(usb_host_t *host)
     host->next    = usb_host_list;
     usb_host_list = host;
     spin_unlock_irqrestore(&usb_host_lock, flags);
-    plogk("usb-host: Registered %s (bus %u, type %d)\n", host->name, host->bus_number, host->type);
+    plogk("usb: host: Registered %s (bus %u, type %d)\n", host->name, host->bus_number, host->type);
     return EOK;
 }
 
@@ -101,26 +101,15 @@ usb_host_t *usb_host_find_by_type(usb_host_type_t type, int index)
     return NULL;
 }
 
-/* Return the number of registered host controllers. */
-static int usb_host_get_count(void)
-{
-    uint64_t flags = spin_lock_irqsave(&usb_host_lock);
-    int      count = 0;
-    for (usb_host_t *host = usb_host_list; host; host = host->next) count++;
-    spin_unlock_irqrestore(&usb_host_lock, flags);
-    if (count < 0) count = 0;
-    return count;
-}
-
 /* Probe the PCI bus for all supported USB host controllers. */
 void usb_host_pci_scan(void)
 {
-    plogk("usb-host: Scanning PCI for USB host controllers...\n");
-    xhci_init();
-    ehci_init();
-    ohci_init();
-    uhci_init();
-    plogk("usb-host: Found %d controller(s)\n", usb_host_get_count());
+    plogk("usb: host: Scanning PCI for USB host controllers...\n");
+    int count = xhci_init();
+    count += ehci_init();
+    count += ohci_init();
+    count += uhci_init();
+    plogk("usb: host: Found %d controller(s)\n", count);
 }
 
 /* Start every registered controller and its hub worker. */
@@ -133,7 +122,7 @@ void usb_host_start_workers(void)
             if (ret == EOK) {
                 host->running = true;
             } else {
-                plogk("usb-host: %s: start failed (%d)\n", host->name[0] ? host->name : "controller", ret);
+                plogk("usb: host: %s: start failed (%d)\n", host->name[0] ? host->name : "controller", ret);
             }
         }
     }

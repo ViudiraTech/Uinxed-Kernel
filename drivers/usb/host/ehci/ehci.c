@@ -283,27 +283,27 @@ static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     void    *setup_dma = ehci_dma_alloc(sizeof(*setup), &setup_physical);
     void    *data_dma  = NULL;
     if (!setup_dma || setup_physical > UINT32_MAX) {
-        plogk("ehci: Control DMA allocation failed on bus %u\n", ctrl->bus_number);
+        plogk("usb: ehci: Control DMA allocation failed on bus %u\n", ctrl->bus_number);
         goto control_cleanup;
     }
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
         data_dma = ehci_dma_alloc(length, &data_physical);
         if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-            plogk("ehci: Control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+            plogk("usb: ehci: Control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
             goto control_cleanup;
         }
         if (!input) memcpy(data_dma, buffer, length);
     }
     qh_index = ehci_find_free_qh(ctrl);
     if (qh_index < 0) {
-        plogk("ehci: QH pool exhausted on bus %u\n", ctrl->bus_number);
+        plogk("usb: ehci: QH pool exhausted on bus %u\n", ctrl->bus_number);
         goto control_cleanup;
     }
     for (size_t i = 0; i < qtd_count; i++) {
         qtd_indices[i] = ehci_find_free_qtd(ctrl);
         if (qtd_indices[i] < 0) {
-            plogk("ehci: QTD pool exhausted on bus %u\n", ctrl->bus_number);
+            plogk("usb: ehci: QTD pool exhausted on bus %u\n", ctrl->bus_number);
             goto control_cleanup;
         }
     }
@@ -361,14 +361,14 @@ static int ehci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     uint64_t data_physical = 0;
     void    *data_dma      = ehci_dma_alloc(length, &data_physical);
     if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-        plogk("ehci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        plogk("usb: ehci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         goto transfer_cleanup;
     }
     if (!input) memcpy(data_dma, buffer, length);
     qh_index  = ehci_find_free_qh(ctrl);
     qtd_index = ehci_find_free_qtd(ctrl);
     if (qh_index < 0 || qtd_index < 0) {
-        plogk("ehci: QH/QTD pool exhausted on bus %u\n", ctrl->bus_number);
+        plogk("usb: ehci: QH/QTD pool exhausted on bus %u\n", ctrl->bus_number);
         goto transfer_cleanup;
     }
     ehci_fill_qtd(ctrl->qtds[qtd_index].virtual, input ? EHCI_QTD_PID_IN : EHCI_QTD_PID_OUT, endpoint->data_toggle ? EHCI_QTD_TOGGLE : 0, (uint32_t)data_physical, length, EHCI_QTD_NEXT_TERMINATE,
@@ -410,6 +410,7 @@ static int ehci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
     if (!transfer) return -ENOMEM;
     transfer->buffer = malloc(length);
     if (!transfer->buffer) {
+        plogk("usb: ehci: Interrupt transfer buffer allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         free(transfer);
         return -ENOMEM;
     }
@@ -433,6 +434,7 @@ static int ehci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
         }
     }
     spin_unlock_irqrestore(&ctrl->lock, flags);
+    plogk("usb: ehci: Periodic transfer pool exhausted on bus %u\n", ctrl->bus_number);
     free(transfer->buffer);
     free(transfer);
     return -ENOSPC;
@@ -668,15 +670,14 @@ static int ehci_worker(void *argument)
             size_t   offset = EHCI_OP_PORTSC + port * EHCI_PORT_STRIDE;
             uint32_t portsc = ehci_read32(ctrl->operational, offset);
             uint32_t change = portsc & EHCI_PORT_CHANGE_BITS;
-            if (!change) continue;
-            ehci_write32(ctrl->operational, offset, portsc);
+            if (change) ehci_write32(ctrl->operational, offset, portsc);
             if (!(portsc & EHCI_PORT_CCS)) {
-                ehci_disconnect_port(ctrl, port);
-            } else if (portsc & EHCI_PORT_CSC) {
-                ehci_disconnect_port(ctrl, port);
+                if (ctrl->devices[port]) ehci_disconnect_port(ctrl, port);
+            } else if (!ctrl->devices[port] || (portsc & EHCI_PORT_CSC)) {
+                if (ctrl->devices[port]) ehci_disconnect_port(ctrl, port);
                 msleep(100);
                 int ret = ehci_enumerate_port(ctrl, port);
-                if (ret != EOK) plogk("ehci: Port %u enumeration failed: %d\n", port, ret);
+                if (ret != EOK) plogk("usb: ehci: Port %u enumeration failed: %d\n", port, ret);
             }
         }
         ehci_service_periodic(ctrl);
@@ -705,11 +706,11 @@ static void ehci_interrupt_handler(void *frame)
         if (sts & EHCI_STS_INT) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_INT);
         if (sts & EHCI_STS_ERR) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_ERR);
-            plogk("ehci: USB error interrupt on bus %u\n", ctrl->bus_number);
+            plogk("usb: ehci: USB error interrupt on bus %u\n", ctrl->bus_number);
         }
         if (sts & EHCI_STS_HSE) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_HSE);
-            plogk("ehci: Host system error on bus %u\n", ctrl->bus_number);
+            plogk("usb: ehci: Host system error on bus %u\n", ctrl->bus_number);
         }
         if (sts & EHCI_STS_IAA) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_IAA);
     }
@@ -733,37 +734,9 @@ static void ehci_host_stop(usb_host_t *host)
     ehci_write32(ctrl->operational, EHCI_OP_USBINTR, 0);
 }
 
-/* host_ops: reset a port. */
-static int ehci_port_reset_hcd(usb_host_t *host, uint8_t port)
-{
-    ehci_controller_t *ctrl = container_of(host, ehci_controller_t, hcd);
-    return ehci_port_reset(ctrl, port);
-}
-
-/* host_ops: report the speed of a port. */
-static int ehci_port_speed_hcd(usb_host_t *host, uint8_t port)
-{
-    ehci_controller_t *ctrl = container_of(host, ehci_controller_t, hcd);
-    if (port >= ctrl->num_ports) return USB_SPEED_HIGH;
-    size_t offset = EHCI_OP_PORTSC + port * EHCI_PORT_STRIDE;
-    return ehci_port_speed_type(ehci_read32(ctrl->operational, offset));
-}
-
-/* host_ops: report whether a port has a device connected. */
-static int ehci_port_connected_hcd(usb_host_t *host, uint8_t port)
-{
-    ehci_controller_t *ctrl = container_of(host, ehci_controller_t, hcd);
-    if (port >= ctrl->num_ports) return 0;
-    size_t offset = EHCI_OP_PORTSC + port * EHCI_PORT_STRIDE;
-    return !!(ehci_read32(ctrl->operational, offset) & EHCI_PORT_CCS);
-}
-
 static usb_host_controller_ops_t ehci_controller_ops = {
-    .host_start     = ehci_host_start,
-    .host_stop      = ehci_host_stop,
-    .port_reset     = ehci_port_reset_hcd,
-    .port_speed     = ehci_port_speed_hcd,
-    .port_connected = ehci_port_connected_hcd,
+    .host_start = ehci_host_start,
+    .host_stop  = ehci_host_stop,
 };
 
 /* Probe an EHCI PCI device: reset, allocate pools, and start. */
@@ -871,35 +844,26 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     ehci_controllers[ehci_controller_count++] = ctrl;
     usb_host_register(&ctrl->hcd);
 
-    for (uint8_t port = 0; port < ctrl->num_ports; port++) {
-        size_t   offset = EHCI_OP_PORTSC + port * EHCI_PORT_STRIDE;
-        uint32_t portsc = ehci_read32(ctrl->operational, offset);
-        ehci_write32(ctrl->operational, offset, portsc);
-        if (portsc & EHCI_PORT_CCS) {
-            ret = ehci_enumerate_port(ctrl, port);
-            if (ret != EOK) plogk("ehci: Port %u enumeration failed: %d\n", port, ret);
-        }
-    }
-
-    plogk("ehci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
+    plogk("usb: ehci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
     return EOK;
 }
 
 /* Probe every EHCI controller in the PCI device cache. */
-void ehci_init(void)
+int ehci_init(void)
 {
 #if !CONFIG_USB_EHCI
-    return;
+    return 0;
 #endif
-    if (usb_core_init() != EOK) return;
-    pci_devices_cache_t *cache = pci_get_devices_cache();
-    if (!cache) return;
+    size_t               before = ehci_controller_count;
+    pci_devices_cache_t *cache  = pci_get_devices_cache();
+    if (!cache) return 0;
     for (pci_device_cache_t *pci = cache->head; pci && ehci_controller_count < EHCI_MAX_CONTROLLERS; pci = pci->next) {
         if (pci->class_code != EHCI_PCI_CLASS) continue;
         int bus_number = usb_host_allocate_bus_number();
         if (bus_number < 0) break;
         (void)ehci_probe(pci, (uint8_t)bus_number);
     }
+    return (int)(ehci_controller_count - before);
 }
 
 void ehci_start_workers(void)
@@ -911,6 +875,8 @@ void ehci_start_workers(void)
         ehci_controller_t *ctrl = ehci_controllers[i];
         if (!ctrl || ctrl->worker_started) continue;
         ctrl->worker_started = true;
+        /* Enumerate every root port on the first worker pass. */
+        ctrl->pending_ports |= (1ULL << ctrl->num_ports) - 1;
         kernel_worker_register("ehci-hub", ehci_worker, ctrl, &ctrl->worker_task);
     }
 }

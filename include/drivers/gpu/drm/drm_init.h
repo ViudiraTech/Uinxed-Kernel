@@ -16,9 +16,6 @@
 
 struct vm_area;
 
-/* Initialize the DRM subsystem and create /dev/dri/card0. */
-int drm_init(void);
-
 /* Fallback DRM initialization when no GPU driver can be probed. */
 int drm_init_fallback(void);
 
@@ -34,11 +31,6 @@ struct drm_device *drm_get_device_by_minor(int type, int index);
 /* Add or remove a device from the global device list. */
 void drm_device_list_add(struct drm_device *dev);
 void drm_device_list_remove(struct drm_device *dev);
-
-/* DRM device-class registration state (defined in drm_init.c). */
-struct class;
-extern struct class drm_class;
-extern int drm_class_registered;
 
 /* VFS callback wrappers used by devtmpfs to bind /dev/dri/card0. */
 void drm_vfs_open_cb(void *parent, const char *name, void *node);

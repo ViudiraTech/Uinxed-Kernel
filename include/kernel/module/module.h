@@ -92,6 +92,27 @@ void           module_put(struct module *module);
 uint32_t       module_refcount(const struct module *module);
 struct module *module_find_get(const char *name);
 
+/* Sysfs presentation helpers. */
+const char *module_state_name(enum module_state state);
+const char *module_version(const struct module *module);
+const char *module_srcversion(const struct module *module);
+
+/* Section (address/name) iteration for /sys/module/<name>/sections/. */
+size_t      module_section_count(const struct module *module);
+const char *module_section_name(const struct module *module, size_t index);
+uintptr_t   module_section_address(const struct module *module, size_t index);
+
+/* Parameter iteration for /sys/module/<name>/parameters/. */
+size_t      module_param_count(const struct module *module);
+const char *module_param_name(const struct module *module, size_t index);
+int         module_param_value(const struct module *module, size_t index, char *buf, size_t size);
+
+/* Holder (dependent module) iteration for /sys/module/<name>/holders/. */
+struct kobject;
+size_t          module_holder_count(const struct module *module);
+struct module  *module_holder(const struct module *module, size_t index);
+struct kobject *module_sysfs_object(const struct module *module);
+
 /* Resolve an exported symbol and pin its owner until module_symbol_put(). */
 void *module_symbol_get(const char *name, struct module **owner);
 void  module_symbol_put(struct module *owner);

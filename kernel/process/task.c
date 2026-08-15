@@ -109,7 +109,7 @@ static uint64_t alloc_pid_locked(void)
             return candidate;
         }
     }
-    return 0; /* exhausted */
+    return 0; // exhausted
 }
 
 void task_name_copy(task_t *task, const char *name)
@@ -119,6 +119,7 @@ void task_name_copy(task_t *task, const char *name)
     size_t      i   = 0;
 
     for (; i + 1 < TASK_NAME_LEN && src[i]; i++) task->name[i] = src[i];
+
     /*
      * Clear the unused suffix too: task names are copied to fixed-width ABI
      * fields by procfs/prctl, and must never expose a previous exec name.

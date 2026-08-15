@@ -203,17 +203,6 @@ static void uhci_free_qh(uhci_controller_t *ctrl, int index)
     spin_unlock_irqrestore(&ctrl->lock, flags);
 }
 
-/* Link a QH into the async queue with a self-terminated element. */
-static void uhci_add_async_qh(uhci_controller_t *ctrl, uhci_qh_phys_t *qh)
-{
-    (void)ctrl;
-    uint64_t qh_phys             = qh->physical;
-    uint32_t link                = (uint32_t)qh_phys | UHCI_LINK_QH;
-    qh->virtual->horizontal_link = link;
-    qh->virtual->element_link    = UHCI_LINK_TERMINATE;
-    dma_write_barrier();
-}
-
 /* Spin until the controller's IO is exclusively owned by a transfer. */
 static void uhci_io_lock(uhci_controller_t *ctrl)
 {
@@ -327,27 +316,27 @@ static int uhci_submit_control(usb_device_t *device, const usb_setup_packet_t *s
 
     setup_dma = uhci_dma_alloc(sizeof(*setup), &setup_physical);
     if (!setup_dma || setup_physical > UINT32_MAX) {
-        plogk("uhci: %s: control setup DMA allocation failed.\n", device->path);
+        plogk("usb: uhci: %s: control setup DMA allocation failed.\n", device->path);
         goto cleanup;
     }
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
         data_dma = uhci_dma_alloc(length, &data_physical);
         if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-            plogk("uhci: %s: control data DMA allocation failed (%zu bytes)\n", device->path, length);
+            plogk("usb: uhci: %s: control data DMA allocation failed (%zu bytes)\n", device->path, length);
             goto cleanup;
         }
         if (!input) memcpy(data_dma, buffer, length);
     }
     qh_index = uhci_find_free_qh(ctrl);
     if (qh_index < 0) {
-        plogk("uhci: %s: no free queue head for control transfer.\n", device->path);
+        plogk("usb: uhci: %s: no free queue head for control transfer.\n", device->path);
         goto cleanup;
     }
     for (size_t i = 0; i < data_count + 2; i++) {
         int index = uhci_find_free_td(ctrl);
         if (index < 0) {
-            plogk("uhci: %s: no free transfer descriptor for control transfer.\n", device->path);
+            plogk("usb: uhci: %s: no free transfer descriptor for control transfer.\n", device->path);
             goto cleanup;
         }
         td_indices[td_count++] = index;
@@ -434,19 +423,19 @@ static int uhci_submit_bulk(usb_endpoint_t *endpoint, void *buffer, size_t lengt
     bool     input                       = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     uint8_t  endpoint_number             = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
     if (!dma_buffer || dma_physical > UINT32_MAX || dma_physical + length - 1 > UINT32_MAX) {
-        plogk("uhci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        plogk("usb: uhci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         goto cleanup_bulk;
     }
     if (!input) memcpy(dma_buffer, buffer, length);
     qh_index = uhci_find_free_qh(ctrl);
     if (qh_index < 0) {
-        plogk("uhci: QH pool exhausted on bus %u\n", ctrl->bus_number);
+        plogk("usb: uhci: QH pool exhausted on bus %u\n", ctrl->bus_number);
         goto cleanup_bulk;
     }
     for (size_t i = 0; i < td_count; i++) {
         int index = uhci_find_free_td(ctrl);
         if (index < 0) {
-            plogk("uhci: TD pool exhausted on bus %u\n", ctrl->bus_number);
+            plogk("usb: uhci: TD pool exhausted on bus %u\n", ctrl->bus_number);
             goto cleanup_bulk;
         }
         td_indices[allocated++] = index;
@@ -502,6 +491,7 @@ static int uhci_submit_interrupt(usb_endpoint_t *endpoint, size_t length, usb_in
     if (!transfer) return -ENOMEM;
     transfer->buffer = malloc(length);
     if (!transfer->buffer) {
+        plogk("usb: uhci: Interrupt transfer buffer allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         free(transfer);
         return -ENOMEM;
     }
@@ -522,6 +512,7 @@ static int uhci_submit_interrupt(usb_endpoint_t *endpoint, size_t length, usb_in
         }
     }
     spin_unlock_irqrestore(&ctrl->lock, flags);
+    plogk("usb: uhci: Periodic transfer pool exhausted on bus %u\n", ctrl->bus_number);
     free(transfer->buffer);
     free(transfer);
     return -ENOSPC;
@@ -728,12 +719,12 @@ static int uhci_worker(void *argument)
                 uint16_t clear  = portsc & (UHCI_PORTSC_CSC | UHCI_PORTSC_PEC);
                 if (clear) uhci_writew(ctrl, UHCI_PORTSC1 + p * 2, portsc);
                 if (!(portsc & UHCI_PORTSC_CCS)) {
-                    uhci_disconnect_port(ctrl, p);
-                } else if (portsc & UHCI_PORTSC_CSC) {
-                    uhci_disconnect_port(ctrl, p);
+                    if (ctrl->devices[p]) uhci_disconnect_port(ctrl, p);
+                } else if (!ctrl->devices[p] || (portsc & UHCI_PORTSC_CSC)) {
+                    if (ctrl->devices[p]) uhci_disconnect_port(ctrl, p);
                     msleep(100);
                     int ret = uhci_enumerate_port(ctrl, p);
-                    if (ret != EOK) plogk("uhci: Port %u enumeration failed: %d\n", p, ret);
+                    if (ret != EOK) plogk("usb: uhci: Port %u enumeration failed: %d\n", p, ret);
                 }
             }
         }
@@ -755,7 +746,7 @@ static void uhci_interrupt_handler(void *frame)
         if (sts & UHCI_STS_USBINT) uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_USBINT);
         if (sts & UHCI_STS_ERROR) {
             uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_ERROR);
-            plogk("uhci: USB error interrupt on bus %u\n", ctrl->bus_number);
+            plogk("usb: uhci: USB error interrupt on bus %u\n", ctrl->bus_number);
         }
         if (sts & UHCI_STS_RD) {
             uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_RD);
@@ -769,7 +760,7 @@ static void uhci_interrupt_handler(void *frame)
         }
         if (sts & UHCI_STS_HSE) {
             uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_HSE);
-            plogk("uhci: Host system error on bus %u\n", ctrl->bus_number);
+            plogk("usb: uhci: Host system error on bus %u\n", ctrl->bus_number);
         }
     }
     send_eoi();
@@ -778,8 +769,7 @@ static void uhci_interrupt_handler(void *frame)
 /* host_ops: controller is already running after probe. */
 static int uhci_host_start(usb_host_t *host)
 {
-    uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
-    (void)ctrl;
+    (void)host;
     return EOK;
 }
 
@@ -793,36 +783,9 @@ static void uhci_host_stop(usb_host_t *host)
     uhci_writew(ctrl, UHCI_USBINTR, 0);
 }
 
-/* host_ops: reset a port. */
-static int uhci_port_reset_hcd(usb_host_t *host, uint8_t port)
-{
-    uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
-    return uhci_port_reset(ctrl, port);
-}
-
-/* host_ops: report the speed of a port. */
-static int uhci_port_speed_hcd(usb_host_t *host, uint8_t port)
-{
-    uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
-    if (port >= UHCI_MAX_PORTS) return USB_SPEED_FULL;
-    uint16_t portsc = uhci_readw(ctrl, UHCI_PORTSC1 + port * 2);
-    return (portsc & UHCI_PORTSC_LSDA) ? USB_SPEED_LOW : USB_SPEED_FULL;
-}
-
-/* host_ops: report whether a port has a device connected. */
-static int uhci_port_connected_hcd(usb_host_t *host, uint8_t port)
-{
-    uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
-    if (port >= UHCI_MAX_PORTS) return 0;
-    return !!(uhci_readw(ctrl, UHCI_PORTSC1 + port * 2) & UHCI_PORTSC_CCS);
-}
-
 static usb_host_controller_ops_t uhci_controller_ops = {
-    .host_start     = uhci_host_start,
-    .host_stop      = uhci_host_stop,
-    .port_reset     = uhci_port_reset_hcd,
-    .port_speed     = uhci_port_speed_hcd,
-    .port_connected = uhci_port_connected_hcd,
+    .host_start = uhci_host_start,
+    .host_stop  = uhci_host_stop,
 };
 
 /* Probe a UHCI PCI device: reset, allocate pools, and start. */
@@ -911,34 +874,26 @@ static int uhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     uhci_controllers[uhci_controller_count++] = ctrl;
     usb_host_register(&ctrl->hcd);
 
-    for (uint8_t port = 0; port < UHCI_MAX_PORTS; port++) {
-        uint16_t portsc = uhci_readw(ctrl, UHCI_PORTSC1 + port * 2);
-        uhci_writew(ctrl, UHCI_PORTSC1 + port * 2, portsc);
-        if (portsc & UHCI_PORTSC_CCS) {
-            int ret = uhci_enumerate_port(ctrl, port);
-            if (ret != EOK) plogk("uhci: Port %u enumeration failed: %d\n", port, ret);
-        }
-    }
-
-    plogk("uhci: Controller at I/O 0x%04x, bus usb%u\n", io_base, bus_number);
+    plogk("usb: uhci: Controller at I/O 0x%04x, bus usb%u\n", io_base, bus_number);
     return EOK;
 }
 
 /* Probe every UHCI controller in the PCI device cache. */
-void uhci_init(void)
+int uhci_init(void)
 {
 #if !CONFIG_USB_UHCI
-    return;
+    return 0;
 #endif
-    if (usb_core_init() != EOK) return;
-    pci_devices_cache_t *cache = pci_get_devices_cache();
-    if (!cache) return;
+    size_t               before = uhci_controller_count;
+    pci_devices_cache_t *cache  = pci_get_devices_cache();
+    if (!cache) return 0;
     for (pci_device_cache_t *pci = cache->head; pci && uhci_controller_count < UHCI_MAX_CONTROLLERS; pci = pci->next) {
         if (pci->class_code != UHCI_PCI_CLASS) continue;
         int bus_number = usb_host_allocate_bus_number();
         if (bus_number < 0) break;
         (void)uhci_probe(pci, (uint8_t)bus_number);
     }
+    return (int)(uhci_controller_count - before);
 }
 
 void uhci_start_workers(void)
@@ -950,6 +905,8 @@ void uhci_start_workers(void)
         uhci_controller_t *ctrl = uhci_controllers[i];
         if (!ctrl || ctrl->worker_started) continue;
         ctrl->worker_started = true;
+        /* Enumerate every root port on the first worker pass. */
+        ctrl->pending_ports |= (1ULL << UHCI_MAX_PORTS) - 1;
         kernel_worker_register("uhci-hub", uhci_worker, ctrl, &ctrl->worker_task);
     }
 }

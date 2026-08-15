@@ -221,6 +221,7 @@ static int console_emit(void *context, const uint8_t *data, size_t size, uint64_
         tty_vga_queue_push((char)data[i]);
         if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_vga_flush_locked();
     }
+
     /*
      * Drain a partial line immediately: a userspace write() without a trailing
      * newline - e.g. printf("Press any key..."); fflush(stdout) - must not sit

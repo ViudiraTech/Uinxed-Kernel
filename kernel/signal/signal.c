@@ -423,7 +423,6 @@ static bool signal_task_ignored(const process_t *proc, int sig)
      * kthread_stop(). */
     if (proc->signal.sighand[sig].sa_handler == SIG_IGN) return true;
     if (proc->signal.sighand[sig].sa_handler == SIG_DFL && (sig == SIGCHLD || sig == SIGWINCH || sig == SIGURG)) return true;
-
     return false;
 }
 
@@ -533,7 +532,6 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
     spin_unlock(&state->lock);
 
     if (ignored) return 0;
-
     if (ret == 0 && newly_pending) signalfd_deliver(proc, sig, info);
 
     bool resumed = false;

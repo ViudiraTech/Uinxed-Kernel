@@ -110,6 +110,7 @@ static tty_core_t *serial_console_get_tty(console_t *c)
      * Resolve it through the serial core so its line discipline and wait
      * queues are initialized before init issues its first termios ioctl. */
     if (!port || serial_tty_core(port->number, &tty)) return NULL;
+
     /*
      * serial_tty_core() only initialises the line discipline; it does not
      * enable the port's RX interrupt.  serial_tty_open() performs that step

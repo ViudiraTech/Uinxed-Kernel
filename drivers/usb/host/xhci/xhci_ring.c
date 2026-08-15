@@ -18,7 +18,7 @@
 int xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint16_t count, bool linked)
 {
     if (!ring || !trbs || !physical || count < (linked ? 3 : 2) || ((uintptr_t)trbs & 15) || (physical & 15)) {
-        plogk("xhci: ring_init: invalid argument (count=%u, linked=%u)\n", (unsigned)count, (unsigned)linked);
+        plogk("usb: xhci: ring_init: invalid argument (count=%u, linked=%u)\n", (unsigned)count, (unsigned)linked);
         return -EINVAL;
     }
     memset(ring, 0, sizeof(*ring));
@@ -39,7 +39,7 @@ int xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint1
 xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t status, uint32_t control, uint64_t *physical)
 {
     if (!ring || !ring->trbs || !ring->linked) {
-        plogk("xhci: ring_enqueue: enqueue on invalid ring.\n");
+        plogk("usb: xhci: ring_enqueue: enqueue on invalid ring.\n");
         return NULL;
     }
     spin_lock(&ring->lock);
@@ -65,7 +65,7 @@ xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t st
 static void xhci_ring_dequeue(xhci_ring_t *ring, uint16_t index)
 {
     if (!ring || !ring->trbs || index >= ring->count) {
-        plogk("xhci: ring_dequeue: dequeue out of range (index=%u, count=%u)\n", (unsigned)index, ring ? (unsigned)ring->count : 0);
+        plogk("usb: xhci: ring_dequeue: dequeue out of range (index=%u, count=%u)\n", (unsigned)index, ring ? (unsigned)ring->count : 0);
         return;
     }
     spin_lock(&ring->lock);

@@ -188,7 +188,7 @@ typedef struct usb_device {
 
 extern struct bus_type usb_bus_type;
 
-/* Register the usb bus type with the device model (once). */
+/* Mark the usb core ready for device registration (bus registered by usb_sysfs_init). */
 int usb_core_init(void);
 
 /* Bring up a device: parse the configuration, set it, and probe interfaces. */
@@ -229,9 +229,6 @@ int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint1
 
 /* Read a little-endian 16-bit value (USB wire format). */
 uint16_t usb_get_le16(const void *address);
-
-/* Parse a configuration descriptor into the device's interfaces/endpoints. */
-int usb_add_config_descriptor(usb_device_t *device, uint8_t *configuration, uint16_t length);
 
 /* HID class driver entry points, called by the core on probe/disconnect. */
 int  usb_hid_probe(usb_interface_t *interface);
