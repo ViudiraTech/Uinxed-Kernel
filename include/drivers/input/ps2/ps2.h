@@ -49,6 +49,7 @@
 #define PS2_DEV_ENABLE_REPORT   0xf4
 #define PS2_DEV_SET_SAMPLE_RATE 0xf3
 #define PS2_DEV_GET_ID          0xf2
+#define PS2_DEV_SET_LEDS        0xed
 
 /* Poll the data port; returns the byte read or -1 on timeout. */
 int wait_ps2_read(void);

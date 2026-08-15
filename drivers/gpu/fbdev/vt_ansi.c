@@ -321,9 +321,7 @@ static int vt_ansi_t416_color(vt_ansi_state_t *s, int i, int is_fg)
         c.g = s->par[i + 2] & 0xff;
         c.b = s->par[i + 3] & 0xff;
         i += 3;
-    } else {
-        return i;
-    }
+    } else return i;
     if (is_fg)
         vt_ansi_set_fg_rgb(s, &c);
     else

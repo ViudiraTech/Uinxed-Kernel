@@ -719,9 +719,7 @@ static void hda_config_codec(hda_codec_t *codec)
                 uint16_t prev = (uint16_t)(fc & 0xff);
                 if (prev == cur_nid || prev == 0) break;
                 cur_nid = prev;
-            } else {
-                break;
-            }
+            } else break;
         }
 
         if (codec->dac_nid > 0) {

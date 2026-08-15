@@ -78,7 +78,7 @@ static void ps2_mouse_report(const struct ps2_mouse_packet *packet)
     }
     if (packet->dx) events[count++] = (input_event_t) {.type = EV_REL, .code = REL_X, .value = packet->dx};
     if (packet->dy) events[count++] = (input_event_t) {.type = EV_REL, .code = REL_Y, .value = -packet->dy};
-    if (packet->wheel) events[count++] = (input_event_t) {.type = EV_REL, .code = REL_WHEEL, .value = packet->wheel};
+    if (packet->wheel) events[count++] = (input_event_t) {.type = EV_REL, .code = REL_WHEEL, .value = -packet->wheel};
     events[count++] = (input_event_t) {.type = EV_SYN, .code = SYN_REPORT, .value = 0};
     evdev_inject_events(&ps2_mouse_dev, events, count);
 }

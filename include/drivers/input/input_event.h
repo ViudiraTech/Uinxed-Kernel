@@ -1031,6 +1031,7 @@ typedef struct {
 
 #define EVIOCGKEY(len) _IOC(_IOC_READ, 'E', 0x18, len)
 #define EVIOCGLED(len) _IOC(_IOC_READ, 'E', 0x19, len)
+#define EVIOCSLED(len) _IOC(_IOC_WRITE, 'E', 0x19, len)
 #define EVIOCGSND(len) _IOC(_IOC_READ, 'E', 0x1a, len)
 #define EVIOCGSW(len)  _IOC(_IOC_READ, 'E', 0x1b, len)
 

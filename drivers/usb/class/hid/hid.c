@@ -17,9 +17,11 @@
 #include <mem/alloc.h>
 #include <mem/heap.h>
 
-#define USB_HID_REQ_SET_IDLE     0x0a
-#define USB_HID_REQ_SET_PROTOCOL 0x0b
-#define USB_HID_REPORT_PROTOCOL  1
+#define USB_HID_REQ_SET_IDLE       0x0a
+#define USB_HID_REQ_SET_PROTOCOL   0x0b
+#define USB_HID_REQ_SET_REPORT     0x09
+#define USB_HID_REPORT_TYPE_OUTPUT 0x02
+#define USB_HID_REPORT_PROTOCOL    1
 #define USB_HID_MAX_REPORT_SIZE  4096
 #define USB_HID_EVENT_CAPACITY   128
 
@@ -43,6 +45,19 @@ static void hid_input_release(input_dev_t *input)
 static void hid_set_bit(unsigned int bit, uint32_t *bitmap)
 {
     bitmap[bit / 32] |= 1U << (bit % 32);
+}
+
+/* Push the lock-key LED state to the keyboard via Set Report. */
+static void hid_set_leds(usb_hid_device_t *hid, uint8_t leds)
+{
+    (void)usb_control_msg(hid->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_REPORT, (USB_HID_REPORT_TYPE_OUTPUT << 8) | 0,
+                          hid->interface->descriptor.interface_number, &leds, sizeof(leds), USB_CTRL_TIMEOUT_MS);
+}
+
+/* LED notify callback: push the global LED state to this keyboard. */
+static void hid_led_notify(void *ctx, uint8_t leds)
+{
+    hid_set_leds((usb_hid_device_t *)ctx, leds);
 }
 
 /* Resolve the usage for a report index, falling back to a range scan. */
@@ -279,6 +294,11 @@ int usb_hid_probe(usb_interface_t *interface)
     (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_IDLE, 0, interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
     (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_PROTOCOL, USB_HID_REPORT_PROTOCOL, interface->descriptor.interface_number, NULL, 0,
                           USB_CTRL_TIMEOUT_MS);
+
+    /* Clear the keyboard LEDs so the hardware state matches the default lock state. */
+    hid_set_leds(hid, 0);
+    evdev_register_led_notify(hid_led_notify, hid);
+
     result = hid_register_inputs(hid);
     if (result != EOK) goto fail_inputs;
     interface->driver_data = hid;
@@ -299,6 +319,7 @@ fail_inputs:
     hid_unregister_inputs(hid);
 fail:
     plogk("usb: hid: %s: probe failed: %d\n", interface->device->path, result);
+    evdev_unregister_led_notify(hid_led_notify, hid);
     free(hid->report_descriptor);
     free(hid);
     return result;
@@ -316,6 +337,7 @@ void usb_hid_disconnect(usb_interface_t *interface)
     if (!hid) return;
     hid->running = false;
     usb_interrupt_stop(hid->endpoint);
+    evdev_unregister_led_notify(hid_led_notify, hid);
     hid_unregister_inputs(hid);
     interface->driver_data = NULL;
     free(hid->report_descriptor);

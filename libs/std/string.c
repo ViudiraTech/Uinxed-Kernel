@@ -305,9 +305,7 @@ char *strtok(char *str, const char *delim)
     static char *last = 0;
     if (str) {
         last = str;
-    } else if (!last) {
-        return 0;
-    }
+    } else if (!last) return 0;
 
     char *start = last;
     while (*start && strchr(delim, *start)) start++;

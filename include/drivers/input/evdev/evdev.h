@@ -147,6 +147,15 @@ void evdev_inject_events(input_dev_t *dev, const input_event_t *events, size_t c
 /* Inject a SYN_REPORT event to flush the current packet. */
 void evdev_inject_syn(input_dev_t *dev);
 
+/* LED notify callback: invoked when the global keyboard LED state changes. */
+typedef void (*evdev_led_notify_t)(void *ctx, uint8_t leds);
+
+/* Register a callback to receive global LED state changes (for keyboard LEDs). */
+void evdev_register_led_notify(evdev_led_notify_t notify, void *ctx);
+
+/* Unregister a previously registered LED notify callback. */
+void evdev_unregister_led_notify(evdev_led_notify_t notify, void *ctx);
+
 /* File operation callbacks (for VFS integration) */
 
 /*

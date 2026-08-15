@@ -5006,7 +5006,6 @@ FRESULT f_getlabel(const TCHAR *path, TCHAR *label, DWORD *vsn)
                 case FS_FAT32 :
                     di = BS_VolID32;
                     break;
-
                 default : // FAT12/16
                     di = fs->win[BS_BootSig] == 0x29 ? BS_VolID : 0;
             }
@@ -6566,25 +6565,20 @@ int f_printf(FIL *fp, const TCHAR *fmt, ...)
             case 'b' :       // Unsigned binary
                 radix = 2;
                 break;
-
             case 'o' : // Unsigned octal
                 radix = 8;
                 break;
-
             case 'd' : // Signed decimal
             case 'u' : // Unsigned decimal
                 radix = 10;
                 break;
-
             case 'x' : // Unsigned hexadecimal (lower case)
             case 'X' : // Unsigned hexadecimal (upper case)
                 radix = 16;
                 break;
-
             case 'c' : // Character
                 putc_bfd(&pb, (TCHAR)va_arg(arp, int));
                 continue;
-
             case 's' :                                                    // String
                 tp = va_arg(arp, TCHAR *);                                // Get a pointer argument
                 if (!tp) tp = &nul;                                       // Null pointer generates a null string

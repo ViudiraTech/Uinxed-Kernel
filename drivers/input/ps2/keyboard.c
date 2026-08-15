@@ -15,7 +15,6 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
-#include <process/sched.h>
 #include <sync/spin_lock.h>
 
 static input_dev_t            ps2_keyboard_dev;
@@ -28,6 +27,25 @@ evdev_t                      *ps2_keyboard_evdev;
 static void set_bit(unsigned int bit, uint32_t *bits)
 {
     bits[bit / 32] |= 1U << (bit % 32);
+}
+
+/* Convert evdev LED bits to the PS/2 Set-LEDs bit order and push them. */
+static void ps2kbd_set_leds(uint8_t leds)
+{
+    uint8_t ps2 = 0;
+    if (leds & (1U << LED_NUML))    ps2 |= 0x02;
+    if (leds & (1U << LED_CAPSL))   ps2 |= 0x04;
+    if (leds & (1U << LED_SCROLLL)) ps2 |= 0x01;
+
+    ps2_send_device_command(false, PS2_DEV_SET_LEDS);
+    ps2_send_device_data(false, ps2);
+}
+
+/* LED notify callback: push the global LED state to the hardware. */
+static void ps2kbd_led_notify(void *ctx, uint8_t leds)
+{
+    (void)ctx;
+    ps2kbd_set_leds(leds);
 }
 
 /* Initialize and register the PS/2 keyboard input device. */
@@ -48,7 +66,11 @@ void ps2_keyboard_init(void)
     set_bit(EV_MSC, ps2_keyboard_dev.evbit);
     set_bit(EV_SYN, ps2_keyboard_dev.evbit);
     set_bit(EV_REP, ps2_keyboard_dev.evbit);
+    set_bit(EV_LED, ps2_keyboard_dev.evbit);
     set_bit(MSC_SCAN, ps2_keyboard_dev.mscbit);
+    set_bit(LED_NUML, ps2_keyboard_dev.ledbit);
+    set_bit(LED_CAPSL, ps2_keyboard_dev.ledbit);
+    set_bit(LED_SCROLLL, ps2_keyboard_dev.ledbit);
     for (unsigned int scan = 0; scan <= 0xff; scan++) {
         uint16_t keycode = ps2_keyboard_keycode_for_scancode((uint16_t)scan);
 
@@ -70,6 +92,8 @@ void ps2_keyboard_init(void)
         return;
     }
     plogk("evdev: Keyboard registered as event%d\n", ps2_keyboard_evdev->minor);
+    evdev_register_led_notify(ps2kbd_led_notify, NULL);
+    ps2kbd_set_leds(0);
 }
 
 /* Decode one scancode byte and inject the resulting evdev/tty events. */

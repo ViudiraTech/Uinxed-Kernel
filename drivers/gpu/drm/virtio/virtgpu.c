@@ -356,9 +356,7 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
     if (args->syncobj_stride || args->num_in_syncobjs || args->num_out_syncobjs || args->in_syncobjs || args->out_syncobjs) return -EINVAL;
     if (args->flags & VIRTGPU_EXECBUF_RING_IDX) {
         if (!vgdev->has_context_init || !vfpriv->num_rings || args->ring_idx >= vfpriv->num_rings) return -EINVAL;
-    } else if (args->ring_idx) {
-        return -EINVAL;
-    }
+    } else if (args->ring_idx) return -EINVAL;
     if (virtgpu_ensure_context(vgdev, vfpriv)) return -EINVAL;
     if (args->num_bo_handles > 4096 || (!!args->num_bo_handles != !!args->bo_handles)) return -EINVAL;
 
@@ -741,9 +739,7 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
             free(cmd_buf);
             if (ret) return ret;
         }
-    } else if (args->blob_id || args->cmd_size || args->cmd) {
-        return -EINVAL;
-    }
+    } else if (args->blob_id || args->cmd_size || args->cmd) return -EINVAL;
     if (!guest_blob && (args->blob_flags & VIRTIO_GPU_BLOB_FLAG_USE_MAPPABLE)) return -EINVAL;
 
     obj = virtgpu_gem_alloc_object(dev, args->size);

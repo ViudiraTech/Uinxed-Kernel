@@ -202,9 +202,7 @@ static int build_dynamic_trees(deflate_stream_t *stream, deflate_huffman_t *lite
             if (read_bits(stream, 7, &value) != EOK) return -EINVAL;
             repeat          = value + 11;
             repeated_length = 0;
-        } else {
-            return -EINVAL;
-        }
+        } else return -EINVAL;
 
         if (repeat > total - index) return -EINVAL;
         while (repeat--) lengths[index++] = repeated_length;
@@ -334,9 +332,7 @@ static int inflate_data(const uint8_t *input, size_t input_size, uint8_t *output
             if (status != EOK) return status;
             status = inflate_compressed_block(&stream, output, output_capacity, &written, &literal_tree, &distance_tree);
             if (status != EOK) return status;
-        } else {
-            return -EINVAL;
-        }
+        } else return -EINVAL;
     } while (!final);
 
     *output_size = written;

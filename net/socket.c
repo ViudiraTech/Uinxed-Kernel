@@ -1484,9 +1484,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
         if (ret != EOK || !dest) return -ECONNREFUSED;
     } else if (sk->peer) {
         dest = sk->peer;
-    } else {
-        return -EDESTADDRREQ;
-    }
+    } else return -EDESTADDRREQ;
 
     if (dest == sk) return -EINVAL;
 
@@ -2010,9 +2008,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
             return fd;
         }
         return fd;
-    } else if (sock_family != AF_UNIX && sock_family != AF_LOCAL) {
-        return -EAFNOSUPPORT;
-    } else {
+    } else if (sock_family != AF_UNIX && sock_family != AF_LOCAL) return -EAFNOSUPPORT; else {
         if (sock_type != SOCK_STREAM && sock_type != SOCK_DGRAM && sock_type != SOCK_SEQPACKET) return -ESOCKTNOSUPPORT;
     }
 
@@ -2232,9 +2228,7 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
             if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
             if (kaddr.ss_family != sk->family) return -EAFNOSUPPORT;
             dest = (const sockaddr_t *)&kaddr;
-        } else if (addrlen) {
-            return -EINVAL;
-        }
+        } else if (addrlen) return -EINVAL;
         if (len) {
             inet_buf = malloc(len);
             if (!inet_buf) return -ENOMEM;
@@ -2256,9 +2250,7 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
             if (addrlen < sizeof(nladdr)) return -EINVAL;
             if (copy_from_user(&nladdr, addr, sizeof(nladdr))) return -EFAULT;
             nladdr_ptr = &nladdr;
-        } else if (addrlen) {
-            return -EINVAL;
-        }
+        } else if (addrlen) return -EINVAL;
         void *kbuf_nl = len ? malloc(len) : NULL;
         if (len && !kbuf_nl) return -ENOMEM;
         if (len && copy_from_user(kbuf_nl, buf, len)) {
@@ -2519,9 +2511,7 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
             if (copy_from_user(&kaddr, kmsg->msg_name, kmsg->msg_namelen)) return -EFAULT;
             if (kaddr.ss_family != sk->family) return -EAFNOSUPPORT;
             dest = (const sockaddr_t *)&kaddr;
-        } else if (kmsg->msg_namelen) {
-            return -EINVAL;
-        }
+        } else if (kmsg->msg_namelen) return -EINVAL;
         if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
         return ops->sendto(sk->priv, kbuf, total_len, flags, dest, kmsg->msg_namelen);
     }
@@ -2534,9 +2524,7 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
             if (kmsg->msg_namelen < sizeof(nladdr)) return -EINVAL;
             if (copy_from_user(&nladdr, kmsg->msg_name, sizeof(nladdr))) return -EFAULT;
             dest = &nladdr;
-        } else if (kmsg->msg_namelen) {
-            return -EINVAL;
-        }
+        } else if (kmsg->msg_namelen) return -EINVAL;
         if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
         return (int64_t)netlink_sendmsg(sk, kbuf, total_len, dest, dest ? sizeof(nladdr) : 0, flags);
     }

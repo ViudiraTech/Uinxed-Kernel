@@ -75,6 +75,13 @@ static spinlock_t evdev_table_lock  = {0};
 static bool       evdev_initialized = false;
 static bool       evdev_nodes_ready;
 
+/* global LED state shared by every keyboard */
+
+static uint32_t           evdev_led_state[(LED_CNT + 31) / 32];
+static evdev_led_notify_t evdev_led_notifies[EVDEV_MAX_DEVICES];
+static void              *evdev_led_notify_ctx[EVDEV_MAX_DEVICES];
+static size_t             evdev_led_notify_count;
+
 #define EVDEV_MAJOR 13
 
 static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client);
@@ -715,12 +722,96 @@ static bool evdev_prepare_event(input_dev_t *dev, input_event_t *event)
     return true;
 }
 
+/* Return the LED index for a lock key, or -1 when it is not a lock key. */
+static int evdev_lock_key_led(uint16_t keycode)
+{
+    switch (keycode) {
+        case KEY_NUMLOCK :    return LED_NUML;
+        case KEY_CAPSLOCK :   return LED_CAPSL;
+        case KEY_SCROLLLOCK : return LED_SCROLLL;
+        default :             return -1;
+    }
+}
+
+/* Apply a global LED change: update state, broadcast EV_LED, and notify drivers. */
+static void evdev_apply_led(int led, bool on)
+{
+    input_dev_t        *targets[EVDEV_MAX_DEVICES];
+    evdev_led_notify_t  notifies[EVDEV_MAX_DEVICES];
+    void               *notify_ctx[EVDEV_MAX_DEVICES];
+    size_t              target_count = 0;
+    size_t              notify_count = 0;
+    uint8_t             leds         = 0;
+
+    if (on)
+        set_bit(led, evdev_led_state);
+    else
+        clear_bit(led, evdev_led_state);
+
+    if (test_bit(LED_NUML, evdev_led_state)) leds |= 1U << LED_NUML;
+    if (test_bit(LED_CAPSL, evdev_led_state)) leds |= 1U << LED_CAPSL;
+    if (test_bit(LED_SCROLLL, evdev_led_state)) leds |= 1U << LED_SCROLLL;
+
+    /* Snapshot devices and notify callbacks, then act outside the table lock. */
+    spin_lock(&evdev_table_lock);
+    for (size_t i = 0; i < EVDEV_MAX_DEVICES; i++) {
+        evdev_t *e = evdev_table[i];
+        if (e && e->exist && e->input_dev && test_bit(EV_LED, e->input_dev->evbit)) targets[target_count++] = e->input_dev;
+    }
+    for (size_t i = 0; i < evdev_led_notify_count; i++) {
+        notifies[notify_count]    = evdev_led_notifies[i];
+        notify_ctx[notify_count] = evdev_led_notify_ctx[i];
+        notify_count++;
+    }
+    spin_unlock(&evdev_table_lock);
+
+    /* Broadcast the LED event to every keyboard device. */
+    for (size_t i = 0; i < target_count; i++) evdev_inject_event(targets[i], EV_LED, (uint16_t)led, on ? 1 : 0);
+
+    /* Notify keyboard drivers so they can push the LED to the hardware. */
+    for (size_t i = 0; i < notify_count; i++) notifies[i](notify_ctx[i], leds);
+}
+
+/* Register a callback to receive global LED state changes. */
+void evdev_register_led_notify(evdev_led_notify_t notify, void *ctx)
+{
+    if (!notify || evdev_led_notify_count >= EVDEV_MAX_DEVICES) return;
+    spin_lock(&evdev_table_lock);
+    evdev_led_notifies[evdev_led_notify_count]    = notify;
+    evdev_led_notify_ctx[evdev_led_notify_count] = ctx;
+    evdev_led_notify_count++;
+    spin_unlock(&evdev_table_lock);
+}
+
+/* Unregister a previously registered LED notify callback. */
+void evdev_unregister_led_notify(evdev_led_notify_t notify, void *ctx)
+{
+    spin_lock(&evdev_table_lock);
+    for (size_t i = 0; i < evdev_led_notify_count; i++) {
+        if (evdev_led_notifies[i] == notify && evdev_led_notify_ctx[i] == ctx) {
+            evdev_led_notify_count--;
+            evdev_led_notifies[i]    = evdev_led_notifies[evdev_led_notify_count];
+            evdev_led_notify_ctx[i] = evdev_led_notify_ctx[evdev_led_notify_count];
+            break;
+        }
+    }
+    spin_unlock(&evdev_table_lock);
+}
+
 void evdev_inject_events(input_dev_t *dev, const input_event_t *events, size_t count)
 {
     input_event_t prepared[64];
     size_t        offset = 0;
 
     if (!dev || !events || !count) return;
+
+    /* Detect lock-key presses and apply the global LED change. */
+    for (size_t i = 0; i < count; i++) {
+        if (events[i].type == EV_KEY && events[i].value == 1) {
+            int led = evdev_lock_key_led(events[i].code);
+            if (led >= 0) evdev_apply_led(led, !test_bit(led, evdev_led_state));
+        }
+    }
 
     spin_lock(&dev->event_lock);
     while (offset < count) {
@@ -1130,37 +1221,40 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_copy_string_to_user(arg, dev->name, len);
-
         case 0x07 : // EVIOCGPHYS(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_copy_string_to_user(arg, dev->phys, len);
-
         case 0x08 : // EVIOCGUNIQ(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_copy_string_to_user(arg, dev->uniq, len);
-
         case 0x09 : // EVIOCGPROP(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_copy_bits_to_user(arg, dev->propbit, INPUT_PROP_CNT, len);
-
         case 0x18 : // EVIOCGKEY(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_get_state(client, dev, EV_KEY, dev->key_state, KEY_CNT, arg, len);
-
-        case 0x19 : // EVIOCGLED(len)
-            if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
+        case 0x19 : // EVIOCGLED(len) / EVIOCSLED(len)
             len = _IOC_SIZE(request);
-            return evdev_get_state(client, dev, EV_LED, dev->led_state, LED_CNT, arg, len);
-
+            if (_IOC_DIR(request) & _IOC_READ) return evdev_get_state(client, dev, EV_LED, dev->led_state, LED_CNT, arg, len);
+            if (_IOC_DIR(request) & _IOC_WRITE) {
+                uint32_t leds[(LED_CNT + 31) / 32] = {0};
+                if (len > sizeof(leds)) len = sizeof(leds);
+                if (copy_from_user(leds, arg, len)) return -EFAULT;
+                for (int led = 0; led < LED_CNT; led++) {
+                    bool on = test_bit(led, leds);
+                    if (on != test_bit(led, evdev_led_state)) evdev_apply_led(led, on);
+                }
+                return EOK;
+            }
+            return -EINVAL;
         case 0x1a : // EVIOCGSND(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_get_state(client, dev, EV_SND, dev->snd_state, SND_CNT, arg, len);
-
         case 0x1b : // EVIOCGSW(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);

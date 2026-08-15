@@ -483,9 +483,7 @@ static int ntfs_utf16_from_utf8(const char *source, u16 **name, u8 *name_length,
         } else if ((first & 0xf8) == 0xf0) {
             codepoint    = first & 0x07;
             continuation = 3;
-        } else {
-            goto invalid;
-        }
+        } else goto invalid;
         for (u32 i = 0; i < continuation; i++) {
             u8 byte = (u8)source[offset++];
             if (!byte || (byte & 0xc0) != 0x80) goto invalid;
