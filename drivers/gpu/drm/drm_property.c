@@ -567,12 +567,6 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
     return 0;
 }
 
-/* User-initiated property destruction (same as drm_property_destroy). */
-static void drm_property_destroy_user(struct drm_device *dev, struct drm_property *property)
-{
-    drm_property_destroy(dev, property);
-}
-
 /*
  * Look up a property by userspace ID, optionally consulting the per-file
  * handle IDR via @file_priv. Returns the property with an extra reference

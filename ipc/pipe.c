@@ -928,7 +928,8 @@ static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
         *lastslash = '\0';
         filename   = lastslash + 1;
         parent     = vfs_open(fullpath);
-    } else return -EINVAL;
+    } else
+        return -EINVAL;
 
     if (!parent || !(parent->type & file_dir)) {
         if (parent && parent != rootdir) vfs_close(parent);

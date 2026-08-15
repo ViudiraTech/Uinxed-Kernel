@@ -165,7 +165,8 @@ static int ipv6_parse_hop_options(const uint8_t *bytes, size_t length)
                 if (bytes[offset + i]) return -EBADMSG;
         } else if (type == 5) {
             if (option_length != 2) return -EBADMSG;
-        } else return -EOPNOTSUPP;
+        } else
+            return -EOPNOTSUPP;
         offset += option_length;
     }
     return 0;

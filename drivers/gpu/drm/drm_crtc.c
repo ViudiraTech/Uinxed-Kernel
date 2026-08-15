@@ -92,42 +92,6 @@ int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, str
 }
 
 /*
- * drm_crtc_create_properties - Create the standard CRTC KMS properties.
- * @dev: DRM device
- *
- * Placeholder for creating ACTIVE, MODE_ID, and OUT_FENCE_PTR properties
- * on all registered CRTCs. Property creation is deferred until the
- * drm_property_create_* infrastructure is wired in.
- */
-static int drm_crtc_create_properties(struct drm_device *dev)
-{
-    if (!dev) {
-        plogk("drm_crtc: Create_properties with NULL dev.\n");
-        return -EINVAL;
-    }
-
-    return 0;
-}
-
-/*
- * drm_crtc_set_mode_prop_for_crtc - Set the current mode and enable the CRTC.
- * @crtc: CRTC to update
- * @mode: display mode to apply
- *
- * Copies the mode into crtc->mode and marks the CRTC as enabled.
- */
-static void drm_crtc_set_mode_prop_for_crtc(struct drm_crtc *crtc, const struct drm_display_mode *mode)
-{
-    if (!crtc || !mode) {
-        plogk("drm_crtc: Set_mode_prop with NULL crtc or mode.\n");
-        return;
-    }
-
-    memcpy(&crtc->mode, mode, sizeof(crtc->mode));
-    crtc->enabled = true;
-}
-
-/*
  * drm_mode_getcrtc - Handle DRM_IOCTL_MODE_GETCRTC.
  * @dev: DRM device
  * @data: pointer to struct drm_mode_crtc (userspace buffer)

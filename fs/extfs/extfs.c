@@ -915,7 +915,8 @@ static int extfs_rename_impl(const vfs_rename_context_t *context)
         if (existing != target_h->inode_no) return -EIO;
         status = (context->target->type & file_dir) ? extfs_rmdir_impl(context->new_parent, context->new_name) : extfs_delete_impl(context->new_parent, context->target);
         if (status != EOK) return status;
-    } else if (status != -ENOENT) return status == EOK ? -EEXIST : status;
+    } else if (status != -ENOENT)
+        return status == EOK ? -EEXIST : status;
 
     status = extfs_dir_add_entry(new_parent_h, context->new_name, source_h->inode_no, file_type);
     if (status != EOK) return status;

@@ -438,6 +438,7 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
 
     if (crtc) {
         crtc->enabled = true;
+        drm_crtc_vblank_on(crtc);
         memcpy(&crtc->mode, pref, sizeof(*pref));
         if (crtc->state) {
             crtc->state->active = true;

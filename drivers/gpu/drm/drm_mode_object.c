@@ -267,13 +267,6 @@ int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property 
     return drm_object_property_set_value(obj, property, init_val);
 }
 
-/* Initialise an empty property set (zero capacity, no backing storage). */
-static void drm_property_set_init(struct drm_property_set *set)
-{
-    if (!set) return;
-    memset(set, 0, sizeof(*set));
-}
-
 /*
  * drm_mode_obj_getproperties_ioctl - Handle DRM_IOCTL_MODE_OBJ_GETPROPERTIES.
  * @dev: DRM device

@@ -726,22 +726,26 @@ static bool evdev_prepare_event(input_dev_t *dev, input_event_t *event)
 static int evdev_lock_key_led(uint16_t keycode)
 {
     switch (keycode) {
-        case KEY_NUMLOCK :    return LED_NUML;
-        case KEY_CAPSLOCK :   return LED_CAPSL;
-        case KEY_SCROLLLOCK : return LED_SCROLLL;
-        default :             return -1;
+        case KEY_NUMLOCK :
+            return LED_NUML;
+        case KEY_CAPSLOCK :
+            return LED_CAPSL;
+        case KEY_SCROLLLOCK :
+            return LED_SCROLLL;
+        default :
+            return -1;
     }
 }
 
 /* Apply a global LED change: update state, broadcast EV_LED, and notify drivers. */
 static void evdev_apply_led(int led, bool on)
 {
-    input_dev_t        *targets[EVDEV_MAX_DEVICES];
-    evdev_led_notify_t  notifies[EVDEV_MAX_DEVICES];
-    void               *notify_ctx[EVDEV_MAX_DEVICES];
-    size_t              target_count = 0;
-    size_t              notify_count = 0;
-    uint8_t             leds         = 0;
+    input_dev_t       *targets[EVDEV_MAX_DEVICES];
+    evdev_led_notify_t notifies[EVDEV_MAX_DEVICES];
+    void              *notify_ctx[EVDEV_MAX_DEVICES];
+    size_t             target_count = 0;
+    size_t             notify_count = 0;
+    uint8_t            leds         = 0;
 
     if (on)
         set_bit(led, evdev_led_state);
@@ -759,7 +763,7 @@ static void evdev_apply_led(int led, bool on)
         if (e && e->exist && e->input_dev && test_bit(EV_LED, e->input_dev->evbit)) targets[target_count++] = e->input_dev;
     }
     for (size_t i = 0; i < evdev_led_notify_count; i++) {
-        notifies[notify_count]    = evdev_led_notifies[i];
+        notifies[notify_count]   = evdev_led_notifies[i];
         notify_ctx[notify_count] = evdev_led_notify_ctx[i];
         notify_count++;
     }
@@ -777,7 +781,7 @@ void evdev_register_led_notify(evdev_led_notify_t notify, void *ctx)
 {
     if (!notify || evdev_led_notify_count >= EVDEV_MAX_DEVICES) return;
     spin_lock(&evdev_table_lock);
-    evdev_led_notifies[evdev_led_notify_count]    = notify;
+    evdev_led_notifies[evdev_led_notify_count]   = notify;
     evdev_led_notify_ctx[evdev_led_notify_count] = ctx;
     evdev_led_notify_count++;
     spin_unlock(&evdev_table_lock);
@@ -790,7 +794,7 @@ void evdev_unregister_led_notify(evdev_led_notify_t notify, void *ctx)
     for (size_t i = 0; i < evdev_led_notify_count; i++) {
         if (evdev_led_notifies[i] == notify && evdev_led_notify_ctx[i] == ctx) {
             evdev_led_notify_count--;
-            evdev_led_notifies[i]    = evdev_led_notifies[evdev_led_notify_count];
+            evdev_led_notifies[i]   = evdev_led_notifies[evdev_led_notify_count];
             evdev_led_notify_ctx[i] = evdev_led_notify_ctx[evdev_led_notify_count];
             break;
         }

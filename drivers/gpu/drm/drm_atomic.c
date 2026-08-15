@@ -126,17 +126,6 @@ static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
     state->num_connector = 0;
 }
 
-/* drm_atomic_state_clear: reset state after default clear */
-
-static void drm_atomic_state_clear(struct drm_atomic_state *state)
-{
-    drm_atomic_state_default_clear(state);
-    state->allow_modeset        = 0;
-    state->legacy_cursor_update = 0;
-    state->async_update         = 0;
-    state->duplicated           = 0;
-}
-
 /* drm_atomic_state_free: fully release an atomic state */
 
 void drm_atomic_state_free(struct drm_atomic_state *state)
@@ -540,7 +529,13 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 
         if (!crtc_state || !crtc_entry->ptr) continue;
 
-        if (crtc_state->active_changed) crtc_entry->ptr->enabled = crtc_state->active;
+        if (crtc_state->active_changed) {
+            crtc_entry->ptr->enabled = crtc_state->active;
+            if (crtc_state->active)
+                drm_crtc_vblank_on(crtc_entry->ptr);
+            else
+                drm_crtc_vblank_off(crtc_entry->ptr);
+        }
 
         if (crtc_state->mode_changed && crtc_state->active) memcpy(&crtc_entry->ptr->mode, &crtc_state->mode, sizeof(crtc_state->mode));
         if (crtc_entry->ptr->state) {

@@ -92,7 +92,7 @@ uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc)
     return vblank->count;
 }
 
-/* drm_crtc_vblank_get: enable vblank for this CRTC */
+/* drm_crtc_vblank_get: acquire a vblank reference for this CRTC */
 
 int drm_crtc_vblank_get(struct drm_crtc *crtc)
 {
@@ -116,13 +116,12 @@ int drm_crtc_vblank_get(struct drm_crtc *crtc)
     spin_lock(&vblank->lock);
     vblank->crtc = crtc;
     vblank->refcount++;
-    vblank->enabled = true;
     spin_unlock(&vblank->lock);
 
     return 0;
 }
 
-/* drm_crtc_vblank_put: disable vblank for this CRTC */
+/* drm_crtc_vblank_put: release a vblank reference for this CRTC */
 
 void drm_crtc_vblank_put(struct drm_crtc *crtc)
 {
@@ -145,7 +144,6 @@ void drm_crtc_vblank_put(struct drm_crtc *crtc)
 
     spin_lock(&vblank->lock);
     if (vblank->refcount) vblank->refcount--;
-    if (!vblank->refcount && !vblank->event_queue) vblank->enabled = false;
     spin_unlock(&vblank->lock);
 }
 
@@ -247,7 +245,7 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
 
 /* drm_crtc_vblank_off: turn off vblank for a CRTC */
 
-static void drm_crtc_vblank_off(struct drm_crtc *crtc)
+void drm_crtc_vblank_off(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
@@ -269,12 +267,13 @@ static void drm_crtc_vblank_off(struct drm_crtc *crtc)
     spin_lock(&vblank->lock);
     vblank->enabled        = false;
     vblank->next_vblank_ns = 0;
+    vblank->crtc           = NULL;
     spin_unlock(&vblank->lock);
 }
 
 /* drm_crtc_vblank_on: turn on vblank for a CRTC */
 
-static void drm_crtc_vblank_on(struct drm_crtc *crtc)
+void drm_crtc_vblank_on(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
@@ -294,6 +293,7 @@ static void drm_crtc_vblank_on(struct drm_crtc *crtc)
     vblank = &dev->vblank_unused_array[crtc->index];
 
     spin_lock(&vblank->lock);
+    vblank->crtc    = crtc;
     vblank->enabled = true;
     if (!vblank->next_vblank_ns) vblank->next_vblank_ns = nano_time() + vblank->period_ns;
     spin_unlock(&vblank->lock);
@@ -544,7 +544,6 @@ void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_pri
             }
             free(event);
         }
-        if (!vblank->refcount && !vblank->event_queue) vblank->enabled = false;
         spin_unlock(&vblank->lock);
     }
 }

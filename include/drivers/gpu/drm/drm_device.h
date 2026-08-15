@@ -911,6 +911,8 @@ void                        drm_crtc_send_vblank_event(struct drm_crtc *crtc, st
 uint32_t                    drm_crtc_vblank_count(struct drm_crtc *crtc);
 int                         drm_crtc_vblank_get(struct drm_crtc *crtc);
 void                        drm_crtc_vblank_put(struct drm_crtc *crtc);
+void                        drm_crtc_vblank_on(struct drm_crtc *crtc);
+void                        drm_crtc_vblank_off(struct drm_crtc *crtc);
 void                        drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_priv);
 void                        drm_vblank_cleanup(struct drm_device *dev);
 

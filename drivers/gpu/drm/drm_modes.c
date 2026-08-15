@@ -106,23 +106,6 @@ void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *
 }
 
 /*
- * drm_mode_equal - Compare two display modes for equality.
- * @mode1: first mode
- * @mode2: second mode
- *
- * Compares clock, hdisplay, vdisplay, flags, type, and the mode name.
- * Returns true if the modes are equal, false otherwise.
- */
-static bool drm_mode_equal(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
-{
-    if (!mode1 || !mode2) return false;
-
-    if (mode1->clock != mode2->clock || mode1->hdisplay != mode2->hdisplay || mode1->vdisplay != mode2->vdisplay || mode1->flags != mode2->flags || mode1->type != mode2->type) { return false; }
-
-    return true;
-}
-
-/*
  * drm_convert_umode - Convert a UAPI drm_mode_modeinfo to a kernel drm_display_mode.
  * @umode: pointer to userspace drm_mode_modeinfo
  *
@@ -195,24 +178,6 @@ void drm_convert_to_umode(struct drm_mode_modeinfo *out, const struct drm_displa
 
     strncpy(out->name, in->name, DRM_DISPLAY_MODE_LEN - 1);
     out->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
-}
-
-/*
- * drm_mode_debug_printmodeline - Print a display mode in modeline format.
- * @mode: display mode to print
- *
- * Outputs the mode via DRM_DEBUG_KMS in the format:
- *   "name" clock hdisp hsync-start hsync-end htotal vdisp vsync-start vsync-end vtotal flags type
- */
-static void drm_mode_debug_printmodeline(const struct drm_display_mode *mode)
-{
-    if (!mode) {
-        DRM_DEBUG_KMS("modeline: (null)\n");
-        return;
-    }
-
-    DRM_DEBUG_KMS("modeline \"%s\": %d %d %d %d %d %d %d %d %d 0x%x 0x%x\n", mode->name, mode->clock, mode->hdisplay, mode->hsync_start, mode->hsync_end, mode->htotal, mode->vdisplay,
-                  mode->vsync_start, mode->vsync_end, mode->vtotal, mode->flags, mode->type);
 }
 
 /*

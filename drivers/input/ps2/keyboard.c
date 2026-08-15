@@ -33,8 +33,8 @@ static void set_bit(unsigned int bit, uint32_t *bits)
 static void ps2kbd_set_leds(uint8_t leds)
 {
     uint8_t ps2 = 0;
-    if (leds & (1U << LED_NUML))    ps2 |= 0x02;
-    if (leds & (1U << LED_CAPSL))   ps2 |= 0x04;
+    if (leds & (1U << LED_NUML)) ps2 |= 0x02;
+    if (leds & (1U << LED_CAPSL)) ps2 |= 0x04;
     if (leds & (1U << LED_SCROLLL)) ps2 |= 0x01;
 
     ps2_send_device_command(false, PS2_DEV_SET_LEDS);

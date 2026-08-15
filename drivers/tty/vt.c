@@ -150,6 +150,7 @@ void tty_buff_flush(void)
         console_write_all((const uint8_t *)tty_buff, len);
         tty_buff_ptr = tty_buff;
     }
+
     /* Render any queued VGA output once the framebuffer console is ready. */
     if (tty_vga_tail != tty_vga_head) tty_vga_flush_locked();
     spin_unlock(&tty_flush_spinlock);
@@ -169,10 +170,6 @@ static void tty_buff_add(const char ch)
     if (ch == '\0') return;
 
     spin_lock(&tty_flush_spinlock);
-    if (console_tty_ready && tty_core_graphics_mode(&console_tty)) {
-        spin_unlock(&tty_flush_spinlock);
-        return;
-    }
     *tty_buff_ptr++ = ch;
 
     if (ch == '\n' || (size_t)(tty_buff_ptr - tty_buff) >= TTY_BUF_SIZE - 1) {
@@ -200,7 +197,8 @@ void tty_print_str(const char *str)
     }
 }
 
-/* tty_core emit for the VT console: render to the framebuffer console only.
+/*
+ * tty_core emit for the VT console: render to the framebuffer console only.
  * printk broadcasts through console_write_all() to every enabled console, but
  * a VT's line-discipline output (keyboard echo, writes to /dev/ttyN) belongs
  * solely to the framebuffer console.  Routing it through console_write_all()
@@ -284,6 +282,7 @@ size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size)
 }
 
 #if CONFIG_VT
+
 static bool tty_shift_pressed = false;
 static bool tty_ctrl_pressed  = false;
 static bool tty_caps_active   = false;
@@ -332,9 +331,7 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
     }
 
     if (!pressed) return;
-
     char ch = 0;
-
     switch (scancode) {
         case 14 : // BACKSPACE
             ch = '\b';
@@ -368,13 +365,16 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
     if (ch == '\b') ch = 127;
     tty_core_receive(&console_tty, (const uint8_t *)&ch, 1, O_NONBLOCK);
 }
+
 #else
+
 void tty_handle_scancode(uint8_t scancode, bool pressed)
 {
     (void)scancode;
     (void)pressed;
 }
-#endif /* CONFIG_VT */
+
+#endif // CONFIG_VT
 
 /* Legacy device read: read from the console tty core. */
 size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size)
@@ -407,6 +407,7 @@ int tty_console_acquire(struct process *proc, uint64_t flags)
 }
 
 #if CONFIG_VT
+
 /* Virtual console tty driver (major 4, tty0-ttyN) */
 
 /* Map a ttyN index to a virtual-console slot (tty0/tty1 share VT 1). */
@@ -487,7 +488,8 @@ static tty_driver_t vt_tty_driver = {
     .ioctl       = vt_driver_ioctl,
     .poll        = vt_driver_poll,
 };
-#endif /* CONFIG_VT */
+
+#endif // CONFIG_VT
 
 /* Auxiliary tty driver (major 5: /dev/tty, /dev/console) */
 
@@ -604,6 +606,9 @@ static void vga_console_write(console_t *c, const uint8_t *buf, size_t len)
      * the render while the framebuffer console is not ready.
      */
     (void)c;
+
+    /* Do not paint over a compositor's framebuffer in graphics mode. */
+    if (console_tty_ready && tty_core_graphics_mode(&console_tty)) return;
     for (size_t i = 0; i < len; i++) {
         tty_vga_queue_push((char)buf[i]);
         if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_vga_flush_locked();

@@ -38,11 +38,6 @@ static inline uint16_t le16_to_cpu(uint16_t v)
     return v;
 }
 
-static inline uint32_t le32_to_cpu(uint32_t v)
-{
-    return v;
-}
-
 /* The kernel is little-endian x86-64; EDID stores multi-byte fields LE. */
 
 /*
@@ -1641,12 +1636,6 @@ static bool edid_is_digital_input(const struct edid *edid)
 static bool std_timing_is_reserved(uint8_t a, uint8_t b)
 {
     return (a == 0x00 && b == 0x00) || (a == 0x01 && b == 0x01) || (a == 0x20 && b == 0x20);
-}
-
-static int mode_hsync_khz(const struct drm_display_mode *mode)
-{
-    if (mode->htotal <= 0) return 0;
-    return DIV_ROUND_CLOSEST(mode->clock, mode->htotal);
 }
 
 /* True if the monitor advertises CVT reduced-blanking support. */

@@ -22,8 +22,8 @@
 #define USB_HID_REQ_SET_REPORT     0x09
 #define USB_HID_REPORT_TYPE_OUTPUT 0x02
 #define USB_HID_REPORT_PROTOCOL    1
-#define USB_HID_MAX_REPORT_SIZE  4096
-#define USB_HID_EVENT_CAPACITY   128
+#define USB_HID_MAX_REPORT_SIZE    4096
+#define USB_HID_EVENT_CAPACITY     128
 
 typedef struct {
         usb_interface_t *interface;

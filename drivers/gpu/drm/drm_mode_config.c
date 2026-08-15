@@ -444,19 +444,3 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
 
     return 0;
 }
-
-/*
- * drmm_mode_config_init - Managed resource wrapper for drm_mode_config_init.
- * @dev: DRM device
- *
- * Calls drm_mode_config_init. Returns 0 on success.
- */
-static int drmm_mode_config_init(struct drm_device *dev)
-{
-    if (!dev) {
-        plogk("drm: Drmm_mode_config_init called with NULL device.\n");
-        return -EINVAL;
-    }
-
-    return drm_mode_config_init(dev);
-}

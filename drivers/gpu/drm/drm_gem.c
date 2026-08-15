@@ -65,12 +65,6 @@ static spinlock_t         dumb_alloc_lock = {.lock = 0, .rflags = 0};
 static dumb_slot_range_t dumb_range_pool[DUMB_RANGE_POOL_SIZE];
 static uint32_t          dumb_range_pool_used = 0;
 
-static inline int dumb_bitmap_get(uint32_t slot)
-{
-    if (slot >= DUMB_OFFSET_MAX_SLOTS) return -1;
-    return (dumb_bitmap[slot / 8] >> (slot % 8)) & 1;
-}
-
 static inline void dumb_bitmap_set(uint32_t slot)
 {
     if (slot < DUMB_OFFSET_MAX_SLOTS) dumb_bitmap[slot / 8] |= (uint8_t)(1U << (slot % 8));
@@ -321,13 +315,6 @@ int drm_gem_object_init(struct drm_device *dev, struct drm_gem_object *obj, size
     obj->handle_count    = 0;
 
     return 0;
-}
-
-/* drm_gem_private_object_init: same as drm_gem_object_init */
-
-static int drm_gem_private_object_init(struct drm_device *dev, struct drm_gem_object *obj, size_t size)
-{
-    return drm_gem_object_init(dev, obj, size);
 }
 
 /* drm_gem_object_get: increment refcount */
