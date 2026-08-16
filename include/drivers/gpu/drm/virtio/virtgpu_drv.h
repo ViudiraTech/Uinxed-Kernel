@@ -542,6 +542,9 @@ struct drm_virtgpu_context_init {
 #define VIRTGPU_MAX_CONTEXT_RINGS 64
 #define VIRTGPU_DEBUG_NAME_MAX    64
 
+/* Largest command batch submitted to the control queue in one kick. */
+#define VIRTGPU_CTRLQ_MAX_BATCH 3
+
 struct virtio_gpu_fpriv {
         uint32_t   ctx_id;
         uint32_t   context_init;
@@ -630,6 +633,12 @@ struct virtio_gpu_device {
         struct vp_virtqueue cursorq;
         spinlock_t          ctrlq_cmd_lock; // serialises synchronous batches
         spinlock_t          cursorq_cmd_lock;
+
+        /* Reusable DMA staging buffers; serialised by ctrlq_cmd_lock. */
+        uint64_t ctrlq_dma_cmd_phys[VIRTGPU_CTRLQ_MAX_BATCH];
+        uint64_t ctrlq_dma_resp_phys[VIRTGPU_CTRLQ_MAX_BATCH];
+        void    *ctrlq_dma_cmd[VIRTGPU_CTRLQ_MAX_BATCH];
+        void    *ctrlq_dma_resp[VIRTGPU_CTRLQ_MAX_BATCH];
 
         /* Feature flags negotiated */
         bool                           has_virgl;

@@ -42,6 +42,23 @@ int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
         return ret;
     }
 
+    /* Pre-allocate control-queue staging pages for the hot display path. */
+    for (uint32_t i = 0; i < VIRTGPU_CTRLQ_MAX_BATCH; i++) {
+        uint64_t cmd_phys  = alloc_frames(1);
+        uint64_t resp_phys = alloc_frames(1);
+        if (cmd_phys && resp_phys) {
+            vgdev->ctrlq_dma_cmd_phys[i]  = cmd_phys;
+            vgdev->ctrlq_dma_resp_phys[i] = resp_phys;
+            vgdev->ctrlq_dma_cmd[i]       = phys_to_virt(cmd_phys);
+            vgdev->ctrlq_dma_resp[i]      = phys_to_virt(resp_phys);
+        } else {
+            if (cmd_phys) free_frames(cmd_phys, 1);
+            if (resp_phys) free_frames(resp_phys, 1);
+            vgdev->ctrlq_dma_cmd[i]  = NULL;
+            vgdev->ctrlq_dma_resp[i] = NULL;
+        }
+    }
+
     plogk("virtgpu: Virtqueues initialised (ctrlq=%d, cursorq=%d)\n", vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
     return 0;
 }
@@ -53,6 +70,19 @@ void virtgpu_vq_fini(struct virtio_gpu_device *vgdev)
     if (vgdev && vgdev->vp_dev) vp_reset_device(vgdev->vp_dev);
     vp_del_vq(&vgdev->cursorq);
     vp_del_vq(&vgdev->ctrlq);
+
+    for (uint32_t i = 0; i < VIRTGPU_CTRLQ_MAX_BATCH; i++) {
+        if (vgdev->ctrlq_dma_cmd_phys[i]) {
+            free_frames(vgdev->ctrlq_dma_cmd_phys[i], 1);
+            vgdev->ctrlq_dma_cmd_phys[i] = 0;
+        }
+        if (vgdev->ctrlq_dma_resp_phys[i]) {
+            free_frames(vgdev->ctrlq_dma_resp_phys[i], 1);
+            vgdev->ctrlq_dma_resp_phys[i] = 0;
+        }
+        vgdev->ctrlq_dma_cmd[i]  = NULL;
+        vgdev->ctrlq_dma_resp[i] = NULL;
+    }
 }
 
 /* CPU hint for spin-wait loops - improves performance and memory ordering */
@@ -76,8 +106,9 @@ static void virtgpu_dma_commands_free(struct virtgpu_dma_command *dma, uint32_t 
 {
     if (!dma) return;
     for (uint32_t i = 0; i < count; i++) {
-        if (dma[i].cmd_phys) free_frames(dma[i].cmd_phys, dma[i].cmd_pages);
-        if (dma[i].resp_phys) free_frames(dma[i].resp_phys, dma[i].resp_pages);
+        /* cmd_pages == 0 marks a pooled staging buffer that must not be freed. */
+        if (dma[i].cmd_phys && dma[i].cmd_pages) free_frames(dma[i].cmd_phys, dma[i].cmd_pages);
+        if (dma[i].resp_phys && dma[i].resp_pages) free_frames(dma[i].resp_phys, dma[i].resp_pages);
     }
     free(dma);
 }
@@ -146,6 +177,17 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         return -ENOMEM;
     }
     for (uint32_t i = 0; i < count; i++) {
+        /* Small commands reuse the pooled staging pages; oversized ones still allocate transiently. */
+        if ((size_t)commands[i].cmd_size <= PAGE_4K_SIZE && (size_t)commands[i].resp_size <= PAGE_4K_SIZE && i < VIRTGPU_CTRLQ_MAX_BATCH && vgdev->ctrlq_dma_cmd[i]) {
+            dma[i].cmd        = vgdev->ctrlq_dma_cmd[i];
+            dma[i].resp       = vgdev->ctrlq_dma_resp[i];
+            dma[i].cmd_phys   = vgdev->ctrlq_dma_cmd_phys[i];
+            dma[i].resp_phys  = vgdev->ctrlq_dma_resp_phys[i];
+            dma[i].cmd_pages  = 0; /* pooled: never freed */
+            dma[i].resp_pages = 0;
+            continue;
+        }
+
         dma[i].cmd_pages  = (ALIGN_UP((size_t)commands[i].cmd_size, PAGE_4K_SIZE)) / PAGE_4K_SIZE;
         dma[i].resp_pages = (ALIGN_UP((size_t)commands[i].resp_size, PAGE_4K_SIZE)) / PAGE_4K_SIZE;
         dma[i].cmd_phys   = alloc_frames(dma[i].cmd_pages);
