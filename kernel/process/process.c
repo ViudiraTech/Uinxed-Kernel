@@ -153,25 +153,6 @@ size_t process_snapshot_pids(pid_t *pids, size_t capacity)
     return count;
 }
 
-/* Dump every live task for debugging */
-void process_debug_dump_tasks(void)
-{
-    spin_lock(&process_table_lock);
-    plogk("task-dump: Begin\n");
-    for (size_t i = 1; i < PROCESS_TABLE_SIZE; i++) {
-        process_t *proc = process_table[i];
-        if (!proc) continue;
-        for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
-            task_t *task = rb_entry(node, task_t, thread_node);
-            if (task->state == TASK_ZOMBIE) continue;
-            plogk("task-dump: pid=%llu name=%s state=%u cpu=%u on_cpu=%llu wait=%p wake=%u tick=%llu\n", task->pid, task->name, task->state, task->cpu_id, task->on_cpu, task->wait_queue,
-                  task->wake_reason, task->wake_tick);
-        }
-    }
-    plogk("task-dump: End\n");
-    spin_unlock(&process_table_lock);
-}
-
 /* Iterate processes in a process group or session */
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid)
 {

@@ -266,7 +266,6 @@ process_t *process_find(pid_t pid);
 
 /* Pinned process-table access. Call process_put() on non-NULL results. */
 process_t *process_find_get(pid_t pid);
-void       process_debug_dump_tasks(void);
 process_t *process_iterate_get(size_t *pos);
 size_t     process_snapshot_pids(pid_t *pids, size_t capacity);
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid);

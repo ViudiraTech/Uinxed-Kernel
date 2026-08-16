@@ -713,11 +713,4 @@ menu "Kernel debugging"
     help
       Output kernel debug messages via the ring buffer and serial console.
 
-  config SCHED_DEBUG_DEMO
-    bool "Scheduler debug demo threads"
-    default n
-    help
-      Creates kernel threads that exercise preemption, sleep, wait
-      queues, SMP placement, migration, and balancing at boot time.
-
 endmenu

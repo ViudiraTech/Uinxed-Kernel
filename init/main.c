@@ -97,7 +97,6 @@
 #include <process/elf_loader.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/sched_test.h>
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
@@ -186,7 +185,6 @@ static void swapper_run_init(void)
             }
         }
     }
-
     const char *chosen_path = NULL; // raw path stored in exe_path
 
     /* init= value buffer; chosen_path may point into it. */
@@ -204,7 +202,6 @@ static void swapper_run_init(void)
     if (!chosen_path) {
         static const char *const init_paths[] = {"/sbin/init", "/etc/init", "/bin/init", "/bin/sh"};
         const size_t             n_paths      = sizeof(init_paths) / sizeof(init_paths[0]);
-
         for (size_t i = 0; i < n_paths; i++) {
             if (!swapper_try_init_path(init, init_paths[i])) {
                 chosen_path = init_paths[i];
@@ -409,7 +406,6 @@ void kernel_entry(void)
      */
     swapper_run_init();           // Create init (PID 1), but keep it dormant
     kthreadd_init();              // Create and enqueue kthreadd (PID 2)
-    sched_test_init();            // Install scheduler test tasks, if enabled
                                   //
     e1000_start_workers();        // Register e1000 workers
     rtl8169_start_workers();      // Register rtl8169 workers

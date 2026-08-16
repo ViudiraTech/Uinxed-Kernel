@@ -153,7 +153,7 @@ void kthreadd_init(void)
     enqueue_task_initial(task);
     spin_unlock(&scheduler.lock);
     request_task_cpu(task);
-    plogk("kthread: kthreadd started (PID 2)\n");
+    plogk("kthread: kthreadd started (pid=2)\n");
 }
 
 /* Enqueue a creation request for kthreadd and block until it has allocated the

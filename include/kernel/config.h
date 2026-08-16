@@ -294,10 +294,6 @@
 #    define SCHED_BASE_SLICE 2
 #endif
 
-#ifndef SCHED_DEBUG_DEMO
-#    define SCHED_DEBUG_DEMO 0
-#endif
-
 #ifndef SCHED_LATENCY
 #    define SCHED_LATENCY 8
 #endif

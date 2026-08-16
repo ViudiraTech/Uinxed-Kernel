@@ -643,23 +643,7 @@ static void wake_sleeping_tasks(void)
 static void idle_thread(void *arg)
 {
     (void)arg;
-#if CONFIG_SCHED_DEBUG_DEMO
-    uint64_t idle_since = 0;
-    int      dumped     = 0;
-#endif
     while (1) {
-#if CONFIG_SCHED_DEBUG_DEMO
-        if (get_current_cpu_id() == 0 && !has_ready_task()) {
-            if (!idle_since) idle_since = scheduler.ticks;
-            if (!dumped && scheduler.ticks - idle_since >= 500) {
-                process_debug_dump_tasks();
-                dumped = 1;
-            }
-        } else {
-            idle_since = 0;
-            dumped     = 0;
-        }
-#endif
         enable_intr();
         __asm__ volatile("hlt");
         disable_intr();
