@@ -6,27 +6,6 @@
  *      2026/8/16 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
- *      Linux-compatible DPMS semantics:
- *      - UAPI levels DRM_MODE_DPMS_ON/STANDBY/SUSPEND/OFF (bit compatible
- *        with the X.Org definitions).
- *      - A per-device legacy enum property "DPMS" (flags 0, not atomic,
- *        not immutable) created by drm_mode_create_dpms_property() and
- *        attached to every connector with an initial value of ON.
- *      - The legacy property can only be changed through the legacy
- *        SETPROPERTY / OBJ_SETPROPERTY ioctls; atomic commits reject it
- *        with -EINVAL (Linux drm_atomic_connector_set_property).
- *      - Atomic drivers remap the legacy 4-state request onto a 2-state
- *        commit (ON / OFF): STANDBY and SUSPEND fold into OFF, matching
- *        drm_atomic_connector_commit_dpms():
- *          * connector->dpms is updated optimistically before the commit;
- *          * the CRTC driving the connector is deactivated iff no other
- *            connector on it remains ON;
- *          * a failed commit rolls the dpms field back.
- *      - Property / OBJ_GETPROPERTIES reads report ON while the CRTC is
- *        in self-refresh (drm_atomic_connector_get_property).
- *      - Legacy (non-atomic) drivers drive their connector power control
- *        through drm_connector_helper_funcs.dpms.
- *
  */
 
 #include <drivers/gpu/drm/drm_device.h>
