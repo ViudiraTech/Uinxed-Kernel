@@ -14,7 +14,6 @@
 #include <drivers/block/core/gendisk.h>
 #include <drivers/block/core/partition.h>
 #include <drivers/char/chrdev.h>
-#include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/fbdev/fbdev.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/input/evdev/evdev.h>
@@ -177,7 +176,6 @@ int devtmpfs_unregister_char_device(const char *path)
         vfs_close(node);
         if (status && status != -ENOENT) return status;
     }
-    plogk("devtmpfs: Unregistered %s\n", path);
     return 0;
 }
 
