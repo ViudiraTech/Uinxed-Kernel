@@ -21,11 +21,13 @@
 
 static bool sound_class_ready;
 
+/* Return the audio card bound to a device-model device. */
 static audio_card_t *sound_card_from(struct device *dev)
 {
     return dev ? dev->driver_data : NULL;
 }
 
+/* Show the sound card name. */
 static ssize_t id_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     audio_card_t *card = sound_card_from(dev);
@@ -33,6 +35,7 @@ static ssize_t id_show(struct device *dev, struct device_attribute *attr, char *
     return sysfs_emit(buf, "%s\n", card ? card->name : "");
 }
 
+/* Show the sound card index. */
 static ssize_t number_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     audio_card_t *card = sound_card_from(dev);
@@ -85,11 +88,13 @@ static const struct attribute_group *node_groups[] = {
     NULL,
 };
 
+/* Free a sound sub-device node. */
 static void sound_node_release(struct device *dev)
 {
     free(dev);
 }
 
+/* Create and register a sound sub-device node. */
 static struct device *sound_create_node(struct device *parent, audio_card_t *card, const char *name)
 {
     struct device *dev = calloc(1, sizeof(*dev));
@@ -140,6 +145,6 @@ void sound_sysfs_init(void)
         (void)sound_create_node(card_devs[node->card->id], node->card, node->name);
     }
 
-    plogk("sound_sysfs: %zu sound card(s) exported to /sys/class/sound\n", cards);
+    plogk("sound_sysfs: exported %zu sound card(s) to /sys/class/sound\n", cards);
 #endif
 }

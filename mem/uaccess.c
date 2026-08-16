@@ -60,6 +60,7 @@ __asm__(".text\n"
         "ret\n"
         ".size __uaccess_copy_fault, .-__uaccess_copy_fault\n");
 
+/* Copy between address spaces for a task using the fault fixup. */
 static int copy_user_direct_task(task_t *task, void *dst, const void *src, size_t size, int nofault)
 {
     if (!task) return -EFAULT;
@@ -80,11 +81,13 @@ static int copy_user_direct_task(task_t *task, void *dst, const void *src, size_
     return ret;
 }
 
+/* Copy for the current task using the fault fixup path. */
 static int copy_user_direct(void *dst, const void *src, size_t size, int nofault)
 {
     return copy_user_direct_task(current_task(), dst, src, size, nofault);
 }
 
+/* Zero a user range for the current task via the fault fixup path. */
 static int clear_user_direct(void *dst, size_t size)
 {
     task_t *task = current_task();
@@ -102,6 +105,7 @@ static int clear_user_direct(void *dst, size_t size)
     return ret;
 }
 
+/* Check that a user range stays within the user address space. */
 int user_range_ok(const void *uaddr, size_t size)
 {
     uintptr_t addr = (uintptr_t)uaddr;
@@ -112,6 +116,7 @@ int user_range_ok(const void *uaddr, size_t size)
     return 1;
 }
 
+/* Check a PTE for present/user and optional write permission. */
 static int check_entry(uint64_t entry, int write)
 {
     if (!(entry & PTE_PRESENT)) return 0;
@@ -120,6 +125,7 @@ static int check_entry(uint64_t entry, int write)
     return 1;
 }
 
+/* Translate a user address to a kernel address without faulting. */
 static int user_translate(process_t *proc, uintptr_t uaddr, int write, void **kaddr, size_t *page_left)
 {
     if (!proc || !proc->user_page_dir || !proc->user_page_dir->table) return 0;
@@ -186,6 +192,7 @@ static int user_translate_writable(process_t *proc, uintptr_t uaddr, void **kadd
     return user_translate(proc, uaddr, 1, kaddr, page_left);
 }
 
+/* Translate a user address, resolving demand faults on failure. */
 static int user_translate_access(process_t *proc, uintptr_t uaddr, int write, void **kaddr, size_t *page_left)
 {
     if (write) {
@@ -198,6 +205,7 @@ static int user_translate_access(process_t *proc, uintptr_t uaddr, int write, vo
     return 0;
 }
 
+/* Verify that a user range is fully accessible for the given access. */
 int user_access_ok_process(process_t *proc, const void *uaddr, size_t size, int write)
 {
     uintptr_t cur = (uintptr_t)uaddr;
@@ -219,11 +227,13 @@ int user_access_ok_process(process_t *proc, const void *uaddr, size_t size, int 
     return 1;
 }
 
+/* Verify a user range is accessible in the current process. */
 int user_access_ok(const void *uaddr, size_t size, int write)
 {
     return user_access_ok_process(process_current(), uaddr, size, write);
 }
 
+/* Copy between user and kernel memory, faulting in pages as needed. */
 static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
 {
     uintptr_t  user = (uintptr_t)(to_user ? dst : src);
@@ -335,36 +345,43 @@ static int copy_user_bytes_process_nofault_current(process_t *proc, void *dst, c
     return copy_user_bytes_process_nofault(proc, dst, src, size, to_user);
 }
 
+/* Copy size bytes from user memory into dst. */
 int copy_from_user(void *dst, const void *src, size_t size)
 {
     return copy_user_bytes(dst, src, size, 0);
 }
 
+/* Copy size bytes from src into user memory. */
 int copy_to_user(void *dst, const void *src, size_t size)
 {
     return copy_user_bytes(dst, src, size, 1);
 }
 
+/* Copy from user memory of proc without resolving faults. */
 int copy_from_user_process_nofault(process_t *proc, void *dst, const void *src, size_t size)
 {
     return copy_user_bytes_process_nofault(proc, dst, src, size, 0);
 }
 
+/* Copy into user memory of proc without resolving faults. */
 int copy_to_user_process_nofault(process_t *proc, void *dst, const void *src, size_t size)
 {
     return copy_user_bytes_process_nofault(proc, dst, src, size, 1);
 }
 
+/* Copy from the current process without resolving faults. */
 int copy_from_user_process_nofault_current(process_t *proc, void *dst, const void *src, size_t size)
 {
     return copy_user_bytes_process_nofault_current(proc, dst, src, size, 0);
 }
 
+/* Copy into the current process without resolving faults. */
 int copy_to_user_process_nofault_current(process_t *proc, void *dst, const void *src, size_t size)
 {
     return copy_user_bytes_process_nofault_current(proc, dst, src, size, 1);
 }
 
+/* Zero a range of user memory in the given process. */
 int clear_user_process(process_t *proc, void *dst, size_t size)
 {
     uintptr_t user = (uintptr_t)dst;
@@ -395,6 +412,7 @@ int clear_user_process(process_t *proc, void *dst, size_t size)
     return 0;
 }
 
+/* Return the length of a NUL-terminated user string. */
 int strnlen_user(const char *src, size_t max_size)
 {
     if (!src || !max_size) return -EFAULT;
@@ -415,6 +433,7 @@ int strnlen_user(const char *src, size_t max_size)
     return -ENAMETOOLONG;
 }
 
+/* Copy at most max_size bytes from a user string into dst. */
 int strncpy_from_user(char *dst, const char *src, size_t max_size)
 {
     if (!dst || !src || !max_size) return -EFAULT;

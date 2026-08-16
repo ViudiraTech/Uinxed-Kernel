@@ -14,8 +14,8 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define UTFmax    6            // maximum bytes per rune
-#define Runeerror ((Rune) - 1) // decoding error in utf
+#define UTFmax    6
+#define Runeerror ((Rune) - 1)
 
 typedef int32_t Rune;
 

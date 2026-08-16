@@ -496,7 +496,7 @@ struct drm_mode_destroy_blob {
 #define DRM_MODE_OBJECT_PLANE     0xeeeeeeee
 #define DRM_MODE_OBJECT_ANY       0
 
-/* KMS ioctl numbers (base 0xA0). Order matches Linux drm_mode.h. */
+/* KMS ioctl numbers (base 0xA0). */
 #define DRM_IOCTL_MODE_GETRESOURCES      DRM_IOWR(0xA0, struct drm_mode_card_res)
 #define DRM_IOCTL_MODE_GETCRTC           DRM_IOWR(0xA1, struct drm_mode_crtc)
 #define DRM_IOCTL_MODE_SETCRTC           DRM_IOWR(0xA2, struct drm_mode_crtc)

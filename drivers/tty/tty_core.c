@@ -23,14 +23,6 @@
 #define TTY_TICKS_PER_DECISECOND ((TIMER_HZ + 9) / 10)
 #define TTY_INPUT_EOF            1
 
-/*
- * Overview
- * tty_core.c provides the reusable line-discipline core shared by
- * serial, VT, and pty drivers: input buffering, canonical line
- * editing, termios handling, flow control and poll/read/write. The
- * device-specific part supplies a tty_core_ops_t.
- */
-
 /* Initialize a default termios with a standard cooked-mode configuration. */
 static void tty_default_termios(struct termios *termios)
 {
@@ -67,6 +59,7 @@ void tty_core_init(tty_core_t *tty, const tty_core_ops_t *ops, void *context)
     tty->context = context;
 }
 
+/* Mark the tty as a virtual console. */
 void tty_core_mark_virtual_console(tty_core_t *tty)
 {
     if (!tty) return;
@@ -75,6 +68,7 @@ void tty_core_mark_virtual_console(tty_core_t *tty)
     spin_unlock(&tty->lock);
 }
 
+/* True when this VT is in KD_GRAPHICS mode. */
 bool tty_core_graphics_mode(tty_core_t *tty)
 {
     if (!tty) return false;
@@ -84,6 +78,7 @@ bool tty_core_graphics_mode(tty_core_t *tty)
     return graphics;
 }
 
+/* Return the current keyboard translation mode. */
 uint8_t tty_core_keyboard_mode(tty_core_t *tty)
 {
     if (!tty) return K_OFF;
@@ -93,11 +88,13 @@ uint8_t tty_core_keyboard_mode(tty_core_t *tty)
     return mode;
 }
 
+/* Take a reference on the underlying device. */
 void tty_core_retain(tty_core_t *tty)
 {
     if (tty && tty->ops.retain) tty->ops.retain(tty->context);
 }
 
+/* Drop a reference on the underlying device. */
 void tty_core_release(tty_core_t *tty)
 {
     if (tty && tty->ops.release) tty->ops.release(tty->context);

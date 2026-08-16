@@ -8,6 +8,7 @@
  *
  */
 
+#include <drivers/base/device.h>
 #include <drivers/block/ata/pata/atapi.h>
 #include <drivers/block/ata/pata/ide.h>
 #include <drivers/block/ata/sata/ahci.h>
@@ -15,6 +16,7 @@
 #include <drivers/block/core/gendisk.h>
 #include <drivers/block/core/partition.h>
 #include <drivers/block/nvme/nvme.h>
+#include <fs/devtmpfs/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
@@ -41,6 +43,18 @@ int block_register_disk(const char *name, uint32_t major, uint32_t minor, const 
     disk->use_p_separator = use_p_separator;
     blockdev_retain(device);
 
+    /* Publish the /dev node and its partitions before exposing the disk.
+     * A failed publication must fail the whole registration. */
+    char     dev_path[96];
+    uint64_t devt = MKDEV(major, minor);
+    (void)snprintf(dev_path, sizeof(dev_path), "/dev/%s", name);
+    int status = devtmpfs_register_block_device(dev_path, device, devt, devt, scan_partitions, use_p_separator, &disk->devtmpfs);
+    if (status != EOK) {
+        blockdev_release(&disk->device);
+        free(disk);
+        return status;
+    }
+
     spin_lock(&gendisk_lock);
     disk->next   = gendisk_list;
     gendisk_list = disk;
@@ -52,7 +66,6 @@ int block_register_disk(const char *name, uint32_t major, uint32_t minor, const 
 int block_unregister_disk(const char *name)
 {
     gendisk_t **link;
-    int         status = -ENOENT;
 
     if (!name) return -EINVAL;
     spin_lock(&gendisk_lock);
@@ -61,15 +74,19 @@ int block_unregister_disk(const char *name)
         if (streq((*link)->name, name)) {
             gendisk_t *victim = *link;
             *link             = victim->next;
+            spin_unlock(&gendisk_lock);
+
+            /* Remove the /dev nodes and release the extra backend reference
+             * devtmpfs holds before dropping the registry's own reference. */
+            devtmpfs_unregister_block_device(victim->devtmpfs);
             blockdev_release(&victim->device);
             free(victim);
-            status = 0;
-            break;
+            return 0;
         }
         link = &(*link)->next;
     }
     spin_unlock(&gendisk_lock);
-    return status;
+    return -ENOENT;
 }
 
 /* Return the number of registered disks. */

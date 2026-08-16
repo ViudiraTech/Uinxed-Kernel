@@ -629,6 +629,9 @@ void inotify_init(void)
     callback->file_poll  = inotify_file_poll;
     inotify_fsid         = vfs_regist(callback);
     free(callback);
-    if (inotify_fsid < 0) plogk("inotify: Failed to register VFS callbacks (%d)\n", inotify_fsid);
+    if (inotify_fsid < 0)
+        plogk("inotify: Failed to register VFS callbacks (%d)\n", inotify_fsid);
+    else
+        plogk("inotify: Filesystem registered (fsid=%d)\n", inotify_fsid);
 }
 #endif

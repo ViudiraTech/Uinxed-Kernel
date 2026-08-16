@@ -83,6 +83,7 @@ static void sysfs_unbind_dir(struct kobject *kobj);
 
 /* Internal helpers */
 
+/* Allocate a sysfs node of the given type. */
 static sysfs_node_t *sysfs_node_alloc(sysfs_node_type_t type)
 {
     sysfs_node_t *sn = calloc(1, sizeof(sysfs_node_t));
@@ -91,6 +92,7 @@ static sysfs_node_t *sysfs_node_alloc(sysfs_node_type_t type)
     return sn;
 }
 
+/* Release a sysfs node. */
 static void sysfs_node_free(sysfs_node_t *sn)
 {
     if (!sn) return;
@@ -124,6 +126,7 @@ static sysfs_attr_entry_t *sysfs_find_attr(struct kobject *kobj, const char *nam
     return NULL;
 }
 
+/* Look up a binary attribute entry by name. */
 static sysfs_bin_attr_entry_t *sysfs_find_bin_attr(struct kobject *kobj, const char *name)
 {
     if (!kobj || !name) return NULL;
@@ -153,11 +156,13 @@ static int sysfs_name_valid(const char *name)
     return name && name[0] && !strchr(name, '/') && !streq(name, ".") && !streq(name, "..");
 }
 
+/* Whether a name collides with an existing child, attribute, or symlink. */
 static int sysfs_name_exists(struct kobject *kobj, const char *name)
 {
     return sysfs_find_child_kobj(kobj, name) || sysfs_find_attr(kobj, name) || sysfs_find_bin_attr(kobj, name) || sysfs_find_symlink(kobj, name);
 }
 
+/* Append an item to a circular list. */
 static int sysfs_list_add(clist_t *list, void *data)
 {
     clist_t node = clist_alloc(data);
@@ -172,6 +177,7 @@ static int sysfs_list_add(clist_t *list, void *data)
     return EOK;
 }
 
+/* Build a relative path from one kobject to another. */
 static char *sysfs_relative_path(struct kobject *from, struct kobject *target)
 {
     struct kobject *from_path[64];
@@ -208,6 +214,7 @@ static char *sysfs_relative_path(struct kobject *from, struct kobject *target)
 
 /* Content generation (read path for attribute files) */
 
+/* Generate an attribute's content through its show callback. */
 static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
 {
     struct kobject   *kobj = sn->kobj;
@@ -239,6 +246,7 @@ static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
 
 /* VFS callbacks */
 
+/* Mount sysfs on a VFS node. */
 static int sysfs_mount(const char *handle, vfs_node_t node)
 {
     /* sysfs is nodev; tolerate the conventional "sysfs" source operand. */
@@ -272,6 +280,7 @@ static int sysfs_mount(const char *handle, vfs_node_t node)
     return EOK;
 }
 
+/* Unmount sysfs and clear the root back-pointers. */
 static void sysfs_umount(void *root)
 {
     sysfs_unbind_dir(sysfs_root_kobj);
@@ -279,6 +288,7 @@ static void sysfs_umount(void *root)
     sysfs_node_free(root);
 }
 
+/* Bind a VFS node to its sysfs object. */
 static void sysfs_open(void *parent_handle, const char *name, vfs_node_t node)
 {
     node->flags |= VFS_NODE_NOCACHE;
@@ -359,11 +369,13 @@ static void sysfs_open(void *parent_handle, const char *name, vfs_node_t node)
     }
 }
 
+/* Release a sysfs file handle (no-op). */
 static void sysfs_close(void *current)
 {
     (void)current;
 }
 
+/* Populate and stat a sysfs node. */
 static int sysfs_stat(void *file, vfs_node_t node)
 {
     node->flags |= VFS_NODE_NOCACHE;
@@ -533,6 +545,7 @@ static int sysfs_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
+/* Read an attribute or binary attribute file. */
 static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     sysfs_node_t *sn = file;
@@ -568,6 +581,7 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
     return 0;
 }
 
+/* Write an attribute or binary attribute file. */
 static size_t sysfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     sysfs_node_t *sn = file;
@@ -596,6 +610,7 @@ static size_t sysfs_write(void *file, const void *addr, size_t offset, size_t si
     }
 }
 
+/* Allocate per-open state for an attribute file. */
 static int sysfs_file_open(vfs_node_t vnode, uint64_t flags, void **private_data)
 {
     sysfs_node_t      *sn;
@@ -627,6 +642,7 @@ static int sysfs_file_open(vfs_node_t vnode, uint64_t flags, void **private_data
     return EOK;
 }
 
+/* Release per-open attribute state. */
 static void sysfs_file_release(vfs_node_t vnode, void *private_data)
 {
     sysfs_open_file_t *open_file = private_data;
@@ -637,6 +653,7 @@ static void sysfs_file_release(vfs_node_t vnode, void *private_data)
     free(open_file);
 }
 
+/* Read an attribute file through its open state. */
 static int64_t sysfs_file_read(vfs_node_t vnode, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     sysfs_open_file_t *open_file = private_data;
@@ -667,6 +684,7 @@ static int64_t sysfs_file_read(vfs_node_t vnode, void *private_data, uint64_t fl
     return (int64_t)size;
 }
 
+/* Write an attribute file through its open state. */
 static int64_t sysfs_file_write(vfs_node_t vnode, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     sysfs_open_file_t *open_file = private_data;
@@ -701,6 +719,7 @@ static int64_t sysfs_file_write(vfs_node_t vnode, void *private_data, uint64_t f
     return ret;
 }
 
+/* Resolve a sysfs symlink target. */
 static size_t sysfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
     sysfs_node_t *sn = node->handle;
@@ -721,6 +740,7 @@ static size_t sysfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t 
     return actual;
 }
 
+/* sysfs is read-only; reject directory creation. */
 static int sysfs_mkdir(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -729,6 +749,7 @@ static int sysfs_mkdir(void *parent, const char *name, vfs_node_t node)
     return -EROFS;
 }
 
+/* sysfs is read-only; reject file creation. */
 static int sysfs_mkfile(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -737,6 +758,7 @@ static int sysfs_mkfile(void *parent, const char *name, vfs_node_t node)
     return -EROFS;
 }
 
+/* sysfs is read-only; reject deletion. */
 static int sysfs_delete(void *parent, vfs_node_t node)
 {
     (void)parent;
@@ -744,12 +766,14 @@ static int sysfs_delete(void *parent, vfs_node_t node)
     return -EROFS;
 }
 
+/* sysfs is read-only; reject rename. */
 static int sysfs_rename_node(const vfs_rename_context_t *context)
 {
     (void)context;
     return -EROFS;
 }
 
+/* Free a sysfs node. */
 static int sysfs_free(void *handle)
 {
     sysfs_node_t *sn = handle;
@@ -757,6 +781,7 @@ static int sysfs_free(void *handle)
     return EOK;
 }
 
+/* Duplicate a sysfs VFS node. */
 static vfs_node_t sysfs_dup(vfs_node_t node)
 {
     if (!node) return NULL;
@@ -795,6 +820,7 @@ err_copy:
     return NULL;
 }
 
+/* Report read/write readiness for a sysfs file. */
 static int sysfs_poll(void *file, size_t events)
 {
     (void)file;
@@ -804,6 +830,7 @@ static int sysfs_poll(void *file, size_t events)
     return revents;
 }
 
+/* Reject ioctl requests (sysfs supports none). */
 static int sysfs_ioctl(void *file, size_t req, void *arg)
 {
     (void)file;
@@ -841,6 +868,7 @@ static struct vfs_callback sysfs_callbacks = {
 
 /* sysfs_create_dir / sysfs_remove_dir */
 
+/* Create the sysfs directory for a kobject. */
 int sysfs_create_dir(struct kobject *kobj)
 {
     vfs_node_t parent_vnode;
@@ -895,6 +923,7 @@ int sysfs_create_dir(struct kobject *kobj)
     return EOK;
 }
 
+/* Remove the sysfs directory of a kobject. */
 void sysfs_remove_dir(struct kobject *kobj)
 {
     if (!kobj) return;
@@ -914,6 +943,7 @@ void sysfs_remove_dir(struct kobject *kobj)
 
 /* sysfs_create_file / sysfs_remove_file */
 
+/* Create an attribute file with the given mode. */
 static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owner, const struct attribute *attr, uint16_t mode)
 {
     vfs_node_t dir_vnode;
@@ -922,13 +952,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
 
     /* Check for duplicates */
     if (sysfs_name_exists(dir_kobj, attr->name)) return -EEXIST;
-
     dir_vnode = dir_kobj->sd;
-    if (!dir_vnode) {
-        /* Kobject not yet in sysfs - defer creation */
-        /* Just track the attribute for later */
-        ;
-    }
 
     /* Create the tracking entry */
     sysfs_attr_entry_t *entry = calloc(1, sizeof(sysfs_attr_entry_t));
@@ -975,6 +999,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
     return EOK;
 }
 
+/* Remove an attribute file. */
 void sysfs_remove_file(struct kobject *kobj, const struct attribute *attr)
 {
     if (!kobj || !attr || !attr->name) return;
@@ -995,6 +1020,7 @@ void sysfs_remove_file(struct kobject *kobj, const struct attribute *attr)
 
 /* sysfs_create_bin_file / sysfs_remove_bin_file */
 
+/* Create a binary attribute file with the given mode. */
 static int sysfs_create_bin_file_mode(struct kobject *dir_kobj, struct kobject *owner, const struct bin_attribute *attr, uint16_t mode)
 {
     if (!dir_kobj || !owner || !attr || !sysfs_name_valid(attr->attr.name)) return -EINVAL;
@@ -1041,11 +1067,13 @@ err_entry:
     return -ENOMEM;
 }
 
+/* Create a binary attribute file. */
 int sysfs_create_bin_file(struct kobject *kobj, const struct bin_attribute *attr)
 {
     return sysfs_create_bin_file_mode(kobj, kobj, attr, attr ? attr->attr.mode : 0);
 }
 
+/* Remove a binary attribute file. */
 void sysfs_remove_bin_file(struct kobject *kobj, const struct bin_attribute *attr)
 {
     if (!kobj || !attr || !attr->attr.name) return;
@@ -1059,6 +1087,7 @@ void sysfs_remove_bin_file(struct kobject *kobj, const struct bin_attribute *att
 
 /* sysfs_create_symlink / sysfs_remove_symlink */
 
+/* Create a symlink under a kobject. */
 int sysfs_create_symlink(struct kobject *kobj, struct kobject *target, const char *name)
 {
     vfs_node_t dir_vnode;
@@ -1128,6 +1157,7 @@ err_entry:
     return -ENOMEM;
 }
 
+/* Remove a symlink under a kobject. */
 void sysfs_remove_symlink(struct kobject *kobj, const char *name)
 {
     if (!kobj || !name) return;
@@ -1150,6 +1180,7 @@ void sysfs_remove_symlink(struct kobject *kobj, const char *name)
 
 /* sysfs_create_group / sysfs_remove_group */
 
+/* Create a group of attributes. */
 int sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp)
 {
     struct kobject        *target_kobj       = kobj;
@@ -1250,6 +1281,7 @@ err_group:
     return ret;
 }
 
+/* Remove a group of attributes. */
 void sysfs_remove_group(struct kobject *kobj, const struct attribute_group *grp)
 {
     struct kobject *target_kobj;
@@ -1291,6 +1323,7 @@ void sysfs_remove_group(struct kobject *kobj, const struct attribute_group *grp)
 
 /* sysfs_create_groups / sysfs_remove_groups */
 
+/* Create several attribute groups. */
 int sysfs_create_groups(struct kobject *kobj, const struct attribute_group **groups)
 {
     int ret;
@@ -1309,6 +1342,7 @@ int sysfs_create_groups(struct kobject *kobj, const struct attribute_group **gro
     return EOK;
 }
 
+/* Remove several attribute groups. */
 void sysfs_remove_groups(struct kobject *kobj, const struct attribute_group **groups)
 {
     if (!groups) return;
@@ -1318,6 +1352,7 @@ void sysfs_remove_groups(struct kobject *kobj, const struct attribute_group **gr
 
 /* sysfs_cleanup_kobject_files */
 
+/* Remove every attribute, binary attribute and symlink of a kobject. */
 void sysfs_cleanup_kobject_files(struct kobject *kobj)
 {
     if (!kobj) return;
@@ -1383,6 +1418,7 @@ void sysfs_cleanup_kobject_files(struct kobject *kobj)
 
 /* sysfs_rename_dir */
 
+/* Rename a kobject's sysfs directory. */
 int sysfs_rename_dir(struct kobject *kobj, const char *new_name)
 {
     if (!kobj || !new_name || !new_name[0]) return -EINVAL;
@@ -1400,11 +1436,13 @@ int sysfs_rename_dir(struct kobject *kobj, const char *new_name)
     return EOK;
 }
 
+/* Create an attribute file. */
 int sysfs_create_file(struct kobject *kobj, const struct attribute *attr)
 {
     return sysfs_create_file_mode(kobj, kobj, attr, attr ? attr->mode : 0);
 }
 
+/* Move a kobject directory to a new parent. */
 int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent)
 {
     if (!kobj || !new_parent) return -EINVAL;
@@ -1431,8 +1469,9 @@ int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent)
     return EOK;
 }
 
-/* sysfs_init / sysfs_regist */
+/* sysfs_kobject_init / sysfs_regist */
 
+/* Register sysfs with the VFS layer. */
 void sysfs_regist(void)
 {
 #if CONFIG_SYSFS
@@ -1485,6 +1524,7 @@ static void sysfs_populate_symlinks(struct kobject *kobj)
     }
 }
 
+/* Materialize VFS nodes for a kobject's children. */
 static void sysfs_populate_dir(struct kobject *kobj)
 {
     clist_t node;
@@ -1544,6 +1584,7 @@ static void sysfs_unbind_dir(struct kobject *kobj)
     kobj->sd = NULL;
 }
 
+/* Free the sysfs root kobject. */
 static void sysfs_root_release(struct kobject *kobj)
 {
     free(kobj);
@@ -1553,7 +1594,8 @@ static struct kobj_type sysfs_root_ktype = {
     .release = sysfs_root_release,
 };
 
-int sysfs_init(void)
+/* Initialize the sysfs root kobject and top-level directories. */
+int sysfs_kobject_init(void)
 {
 #if CONFIG_SYSFS
     static const char *const top_level_names[] = {

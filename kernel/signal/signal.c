@@ -49,12 +49,14 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
 static spinlock_t itimer_lock;
 static process_t *itimer_real_head;
 
+/* Return the remaining time for an interval timer */
 static uint64_t itimer_real_remaining_locked(const process_t *proc, uint64_t now)
 {
     if (!proc->itimer_value[0] || proc->itimer_value[0] <= now) return 0;
     return proc->itimer_value[0] - now;
 }
 
+/* Unlink a process from the ITIMER_REAL list */
 static void itimer_real_unlink_locked(process_t *proc)
 {
     if (!proc || !proc->itimer_real_linked) return;
@@ -65,6 +67,7 @@ static void itimer_real_unlink_locked(process_t *proc)
     proc->itimer_real_linked = false;
 }
 
+/* Link a process into the ITIMER_REAL list */
 static void itimer_real_link_locked(process_t *proc)
 {
     if (!proc || proc->itimer_real_linked) return;
@@ -139,6 +142,7 @@ void signal_itimer_real_tick(uint64_t now)
     spin_unlock(&itimer_lock);
 }
 
+/* Charge a CPU tick against VIRTUAL/PROF interval timers */
 void signal_itimer_cpu_tick(process_t *proc, bool user_mode)
 {
     if (!proc) return;
@@ -152,6 +156,7 @@ void signal_itimer_cpu_tick(process_t *proc, bool user_mode)
     spin_unlock(&itimer_lock);
 }
 
+/* Cancel every interval timer owned by a process */
 void signal_itimer_cancel(process_t *proc)
 {
     if (!proc) return;
@@ -172,16 +177,19 @@ sig_dfl_action_t signal_default_action(int sig)
 
 /* Signal queue helpers */
 
+/* Allocate a signal queue entry */
 static sigqueue_t *sigqueue_alloc(void)
 {
     return (sigqueue_t *)calloc(1, sizeof(sigqueue_t));
 }
 
+/* Free a signal queue entry */
 static void sigqueue_free(sigqueue_t *q)
 {
     if (q) free(q);
 }
 
+/* Append a queued signal to the signal state */
 static int sigqueue_push(signal_state_t *state, const siginfo_t *info)
 {
     sigqueue_t *q = sigqueue_alloc();
@@ -204,6 +212,7 @@ static int sigqueue_push(signal_state_t *state, const siginfo_t *info)
     return 0;
 }
 
+/* Release every queued signal in the signal state */
 static void sigqueue_flush(signal_state_t *state)
 {
     while (state->sigqueue_head) {
@@ -225,6 +234,7 @@ static bool sigqueue_contains(const signal_state_t *state, int sig)
 
 /* Signal state management */
 
+/* Initialize the signal subsystem */
 void signal_init(void)
 {
     itimer_lock.lock   = 0;
@@ -233,6 +243,7 @@ void signal_init(void)
     plogk("signal: POSIX signal handling available (%u signals)\n", NSIG);
 }
 
+/* Initialize a signal state to its default dispositions */
 void signal_state_init(signal_state_t *state)
 {
     if (!state) return;
@@ -363,6 +374,7 @@ void signal_exec_reset(process_t *proc)
 
 /* Permission check */
 
+/* Check whether one process may signal another */
 int signal_check_perm(const process_t *from, const process_t *to)
 {
     if (!from || !to) return -ESRCH;
@@ -478,6 +490,7 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, c
     return 0;
 }
 
+/* Send a signal to a process */
 int signal_send(process_t *proc, int sig, const siginfo_t *info)
 {
     if (!proc) return -ESRCH;
@@ -970,6 +983,7 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
     return 0;
 }
 
+/* Deliver pending signals to the current process before returning to user */
 int signal_deliver_if_pending(syscall_frame_t *frame)
 {
     return signal_deliver_for_process(process_current(), frame);
@@ -977,6 +991,7 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
 
 /* SIGCHLD notification */
 
+/* Notify a parent that a child exited */
 void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_code, int status)
 {
     if (!parent) return;
@@ -1015,6 +1030,7 @@ void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_cod
     if (parent->task) task_wakeup(parent->task);
 }
 
+/* Notify a parent of a child stop/continue status change */
 void signal_notify_child_status(process_t *parent, int64_t child_pid, int status, int code)
 {
     if (!parent) return;
@@ -1828,11 +1844,13 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
     return found ? result : -ESRCH;
 }
 
+/* Send a signal to every process in a process group */
 int signal_send_pgrp(int64_t pgid, int sig)
 {
     return signal_send_group(pgid, 0, sig, NULL, SI_KERNEL);
 }
 
+/* Send a signal to every process in a process group or session */
 int signal_send_pgrp_session(int64_t pgid, int64_t sid, int sig)
 {
     if (sid <= 0) return -EINVAL;

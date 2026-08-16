@@ -13,6 +13,7 @@
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 
+/* Generate an empty interrupt handler for a vector */
 #define INTERRUPT_HANDLE(id)                                                 \
     INTERRUPT_BEGIN static void empty_handler_##id(interrupt_frame_t *frame) \
     {                                                                        \
@@ -281,6 +282,7 @@ INTERRUPT_HANDLE(253)
 INTERRUPT_HANDLE(254)
 INTERRUPT_HANDLE(255)
 
+/* Table of empty handlers for all interrupt vectors */
 void (*empty_handle[256])(interrupt_frame_t *frame) = {
     empty_handler_0,   empty_handler_1,   empty_handler_2,   empty_handler_3,   empty_handler_4,   empty_handler_5,   empty_handler_6,   empty_handler_7,   empty_handler_8,   empty_handler_9,
     empty_handler_10,  empty_handler_11,  empty_handler_12,  empty_handler_13,  empty_handler_14,  empty_handler_15,  empty_handler_16,  empty_handler_17,  empty_handler_18,  empty_handler_19,

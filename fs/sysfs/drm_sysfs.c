@@ -23,6 +23,7 @@
 
 /* DRM device class */
 
+/* Emit the DRM minor uevent environment variables. */
 static int drm_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
     (void)dev;
@@ -160,7 +161,7 @@ void drm_sysfs_init(void)
         plogk("drm_sysfs: Class_register(drm) failed: %d\n", ret);
         return;
     }
-    plogk("drm_sysfs: /sys/class/drm registered.\n");
+    plogk("drm_sysfs: registered /sys/class/drm\n");
 #endif
 }
 

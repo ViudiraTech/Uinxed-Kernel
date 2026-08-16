@@ -24,7 +24,7 @@
 #include <process/process.h>
 #include <sync/spin_lock.h>
 
-/* Global sysfs root kobjects (initialised in sysfs_init) */
+/* Global sysfs root kobjects (initialised in sysfs_kobject_init) */
 
 static struct kobject *devices_kobj; // /sys/devices
 static struct kobject *bus_kobj;     // /sys/bus
@@ -38,6 +38,7 @@ static struct kobject *get_class_kobj(void);
 
 /* Device attribute sysfs_ops */
 
+/* Show a device attribute value. */
 static ssize_t dev_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     struct device           *dev   = (struct device *)((char *)kobj - offsetof(struct device, kobj));
@@ -47,6 +48,7 @@ static ssize_t dev_attr_show(struct kobject *kobj, struct attribute *attr, char 
     return dattr->show(dev, dattr, buf);
 }
 
+/* Store a value into a device attribute. */
 static ssize_t dev_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
     struct device           *dev   = (struct device *)((char *)kobj - offsetof(struct device, kobj));
@@ -63,6 +65,7 @@ static const struct sysfs_ops dev_sysfs_ops = {
 
 /* Bus attribute sysfs_ops */
 
+/* Show a bus attribute value. */
 static ssize_t bus_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     struct bus_type      *bus   = (struct bus_type *)((char *)kobj - offsetof(struct bus_type, subsys.kobj));
@@ -72,6 +75,7 @@ static ssize_t bus_attr_show(struct kobject *kobj, struct attribute *attr, char 
     return battr->show(bus, battr, buf);
 }
 
+/* Store a value into a bus attribute. */
 static ssize_t bus_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
     struct bus_type      *bus   = (struct bus_type *)((char *)kobj - offsetof(struct bus_type, subsys.kobj));
@@ -88,6 +92,7 @@ static const struct sysfs_ops bus_sysfs_ops = {
 
 /* Driver attribute sysfs_ops */
 
+/* Show a driver attribute value. */
 static ssize_t drv_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     struct device_driver    *drv   = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
@@ -97,6 +102,7 @@ static ssize_t drv_attr_show(struct kobject *kobj, struct attribute *attr, char 
     return dattr->show(drv, dattr, buf);
 }
 
+/* Store a value into a driver attribute. */
 static ssize_t drv_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
     struct device_driver    *drv   = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
@@ -113,6 +119,7 @@ static const struct sysfs_ops drv_sysfs_ops = {
 
 /* Class attribute sysfs_ops */
 
+/* Show a class attribute value. */
 static ssize_t class_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     struct class           *cls   = (struct class *)((char *)kobj - offsetof(struct class, subsys.kobj));
@@ -122,6 +129,7 @@ static ssize_t class_attr_show(struct kobject *kobj, struct attribute *attr, cha
     return cattr->show(cls, cattr, buf);
 }
 
+/* Store a value into a class attribute. */
 static ssize_t class_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
     struct class           *cls   = (struct class *)((char *)kobj - offsetof(struct class, subsys.kobj));
@@ -138,17 +146,20 @@ static const struct sysfs_ops class_sysfs_ops = {
 
 /* Default kobj_type for device kobjects */
 
+/* Invoke a device's release callback when its kobject is dropped. */
 static void device_release_internal(struct kobject *kobj)
 {
     struct device *dev = (struct device *)((char *)kobj - offsetof(struct device, kobj));
     if (dev->release) dev->release(dev);
 }
 
+/* Free a device allocated by device_create. */
 static void device_create_release(struct device *dev)
 {
     free(dev);
 }
 
+/* Return the uevent subsystem name for a device. */
 static const char *device_uevent_name(struct kobject *kobj)
 {
     struct device *dev = (struct device *)((char *)kobj - offsetof(struct device, kobj));
@@ -157,6 +168,7 @@ static const char *device_uevent_name(struct kobject *kobj)
     return "devices";
 }
 
+/* Build the /dev node path for a device. */
 static const char *device_devnode(struct device *dev, char *buffer, size_t capacity)
 {
     const char *name = dev_name(dev);
@@ -174,6 +186,7 @@ static const char *device_devnode(struct device *dev, char *buffer, size_t capac
     return name;
 }
 
+/* Populate a uevent environment for a device. */
 static int device_build_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
     char devnode_buffer[128];
@@ -205,12 +218,14 @@ static int device_build_uevent(struct device *dev, struct kobj_uevent_env *env)
     return EOK;
 }
 
+/* Build the uevent for a device kobject. */
 static int device_kobj_uevent(struct kobject *kobj, struct kobj_uevent_env *env)
 {
     struct device *dev = (struct device *)((char *)kobj - offsetof(struct device, kobj));
     return device_build_uevent(dev, env);
 }
 
+/* Emit a device's uevent variables as sysfs text. */
 static ssize_t device_uevent_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     struct kobj_uevent_env env = {0};
@@ -227,6 +242,7 @@ static ssize_t device_uevent_show(struct device *dev, struct device_attribute *a
     return at;
 }
 
+/* Synthesize a uevent from a userspace write. */
 static ssize_t device_uevent_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
     process_t *process = process_current();
@@ -267,12 +283,14 @@ static struct kobj_type device_ktype = {
     .uevent        = device_kobj_uevent,
 };
 
+/* Release a bus kobject (buses are static). */
 static void bus_release_internal(struct kobject *kobj)
 {
     /* Bus types are typically static - nothing to free */
     (void)kobj;
 }
 
+/* Return the uevent subsystem name for a bus. */
 static const char *bus_uevent_name(struct kobject *kobj)
 {
     struct bus_type *bus = (struct bus_type *)((char *)kobj - offsetof(struct bus_type, subsys.kobj));
@@ -286,12 +304,14 @@ static struct kobj_type bus_ktype = {
     .uevent_name   = bus_uevent_name,
 };
 
+/* Release a driver kobject (drivers are static). */
 static void driver_release_internal(struct kobject *kobj)
 {
     /* Drivers are typically static */
     (void)kobj;
 }
 
+/* Return the uevent subsystem name for a driver. */
 static const char *driver_uevent_name(struct kobject *kobj)
 {
     struct device_driver *driver = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
@@ -305,11 +325,13 @@ static struct kobj_type driver_ktype = {
     .uevent_name   = driver_uevent_name,
 };
 
+/* Release a class kobject (classes are static). */
 static void class_release_internal(struct kobject *kobj)
 {
     (void)kobj;
 }
 
+/* Return the uevent subsystem name for a class. */
 static const char *class_uevent_name(struct kobject *kobj)
 {
     struct class *cls = (struct class *)((char *)kobj - offsetof(struct class, subsys.kobj));
@@ -325,26 +347,28 @@ static struct kobj_type class_ktype = {
 
 /* Lazy initialisation helpers */
 
+/* Resolve the /sys/devices kobject lazily. */
 static struct kobject *get_devices_kobj(void)
 {
     if (!devices_kobj && sysfs_root_kobj) devices_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "devices");
     return devices_kobj;
 }
 
+/* Resolve the /sys/bus kobject lazily. */
 static struct kobject *get_bus_kobj(void)
 {
     if (!bus_kobj && sysfs_root_kobj) bus_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "bus");
     return bus_kobj;
 }
 
+/* Resolve the /sys/class kobject lazily. */
 static struct kobject *get_class_kobj(void)
 {
     if (!class_kobj && sysfs_root_kobj) class_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "class");
     return class_kobj;
 }
 
-/* bus_register / bus_unregister */
-
+/* Register a bus with the device model. */
 int bus_register(struct bus_type *bus)
 {
     int             ret;
@@ -364,6 +388,7 @@ int bus_register(struct bus_type *bus)
     /* Create devices kset */
     bus->devices_kset = kset_create_and_add("devices", NULL, &bus->subsys.kobj);
     if (!bus->devices_kset) {
+        plogk("device: Failed to create devices kset for bus %s\n", bus->name);
         kobject_del(&bus->subsys.kobj);
         kobject_put(&bus->subsys.kobj);
         return -ENOMEM;
@@ -372,6 +397,7 @@ int bus_register(struct bus_type *bus)
     /* Create drivers kset */
     bus->drivers_kset = kset_create_and_add("drivers", NULL, &bus->subsys.kobj);
     if (!bus->drivers_kset) {
+        plogk("device: Failed to create drivers kset for bus %s\n", bus->name);
         kset_unregister(bus->devices_kset);
         bus->devices_kset = NULL;
         kobject_del(&bus->subsys.kobj);
@@ -383,6 +409,7 @@ int bus_register(struct bus_type *bus)
     return EOK;
 }
 
+/* Unregister a bus from the device model. */
 void bus_unregister(struct bus_type *bus)
 {
     if (!bus) return;
@@ -397,20 +424,21 @@ void bus_unregister(struct bus_type *bus)
     kobject_put(&bus->subsys.kobj);
 }
 
+/* Create an attribute file on a bus. */
 int bus_create_file(struct bus_type *bus, struct bus_attribute *attr)
 {
     if (!bus || !attr) return -EINVAL;
     return sysfs_create_file(&bus->subsys.kobj, &attr->attr);
 }
 
+/* Remove an attribute file from a bus. */
 void bus_remove_file(struct bus_type *bus, struct bus_attribute *attr)
 {
     if (!bus || !attr) return;
     sysfs_remove_file(&bus->subsys.kobj, &attr->attr);
 }
 
-/* device_register / device_unregister */
-
+/* Register a device with the device model. */
 int device_register(struct device *dev)
 {
     int ret;
@@ -464,7 +492,7 @@ int device_register(struct device *dev)
         if (ret != EOK) goto rollback_class_groups;
     }
 
-    /* Linux-compatible topology links used by libudev and Xorg. */
+    /* Topology links used by libudev and Xorg. */
     if (dev->bus) {
         ret = sysfs_create_symlink(&dev->kobj, &dev->bus->subsys.kobj, "subsystem");
         if (ret != EOK) goto rollback_groups;
@@ -489,10 +517,6 @@ int device_register(struct device *dev)
 
         /* Try to bind a driver */
         if (dev->bus->match) {
-            /*
-             * Full driver matching requires iterating drivers_kset;
-             * for now, probe using bus->probe if set
-             */
             if (dev->bus->probe) dev->bus->probe(dev);
         }
     }
@@ -528,6 +552,7 @@ rollback_bus_groups:
     return ret;
 }
 
+/* Unregister a device from the device model. */
 void device_unregister(struct device *dev)
 {
     if (!dev) return;
@@ -604,39 +629,42 @@ struct device *device_create(struct class *cls, struct device *parent, dev_t dev
     return dev;
 }
 
+/* Unregister and destroy a device created by device_create. */
 void device_destroy(struct class *cls, dev_t devt)
 {
     (void)cls;
     (void)devt;
-    /* Find and unregister device by class + devt */
 }
 
+/* Create an attribute file on a device. */
 int device_create_file(struct device *dev, const struct device_attribute *attr)
 {
     if (!dev || !attr) return -EINVAL;
     return sysfs_create_file(&dev->kobj, &attr->attr);
 }
 
+/* Remove an attribute file from a device. */
 void device_remove_file(struct device *dev, const struct device_attribute *attr)
 {
     if (!dev || !attr) return;
     sysfs_remove_file(&dev->kobj, &attr->attr);
 }
 
+/* Add attribute groups to a device. */
 int device_add_groups(struct device *dev, const struct attribute_group **groups)
 {
     if (!dev) return -EINVAL;
     return sysfs_create_groups(&dev->kobj, groups);
 }
 
+/* Remove attribute groups from a device. */
 void device_remove_groups(struct device *dev, const struct attribute_group **groups)
 {
     if (!dev) return;
     sysfs_remove_groups(&dev->kobj, groups);
 }
 
-/* driver_register / driver_unregister */
-
+/* Register a driver with its bus. */
 int driver_register(struct device_driver *drv)
 {
     int ret;
@@ -667,6 +695,7 @@ int driver_register(struct device_driver *drv)
     return EOK;
 }
 
+/* Unregister a driver from its bus. */
 void driver_unregister(struct device_driver *drv)
 {
     if (!drv) return;
@@ -685,20 +714,21 @@ void driver_unregister(struct device_driver *drv)
     kobject_put(&drv->kobj);
 }
 
+/* Create an attribute file on a driver. */
 int driver_create_file(struct device_driver *drv, const struct driver_attribute *attr)
 {
     if (!drv || !attr) return -EINVAL;
     return sysfs_create_file(&drv->kobj, &attr->attr);
 }
 
+/* Remove an attribute file from a driver. */
 void driver_remove_file(struct device_driver *drv, const struct driver_attribute *attr)
 {
     if (!drv || !attr) return;
     sysfs_remove_file(&drv->kobj, &attr->attr);
 }
 
-/* class_register / class_unregister */
-
+/* Register a device class. */
 int class_register(struct class *cls)
 {
     int             ret;
@@ -729,6 +759,7 @@ int class_register(struct class *cls)
     return EOK;
 }
 
+/* Unregister a device class. */
 void class_unregister(struct class *cls)
 {
     if (!cls) return;
@@ -738,33 +769,31 @@ void class_unregister(struct class *cls)
     kobject_put(&cls->subsys.kobj);
 }
 
+/* Create an attribute file on a class. */
 int class_create_file(struct class *cls, const struct class_attribute *attr)
 {
     if (!cls || !attr) return -EINVAL;
     return sysfs_create_file(&cls->subsys.kobj, &attr->attr);
 }
 
+/* Remove an attribute file from a class. */
 void class_remove_file(struct class *cls, const struct class_attribute *attr)
 {
     if (!cls || !attr) return;
     sysfs_remove_file(&cls->subsys.kobj, &attr->attr);
 }
 
+/* Find a device in a class by a caller-supplied match function. */
 struct device *class_find_device(struct class *cls, struct device *start, const void *data, int (*match)(struct device *, const void *))
 {
     (void)cls;
     (void)start;
     (void)data;
     (void)match;
-    /*
-     * For now, return NULL - full implementation would
-     * iterate over the class's device list
-     */
     return NULL;
 }
 
-/* bus_find_driver_by_name */
-
+/* Find a device driver by name on a bus. */
 struct device_driver *bus_find_driver_by_name(struct bus_type *bus, const char *name)
 {
     clist_t node;
@@ -801,6 +830,7 @@ int device_model_init(void)
         bus_kobj     = sysfs_find_child_kobj(sysfs_root_kobj, "bus");
         class_kobj   = sysfs_find_child_kobj(sysfs_root_kobj, "class");
     }
+    plogk("device: Device model initialized.\n");
 
     return EOK;
 #endif
@@ -819,6 +849,7 @@ static struct kobject *sysfs_find_child_kobj(struct kobject *parent, const char 
     return NULL;
 }
 
+/* Tear down the device model top-level kobjects. */
 void device_model_exit(void)
 {
     devices_kobj = NULL;

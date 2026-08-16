@@ -11,10 +11,10 @@
 #ifndef INCLUDE_UINXED_H_
 #define INCLUDE_UINXED_H_
 
-#define BUILD_DATE     __DATE__ // Compilation Date
-#define BUILD_TIME     __TIME__ // Compile time
-#define KERNEL_NAME    "Uinxed" // Kernel name
-#define KERNEL_VERSION "0.4.0"  // Kernel version (major.minor.patch)
+#define BUILD_DATE     __DATE__
+#define BUILD_TIME     __TIME__
+#define KERNEL_NAME    "Uinxed"
+#define KERNEL_VERSION "0.4.0"
 
 /* Compiler judgment */
 #if defined(__clang__)

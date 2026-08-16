@@ -27,7 +27,7 @@ void init_gdt(void)
 
     /*
      * SYSRET requires user SS immediately below user CS.  Keep the legacy
-     * pair for IRET and add a Linux-style data/code pair for SYSRET.
+     * pair for IRET and add a data/code pair for SYSRET.
      */
     gdt0.entries[5] = 0x00c0f20000000000; // SYSRET user data segment
     gdt0.entries[6] = 0x00a0fa0000000000; // SYSRET user code segment

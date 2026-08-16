@@ -22,6 +22,7 @@ static struct ps2_mouse_packet ps2_mouse_previous;
 static bool                    ps2_mouse_ready;
 evdev_t                       *ps2_mouse_evdev;
 
+/* Set one bit in a bitmap word array. */
 static void set_bit(unsigned int bit, uint32_t *bits)
 {
     bits[bit / 32] |= 1U << (bit % 32);
@@ -94,9 +95,10 @@ void ps2_mouse_handle_byte(uint8_t byte)
     if (result == 1)
         ps2_mouse_report(&packet);
     else if (result < 0)
-        plogk("ps/2: Mouse packet decode error: %d\n", result);
+        plogk("ps2: Mouse packet decode error: %d\n", result);
 }
 
+/* Return whether a PS/2 mouse was detected on the aux port. */
 bool ps2_mouse_available(void)
 {
     return ps2_mouse_ready;
@@ -114,20 +116,24 @@ void ps2_mouse_init(void)
     ps2_mouse_ready = false;
     result          = ps2_send_device_command(true, PS2_DEV_RESET);
     if (result != EOK) {
-        plogk("ps/2: Mouse reset command failed: %d\n", result);
+        plogk("ps2: Mouse reset command failed: %d\n", result);
         return;
     }
     result = ps2_read_data_timeout(&response);
     if (result != EOK || response != PS2_RESPONSE_RESET_OK) {
-        plogk("ps/2: Mouse self-test response failed: status=%d response=0x%02x\n", result, response);
+        plogk("ps2: Mouse self-test response failed: status=%d response=0x%02x\n", result, response);
         return;
     }
     result = ps2_read_data_timeout(&id);
     if (result != EOK) {
-        plogk("ps/2: Mouse device ID read failed: %d\n", result);
+        plogk("ps2: Mouse device ID read failed: %d\n", result);
         return;
     }
-    if (ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT) != EOK) return;
+    result = ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT);
+    if (result != EOK) {
+        plogk("ps2: Mouse disable reporting failed: %d\n", result);
+        return;
+    }
 
     ps2_mouse_protocol = PS2_MOUSE_STANDARD;
     if (ps2_mouse_negotiate(wheel_rates, 0x03) == EOK) {
@@ -138,7 +144,11 @@ void ps2_mouse_init(void)
         ps2_mouse_protocol = PS2_MOUSE_EXPLORER;
         id                 = 0x04;
     }
-    if (ps2_send_device_command(true, PS2_DEV_ENABLE_REPORT) != EOK) return;
+    result = ps2_send_device_command(true, PS2_DEV_ENABLE_REPORT);
+    if (result != EOK) {
+        plogk("ps2: Mouse enable reporting failed: %d\n", result);
+        return;
+    }
     ps2_mouse_stream_init(&ps2_mouse_stream, ps2_mouse_protocol);
     ps2_mouse_previous = (struct ps2_mouse_packet) {0};
 

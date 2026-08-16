@@ -72,10 +72,6 @@ static void isofs_handle_destroy(isofs_handle_t *h)
     free(h);
 }
 
-/* Parse a drive specifier: "sr0", "sr1", ... */
-
-/* Scan directory records to find a child by name */
-
 /* Find a child record by name, returning a copy of the record. */
 static iso_directory_record_t *isofs_lookup_record(isofs_mount_t *mnt, uint32_t dir_block, uint64_t dir_size, const char *name, uint32_t *out_block, uint32_t *out_offset)
 {
@@ -510,6 +506,7 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
     return EOK;
 }
 
+/* Unmount and destroy the isofs handle. */
 static void isofs_vfs_unmount(void *root)
 {
     isofs_handle_destroy(root);
@@ -556,6 +553,7 @@ static void isofs_vfs_open(void *parent, const char *name, vfs_node_t node)
     if (h->is_dir) isofs_load_directory(node);
 }
 
+/* Release the isofs handle (no-op). */
 static void isofs_vfs_close(void *current)
 {
     (void)current;
@@ -578,6 +576,7 @@ static size_t isofs_vfs_read(void *file, void *addr, size_t offset, size_t size)
     return len;
 }
 
+/* ISO volumes are read-only; reject writes. */
 static size_t isofs_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     (void)file;
@@ -603,6 +602,7 @@ static size_t isofs_vfs_readlink(vfs_node_t node, void *addr, size_t offset, siz
     return copy;
 }
 
+/* ISO volumes are read-only; reject directory creation. */
 static int isofs_vfs_mkdir(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -611,6 +611,7 @@ static int isofs_vfs_mkdir(void *parent, const char *name, vfs_node_t node)
     return -EROFS;
 }
 
+/* ISO volumes are read-only; reject file creation. */
 static int isofs_vfs_mkfile(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -619,6 +620,7 @@ static int isofs_vfs_mkfile(void *parent, const char *name, vfs_node_t node)
     return -EROFS;
 }
 
+/* ISO volumes are read-only; reject links. */
 static int isofs_vfs_no_link(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -637,6 +639,7 @@ static int isofs_vfs_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
+/* Reject ioctl requests (isofs supports none). */
 static int isofs_vfs_ioctl(void *file, size_t req, void *arg)
 {
     (void)file;
@@ -669,6 +672,7 @@ static vfs_node_t isofs_vfs_dup(vfs_node_t node)
     return copy;
 }
 
+/* Report the requested events as ready. */
 static int isofs_vfs_poll(void *file, size_t events)
 {
     (void)file;
@@ -688,6 +692,7 @@ static int isofs_vfs_free(void *handle)
     return EOK;
 }
 
+/* ISO volumes are read-only; reject deletion. */
 static int isofs_vfs_delete(void *parent, vfs_node_t node)
 {
     (void)parent;
@@ -695,6 +700,7 @@ static int isofs_vfs_delete(void *parent, vfs_node_t node)
     return -EROFS;
 }
 
+/* ISO volumes are read-only; reject rename. */
 static int isofs_vfs_rename(const vfs_rename_context_t *context)
 {
     (void)context;

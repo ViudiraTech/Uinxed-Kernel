@@ -50,7 +50,7 @@ void fbcon_ansi_write(const uint8_t *buf, size_t len);
  * overlay: the console keeps the full framebuffer grid but scrolls below
  * the logo.  fbcon_release_logo() hands the whole screen back without
  * touching the logo pixels - the very next console scrolls then reclaims
- * the logo area line by line, exactly like Linux fbcon.
+ * the logo area line by line.
  */
 void fbcon_set_logo_active(bool active);
 void fbcon_release_logo(void);

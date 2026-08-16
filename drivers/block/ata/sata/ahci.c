@@ -322,8 +322,7 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
     return 0;
 }
 
-/* AHCI initialization */
-
+/* Flush the drive's write cache */
 int ahci_flush_cache(uint8_t drive)
 {
     fis_reg_h2d_t      cfis;
@@ -352,6 +351,7 @@ int ahci_flush_cache(uint8_t drive)
     return ret;
 }
 
+/* Initialize the AHCI controller and probe its ports */
 void init_ahci(void)
 {
 #if CONFIG_ATA

@@ -30,6 +30,7 @@ typedef struct pid_entry {
 static pid_entry_t *pid_hash[PID_HASH_SIZE] = {NULL};
 static spinlock_t   pid_hash_lock           = {.lock = 0, .rflags = 0};
 
+/* Return the PID hash bucket for a PID */
 static uint32_t pid_hash_index(uint64_t pid)
 {
     return (uint32_t)(pid & PID_HASH_MASK);
@@ -112,6 +113,7 @@ static uint64_t alloc_pid_locked(void)
     return 0; // exhausted
 }
 
+/* Copy a name into a task's fixed-width name field */
 void task_name_copy(task_t *task, const char *name)
 {
     if (!task) return;
@@ -127,6 +129,7 @@ void task_name_copy(task_t *task, const char *name)
     for (; i < TASK_NAME_LEN; i++) task->name[i] = '\0';
 }
 
+/* Allocate and initialize a task, reporting allocation errors */
 task_t *task_alloc_status(const char *name, int *error)
 {
     task_t *parent = NULL;
@@ -201,6 +204,7 @@ task_t *task_alloc_status(const char *name, int *error)
     return task;
 }
 
+/* Allocate and initialize a task */
 task_t *task_alloc(const char *name)
 {
     return task_alloc_status(name, NULL);

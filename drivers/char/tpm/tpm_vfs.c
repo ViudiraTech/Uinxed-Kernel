@@ -32,7 +32,10 @@ static int tpm_chardev_open(vfs_node_t node, uint64_t flags, void **private_data
     (void)node;
     (void)flags;
     tpm_chardev_state_t *state = calloc(1, sizeof(*state));
-    if (!state) return -ENOMEM;
+    if (!state) {
+        plogk("tpm: Failed to allocate TPM device state.\n");
+        return -ENOMEM;
+    }
     *private_data = state;
     return 0;
 }
@@ -126,5 +129,4 @@ void tpm_vfs_init(void)
             vfs_close(node);
         }
     }
-    plogk("tpm: Character devices /dev/tpm0 and /dev/tpmrm0 registered.\n");
 }

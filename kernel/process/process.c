@@ -49,6 +49,7 @@ static spinlock_t process_table_lock;
 process_t        *init_process;
 process_t        *kthreadd_process;
 
+/* Look up a process by PID */
 static process_t *pid_to_process(pid_t pid)
 {
     if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return NULL;
@@ -58,12 +59,14 @@ static process_t *pid_to_process(pid_t pid)
     return proc;
 }
 
+/* Look up a process by PID with the table lock held */
 static process_t *pid_to_process_locked(pid_t pid)
 {
     if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return NULL;
     return process_table[pid];
 }
 
+/* Publish a process in the PID table */
 static void pid_set(pid_t pid, process_t *proc)
 {
     if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return;
@@ -72,6 +75,7 @@ static void pid_set(pid_t pid, process_t *proc)
     spin_unlock(&process_table_lock);
 }
 
+/* Publish a process in the PID table with the lock held */
 static void pid_set_locked(pid_t pid, process_t *proc)
 {
     if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return;
@@ -80,11 +84,13 @@ static void pid_set_locked(pid_t pid, process_t *proc)
 
 static void process_free(process_t *proc);
 
+/* Take a reference on a process with the lock held */
 static void process_get_locked(process_t *proc)
 {
     if (proc) proc->refcount++;
 }
 
+/* Release a process reference, destroying it at zero */
 void process_put(process_t *proc)
 {
     if (!proc) return;
@@ -96,6 +102,7 @@ void process_put(process_t *proc)
     if (destroy) process_free(proc);
 }
 
+/* Find a process by PID and take a reference */
 process_t *process_find_get(pid_t pid)
 {
     spin_lock(&process_table_lock);
@@ -105,6 +112,7 @@ process_t *process_find_get(pid_t pid)
     return proc;
 }
 
+/* Iterate the process table, taking a reference on each entry */
 process_t *process_iterate_get(size_t *pos)
 {
     if (!pos) return NULL;
@@ -145,6 +153,7 @@ size_t process_snapshot_pids(pid_t *pids, size_t capacity)
     return count;
 }
 
+/* Dump every live task for debugging */
 void process_debug_dump_tasks(void)
 {
     spin_lock(&process_table_lock);
@@ -163,6 +172,7 @@ void process_debug_dump_tasks(void)
     spin_unlock(&process_table_lock);
 }
 
+/* Iterate processes in a process group or session */
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid)
 {
     if (!pos || pgid <= 0) return NULL;
@@ -181,6 +191,7 @@ process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid)
     return NULL;
 }
 
+/* Return the controlling TTY of a process, retained */
 tty_core_t *process_ctty_get(process_t *proc)
 {
     if (!proc) return NULL;
@@ -192,6 +203,7 @@ tty_core_t *process_ctty_get(process_t *proc)
     return tty;
 }
 
+/* Set a process's controlling TTY */
 int process_ctty_set(process_t *proc, tty_core_t *tty)
 {
     if (!proc || !tty) return -EINVAL;
@@ -209,6 +221,7 @@ int process_ctty_set(process_t *proc, tty_core_t *tty)
     return 0;
 }
 
+/* Clear a process's controlling TTY */
 void process_ctty_clear(process_t *proc)
 {
     if (!proc) return;
@@ -220,6 +233,7 @@ void process_ctty_clear(process_t *proc)
     if (tty) tty_core_release(tty);
 }
 
+/* Clear a controlling TTY from every matching process */
 static void process_ctty_clear_matching(tty_core_t *tty, pid_t sid, bool match_session)
 {
     if (!tty) return;
@@ -241,16 +255,19 @@ static void process_ctty_clear_matching(tty_core_t *tty, pid_t sid, bool match_s
     }
 }
 
+/* Clear a controlling TTY from a session */
 void process_ctty_clear_session(tty_core_t *tty, pid_t sid)
 {
     process_ctty_clear_matching(tty, sid, true);
 }
 
+/* Clear a controlling TTY from every process */
 void process_ctty_clear_all(tty_core_t *tty)
 {
     process_ctty_clear_matching(tty, 0, false);
 }
 
+/* Inherit the controlling TTY from parent to child */
 void process_ctty_inherit(process_t *child, process_t *parent)
 {
     if (!child || !parent) return;
@@ -269,6 +286,7 @@ void process_ctty_inherit(process_t *child, process_t *parent)
     tty_core_release(tty);
 }
 
+/* Whether a process group exists within a session */
 bool process_pgrp_in_session(pid_t pgid, pid_t sid)
 {
     bool found = false;
@@ -285,6 +303,7 @@ bool process_pgrp_in_session(pid_t pgid, pid_t sid)
     return found;
 }
 
+/* Set the foreground process group of a TTY */
 int process_ctty_set_foreground(tty_core_t *tty, pid_t sid, pid_t pgid)
 {
     if (!tty || sid <= 0 || pgid <= 0) return -EINVAL;
@@ -310,6 +329,7 @@ int process_ctty_set_foreground(tty_core_t *tty, pid_t sid, pid_t pgid)
     return found ? 0 : -EPERM;
 }
 
+/* Acquire a controlling TTY for a process */
 int process_ctty_acquire(process_t *proc, tty_core_t *tty, bool force, pid_t *old_sid, pid_t *old_pgid)
 {
     if (!proc || !tty) return -EINVAL;
@@ -349,6 +369,7 @@ int process_ctty_acquire(process_t *proc, tty_core_t *tty, bool force, pid_t *ol
     return 0;
 }
 
+/* Detach a session from its controlling TTY */
 pid_t process_ctty_disassociate(tty_core_t *tty, pid_t sid)
 {
     if (!tty || sid <= 0) return -1;
@@ -375,6 +396,7 @@ pid_t process_ctty_disassociate(tty_core_t *tty, pid_t sid)
     return old_pgid;
 }
 
+/* Set the process group of a process */
 int process_setpgid(process_t *caller, pid_t pid, pid_t pgid)
 {
     if (!caller || pid < 0 || pgid < 0) return -EINVAL;
@@ -414,6 +436,7 @@ int process_setpgid(process_t *caller, pid_t pid, pid_t pgid)
     return 0;
 }
 
+/* Create a new session with the caller as leader */
 int process_setsid(process_t *proc, pid_t *sid)
 {
     if (!proc || !proc->task) return -ESRCH;
@@ -434,6 +457,7 @@ int process_setsid(process_t *proc, pid_t *sid)
     return 0;
 }
 
+/* Whether a process group is orphaned */
 bool process_pgrp_is_orphaned(pid_t pgid, pid_t sid)
 {
     bool found = false;
@@ -453,6 +477,7 @@ bool process_pgrp_is_orphaned(pid_t pgid, pid_t sid)
     return found;
 }
 
+/* Allocate and initialize a process's user page directory */
 int setup_process_page_dir(process_t *proc)
 {
     page_directory_t *new_dir = malloc(sizeof(page_directory_t));
@@ -485,6 +510,7 @@ int setup_process_page_dir(process_t *proc)
     return 0;
 }
 
+/* Allocate a VMA */
 vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
 {
     vm_area_t *vma = calloc(1, sizeof(vm_area_t));
@@ -500,6 +526,7 @@ vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
     return vma;
 }
 
+/* Insert a VMA into a process's sorted list */
 int vm_area_insert(process_t *proc, vm_area_t *vma)
 {
     if (!proc || !vma || vma->start >= vma->end || (vma->start & (PAGE_4K_SIZE - 1)) || (vma->end & (PAGE_4K_SIZE - 1)) || vma->end > PROCESS_USER_STACK_TOP) return -EINVAL;
@@ -521,6 +548,7 @@ int vm_area_insert(process_t *proc, vm_area_t *vma)
     return 0;
 }
 
+/* Free a VMA list and its backing resources */
 static void vm_area_free(vm_area_t *vma, uint32_t pid)
 {
     while (vma) {
@@ -536,6 +564,7 @@ static void vm_area_free(vm_area_t *vma, uint32_t pid)
     }
 }
 
+/* Detach and free a process's VMA list */
 static void mmap_list_free(process_t *proc, uint32_t pid)
 {
     if (!proc) return;
@@ -546,11 +575,13 @@ static void mmap_list_free(process_t *proc, uint32_t pid)
     vm_area_free(list, pid);
 }
 
+/* Free every VMA owned by a process */
 void process_mmap_clear(process_t *proc)
 {
     mmap_list_free(proc, proc && proc->task ? (uint32_t)proc->task->pid : 0);
 }
 
+/* Replace a process's VMA list, returning the old one */
 vm_area_t *process_mmap_replace(process_t *proc, vm_area_t *replacement)
 {
     if (!proc) return NULL;
@@ -561,11 +592,13 @@ vm_area_t *process_mmap_replace(process_t *proc, vm_area_t *replacement)
     return old;
 }
 
+/* Free a VMA list that is no longer attached to a process */
 void process_mmap_destroy_detached(process_t *proc, vm_area_t *list)
 {
     vm_area_free(list, proc && proc->task ? (uint32_t)proc->task->pid : 0);
 }
 
+/* Initialize a process's descriptor table */
 static void process_fd_table_init(process_t *proc)
 {
     proc->fd_lock.lock   = 0;
@@ -574,6 +607,7 @@ static void process_fd_table_init(process_t *proc)
     memset(proc->fd_flags, 0, sizeof(proc->fd_flags));
 }
 
+/* Initialize a process's resource limits */
 static void process_rlimit_init(process_t *proc)
 {
     if (!proc) return;
@@ -607,6 +641,7 @@ static void process_rlimit_init(process_t *proc)
     proc->rlimits[PROCESS_RLIMIT_RTPRIO].maximum     = 0;
 }
 
+/* Return the process's descriptor-table limit */
 uint32_t process_fd_limit(process_t *proc)
 {
     if (!proc) return 0;
@@ -617,6 +652,7 @@ uint32_t process_fd_limit(process_t *proc)
     return (uint32_t)limit;
 }
 
+/* Take an atomic reference on an open file */
 void process_file_get(process_file_t *file)
 {
     if (!file) return;
@@ -631,6 +667,7 @@ void process_file_get(process_file_t *file)
     while (refs && !__atomic_compare_exchange_n(&file->refcount, &refs, refs + 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {}
 }
 
+/* Take a descriptor-table reference on an open file */
 static void process_file_fd_get(process_file_t *file)
 {
     if (!file) return;
@@ -642,6 +679,7 @@ static void process_file_fd_get(process_file_t *file)
     spin_unlock(&file->lock);
 }
 
+/* Drop a descriptor-table reference on an open file */
 static void process_file_fd_put(process_file_t *file)
 {
     if (!file) return;
@@ -657,6 +695,7 @@ static void process_file_fd_put(process_file_t *file)
     process_file_put(file);
 }
 
+/* Serialize I/O on a positioned open file */
 static void process_file_io_lock(process_file_t *file)
 {
     for (;;) {
@@ -673,6 +712,7 @@ static void process_file_io_lock(process_file_t *file)
     }
 }
 
+/* Release the I/O lock on an open file */
 static void process_file_io_unlock(process_file_t *file)
 {
     spin_lock(&file->lock);
@@ -681,6 +721,7 @@ static void process_file_io_unlock(process_file_t *file)
     wait_queue_wake_one(&file->io_wait);
 }
 
+/* Release an open-file reference, closing it at zero */
 void process_file_put(process_file_t *file)
 {
     if (!file) return;
@@ -701,6 +742,7 @@ void process_file_put(process_file_t *file)
     free(file);
 }
 
+/* Close every descriptor in a process's table */
 static void process_fd_table_close(process_t *proc)
 {
     if (!proc) return;
@@ -730,6 +772,7 @@ static void process_fd_table_close(process_t *proc)
     for (int i = 0; i < PROCESS_MAX_FD; i++) process_file_fd_put(files[i]);
 }
 
+/* Copy the descriptor table from parent to child */
 static void process_fd_table_copy(process_t *child, process_t *parent)
 {
     process_fd_table_init(child);
@@ -743,6 +786,7 @@ static void process_fd_table_copy(process_t *child, process_t *parent)
     spin_unlock(&parent->fd_lock);
 }
 
+/* Look up a descriptor, taking an open-file reference */
 process_file_t *process_fd_get(process_t *proc, int fd)
 {
     if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
@@ -789,11 +833,13 @@ static process_file_t *process_fd_get_light_current(process_t *proc, int fd, boo
     return process_fd_get(proc, fd);
 }
 
+/* Release a light-path reference only when not borrowed */
 static void process_file_put_light(process_file_t *file, bool borrowed)
 {
     if (!borrowed) process_file_put(file);
 }
 
+/* Pin a descriptor for transfer via SCM_RIGHTS */
 process_file_t *process_fd_get_for_transfer(process_t *proc, int fd)
 {
     if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
@@ -810,11 +856,13 @@ process_file_t *process_fd_get_for_transfer(process_t *proc, int fd)
     return file;
 }
 
+/* Release a descriptor pinned for transfer */
 void process_file_put_transfer(process_file_t *file)
 {
     process_file_fd_put(file);
 }
 
+/* Open a node and install it into the lowest free descriptor */
 int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
 {
     if (!proc || !node) return -EINVAL;
@@ -876,6 +924,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     return -EMFILE;
 }
 
+/* Install an existing open file into the lowest free descriptor */
 int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flags)
 {
     if (!proc || !file) return -EINVAL;
@@ -900,6 +949,7 @@ int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flag
     return -EMFILE;
 }
 
+/* Close a single descriptor */
 int process_fd_close(process_t *proc, int fd)
 {
     if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return -EBADF;
@@ -918,6 +968,7 @@ int process_fd_close(process_t *proc, int fd)
     return EOK;
 }
 
+/* Duplicate a descriptor into the lowest free slot */
 int process_fd_dup(process_t *proc, int oldfd)
 {
     if (!proc || oldfd < 0 || oldfd >= PROCESS_MAX_FD) return -EBADF;
@@ -944,6 +995,7 @@ int process_fd_dup(process_t *proc, int oldfd)
     return -EMFILE;
 }
 
+/* Duplicate a descriptor onto a specific slot */
 int process_fd_dup2(process_t *proc, int oldfd, int newfd)
 {
     if (!proc || oldfd < 0 || oldfd >= PROCESS_MAX_FD || newfd < 0 || newfd >= PROCESS_MAX_FD) return -EBADF;
@@ -974,6 +1026,7 @@ int process_fd_dup2(process_t *proc, int oldfd, int newfd)
     return newfd;
 }
 
+/* Whether a process belongs to a group ID */
 bool process_in_group(const process_t *proc, uint32_t gid)
 {
     if (!proc) return false;
@@ -983,6 +1036,7 @@ bool process_in_group(const process_t *proc, uint32_t gid)
     return false;
 }
 
+/* Read from a descriptor into a kernel buffer */
 int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
 {
     bool            borrowed;
@@ -1036,6 +1090,7 @@ int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
     return ret;
 }
 
+/* Write a kernel buffer to a descriptor */
 int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
 {
     bool            borrowed;
@@ -1093,6 +1148,7 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
     return ret;
 }
 
+/* Read from a descriptor into a user buffer */
 int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
 {
     bool            borrowed;
@@ -1134,6 +1190,7 @@ int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
     return ret;
 }
 
+/* Write a user buffer to a descriptor */
 int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t size)
 {
     bool            borrowed;
@@ -1180,6 +1237,7 @@ int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t s
     return ret;
 }
 
+/* Read from a descriptor at a fixed offset into user memory */
 int64_t process_fd_pread_user(process_t *proc, int fd, void *buf, size_t size, uint64_t offset)
 {
     bool            borrowed;
@@ -1203,6 +1261,7 @@ int64_t process_fd_pread_user(process_t *proc, int fd, void *buf, size_t size, u
     return ret;
 }
 
+/* Write a user buffer to a descriptor at a fixed offset */
 int64_t process_fd_pwrite_user(process_t *proc, int fd, const void *buf, size_t size, uint64_t offset)
 {
     bool            borrowed;
@@ -1231,6 +1290,7 @@ int64_t process_fd_pwrite_user(process_t *proc, int fd, const void *buf, size_t 
     return ret;
 }
 
+/* Reposition a descriptor's file offset */
 int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence)
 {
     process_file_t *file = process_fd_get(proc, fd);
@@ -1272,6 +1332,7 @@ int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence)
     return next;
 }
 
+/* Issue an ioctl on a descriptor */
 int process_fd_ioctl(process_t *proc, int fd, size_t req, void *arg)
 {
     process_file_t *file = process_fd_get(proc, fd);
@@ -1285,6 +1346,7 @@ int process_fd_ioctl(process_t *proc, int fd, size_t req, void *arg)
     return ret;
 }
 
+/* Poll a descriptor for events */
 int process_fd_poll(process_t *proc, int fd, size_t events)
 {
     process_file_t *file = process_fd_get(proc, fd);
@@ -1294,6 +1356,7 @@ int process_fd_poll(process_t *proc, int fd, size_t events)
     return ret;
 }
 
+/* Resolve a path relative to a process root/cwd/dirfd */
 int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *resolved, size_t size)
 {
     char        base[VFS_PATH_MAX];
@@ -1345,12 +1408,14 @@ int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *
     return EOK;
 }
 
+/* Poll an open file for events */
 int process_file_poll(process_file_t *file, size_t events)
 {
     if (!file) return -EBADF;
     return vfs_file_poll(file->node, file->private_data, file->flags, events);
 }
 
+/* Fill a stat structure from a descriptor's node */
 int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat)
 {
     if (!stat) return -EINVAL;
@@ -1375,6 +1440,7 @@ int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat)
     return EOK;
 }
 
+/* Destroy a process and free every owned resource */
 static void process_free(process_t *proc)
 {
     if (!proc) return;
@@ -1405,6 +1471,7 @@ static void process_free(process_t *proc)
     free(proc);
 }
 
+/* Initialize the process subsystem */
 void process_init(void)
 {
     process_table_lock.lock   = 0;
@@ -1412,6 +1479,7 @@ void process_init(void)
     plogk("process: Process table initialized (%u slots)\n", PROCESS_TABLE_SIZE);
 }
 
+/* Create a new process with its kernel stack and page directory */
 process_t *process_create(const char *name)
 {
     process_t *proc = calloc(1, sizeof(process_t));
@@ -1487,6 +1555,7 @@ process_t *process_create(const char *name)
     return proc;
 }
 
+/* Build the process bundle for a kernel thread */
 process_t *process_create_kthread(task_t *task, const char *name)
 {
     if (!task) return NULL;
@@ -1550,6 +1619,7 @@ process_t *process_create_kthread(task_t *task, const char *name)
     return proc;
 }
 
+/* Terminate the current process, reparenting its children */
 void process_exit(int exit_code)
 {
     task_t *current = current_task();
@@ -1597,6 +1667,9 @@ void process_exit(int exit_code)
 
     /* Process timers cease to exist when the final thread exits. */
     signal_itimer_cancel(proc);
+
+    /* Reverse any SEM_UNDO adjustments held by this process. */
+    sysv_sem_undo_release(proc);
 
     if (!(current->flags & PF_KTHREAD)) {
         tty_core_t *tty = process_ctty_get(proc);
@@ -1674,6 +1747,7 @@ void process_exit(int exit_code)
     task_exit();
 }
 
+/* Whether a child matches a wait selector */
 static bool process_wait_selector_matches(process_t *parent, process_t *child, pid_t selector)
 {
     if (!parent || !child || child->parent != parent || !child->task) return false;
@@ -1684,6 +1758,7 @@ static bool process_wait_selector_matches(process_t *parent, process_t *child, p
     return child->pgid == -selector;
 }
 
+/* Whether every thread of a process is a zombie */
 static bool process_group_is_zombie(process_t *child)
 {
     if (!child || !child->task || child->task->state != TASK_ZOMBIE) return false;
@@ -1694,6 +1769,7 @@ static bool process_group_is_zombie(process_t *child)
     return ptrace_tracer_pid(child->task) == 0;
 }
 
+/* Whether any thread of a process is still on a CPU */
 static bool process_group_is_on_cpu(process_t *child)
 {
     if (!child) return false;
@@ -1704,6 +1780,7 @@ static bool process_group_is_on_cpu(process_t *child)
     return false;
 }
 
+/* Convert an exit code into a wait status */
 static int process_wait_status(const process_t *child)
 {
     if (!child) return 0;
@@ -1711,6 +1788,7 @@ static int process_wait_status(const process_t *child)
     return (child->exit_code & 0xff) << 8;
 }
 
+/* Publish a child stop/continue event to the parent */
 static void process_child_wait_event(process_t *child, int stop_signal, bool continued)
 {
     if (!child) return;
@@ -1741,16 +1819,19 @@ static void process_child_wait_event(process_t *child, int stop_signal, bool con
     process_put(parent);
 }
 
+/* Notify the parent that a child stopped */
 void process_child_stopped(process_t *child, int signal)
 {
     process_child_wait_event(child, signal, false);
 }
 
+/* Notify the parent that a child continued */
 void process_child_continued(process_t *child)
 {
     process_child_wait_event(child, 0, true);
 }
 
+/* Wait for a child matching a selector, optionally non-blocking */
 int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_t *waited_pid)
 {
     if (waited_pid) *waited_pid = 0;
@@ -1856,6 +1937,7 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
     }
 }
 
+/* Block until a child exits and return its code */
 int process_wait(pid_t pid, int *exit_code)
 {
     pid_t waited_pid = 0;
@@ -1871,17 +1953,20 @@ int process_wait(pid_t pid, int *exit_code)
     return 0;
 }
 
+/* Look up a process by PID without a reference */
 process_t *process_find(pid_t pid)
 {
     return pid_to_process(pid);
 }
 
+/* Return the process of the current task */
 process_t *process_current(void)
 {
     task_t *task = current_task();
     return task ? task->process : NULL;
 }
 
+/* Fork the current process, returning the unqueued child */
 process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, bool vfork)
 {
     task_t    *current = current_task();
@@ -2067,6 +2152,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     return child;
 }
 
+/* Make a forked child runnable */
 void process_fork_publish(process_t *child)
 {
     if (!child || !child->task || child->task->state != TASK_READY) return;
@@ -2076,6 +2162,7 @@ void process_fork_publish(process_t *child)
     request_task_cpu(child->task);
 }
 
+/* Discard an unpublished forked child */
 void process_fork_discard(process_t *child)
 {
     if (!child || !child->task) return;
@@ -2089,6 +2176,7 @@ void process_fork_discard(process_t *child)
     process_put(child);
 }
 
+/* Block until a vfork child completes */
 void process_vfork_wait(process_t *child)
 {
     if (!child) return;
@@ -2103,6 +2191,7 @@ void process_vfork_wait(process_t *child)
     spin_unlock(&child->vfork_wait.lock);
 }
 
+/* Wake a vfork parent waiting on this process */
 void process_vfork_complete(process_t *proc)
 {
     if (!proc) return;
@@ -2115,6 +2204,7 @@ void process_vfork_complete(process_t *proc)
     spin_unlock(&proc->vfork_wait.lock);
 }
 
+/* Find a task by PID, returning its owning process */
 task_t *process_task_find_get(pid_t pid, process_t **owner)
 {
     if (owner) *owner = NULL;
@@ -2137,6 +2227,7 @@ task_t *process_task_find_get(pid_t pid, process_t **owner)
     return NULL;
 }
 
+/* Clone a thread within the current process */
 task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid, uintptr_t child_clear_tid, uintptr_t tls, int *error)
 {
     task_t    *current = current_task();
@@ -2210,6 +2301,7 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     return child;
 }
 
+/* Map anonymous memory into a process address space */
 int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flags)
 {
     if (!proc || !proc->user_page_dir || !length || (addr & (PAGE_4K_SIZE - 1))) return 1;
@@ -2317,6 +2409,7 @@ rollback_frames:
     return 1;
 }
 
+/* Satisfy a demand-page fault for a process address */
 int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
 {
     if (!proc || !proc->user_page_dir || !proc->user_page_dir->table) return -1;
@@ -2406,6 +2499,7 @@ fail:
     return -1;
 }
 
+/* Unmap a VMA starting at the given address */
 int process_munmap(process_t *proc, uintptr_t addr, size_t length)
 {
     if (!proc || !length) return -EINVAL;
@@ -2424,6 +2518,7 @@ int process_munmap(process_t *proc, uintptr_t addr, size_t length)
     return process_unmap_complete_range(proc, addr, end - addr);
 }
 
+/* Unmap a full address range and free its VMAs */
 int process_unmap_complete_range(process_t *proc, uintptr_t addr, size_t length)
 {
     if (!proc || !length || addr > UINT64_MAX - length) return -EINVAL;

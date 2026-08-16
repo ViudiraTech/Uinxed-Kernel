@@ -272,7 +272,6 @@ static void ipv6_route_visit(net_device_t *device, void *context)
     }
 }
 
-/* Find an interface that can reach destination, choosing source and next hop */
 /* Choose the device, source address, and next hop for a destination. */
 int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop)
 {
@@ -550,8 +549,10 @@ static int ipv6_dispatch(net_device_t *device, const ipv6_info_t *info, net_pbuf
     return status;
 }
 
-/* Dispatch a decoded IPv6 packet: reassemble fragments if needed, then
- * hand the payload to the registered transport handler for its protocol */
+/*
+ * Dispatch a decoded IPv6 packet: reassemble fragments if needed, then
+ * hand the payload to the registered transport handler for its protocol.
+ */
 int ipv6_input(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet) goto bad;

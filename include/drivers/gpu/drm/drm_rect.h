@@ -24,16 +24,19 @@ struct drm_rect {
 #define DRM_RECT_FMT    "x%d %d %dx%d"
 #define DRM_RECT_ARG(r) (r)->x1, (r)->y1, drm_rect_width(r), drm_rect_height(r)
 
+/* Width of the rectangle. */
 static inline int drm_rect_width(const struct drm_rect *r)
 {
     return r->x2 - r->x1;
 }
 
+/* Height of the rectangle. */
 static inline int drm_rect_height(const struct drm_rect *r)
 {
     return r->y2 - r->y1;
 }
 
+/* Initialize a rectangle at (x, y) with the given size. */
 static inline void drm_rect_init(struct drm_rect *r, int x, int y, int w, int h)
 {
     r->x1 = x;
@@ -42,12 +45,14 @@ static inline void drm_rect_init(struct drm_rect *r, int x, int y, int w, int h)
     r->y2 = y + h;
 }
 
+/* Grow the rectangle by (dw, dh). */
 static inline void drm_rect_adjust_size(struct drm_rect *r, int dw, int dh)
 {
     r->x2 += dw;
     r->y2 += dh;
 }
 
+/* Shift the rectangle by (dx, dy). */
 static inline void drm_rect_translate(struct drm_rect *r, int dx, int dy)
 {
     r->x1 += dx;
@@ -56,6 +61,7 @@ static inline void drm_rect_translate(struct drm_rect *r, int dx, int dy)
     r->y2 += dy;
 }
 
+/* Move the rectangle's top-left corner to (x, y). */
 static inline void drm_rect_translate_to(struct drm_rect *r, int x, int y)
 {
     r->x2 += x - r->x1;

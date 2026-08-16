@@ -80,6 +80,7 @@ static int64_t ppdev_write(void *ctx, void *private_data, uint64_t flags, const 
     return (int64_t)size;
 }
 
+/* poll(2): report the port's ready events. */
 static int ppdev_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
 {
     (void)ctx;
@@ -114,7 +115,7 @@ static int ppdev_release(ppdev_file_t *file)
     return 0;
 }
 
-/* ioctl(2): dispatch the Linux-compatible PP* ioctl family. */
+/* ioctl(2): dispatch the PP* ioctl family. */
 static int ppdev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg)
 {
     ppdev_file_t *file = private_data;

@@ -395,6 +395,7 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
     return EOK;
 }
 
+/* Unmount and destroy the FatFs handle. */
 static void fatfs_vfs_unmount(void *root)
 {
     fatfs_handle_destroy(root);
@@ -448,6 +449,7 @@ static int fatfs_open_child(vfs_node_t node)
     return EOK;
 }
 
+/* Open a child node's FatFs object. */
 static void fatfs_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -458,6 +460,7 @@ static void fatfs_vfs_open(void *parent, const char *name, vfs_node_t node)
     if (node->type & file_dir) fatfs_load_directory(node);
 }
 
+/* Close the open FatFs object. */
 static void fatfs_vfs_close(void *current)
 {
     fatfs_handle_t *handle = current;
@@ -561,6 +564,7 @@ static int fatfs_vfs_sync(void *file, int data_only)
     return fatfs_result_to_errno(f_sync(&handle->file));
 }
 
+/* FatFs has no symlinks; return nothing. */
 static size_t fatfs_vfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
     (void)node;
@@ -570,6 +574,7 @@ static size_t fatfs_vfs_readlink(vfs_node_t node, void *addr, size_t offset, siz
     return 0;
 }
 
+/* Create a directory through FatFs. */
 static int fatfs_vfs_mkdir(void *parent, const char *name, vfs_node_t node)
 {
     fatfs_handle_t *dir = parent;
@@ -579,6 +584,7 @@ static int fatfs_vfs_mkdir(void *parent, const char *name, vfs_node_t node)
     return fatfs_create_path(node, 0, 1);
 }
 
+/* Create a regular file through FatFs. */
 static int fatfs_vfs_mkfile(void *parent, const char *name, vfs_node_t node)
 {
     fatfs_handle_t *dir = parent;
@@ -588,6 +594,7 @@ static int fatfs_vfs_mkfile(void *parent, const char *name, vfs_node_t node)
     return fatfs_create_path(node, FA_CREATE_NEW | FA_WRITE, 0);
 }
 
+/* Reject hard-link and symlink creation. */
 static int fatfs_vfs_no_link(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -607,6 +614,7 @@ static int fatfs_vfs_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
+/* Reject ioctl requests (fatfs supports none). */
 static int fatfs_vfs_ioctl(void *file, size_t req, void *arg)
 {
     (void)file;
@@ -633,12 +641,14 @@ static vfs_node_t fatfs_vfs_dup(vfs_node_t node)
     return copy;
 }
 
+/* Report the requested events as ready. */
 static int fatfs_vfs_poll(void *file, size_t events)
 {
     (void)file;
     return (int)events;
 }
 
+/* Close and free the FatFs handle. */
 static int fatfs_vfs_free(void *handle)
 {
     fatfs_handle_destroy(handle);

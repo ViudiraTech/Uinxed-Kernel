@@ -58,6 +58,14 @@
 #    define CONFIG_INET 1
 #endif
 
+#ifndef CONFIG_INIT_MODULE
+#    define CONFIG_INIT_MODULE 0
+#endif
+
+#ifndef CONFIG_INIT_PATH
+#    define CONFIG_INIT_PATH ""
+#endif
+
 #ifndef CONFIG_INPUT_EVDEV
 #    define CONFIG_INPUT_EVDEV 1
 #endif

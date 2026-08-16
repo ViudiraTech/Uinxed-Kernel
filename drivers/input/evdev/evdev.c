@@ -45,21 +45,25 @@
 
 /* bit operations */
 
+/* Set one bit in a bitmap word array. */
 static inline void set_bit(unsigned int nr, uint32_t *addr)
 {
     addr[nr / 32] |= (1U << (nr % 32));
 }
 
+/* Clear one bit in a bitmap word array. */
 static inline void clear_bit(unsigned int nr, uint32_t *addr)
 {
     addr[nr / 32] &= ~(1U << (nr % 32));
 }
 
+/* Return the value of one bit in a bitmap word array. */
 static inline bool test_bit(unsigned int nr, const uint32_t *addr)
 {
     return (addr[nr / 32] >> (nr % 32)) & 1U;
 }
 
+/* Round an unsigned value up to the next power of two. */
 static inline unsigned int roundup_pow_of_two(unsigned int n)
 {
     unsigned int r = 1;
@@ -86,6 +90,7 @@ static size_t             evdev_led_notify_count;
 
 static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client);
 
+/* Return the current timestamp in nanoseconds for the given clock type. */
 static uint64_t evdev_clock_ns(int clock_type)
 {
     if (clock_type == CLOCK_REALTIME) {
@@ -100,6 +105,7 @@ static uint64_t evdev_clock_ns(int clock_type)
     return timer_monotonic_ns();
 }
 
+/* VFS open callback: create a client for the evdev device. */
 static int evdev_dev_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     tmpfs_file_t   *file  = node ? node->handle : NULL;
@@ -115,12 +121,14 @@ static int evdev_dev_open(vfs_node_t node, uint64_t flags, void **private_data)
     return EOK;
 }
 
+/* VFS release callback: drop the file's client reference. */
 static void evdev_dev_release(vfs_node_t node, void *private_data)
 {
     (void)node;
     evdev_fop_release(private_data);
 }
 
+/* VFS descriptor-close callback: revoke the client and wake waiters. */
 static void evdev_dev_descriptor_close(void *ctx, void *private_data)
 {
     (void)ctx;
@@ -135,6 +143,7 @@ static void evdev_dev_descriptor_close(void *ctx, void *private_data)
     vfs_poll_source_notify(&client->poll_source, POLLHUP);
 }
 
+/* VFS read callback: forward to evdev_fop_read. */
 static int64_t evdev_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -142,6 +151,7 @@ static int64_t evdev_dev_read(void *ctx, void *private_data, uint64_t flags, voi
     return evdev_fop_read(private_data, addr, size, (flags & O_NONBLOCK) != 0);
 }
 
+/* VFS write callback: forward to evdev_fop_write. */
 static int64_t evdev_dev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -150,6 +160,7 @@ static int64_t evdev_dev_write(void *ctx, void *private_data, uint64_t flags, co
     return evdev_fop_write(private_data, addr, size);
 }
 
+/* VFS poll callback: forward to evdev_fop_poll. */
 static int evdev_dev_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
 {
     (void)ctx;
@@ -157,6 +168,7 @@ static int evdev_dev_poll(void *ctx, void *private_data, uint64_t flags, size_t 
     return evdev_fop_poll(private_data, (int)events);
 }
 
+/* Return the client's poll source for the VFS layer. */
 static vfs_poll_source_t *evdev_dev_poll_source(void *ctx, void *private_data)
 {
     (void)ctx;
@@ -164,6 +176,7 @@ static vfs_poll_source_t *evdev_dev_poll_source(void *ctx, void *private_data)
     return client ? &client->poll_source : NULL;
 }
 
+/* VFS ioctl callback: forward to evdev_fop_ioctl. */
 static int evdev_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg)
 {
     (void)ctx;
@@ -271,10 +284,7 @@ static void evdev_pass_values(evdev_client_t *client, const input_event_t *value
         /* Filter check */
         if (__evdev_is_filtered(client, event.type, event.code)) continue;
 
-        /*
-         * A client becomes readable only when a non-empty frame is committed.
-         * This is the Linux evdev packet_head/SYN_REPORT contract.
-         */
+        /* A client becomes readable only when a non-empty frame is committed. */
         if (event.type == EV_SYN && event.code == SYN_REPORT) {
             if (client->queue.packet_head == client->queue.head) continue;
             wake = true;
@@ -403,12 +413,6 @@ static int evdev_open_device(evdev_t *evdev)
         ret = -ENODEV;
         goto out;
     }
-    if (evdev->open_count == 0) {
-        /*
-         * input_open_device would go here.
-         * For now, just count opens.
-         */
-    }
     evdev->open_count++;
 out:
     spin_unlock(&evdev->mutex);
@@ -474,6 +478,7 @@ evdev_t *evdev_create(input_dev_t *dev)
     return evdev;
 }
 
+/* Release the evdev and its associated input device. */
 static void evdev_free(evdev_t *evdev)
 {
     input_dev_t *input;
@@ -527,6 +532,7 @@ int evdev_register(evdev_t *evdev)
     }
     if (minor < 0) {
         spin_unlock(&evdev_table_lock);
+        plogk("evdev: Register \"%s\" failed: no free device slot.\n", evdev->input_dev->name);
         return -ENFILE;
     }
 
@@ -633,6 +639,7 @@ void evdev_init(void)
 
 /* event validation and injection */
 
+/* Return whether the device supports the given event type and code. */
 static bool evdev_event_supported(const input_dev_t *dev, unsigned int type, unsigned int code)
 {
     if (type >= EV_CNT || !test_bit(type, dev->evbit)) return false;
@@ -663,6 +670,7 @@ static bool evdev_event_supported(const input_dev_t *dev, unsigned int type, uns
     }
 }
 
+/* Normalize and deduplicate an injected event, updating device state. */
 static bool evdev_prepare_event(input_dev_t *dev, input_event_t *event)
 {
     bool active;
@@ -802,6 +810,7 @@ void evdev_unregister_led_notify(evdev_led_notify_t notify, void *ctx)
     spin_unlock(&evdev_table_lock);
 }
 
+/* Inject a batch of events to all clients of the device. */
 void evdev_inject_events(input_dev_t *dev, const input_event_t *events, size_t count)
 {
     input_event_t prepared[64];
@@ -833,6 +842,7 @@ void evdev_inject_events(input_dev_t *dev, const input_event_t *events, size_t c
     spin_unlock(&dev->event_lock);
 }
 
+/* Inject a single event into the evdev subsystem. */
 void evdev_inject_event(input_dev_t *dev, uint16_t type, uint16_t code, int32_t value)
 {
     input_event_t event = {.type = type, .code = code, .value = value};
@@ -1030,6 +1040,7 @@ int evdev_fop_poll(evdev_client_t *client, int events)
 
 /* evdev_fop_ioctl */
 
+/* Copy a NUL-terminated string to user space. */
 static int evdev_copy_string_to_user(void *arg, const char *string, size_t maxlen)
 {
     size_t length = strlen(string) + 1;
@@ -1041,6 +1052,7 @@ static int evdev_copy_string_to_user(void *arg, const char *string, size_t maxle
 
 static int evdev_fill_user(void *arg, uint8_t value, size_t size);
 
+/* Copy a bitmap to user space, zero-filling the padded tail. */
 static int evdev_copy_bits_to_user(void *arg, const uint32_t *bits, size_t bit_count, size_t maxlen)
 {
     size_t data_length = (bit_count + 7) / 8;
@@ -1056,6 +1068,7 @@ static int evdev_copy_bits_to_user(void *arg, const uint32_t *bits, size_t bit_c
     return (int)length;
 }
 
+/* Snapshot a device state bitmap and copy it to user space. */
 static int evdev_get_state(evdev_client_t *client, input_dev_t *dev, unsigned int type, const uint32_t *state, size_t bit_count, void *arg, size_t maxlen)
 {
     size_t    bytes = (bit_count + 7) / 8;
@@ -1082,6 +1095,7 @@ static int evdev_get_state(evdev_client_t *client, input_dev_t *dev, unsigned in
     return result;
 }
 
+/* Replace a client event filter mask from a user descriptor. */
 static int evdev_set_mask(evdev_client_t *client, const input_mask_t *descriptor)
 {
     size_t    bit_count = evdev_get_mask_cnt(descriptor->type);
@@ -1110,6 +1124,7 @@ static int evdev_set_mask(evdev_client_t *client, const input_mask_t *descriptor
     return EOK;
 }
 
+/* Fill a user buffer with a repeated byte value. */
 static int evdev_fill_user(void *arg, uint8_t value, size_t size)
 {
     uint8_t bytes[32];
@@ -1124,6 +1139,7 @@ static int evdev_fill_user(void *arg, uint8_t value, size_t size)
     return EOK;
 }
 
+/* Copy a client event filter mask to user space. */
 static int evdev_get_mask(evdev_client_t *client, const input_mask_t *descriptor)
 {
     size_t    bit_count  = evdev_get_mask_cnt(descriptor->type);
@@ -1159,6 +1175,7 @@ static int evdev_get_mask(evdev_client_t *client, const input_mask_t *descriptor
     return EOK;
 }
 
+/* Handle evdev ioctls. */
 int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
 {
     evdev_t     *evdev;
@@ -1182,7 +1199,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
         }
         case EVIOCGID :
             return copy_to_user(arg, &dev->id, sizeof(dev->id)) ? -EFAULT : EOK;
-
         case EVIOCGREP : {
             int repeat[2];
 
@@ -1192,7 +1208,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             spin_unlock(&dev->event_lock);
             return copy_to_user(arg, repeat, sizeof(repeat)) ? -EFAULT : EOK;
         }
-
         case EVIOCSREP : {
             int           repeat[2];
             input_event_t events[2];
@@ -1364,14 +1379,12 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
         case EVIOCSCLOCKID :
             if (copy_from_user(&ival, arg, sizeof(ival))) return -EFAULT;
             return evdev_set_clk_type(client, ival);
-
         case EVIOCGMASK : {
             input_mask_t mask;
 
             if (copy_from_user(&mask, arg, sizeof(mask))) return -EFAULT;
             return evdev_get_mask(client, &mask);
         }
-
         case EVIOCSMASK : {
             input_mask_t mask;
 
@@ -1383,12 +1396,14 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
     }
 }
 
+/* Return the device number for an evdev device. */
 uint64_t evdev_devt(const evdev_t *evdev)
 {
     if (!evdev || evdev->minor < 0) return 0;
     return MKDEV(EVDEV_MAJOR, EVDEV_MINOR_BASE + evdev->minor);
 }
 
+/* Create the /dev/input/eventN device node for an evdev. */
 int evdev_publish_node(evdev_t *evdev)
 {
     char     path[32];
@@ -1425,6 +1440,7 @@ int evdev_publish_node(evdev_t *evdev)
         evdev->node = vfs_open_nofollow(path);
         if (!evdev->node) {
             (void)devtmpfs_unregister_char_device(path);
+            plogk("evdev: Failed to open device node \"%s\"\n", path);
             return -ENOENT;
         }
         evdev->node_published = true;
@@ -1432,6 +1448,7 @@ int evdev_publish_node(evdev_t *evdev)
     return result;
 }
 
+/* Publish device nodes for all registered evdev devices. */
 int evdev_publish_nodes(void)
 {
     int count = 0;

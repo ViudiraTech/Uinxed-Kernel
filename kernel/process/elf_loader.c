@@ -8,7 +8,6 @@
  *
  */
 
-#include <drivers/tty/tty.h>
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/module/elf.h>
@@ -23,15 +22,7 @@
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
 #include <syscall/syscall.h>
-
-/*
- * Overview
- * elf_loader.c maps a userspace ELF executable into a fresh address
- * page frames for each LOAD segment and sets up the initial stack
- * (argv/envp/auxv) for the entry point.
- */
 
 #define INTERP_LOAD_BASE 0x7f0000000000ULL
 #define INTERP_LOAD_END  0x7f0001000000ULL
@@ -227,6 +218,7 @@ static int insert_elf_vma(process_t *proc, uintptr_t start, uintptr_t end, vm_fl
     return 0;
 }
 
+/* Map PT_LOAD segments from an ELF source into the process and build their VMAs */
 static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, const Elf64_Phdr *phdr, elf_source_t *source, uintptr_t load_bias, int set_brk)
 {
     uintptr_t lowest_start = UINT64_MAX;
@@ -635,7 +627,7 @@ __attribute__((naked)) static void user_process_enter(void)
 }
 
 /* Load a memory-backed ELF into the process: map segments, set up the stack and registers */
-int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[], uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console)
+int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[], uintptr_t *entry_out, uintptr_t *rsp_out)
 {
     Elf64_Ehdr *ehdr = NULL;
     if (validate_elf(elf_data, elf_size, &ehdr)) return -ENOEXEC;
@@ -674,25 +666,6 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     if (load_ret) return load_ret;
 
     if (process_mmap(proc, proc->stack_brk, (size_t)PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) return -ENOMEM;
-
-    if (acquire_console) {
-        vfs_node_t console = vfs_open("/dev/console");
-        if (!console) return -ENOENT;
-
-        int std_fd = process_fd_install(proc, console, O_RDWR | O_NOCTTY);
-        if (std_fd != 0) {
-            if (std_fd < 0) vfs_close(console);
-            return std_fd < 0 ? std_fd : -EIO;
-        }
-
-        int stdout_fd = process_fd_dup2(proc, 0, 1);
-        int stderr_fd = process_fd_dup2(proc, 0, 2);
-        int ctty      = tty_console_acquire(proc, O_RDWR);
-        if (stdout_fd < 0) return stdout_fd;
-        if (stderr_fd < 0) return stderr_fd;
-        if (stdout_fd != 1 || stderr_fd != 2) return -EIO;
-        if (ctty) return ctty;
-    }
 
     proc->task->thread.fs_base = 0;
     proc->task->thread.gs_base = 0;

@@ -64,12 +64,22 @@ void tty_for_each_registered(int (*cb)(tty_driver_t *drv, int index, const char 
 /* Create the /dev nodes for every registered tty device. Call after devtmpfs_init. */
 int tty_devices_populate(void);
 
-/* Generic per-node dispatch used as the tmpfs device operations. */
-int     tty_dispatch_open(struct vfs_node *node, uint64_t flags, void **private_data);
-void    tty_dispatch_release(struct vfs_node *node, void *private_data);
+/* open: bind a /dev node to its driver and call the driver's open. */
+int tty_dispatch_open(struct vfs_node *node, uint64_t flags, void **private_data);
+
+/* release: call the driver's release and free the handle. */
+void tty_dispatch_release(struct vfs_node *node, void *private_data);
+
+/* read: forward to the driver's read. */
 int64_t tty_dispatch_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+
+/* write: forward to the driver's write. */
 int64_t tty_dispatch_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
-int     tty_dispatch_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
-int     tty_dispatch_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
+
+/* poll: forward to the driver's poll. */
+int tty_dispatch_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
+
+/* ioctl: forward to the driver's ioctl. */
+int tty_dispatch_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
 
 #endif // INCLUDE_TTY_DRIVER_H_

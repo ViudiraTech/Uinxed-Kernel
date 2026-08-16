@@ -447,12 +447,14 @@ int tmpfs_free(void *handle)
     return EOK;
 }
 
+/* No-op for legacy VFS callbacks that need no implementation. */
 void tmpfs_dummy(void)
 {
 }
 
 /* Per-open-instance callbacks, delegating to the device ops. */
 
+/* Delegate per-open allocation to the device ops. */
 static int tmpfs_file_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     tmpfs_file_t *f = node->handle;
@@ -463,6 +465,7 @@ static int tmpfs_file_open(vfs_node_t node, uint64_t flags, void **private_data)
     return 0;
 }
 
+/* Delegate per-open teardown to the device ops. */
 static void tmpfs_file_release(vfs_node_t node, void *private_data)
 {
     tmpfs_file_t *f = node->handle;
@@ -471,6 +474,7 @@ static void tmpfs_file_release(vfs_node_t node, void *private_data)
     if (f->device.release) f->device.release(node, private_data);
 }
 
+/* Delegate last-descriptor close to the device ops. */
 static void tmpfs_file_descriptor_close(vfs_node_t node, void *private_data)
 {
     tmpfs_file_t *f = node->handle;
@@ -478,6 +482,7 @@ static void tmpfs_file_descriptor_close(vfs_node_t node, void *private_data)
     if (f && f->device.descriptor_close) f->device.descriptor_close(f->device.ctx, private_data);
 }
 
+/* Delegate per-open mmap to the device ops. */
 static void *tmpfs_file_mmap(vfs_node_t node, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma)
 {
     tmpfs_file_t *f = node->handle;
@@ -492,6 +497,7 @@ static void *tmpfs_file_mmap(vfs_node_t node, void *private_data, size_t offset,
     return NULL;
 }
 
+/* Delegate per-open read to the device ops. */
 static int64_t tmpfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     tmpfs_file_t *f = node->handle;
@@ -501,6 +507,7 @@ static int64_t tmpfs_file_read(vfs_node_t node, void *private_data, uint64_t fla
     return (int64_t)tmpfs_read(f, addr, offset, size);
 }
 
+/* Delegate per-open write to the device ops. */
 static int64_t tmpfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     tmpfs_file_t *f = node->handle;
@@ -514,6 +521,7 @@ static int64_t tmpfs_file_write(vfs_node_t node, void *private_data, uint64_t fl
 
 #define TMPFS_USER_IO_CHUNK PAGE_4K_SIZE
 
+/* Delegate per-open user-buffer read to the device ops. */
 static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc)
 {
     tmpfs_file_t *f = node->handle;
@@ -553,6 +561,7 @@ out:
     return result;
 }
 
+/* Delegate per-open user-buffer write to the device ops. */
 static int64_t tmpfs_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc)
 {
     tmpfs_file_t *f = node->handle;
@@ -595,6 +604,7 @@ out:
     return result;
 }
 
+/* Delegate per-open poll to the device ops. */
 static int tmpfs_file_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
 {
     tmpfs_file_t *f = node->handle;
@@ -604,6 +614,7 @@ static int tmpfs_file_poll(vfs_node_t node, void *private_data, uint64_t flags, 
     return tmpfs_poll(f, events);
 }
 
+/* Return the device poll source, if any. */
 static vfs_poll_source_t *tmpfs_file_poll_source(vfs_node_t node, void *private_data)
 {
     tmpfs_file_t *f = node->handle;
@@ -612,6 +623,7 @@ static vfs_poll_source_t *tmpfs_file_poll_source(vfs_node_t node, void *private_
     return f->device.file_poll_source(f->device.ctx, private_data);
 }
 
+/* Delegate per-open ioctl to the device ops. */
 static int tmpfs_file_ioctl(vfs_node_t node, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     tmpfs_file_t *f = node->handle;

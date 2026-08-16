@@ -81,12 +81,7 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLONE_DETACHED         0x00400000ULL
 #define CLONE_CHILD_SETTID     0x01000000ULL
 #define CLONE_PTHREAD_REQUIRED (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM)
-/*
- * CLONE_DETACHED has been ignored by Linux since 2.6.2, but musl still sets
- * it in pthread_create().  Accepting it as a no-op is required for the Linux
- * clone ABI; rejecting it makes pthread_create return EINVAL.
- */
-#define CLONE_PTHREAD_ALLOWED (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
+#define CLONE_PTHREAD_ALLOWED  (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
 
 #define AT_FDCWD              PROCESS_AT_FDCWD
 #define STATX_BASIC_STATS     0x000007ffU
@@ -164,13 +159,15 @@ typedef struct {
         uint64_t                __spare3[9];
 } linux_statx_t;
 
-static int copy_path_from_user(uint64_t upath, char path[SYSCALL_PATH_MAX])
+/* Copy a path string from user space into a kernel buffer */
+int copy_path_from_user(uint64_t upath, char path[SYSCALL_PATH_MAX])
 {
     if (!upath) return -EFAULT;
     int ret = strncpy_from_user(path, (const char *)upath, SYSCALL_PATH_MAX);
     return ret < 0 ? ret : EOK;
 }
 
+/* Copy a path and resolve it relative to dirfd */
 static int copy_resolved_path_at(process_t *proc, int dirfd, uint64_t upath, char path[SYSCALL_PATH_MAX])
 {
     char input[SYSCALL_PATH_MAX];
@@ -180,6 +177,7 @@ static int copy_resolved_path_at(process_t *proc, int dirfd, uint64_t upath, cha
     return process_resolve_path_at(proc, dirfd, input, path, SYSCALL_PATH_MAX);
 }
 
+/* Resolve and open a path relative to dirfd */
 static vfs_node_t open_path_at(process_t *proc, int dirfd, uint64_t upath, bool nofollow, int *error)
 {
     char path[SYSCALL_PATH_MAX];
@@ -192,6 +190,7 @@ static vfs_node_t open_path_at(process_t *proc, int dirfd, uint64_t upath, bool 
     return node;
 }
 
+/* Open the node referenced by an empty path */
 static vfs_node_t open_empty_path_at(process_t *proc, int dirfd, int *error)
 {
     if (dirfd == AT_FDCWD) {
@@ -211,6 +210,7 @@ static vfs_node_t open_empty_path_at(process_t *proc, int dirfd, int *error)
     return node;
 }
 
+/* Encode a VFS node type into the mode field */
 static uint32_t linux_mode_from_type(uint16_t type, uint32_t mode)
 {
     uint32_t file_type = 0100000;
@@ -231,6 +231,7 @@ static uint32_t linux_mode_from_type(uint16_t type, uint32_t mode)
     return file_type | (mode & 07777);
 }
 
+/* Encode a device number in the dev_t layout */
 static uint64_t linux_encode_dev(uint64_t dev)
 {
     uint32_t major = MAJOR(dev);
@@ -238,6 +239,7 @@ static uint64_t linux_encode_dev(uint64_t dev)
     return (minor & 0xffU) | ((uint64_t)major << 8) | ((uint64_t)(minor & ~0xffU) << 12);
 }
 
+/* Fill a stat structure from a VFS node snapshot */
 static void fill_linux_stat(linux_stat_t *st, uint64_t uid, uint64_t gid, const process_fd_stat_t *src)
 {
     memset(st, 0, sizeof(*st));
@@ -256,6 +258,7 @@ static void fill_linux_stat(linux_stat_t *st, uint64_t uid, uint64_t gid, const 
     st->st_ctime   = (int64_t)src->ctime;
 }
 
+/* Find the nearest mount point at or above a node */
 static vfs_node_t vfs_containing_mount(vfs_node_t node)
 {
     for (vfs_node_t current = node; current; current = current->parent) {
@@ -265,6 +268,7 @@ static vfs_node_t vfs_containing_mount(vfs_node_t node)
     return NULL;
 }
 
+/* Fill a statx structure from a VFS node snapshot */
 static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, const process_fd_stat_t *src, vfs_node_t node)
 {
     memset(stx, 0, sizeof(*stx));
@@ -293,6 +297,7 @@ static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, con
     if (node->is_mount || node == rootdir) stx->stx_attributes |= STATX_ATTR_MOUNT_ROOT;
 }
 
+/* stat a path and copy the result to user space */
 static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
 {
     char path[SYSCALL_PATH_MAX];
@@ -326,6 +331,7 @@ static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
     return copy_to_user((void *)ubuf, &st, sizeof(st)) ? -EFAULT : EOK;
 }
 
+/* stat a node and copy the result to user space */
 static int64_t stat_node_to_user(vfs_node_t node, uint64_t ubuf)
 {
     if (!ubuf) return -EFAULT;
@@ -348,6 +354,7 @@ static int64_t stat_node_to_user(vfs_node_t node, uint64_t ubuf)
     return copy_to_user((void *)ubuf, &st, sizeof(st)) ? -EFAULT : EOK;
 }
 
+/* statx a node and copy the result to user space */
 static int64_t statx_node_to_user(vfs_node_t node, uint64_t ubuf)
 {
     if (!ubuf) return -EFAULT;
@@ -371,13 +378,15 @@ static int64_t statx_node_to_user(vfs_node_t node, uint64_t ubuf)
     return copy_to_user((void *)ubuf, &stx, sizeof(stx)) ? -EFAULT : EOK;
 }
 
-static const char *path_basename(const char *path)
+/* Return the basename of a path */
+const char *path_basename(const char *path)
 {
     const char *base = strrchr(path, '/');
     return base ? base + 1 : path;
 }
 
-static vfs_node_t vfs_open_parent_of(char *path)
+/* Open the parent directory of a path */
+vfs_node_t vfs_open_parent_of(char *path)
 {
     char *slash = strrchr(path, '/');
     if (!slash || slash == path) return vfs_open("/");
@@ -385,6 +394,7 @@ static vfs_node_t vfs_open_parent_of(char *path)
     return vfs_open(path);
 }
 
+/* exit syscall: terminate the calling thread */
 static int64_t sys_exit(uint64_t status, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -421,6 +431,7 @@ static int64_t sys_sched_yield(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint
     return 0;
 }
 
+/* Current time in nanoseconds for the requested clock */
 static uint64_t clock_sleep_now_ns(int clockid)
 {
     uint64_t uptime_ns = timer_monotonic_ns();
@@ -430,12 +441,14 @@ static uint64_t clock_sleep_now_ns(int clockid)
     return realtime_ns > 0 ? (uint64_t)realtime_ns : 0;
 }
 
+/* Check whether a signal is pending for the current process */
 static bool clock_sleep_signal_pending(void)
 {
     process_t *proc = process_current();
     return proc && signal_has_pending(&proc->signal);
 }
 
+/* Sleep until a deadline or signal delivery */
 static int64_t clock_sleep(uint64_t clockid, uint64_t flags, uint64_t req, uint64_t rem)
 {
     if (!timer_clock_sleep_supported(clockid, flags)) return -EINVAL;
@@ -495,6 +508,7 @@ static int64_t sys_nanosleep(uint64_t req, uint64_t rem, uint64_t arg2, uint64_t
 #define WUNTRACED  0x00000002
 #define WCONTINUED 0x00000008
 
+/* wait4 syscall: wait for a child to change state */
 static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uint64_t rusage, uint64_t arg4, uint64_t arg5)
 {
     (void)rusage;
@@ -547,6 +561,7 @@ static int64_t sys_munmap(uint64_t addr, uint64_t length, uint64_t arg2, uint64_
     return sys_munmap_full(addr, length);
 }
 
+/* brk syscall: adjust the program break */
 static int64_t sys_brk(uint64_t addr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -588,6 +603,7 @@ static int64_t sys_brk(uint64_t addr, uint64_t arg1, uint64_t arg2, uint64_t arg
     return (int64_t)addr;
 }
 
+/* open syscall: open or create a file */
 static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -595,11 +611,6 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     (void)arg5;
 
     if (!path) return -EFAULT;
-
-    /*
-     * tmpfs does not provide unnamed temporary files yet.  Report this
-     * explicitly so userspace can fall back to a named temporary file.
-     */
     if ((flags & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
 
     process_t *proc = process_current();
@@ -657,6 +668,7 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     return fd;
 }
 
+/* openat syscall: open or create a file by dirfd+path */
 static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t mode, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -716,6 +728,7 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
     return fd;
 }
 
+/* close_range syscall: close or mark a range of descriptors */
 static int64_t sys_close_range(uint64_t first, uint64_t last, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -726,23 +739,11 @@ static int64_t sys_close_range(uint64_t first, uint64_t last, uint64_t flags, ui
     if (!proc) return -ESRCH;
     if (first > last) return -EINVAL;
     if (flags & ~(uint64_t)(CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC)) return -EINVAL;
-
-    /*
-     * Uinxed currently keeps one descriptor table per process.  It cannot
-     * unshare that table for only the calling thread yet; rejecting the flag
-     * lets libc fall back instead of silently changing other threads' fds.
-     */
     if (flags & CLOSE_RANGE_UNSHARE) return -EINVAL;
 
     if (first >= PROCESS_MAX_FD) return EOK;
     uint64_t end = last < (uint64_t)(PROCESS_MAX_FD - 1) ? last : (uint64_t)(PROCESS_MAX_FD - 1);
 
-    /*
-     * CLOSE_RANGE_CLOEXEC does not close anything.  Linux userspace uses it
-     * to prepare a child for exec while retaining selected descriptors; in
-     * particular OpenRC marks its readiness pipes here and fixes up the one
-     * it passes to the daemon immediately afterwards.
-     */
     if (flags & CLOSE_RANGE_CLOEXEC) {
         spin_lock(&proc->fd_lock);
         for (uint64_t fd = first; fd <= end; fd++) {
@@ -821,6 +822,7 @@ static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3
     return sys_write_task(current_task(), fd, buf, size);
 }
 
+/* arch_prctl syscall: set or get FS/GS base */
 static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -908,6 +910,7 @@ static int64_t sys_dup3(uint64_t oldfd, uint64_t newfd, uint64_t flags, uint64_t
     return result;
 }
 
+/* ioctl syscall: issue a device control command */
 static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -917,15 +920,11 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /*
-     * Linux's ioctl(2) command argument is an unsigned int.  Some libc
-     * declarations expose it as int, so read-direction commands such as
-     * TIOCGPTN (0x80045430) can arrive sign-extended in the 64-bit syscall
-     * register.  Truncate at the ABI boundary before matching commands.
-     */
+    /* Commands may arrive sign-extended when libc exposes them as int; truncate at the ABI boundary. */
     return process_fd_ioctl(proc, (int)fd, (size_t)(uint32_t)req, (void *)arg);
 }
 
+/* fstat syscall: stat an open descriptor */
 static int64_t sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -962,13 +961,14 @@ static int64_t sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t arg2, uint64_t 
     return copy_to_user((void *)statbuf, &st, sizeof(st)) ? -EFAULT : EOK;
 }
 
+/* statx syscall: extended file status */
 static int64_t sys_statx(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t mask, uint64_t statbuf, uint64_t arg5)
 {
     (void)arg5;
     if (!statbuf) return -EFAULT;
     if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH | AT_STATX_SYNC_TYPE)) return -EINVAL;
     if ((flags & AT_STATX_SYNC_TYPE) == AT_STATX_SYNC_TYPE) return -EINVAL;
-    (void)mask; // All implemented basic fields are returned, as Linux permits.
+    (void)mask;
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -1072,6 +1072,7 @@ static int64_t sys_newfstatat(uint64_t dirfd, uint64_t path, uint64_t statbuf, u
     return ret;
 }
 
+/* uname syscall: report kernel identity */
 static int64_t sys_uname(uint64_t name, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -1531,6 +1532,7 @@ static int64_t sys_inotify_rm_watch_wrap(uint64_t fd, uint64_t wd, uint64_t arg2
 #define MNT_DETACH 2
 #define MNT_EXPIRE 4
 
+/* mount syscall: attach a filesystem */
 static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint64_t flags, uint64_t data, uint64_t arg5)
 {
     (void)data;
@@ -1583,7 +1585,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     /* Handle MS_MOVE: move an existing mount to a new location */
     if (flags & MS_MOVE) {
         vfs_close(node);
-        return -ENOSYS; // not yet supported
+        return -ENOSYS;
     }
 
     /* Perform the mount */
@@ -1617,6 +1619,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     return EOK;
 }
 
+/* umount2 syscall: detach a filesystem */
 static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1628,10 +1631,8 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     if (!proc) return -ESRCH;
     char tgt[SYSCALL_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
-    if (ret != EOK) return ret;
 
-    /* MNT_FORCE: force unmount even if busy (not fully supported) */
-    /* MNT_DETACH: lazy unmount - detach now, cleanup later (not fully supported) */
+    if (ret != EOK) return ret;
     if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
 
     return vfs_umount(tgt);
@@ -1639,6 +1640,7 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
 
 /* Extended syscall stubs */
 
+/* Generic syscall stub: return -ENOSYS */
 static int64_t sys_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg0;
@@ -1650,17 +1652,7 @@ static int64_t sys_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t ar
     return -ENOSYS;
 }
 
-static int64_t sys_stub_ok(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg0;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return EOK;
-}
-
+/* Shared access/faccessat implementation */
 static int64_t sys_access_common(int dirfd, uint64_t path, uint64_t mode, uint64_t flags)
 {
     if (mode & ~7ULL) return -EINVAL;
@@ -1730,143 +1722,6 @@ static int64_t sys_faccessat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode,
     return sys_access_common((int)dirfd, path, mode, flags);
 }
 
-static int64_t sys_chdir_stub(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    char name[SYSCALL_PATH_MAX];
-    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
-    if (ret != EOK) return ret;
-    vfs_node_t node = vfs_open(name);
-    if (!node) return -ENOENT;
-    if (!(node->type & file_dir)) {
-        vfs_close(node);
-        return -ENOTDIR;
-    }
-    vfs_close(node);
-
-    strncpy(proc->cwd, name, sizeof(proc->cwd) - 1);
-    proc->cwd[sizeof(proc->cwd) - 1] = '\0';
-    return EOK;
-}
-
-static int64_t sys_fchdir_stub(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-
-    process_file_t *file = process_fd_get(proc, (int)fd);
-    if (!file) return -EBADF;
-    if (!(file->node->type & file_dir)) {
-        process_file_put(file);
-        return -ENOTDIR;
-    }
-
-    /* Build path by walking up the parent chain */
-    vfs_node_t node = file->node;
-    char       path[VFS_PATH_MAX];
-    char       tmp[VFS_PATH_MAX];
-    size_t     off = sizeof(path) - 1;
-    path[off]      = '\0';
-
-    while (node && node != node->parent && off > 0) {
-        size_t nlen = strlen(node->name);
-        if (off < nlen + 1) break;
-        off -= nlen;
-        memcpy(path + off, node->name, nlen);
-        if (off > 0) path[--off] = '/';
-        node = node->parent;
-    }
-
-    if (off > 0) path[--off] = '/';
-    memcpy(tmp, path + off, sizeof(path) - off);
-    tmp[sizeof(path) - off] = '\0';
-
-    const char *root     = proc->root[0] ? proc->root : "/";
-    size_t      root_len = strlen(root);
-    if (root_len != 1 && (strncmp(tmp, root, root_len) != 0 || (tmp[root_len] && tmp[root_len] != '/'))) {
-        process_file_put(file);
-        return -EPERM;
-    }
-
-    strncpy(proc->cwd, tmp, sizeof(proc->cwd) - 1);
-    proc->cwd[sizeof(proc->cwd) - 1] = '\0';
-    process_file_put(file);
-    return EOK;
-}
-
-static int64_t sys_truncate_stub(uint64_t path, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    char name[SYSCALL_PATH_MAX];
-    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
-    if (ret != EOK) return ret;
-    vfs_node_t node = vfs_open(name);
-    if (!node) return -ENOENT;
-    if (vfs_mount_is_readonly(node)) {
-        vfs_close(node);
-        return -EROFS;
-    }
-    if ((int64_t)length < 0) {
-        vfs_close(node);
-        return -EINVAL;
-    }
-    int result = vfs_truncate(node, length);
-    vfs_close(node);
-    return result;
-}
-
-static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if ((int64_t)length < 0) return -EINVAL;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    process_file_t *file = NULL;
-    spin_lock(&proc->fd_lock);
-    if ((int)fd >= 0 && (int)fd < PROCESS_MAX_FD) {
-        file = proc->fds[(int)fd];
-        if (file) process_file_get(file);
-    }
-    spin_unlock(&proc->fd_lock);
-    if (!file) return -EBADF;
-    if ((file->flags & O_ACCMODE) == O_RDONLY) {
-        process_file_put(file);
-        return -EINVAL;
-    }
-    if (memfd_is_node(file->node)) {
-        int ret = memfd_resize(file->node, length);
-        process_file_put(file);
-        return ret;
-    }
-    if (vfs_mount_is_readonly(file->node)) {
-        process_file_put(file);
-        return -EROFS;
-    }
-    int result = vfs_truncate(file->node, length);
-    process_file_put(file);
-    return result;
-}
-
 static int64_t sys_clock_settime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1882,45 +1737,6 @@ static int64_t sys_clock_settime_impl(uint64_t clockid, uint64_t tp, uint64_t ar
 
     timer_realtime_set_ns(ts.tv_sec * 1000000000LL + ts.tv_nsec);
     return EOK;
-}
-
-static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (!tp) return -EFAULT;
-
-    int64_t          uptime_ns = (int64_t)timer_monotonic_ns();
-    linux_timespec_t ts;
-
-    switch ((int)clockid) {
-        case CLOCK_REALTIME :
-        case CLOCK_REALTIME_COARSE :
-        case CLOCK_REALTIME_ALARM :
-            /* Wall clock time since epoch */
-            uptime_ns  = timer_realtime_ns();
-            ts.tv_sec  = uptime_ns / 1000000000LL;
-            ts.tv_nsec = uptime_ns % 1000000000LL;
-            break;
-        case CLOCK_MONOTONIC :
-        case CLOCK_MONOTONIC_RAW :
-        case CLOCK_MONOTONIC_COARSE :
-        case CLOCK_BOOTTIME :
-        case CLOCK_BOOTTIME_ALARM :
-        case CLOCK_PROCESS_CPUTIME_ID :
-        case CLOCK_THREAD_CPUTIME_ID :
-        case CLOCK_TAI :
-            /* Monotonic time since boot */
-            ts.tv_sec  = uptime_ns / 1000000000LL;
-            ts.tv_nsec = uptime_ns % 1000000000LL;
-            break;
-        default :
-            return -EINVAL;
-    }
-
-    return copy_to_user((void *)tp, &ts, sizeof(ts)) ? -EFAULT : EOK;
 }
 
 /* sysinfo */
@@ -2000,6 +1816,7 @@ typedef struct linux_rusage {
 #define RUSAGE_SELF     0
 #define RUSAGE_CHILDREN (-1)
 
+/* getrusage syscall: report resource usage */
 static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -2024,6 +1841,7 @@ static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, u
 
 /* restart_syscall */
 
+/* restart_syscall syscall: restart a blocking syscall */
 static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg0;
@@ -2032,16 +1850,8 @@ static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    /*
-     * restart_syscall is used when a syscall returned
-     * -ERESTART_RESTARTBLOCK and the kernel decided to restart.
-     * The actual restart is handled in syscall_dispatch by
-     * adjusting frame->rip back before the syscall instruction.
-     * When restart_syscall is invoked directly, it means the
-     * restart block mechanism is being used. For now, return 0
-     * since the callers re-issue the original syscall via RIP
-     * adjustment.
-     */
+
+    /* Restart is handled by the dispatcher adjusting RIP. */
     return 0;
 }
 
@@ -2088,14 +1898,7 @@ static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64
     return result;
 }
 
-/*
- * fchmodat2(int dirfd, const char *pathname, mode_t mode, int flags)
- *
- * Linux 6.6+.  Identical to fchmodat() but with an explicit flags
- * argument; since Linux 6.8 the AT_SYMLINK_NOFOLLOW flag changes the
- * permission bits of the symbolic link itself instead of its target.
- * Any other flag yields -EINVAL.
- */
+/* fchmodat2 syscall: fchmodat with an explicit flags argument */
 static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -2167,10 +1970,25 @@ static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint
     return result;
 }
 
+/* Create the node described by mode at an already-resolved path. Shared by
+ * mknod (AT_FDCWD) and mknodat so the type dispatch cannot drift. */
+int64_t mknod_create_node(char *resolved, uint64_t mode, uint64_t dev)
+{
+    switch (mode & 0170000) {
+        case 0010000 : // FIFO
+            return pipe_mknod(resolved, (uint16_t)mode, dev);
+        case 0100000 : // regular file
+            return vfs_mkfile_mode(resolved, (uint16_t)mode);
+        case 0020000 : // character device
+        case 0060000 : // block device: created by drivers via devtmpfs
+            return -ENOSYS;
+        default :
+            return -EINVAL;
+    }
+}
+
 static int64_t sys_mknod_impl(uint64_t path, uint64_t mode, uint64_t dev, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)mode;
-    (void)dev;
     (void)arg3;
     (void)arg4;
     (void)arg5;
@@ -2179,9 +1997,10 @@ static int64_t sys_mknod_impl(uint64_t path, uint64_t mode, uint64_t dev, uint64
     char name[SYSCALL_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
     if (ret != EOK) return ret;
-    return vfs_mkfile(name);
+    return mknod_create_node(name, mode, dev);
 }
 
+/* reboot syscall: reboot, halt, or power off */
 static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -2195,7 +2014,6 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
     switch (cmd) {
         case 0x00000000 : // RB_DISABLE_CAD
         case 0x89ABCDEF : // RB_ENABLE_CAD
-                          /* Ctrl-Alt-Del is not handled specially by the input stack yet. */
             return EOK;
         case 0x01234567 : // RB_AUTOBOOT
         case 0xA1B2C3D4 : // RB_RESTART2
@@ -2229,17 +2047,19 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
     for (;;) __asm__ volatile("hlt");
 }
 
+/* personality syscall: return the fixed personality */
 static int64_t sys_personality_impl(uint64_t persona, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
+    (void)persona;
     (void)arg1;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if ((unsigned int)persona != 0xffffffff) {}
     return PER_LINUX;
 }
 
+/* Map a filesystem to its statfs magic number */
 static int64_t linux_statfs_type(vfs_node_t node)
 {
     const char *name = node ? vfs_filesystem_name(node->fsid) : NULL;
@@ -2259,6 +2079,7 @@ static int64_t linux_statfs_type(vfs_node_t node)
     return SOCKFS_MAGIC;
 }
 
+/* Build a statfs structure and copy it to user space */
 static int64_t copy_statfs_to_user(vfs_node_t node, uint64_t buf)
 {
     linux_statfs_t sf;
@@ -2280,6 +2101,7 @@ static int64_t copy_statfs_to_user(vfs_node_t node, uint64_t buf)
     return 0;
 }
 
+/* statfs syscall: report filesystem statistics */
 static int64_t sys_statfs_impl(uint64_t path, uint64_t buf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -2299,6 +2121,7 @@ static int64_t sys_statfs_impl(uint64_t path, uint64_t buf, uint64_t arg2, uint6
     return ret;
 }
 
+/* fstatfs syscall: report filesystem statistics by fd */
 static int64_t sys_fstatfs_impl(uint64_t fd, uint64_t buf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -2315,6 +2138,7 @@ static int64_t sys_fstatfs_impl(uint64_t fd, uint64_t buf, uint64_t arg2, uint64
     return ret;
 }
 
+/* sysinfo syscall: report system statistics */
 static int64_t sys_sysinfo_impl(uint64_t info, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -2350,18 +2174,6 @@ static int64_t sys_sysinfo_impl(uint64_t info, uint64_t arg1, uint64_t arg2, uin
     return 0;
 }
 
-static int64_t sys_clock_getres_stub(uint64_t clockid, uint64_t res, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)clockid;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (!res) return -EFAULT;
-    linux_timespec_t ts = {0, 10000000};
-    return copy_to_user((void *)res, &ts, sizeof(ts)) ? -EFAULT : EOK;
-}
-
 static int64_t sys_clock_nanosleep_impl(uint64_t clockid, uint64_t flags, uint64_t req, uint64_t rem, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -2369,126 +2181,12 @@ static int64_t sys_clock_nanosleep_impl(uint64_t clockid, uint64_t flags, uint64
     return clock_sleep(clockid, flags, req, rem);
 }
 
-static int64_t sys_getrandom_stub(uint64_t buf, uint64_t buflen, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)flags;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (!buf && buflen) return -EFAULT;
-
-    static uint64_t xorshift_state = 0;
-    static bool     has_rdrand     = false;
-    static bool     rdrand_checked = false;
-    if (!rdrand_checked) {
-        uint32_t max_leaf, eax, ebx, ecx, edx;
-        cpuid(0x00000000, &max_leaf, &ebx, &ecx, &edx);
-        has_rdrand = false;
-        if (max_leaf >= 1) {
-            /*
-             * Zero ECX (subleaf) before querying leaf 1, otherwise some CPUs
-             * may return garbage and spuriously claim RDRAND support.
-             */
-            cpuid_safe(0x00000001, 0, &eax, &ebx, &ecx, &edx);
-            has_rdrand = (ecx & (1U << 30)) != 0;
-        }
-        rdrand_checked = true;
-    }
-    if (!xorshift_state) xorshift_state = sched_ticks() ^ 0xDEADBEEFCAFEBABEULL;
-
-    for (uint64_t i = 0; i < buflen; i++) {
-        uint64_t val = 0;
-        uint8_t  ok  = 0;
-        if (has_rdrand) {
-            /* RDRAND may transiently report that no value is available. */
-            for (int retry = 0; retry < 10 && !ok; retry++) __asm__ volatile("rdrand %0; setc %1" : "=r"(val), "=q"(ok));
-        }
-        if (!ok) {
-            val = xorshift_state;
-            val ^= val << 13;
-            val ^= val >> 7;
-            val ^= val << 17;
-            xorshift_state = val;
-        }
-        uint8_t byte = (uint8_t)(val >> ((i % 8) * 8));
-        if (copy_to_user((void *)(buf + i), &byte, 1)) return i ? (int64_t)i : -EFAULT;
-    }
-    return (int64_t)buflen;
-}
-
-static int64_t sys_getcpu_stub(uint64_t cpu, uint64_t node, uint64_t tcache, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)tcache;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    task_t  *task = current_task();
-    uint32_t c    = task ? task->cpu_id : 0;
-    if (cpu && copy_to_user((void *)cpu, &c, sizeof(c))) return -EFAULT;
-    if (node) {
-        uint32_t n = 0;
-        if (copy_to_user((void *)node, &n, sizeof(n))) return -EFAULT;
-    }
-    return EOK;
-}
-
-static int64_t sys_setuid_stub(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
-    proc->uid = (uint32_t)uid;
-    return EOK;
-}
-
-static int64_t sys_setgid_stub(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
-    proc->gid = (uint32_t)gid;
-    return EOK;
-}
-
-static int64_t sys_getresuid_stub(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    uint32_t uid = (uint32_t)sys_getuid(0, 0, 0, 0, 0, 0);
-    if (ruid && copy_to_user((void *)ruid, &uid, sizeof(uid))) return -EFAULT;
-    if (euid && copy_to_user((void *)euid, &uid, sizeof(uid))) return -EFAULT;
-    if (suid && copy_to_user((void *)suid, &uid, sizeof(uid))) return -EFAULT;
-    return EOK;
-}
-
-static int64_t sys_getresgid_stub(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    uint32_t gid = (uint32_t)sys_getgid(0, 0, 0, 0, 0, 0);
-    if (rgid && copy_to_user((void *)rgid, &gid, sizeof(gid))) return -EFAULT;
-    if (egid && copy_to_user((void *)egid, &gid, sizeof(gid))) return -EFAULT;
-    if (sgid && copy_to_user((void *)sgid, &gid, sizeof(gid))) return -EFAULT;
-    return EOK;
-}
-
 typedef struct linux_rlimit64 {
         uint64_t rlim_cur;
         uint64_t rlim_max;
 } linux_rlimit64_t;
 
+/* Read a resource limit from a process */
 static int process_rlimit_snapshot(process_t *target, uint64_t resource, linux_rlimit64_t *limit)
 {
     if (!target || !limit) return -EINVAL;
@@ -2500,6 +2198,7 @@ static int process_rlimit_snapshot(process_t *target, uint64_t resource, linux_r
     return EOK;
 }
 
+/* Update a process resource limit, enforcing privileges */
 static int process_rlimit_update(process_t *caller, process_t *target, uint64_t resource, const linux_rlimit64_t *limit)
 {
     if (!caller || !target || !limit) return -EINVAL;
@@ -2530,6 +2229,7 @@ static int process_rlimit_update(process_t *caller, process_t *target, uint64_t 
     return EOK;
 }
 
+/* getrlimit syscall: read a resource limit */
 static int64_t sys_getrlimit_impl(uint64_t resource, uint64_t rlim, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -2543,6 +2243,7 @@ static int64_t sys_getrlimit_impl(uint64_t resource, uint64_t rlim, uint64_t arg
     return copy_to_user((void *)rlim, &rl, sizeof(rl)) ? -EFAULT : EOK;
 }
 
+/* setrlimit syscall: set a resource limit */
 static int64_t sys_setrlimit_impl(uint64_t resource, uint64_t rlim, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -2554,129 +2255,6 @@ static int64_t sys_setrlimit_impl(uint64_t resource, uint64_t rlim, uint64_t arg
     if (copy_from_user(&limit, (const void *)rlim, sizeof(limit))) return -EFAULT;
     process_t *proc = process_current();
     return process_rlimit_update(proc, proc, resource, &limit);
-}
-
-static int64_t sys_times_stub(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (!tms) return -EFAULT;
-    uint64_t ticks = sched_ticks();
-    if (copy_to_user((void *)tms, &ticks, sizeof(ticks))) return -EFAULT;
-    return (int64_t)ticks;
-}
-
-static int64_t sys_tkill_stub(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return sys_tkill_impl((pid_t)tid, (int)sig);
-}
-
-static int64_t sys_set_tid_address_stub(uint64_t tidptr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-
-    task_t *task = current_task();
-    if (!task || !task->process) return -ESRCH;
-    task->clear_child_tid = tidptr;
-    return task ? (int64_t)task->pid : -ESRCH;
-}
-
-static int64_t sys_sched_get_priority_max_stub(uint64_t policy, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)policy;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 99;
-}
-
-static int64_t sys_sched_get_priority_min_stub(uint64_t policy, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)policy;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 1;
-}
-
-static int64_t sys_sched_rr_get_interval_stub(uint64_t pid, uint64_t interval, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)pid;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (interval) {
-        linux_timespec_t ts = {0, 10000000};
-        if (copy_to_user((void *)interval, &ts, sizeof(ts))) return -EFAULT;
-    }
-    return EOK;
-}
-
-static int64_t sys_sched_getaffinity_stub(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)pid;
-    (void)cpusetsize;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (mask) {
-        uint64_t m = 1;
-        if (copy_to_user((void *)mask, &m, sizeof(m))) return -EFAULT;
-    }
-    return EOK;
-}
-
-static int64_t sys_umask_stub(uint64_t mask, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    uint16_t previous = proc->umask;
-    proc->umask       = (uint16_t)(mask & 0777U);
-    return previous;
-}
-
-static int64_t sys_utimensat_stub(uint64_t dirfd, uint64_t path, uint64_t times, uint64_t flags, uint64_t arg4, uint64_t arg5)
-{
-    (void)dirfd;
-    (void)path;
-    (void)times;
-    (void)flags;
-    (void)arg4;
-    (void)arg5;
-    return EOK;
-}
-
-static int64_t sys_sync_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg0;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    (void)vfs_sync_all();
-    return EOK;
 }
 
 static int64_t sys_fsync_impl(uint64_t fd, uint64_t data_only, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2726,6 +2304,7 @@ static int64_t sys_syncfs_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64
     return vfs_sync_all();
 }
 
+/* prlimit64 syscall: read and/or set a resource limit */
 static int64_t sys_prlimit64_impl(uint64_t pid, uint64_t resource, uint64_t new_rlim, uint64_t old_rlim, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -2757,6 +2336,7 @@ static int64_t sys_prlimit64_impl(uint64_t pid, uint64_t resource, uint64_t new_
     return result;
 }
 
+/* readahead syscall: prefetch file data */
 static int64_t sys_readahead(uint64_t fd, uint64_t offset, uint64_t count, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -2776,17 +2356,7 @@ static int64_t sys_readahead(uint64_t fd, uint64_t offset, uint64_t count, uint6
     return result;
 }
 
-static int64_t sys_listxattr_stub(uint64_t path, uint64_t list, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)path;
-    (void)list;
-    (void)size;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 0;
-}
-
+/* fadvise64 syscall: apply a file access hint */
 static int64_t sys_fadvise64(uint64_t fd, uint64_t offset, uint64_t len, uint64_t advice, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -2805,48 +2375,6 @@ static int64_t sys_fadvise64(uint64_t fd, uint64_t offset, uint64_t len, uint64_
     }
     process_file_put(file);
     return result == -EOPNOTSUPP ? EOK : result;
-}
-
-static int64_t sys_fallocate_stub(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t len, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    if ((int64_t)offset < 0 || (int64_t)len <= 0 || offset > UINT64_MAX - len) return -EINVAL;
-
-    process_file_t *file = process_fd_get(proc, (int)fd);
-    if (!file) return -EBADF;
-    if ((file->flags & O_ACCMODE) == O_RDONLY) {
-        process_file_put(file);
-        return -EBADF;
-    }
-    int ret = memfd_fallocate(file->node, (uint32_t)mode, offset, len);
-    process_file_put(file);
-    return ret;
-}
-
-static int64_t sys_sync_file_range_stub(uint64_t fd, uint64_t offset, uint64_t nbytes, uint64_t flags, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg4;
-    (void)arg5;
-    if (flags & ~7U) return -EINVAL;
-    if ((int64_t)offset < 0 || offset > UINT64_MAX - nbytes) return -EINVAL;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    process_file_t *file = process_fd_get(proc, (int)fd);
-    if (!file) return -EBADF;
-    uint64_t end    = nbytes ? offset + nbytes - 1 : UINT64_MAX;
-    int      result = vfs_writeback_range(file->node, offset, end, 1);
-    process_file_put(file);
-    return result;
-}
-
-static int64_t sys_renameat2_stub(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd, uint64_t newpath, uint64_t flags, uint64_t arg5)
-{
-    (void)flags;
-    (void)arg5;
-    return sys_renameat(olddirfd, oldpath, newdirfd, newpath, 0, 0);
 }
 
 static int64_t do_execve(const char *path, char *const argv[], char *const envp[], syscall_frame_t *frame);
@@ -3051,6 +2579,7 @@ typedef struct rseq_layout {
 
 _Static_assert(sizeof(rseq_layout_t) == 64, "rseq ABI size");
 
+/* rseq syscall: register a restartable sequence area */
 static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t flags, uint64_t sig, uint64_t arg4, uint64_t arg5)
 {
     (void)sig;
@@ -3060,14 +2589,6 @@ static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t fla
     if (flags & ~0ULL) return -EINVAL;
     if (rseq_len != sizeof(rseq_layout_t)) return -EINVAL;
     if (!rseq_base) return -EINVAL;
-
-    /*
-     * Store the rseq area association. A full implementation would abort
-     * the rseq critical section on preemption/migration/signal delivery.
-     * For now, just register the area so that glibc initialization succeeds.
-     */
-    (void)rseq_base;
-    (void)rseq_len;
 
     /* Write cpu_id to the rseq area */
     task_t *task = current_task();
@@ -3082,6 +2603,7 @@ static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t fla
 
 static int pidfd_fsid = -1;
 
+/* VFS open callback (no-op) */
 static void pidfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -3089,12 +2611,14 @@ static void pidfd_vfs_open(void *parent, const char *name, vfs_node_t node)
     (void)node;
 }
 
+/* VFS close callback: drop the process reference */
 static void pidfd_vfs_close(void *current)
 {
     process_t *target = (process_t *)current;
     if (target) process_put(target);
 }
 
+/* Unsupported read callback */
 static size_t pidfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     (void)file;
@@ -3104,6 +2628,7 @@ static size_t pidfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
     return (size_t)-1;
 }
 
+/* Unsupported write callback */
 static size_t pidfd_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     (void)file;
@@ -3113,6 +2638,7 @@ static size_t pidfd_vfs_write(void *file, const void *addr, size_t offset, size_
     return (size_t)-1;
 }
 
+/* Unsupported stat callback */
 static int pidfd_stub_stat(void *f, vfs_node_t n)
 {
     (void)f;
@@ -3120,6 +2646,7 @@ static int pidfd_stub_stat(void *f, vfs_node_t n)
     return EOK;
 }
 
+/* Unsupported mkdir/mkfile/link/symlink callback */
 static int pidfd_stub_mk(void *p, const char *nm, vfs_node_t n)
 {
     (void)p;
@@ -3128,6 +2655,7 @@ static int pidfd_stub_mk(void *p, const char *nm, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported readlink callback */
 static size_t pidfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 {
     (void)n;
@@ -3137,6 +2665,7 @@ static size_t pidfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
     return (size_t)-1;
 }
 
+/* Unsupported ioctl callback */
 static int pidfd_stub_ioctl(void *f, size_t o, void *a)
 {
     (void)f;
@@ -3145,12 +2674,14 @@ static int pidfd_stub_ioctl(void *f, size_t o, void *a)
     return -ENOSYS;
 }
 
+/* Unsupported dup callback */
 static vfs_node_t pidfd_stub_dup(vfs_node_t n)
 {
     (void)n;
     return NULL;
 }
 
+/* Unsupported delete callback */
 static int pidfd_stub_del(void *p, vfs_node_t n)
 {
     (void)p;
@@ -3158,12 +2689,14 @@ static int pidfd_stub_del(void *p, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported rename callback */
 static int pidfd_stub_rename(const vfs_rename_context_t *context)
 {
     (void)context;
     return -ENOSYS;
 }
 
+/* Unsupported mount callback */
 static int pidfd_stub_mount(const char *s, vfs_node_t n)
 {
     (void)s;
@@ -3171,11 +2704,13 @@ static int pidfd_stub_mount(const char *s, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported unmount callback */
 static void pidfd_stub_unmount(void *root)
 {
     (void)root;
 }
 
+/* Lazily register the pidfd filesystem callbacks */
 static void pidfd_ensure_init(void)
 {
     if (pidfd_fsid >= 0) return;
@@ -3198,8 +2733,13 @@ static void pidfd_ensure_init(void)
     cb->delete   = pidfd_stub_del;
     cb->rename   = pidfd_stub_rename;
     pidfd_fsid   = vfs_regist(cb);
+    if (pidfd_fsid < 0)
+        plogk("pidfd: Failed to register VFS callbacks (%d)\n", pidfd_fsid);
+    else
+        plogk("pidfd: Filesystem registered (fsid=%d)\n", pidfd_fsid);
 }
 
+/* pidfd_open syscall: open a process descriptor */
 static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -3263,6 +2803,7 @@ typedef struct clone3_args {
         uint64_t cgroup;
 } clone3_args_t;
 
+/* clone3 syscall: create a child process or thread */
 static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -3286,29 +2827,14 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
         flags = (flags & ~0xffULL) | (exit_signal & 0xff);
     }
 
-    /*
-     * For now, support the same subset as our existing clone:
-     * CLONE_VM|CLONE_VFORK for vfork, CLONE_THREAD|CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_SYSVSEM for threads,
-     * and basic fork (flags=signal only).
-     */
     uint64_t supported_thread = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM;
-
-    bool is_thread = (flags & CLONE_THREAD) != 0;
-    bool is_vfork  = (flags & CLONE_VFORK) != 0;
+    bool     is_thread        = (flags & CLONE_THREAD) != 0;
+    bool     is_vfork         = (flags & CLONE_VFORK) != 0;
 
     if (is_thread) {
         if ((flags & supported_thread) != flags) return -EINVAL;
-        /* Thread creation handled by the dispatch's CLONE_THREAD path */
-        /* But we're not in the dispatch here; we need to simulate it. */
     }
 
-    /*
-     * For a basic fork or vfork, delegate to the existing wrapper.
-     * Since we can't easily redirect to the dispatch's fork/clone logic
-     * from here, we use the process-level API directly.
-     */
-
-    /* Simplify: treat clone3 as clone with flags */
     if (is_thread) {
         process_t *proc = process_current();
         if (!proc) return -ESRCH;
@@ -3323,7 +2849,6 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
     int        error = EOK;
     process_t *child = process_fork_status_event_mode(&error, is_vfork ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK, is_vfork);
     if (!child) return error;
-
     if (args.stack && args.stack_size) {
         /* Set up child stack */
         task_t *ct = child->task;
@@ -3333,8 +2858,6 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
             kstack -= 4; // Leave room
             *(--kstack)     = (uint64_t)syscall_return;
             ct->context.rsp = (uint64_t)kstack;
-            /* Set the user stack pointer via the child's context */
-            /* This needs to be done in process_fork_publish context... */
         }
     }
 
@@ -3345,6 +2868,7 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
 
 /* process_madvise */
 
+/* process_madvise syscall: apply advice to a process */
 static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t vlen, uint64_t advice, uint64_t flags, uint64_t arg5)
 {
     (void)flags;
@@ -3353,7 +2877,7 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
     if (flags) return -EINVAL;
 
     process_t *target = NULL;
-    /* pidfd is an fd pointing to a process; for now accept raw pid */
+    /* Treat pidfd as a raw pid. */
     target = process_find_get((pid_t)pidfd);
     if (!target) return -ESRCH;
 
@@ -3371,7 +2895,7 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
 
     int result = 0;
     for (uint64_t i = 0; i < vlen; i++) {
-        /* Apply advice per-range. For now, just validate and return success. */
+        /* Validate advice per range. */
         switch (advice) {
             case 1 : // MADV_COLD
             case 2 : // MADV_PAGEOUT
@@ -3389,6 +2913,7 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
 
 /* epoll_pwait2 */
 
+/* epoll_pwait2 syscall: wait with a nanosecond timeout */
 static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t tsp, uint64_t sigmask, uint64_t sigsetsize)
 {
     int timeout_ms = -1; // infinite
@@ -3985,6 +3510,7 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
 #define WSTOPPED 0x00000002
 #define WNOWAIT  0x01000000
 
+/* waitid syscall: wait for a child by selector */
 static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, uint64_t options, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -3994,10 +3520,7 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     int   flags = (int)options;
 
     if (!(flags & (WEXITED | WSTOPPED | WCONTINUED)) || (flags & ~(WNOHANG | WEXITED | WSTOPPED | WCONTINUED | WNOWAIT))) return -EINVAL;
-    /*
-     * Non-destructive wait snapshots require retained per-child wait events;
-     * reject WNOWAIT until that ABI is available rather than consuming state.
-     */
+    /* Non-destructive wait snapshots are not supported. */
     if (flags & WNOWAIT) return -EINVAL;
 
     switch ((int)which) {
@@ -4017,7 +3540,6 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
             return -EINVAL;
     }
 
-    /* For now, delegate to wait4 and ignore siginfo_t output */
     int     status = 0;
     int64_t ret;
 
@@ -4074,6 +3596,7 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     return 0;
 }
 
+/* Copy an argv/envp vector from user space */
 static char **copy_argv_from_user(const char *const *uargv, int max_entries, int *out_count, size_t *total_bytes, int *out_error)
 {
     *out_count = -1;
@@ -4133,6 +3656,7 @@ fail:
     return NULL;
 }
 
+/* Free a NULL-terminated string array */
 static void free_string_array(char **arr)
 {
     if (!arr) return;
@@ -4140,6 +3664,7 @@ static void free_string_array(char **arr)
     free(arr);
 }
 
+/* Load and execute a resolved program image */
 static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, char *const argv[], char *const envp[], syscall_frame_t *frame)
 {
     process_t *proc = process_current();
@@ -4183,12 +3708,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
     size_t     image_size = 0;
     vfs_node_t exec_node  = NULL;
 
-    /*
-     * Linux binfmt_script semantics: replace argv[0] with the interpreter,
-     * insert its optional argument as one word, then the script pathname,
-     * while preserving the caller's argv[1..].  Resolve at most four nested
-     * interpreters so malformed shebang loops fail deterministically.
-     */
+    /* Replace argv[0] with the interpreter, then the script path; resolve at most four nested interpreters. */
     for (int depth = 0;; depth++) {
         int        lookup_error = EOK;
         vfs_node_t node;
@@ -4383,7 +3903,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
     free_string_array(kenvp);
 
     if (ret) {
-        plogk("syscall: Exec of %s rejected by ELF loader (errno %d, %llu bytes, magic=%u)\n", kpath, -ret, (unsigned long long)image_size, image_magic);
+        plogk("syscall: Exec of %s rejected by ELF loader (errno %d, %llu bytes, magic=%u)\n", kpath, ret, (unsigned long long)image_size, image_magic);
 
         /*
          * Loading failed. Destroy the new (incomplete) page directory
@@ -4459,6 +3979,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
     return 0;
 }
 
+/* Resolve a path and execute the program */
 static int64_t do_execve(const char *path, char *const argv[], char *const envp[], syscall_frame_t *frame)
 {
     process_t *proc = process_current();
@@ -4470,6 +3991,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     return do_execve_resolved(kpath, NULL, argv, envp, frame);
 }
 
+/* execve syscall: replace the process image */
 static int64_t sys_execve_wrap(uint64_t path, uint64_t argv, uint64_t envp, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4497,14 +4019,7 @@ typedef struct linux_dirent64 {
 #define DT_LNK     10
 #define DT_SOCK    12
 
-/*
- * Map an internal VFS node type to a Linux d_type.  libudev (and therefore
- * Weston's DRM backend) enumerates devices by listing /sys/class/<subsystem>/
- * and only accepts entries whose d_type is DT_DIR or DT_LNK (see
- * relevant_sysfs_subdir() in sd-device).  Reporting a sysfs class symlink
- * (e.g. /sys/class/drm/card0) as DT_REG made the enumeration empty, so
- * find_primary_gpu() found nothing and Weston logged "no drm device found".
- */
+/* Map an internal VFS node type to a getdents64 d_type */
 static unsigned char vfs_node_to_dtype(uint16_t type)
 {
     if (type & file_dir) return DT_DIR;
@@ -4531,6 +4046,7 @@ static int64_t sys_getdents64_wrap(uint64_t fd, uint64_t dirent, uint64_t count,
     return ret;
 }
 
+/* getdents64 syscall: read directory entries */
 static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
 {
     process_t *proc = process_current();
@@ -4599,6 +4115,7 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
 
 /* writev / readv */
 
+/* writev syscall: write a vector of buffers */
 static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4652,6 +4169,7 @@ writev_done:
     return total;
 }
 
+/* readv syscall: read into a vector of buffers */
 static int64_t sys_readv_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4707,6 +4225,7 @@ readv_done:
 
 /* chroot */
 
+/* chroot syscall: change the root directory */
 static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -4765,6 +4284,7 @@ static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t 
 #define PR_SET_NO_NEW_PRIVS 36
 #define PR_GET_NO_NEW_PRIVS 37
 
+/* prctl syscall: process control operations */
 static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6)
 {
     (void)arg3;
@@ -4775,7 +4295,6 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
     switch ((int)option) {
         case PR_SET_PDEATHSIG : {
             /* arg2 is the signal to send on parent death */
-            /* For now we silently accept but don't implement the full mechanism */
             if ((int)arg2 > 64 && (int)arg2 != 0) return -EINVAL;
             return 0;
         }
@@ -4843,6 +4362,7 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
 #endif
 #define SYSCALL_MODULE_MAX_SIZE ((size_t)CONFIG_MODULE_MAX_SIZE * 1024U * 1024U)
 
+/* Copy module parameter string from user space */
 static int copy_module_params(uint64_t user_params, char params[MODULE_PARAM_MAX])
 {
     if (!user_params) {
@@ -4853,6 +4373,7 @@ static int copy_module_params(uint64_t user_params, char params[MODULE_PARAM_MAX
     return ret < 0 ? ret : EOK;
 }
 
+/* swapon syscall: enable a swap area */
 static int64_t sys_swapon(uint64_t path, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -4868,6 +4389,7 @@ static int64_t sys_swapon(uint64_t path, uint64_t flags, uint64_t arg2, uint64_t
     return swap_activate_path(name, (uint32_t)flags);
 }
 
+/* swapoff syscall: disable a swap area */
 static int64_t sys_swapoff(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -4884,6 +4406,7 @@ static int64_t sys_swapoff(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t
     return swap_deactivate_path(name);
 }
 
+/* init_module syscall: load a kernel module */
 static int64_t sys_init_module_impl(uint64_t image, uint64_t length, uint64_t user_params, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4912,6 +4435,7 @@ static int64_t sys_init_module_impl(uint64_t image, uint64_t length, uint64_t us
     return ret;
 }
 
+/* finit_module syscall: load a kernel module from a fd */
 static int64_t sys_finit_module_impl(uint64_t fd, uint64_t user_params, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4961,6 +4485,7 @@ out_finit:
     return ret;
 }
 
+/* delete_module syscall: unload a kernel module */
 static int64_t sys_delete_module_impl(uint64_t user_name, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -5343,6 +4868,7 @@ static inline int is_restart_code(int64_t ret)
     return ret == -ERESTARTSYS || ret == -ERESTARTNOINTR || ret == -ERESTARTNOHAND || ret == -ERESTART_RESTARTBLOCK || ret == -ERESTART;
 }
 
+/* Dispatch a syscall from a saved register frame */
 int syscall_dispatch(syscall_frame_t *frame)
 {
     uint64_t num           = frame->rax;
@@ -5629,6 +5155,7 @@ check_signals:
     return 1;
 }
 
+/* Restore registers and return via IRETQ */
 __attribute__((naked)) void syscall_return(void)
 {
     __asm__ volatile("popq %r15\n\t"
@@ -5649,6 +5176,7 @@ __attribute__((naked)) void syscall_return(void)
                      "iretq\n\t");
 }
 
+/* Restore registers and return via SYSRET */
 __attribute__((naked, used)) static void syscall_return_sysret(void)
 {
     __asm__ volatile("popq %r15\n\t"
@@ -5672,6 +5200,7 @@ __attribute__((naked, used)) static void syscall_return_sysret(void)
                      "sysretq\n\t");
 }
 
+/* Interrupt-based syscall entry point */
 __attribute__((naked)) void syscall_entry(void)
 {
     __asm__ volatile("cld\n\t"
@@ -5695,6 +5224,7 @@ __attribute__((naked)) void syscall_entry(void)
                      "jmp syscall_return\n\t");
 }
 
+/* SYSCALL-instruction entry point */
 __attribute__((naked)) static void syscall_entry_syscall(void)
 {
     __asm__ volatile(
@@ -5731,6 +5261,7 @@ __attribute__((naked)) static void syscall_entry_syscall(void)
                                                                                                                                                                        "jmp syscall_return_sysret\n\t");
 }
 
+/* Program this CPU's SYSCALL MSRs */
 void syscall_init_cpu(uint64_t kernel_gs_base)
 {
     uint64_t star = rdmsr(0xC0000081);
@@ -5745,6 +5276,7 @@ void syscall_init_cpu(uint64_t kernel_gs_base)
     wrmsr(0xC0000102, kernel_gs_base);
 }
 
+/* Install the syscall entry points */
 void syscall_init(void)
 {
     register_interrupt_handler(SYSCALL_VECTOR, (void *)syscall_entry, 0, 0xee);

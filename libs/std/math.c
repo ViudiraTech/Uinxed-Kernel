@@ -176,24 +176,35 @@ double ceil(double x)
     return r;
 }
 
-/* Return the remainder of x divided by y */
+/* Return the remainder of x divided by y, with the sign of x */
 double fmod(double x, double y)
 {
     if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
-    double r;
-    if (y == 0) {
-        r = __builtin_nanf("");
-    } else {
-        double intPart   = x / y;
-        double remainder = x - intPart * y;
 
-        if (remainder < 0)
-            remainder += y;
-        else if (remainder > y)
-            remainder -= y;
-        r = remainder;
+    double ax = fabs(x);
+    double ay = fabs(y);
+    double r;
+
+    if (y == 0.0 || __builtin_isnan(x) || __builtin_isnan(y) || __builtin_isinf(x))
+        r = __builtin_nanf("");
+    else if (__builtin_isinf(y) || ax < ay)
+        r = x; /* fmod(x, +-Inf) == x, and |x| < |y| gives x */
+    else {
+        /* Scale |y| up to the magnitude of |x|, then subtract it back down
+         * in a binary long division.  This never truncates x/y through an
+         * integer, so the quotient cannot overflow. */
+        double m = ay;
+        while (m <= ax * 0.5) m *= 2.0;
+
+        r = ax;
+        while (m >= ay) {
+            if (r >= m) r -= m;
+            m *= 0.5;
+        }
+        if (x < 0.0) r = -r;
     }
+
     kernel_fpu_end();
     return r;
 }
@@ -203,13 +214,31 @@ double cos(double x)
 {
     if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
-    double sum  = 0.0;
-    double term = x;
-    int    n    = 0;
 
-    for (n = 0; term > 1e-15; n++) {
-        term = term * (-1) * (2 * n) * (2 * n - 1) / ((2 * n) * (2 * n - 1));
+    /* cos is undefined at NaN and +-Inf. */
+    if (__builtin_isnan(x) || __builtin_isinf(x)) {
+        kernel_fpu_end();
+        return __builtin_nanf("");
+    }
+
+    /* Reduce x into [-pi, pi] so the Taylor series converges quickly.
+     * fmod() performs the reduction without truncating x / 2pi through an
+     * integer, so it stays correct for large arguments. */
+    const double pi     = 3.14159265358979323846;
+    const double two_pi = 2.0 * pi;
+    x                   = fmod(x, two_pi);
+    if (x > pi)
+        x -= two_pi;
+    else if (x < -pi)
+        x += two_pi;
+
+    double sum  = 0.0;
+    double term = 1.0;
+    int    n    = 0;
+    while (fabs(term) > 1e-15) {
         sum += term;
+        term *= -x * x / ((2.0 * n + 1.0) * (2.0 * n + 2.0));
+        n++;
     }
     kernel_fpu_end();
     return sum;
@@ -223,6 +252,8 @@ double sqrt(double number)
     double r;
     if (number < 0) {
         r = __builtin_nanf("");
+    } else if (number == 0.0) {
+        r = 0.0;
     } else {
         double x       = number;
         double epsilon = 1e-15;
@@ -238,25 +269,45 @@ double sqrt(double number)
     return r;
 }
 
-/* Calculate the arc cosine (inverse cosine) of x */
+/* Calculate the arc cosine (inverse cosine) of x, in [0, pi] */
 double acos(double x)
 {
     if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
-    double x0             = x;
-    double x1             = x0;
-    double tolerance      = 1e-15;
-    double max_iterations = 1000;
-    int    iterations     = 0;
 
-    while (iterations < max_iterations) {
-        x1 = x0 - (-1 / sqrt(1 - x0 * x0)) / (1 / cos(x0));
-        if (fabs(x1 - x0) < tolerance) break;
-        x0 = x1;
-        iterations++;
+    /* acos is only defined on [-1, 1]; the exact endpoints are handled
+     * explicitly because acos is ill-conditioned there. */
+    const double pi = 3.14159265358979323846;
+    if (__builtin_isnan(x) || x > 1.0 || x < -1.0) {
+        kernel_fpu_end();
+        return __builtin_nanf("");
+    }
+    if (x == 1.0) {
+        kernel_fpu_end();
+        return 0.0;
+    }
+    if (x == -1.0) {
+        kernel_fpu_end();
+        return pi;
+    }
+
+    /* Newton's method on f(theta) = cos(theta) - x over theta in [0, pi]. */
+    double theta = pi / 2.0;
+    for (int i = 0; i < 100; i++) {
+        double c = cos(theta);
+        if (c > 1.0) c = 1.0;
+        if (c < -1.0) c = -1.0;
+        double s = sqrt((1.0 - c) * (1.0 + c));
+        if (s < 1e-12) break;
+        double next = theta + (c - x) / s;
+        if (fabs(next - theta) < 1e-15) {
+            theta = next;
+            break;
+        }
+        theta = next;
     }
     kernel_fpu_end();
-    return x1;
+    return theta;
 }
 
 /* Calculate x raised to the power of y */
@@ -265,7 +316,12 @@ double pow(double x, int y)
     if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double result = 1.0;
-    for (int i = 0; i < y; i++) result *= x;
+    if (y >= 0) {
+        for (int i = 0; i < y; i++) result *= x;
+    } else {
+        for (int i = y; i < 0; i++) result *= x;
+        result = 1.0 / result;
+    }
     kernel_fpu_end();
     return result;
 }
@@ -275,9 +331,12 @@ double ldexp(double x, int exp)
 {
     if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
-    int n = 2;
-    for (int i = 0; i < exp - 1; i++) n *= 2;
-    double r = x * (double)(n);
+    double r = x;
+    if (exp >= 0) {
+        for (int i = 0; i < exp; i++) r *= 2.0;
+    } else {
+        for (int i = exp; i < 0; i++) r *= 0.5;
+    }
     kernel_fpu_end();
     return r;
 }

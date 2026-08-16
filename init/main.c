@@ -101,6 +101,7 @@
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
+#include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/mmap.h>
 #include <syscall/signalfd.h>
@@ -129,6 +130,18 @@ void executable_entry(void)
     while (1) __asm__ volatile("cli; hlt");
 }
 
+/* Load `path` as PID 1, logging any failure and returning the status. */
+static int swapper_try_init_path(process_t *init, const char *path)
+{
+    char *init_argv[] = {(char *)path, NULL};
+    int   status      = elf_loader_load_initial_path(init, path, init_argv, NULL);
+
+    if (!status) return 0;
+
+    plogk(status != -ENOENT ? "swapper/0: %s exists but couldn't execute it (error %d)\n" : "swapper/0: %s not found.\n", path, status);
+    return status;
+}
+
 /* Create init process */
 static void swapper_run_init(void)
 {
@@ -148,63 +161,87 @@ static void swapper_run_init(void)
     pid_t init_sid = 0;
     if (process_setsid(init, &init_sid) || init_sid != 1 || init->pgid != 1) panic("Failed to establish init session.");
 
-    static const char *const init_paths[] = {"/sbin/init", "/etc/init", "/bin/init", "/bin/sh"};
-    const char              *chosen_path  = NULL;
-
     /*
-     * Search for a runnable init in the conventional locations (Linux
-     * kernel_init / try_to_run_init_process).  -ENOENT is skipped silently:
-     * that covers a genuinely absent file as well as a present init whose
-     * dynamic interpreter (or /dev/console) is missing, both of which the ELF
-     * loader reports as -ENOENT.  A file that exists but cannot be executed is
-     * a real error and is reported immediately; success ends the search.
+     * Hand PID 1 the console as its standard descriptors before it runs.
+     * Mirrors Linux kernel_init_freeable(): a missing console is a warning,
+     * never a reason to abandon init.
      */
-    for (size_t i = 0; i < sizeof(init_paths) / sizeof(init_paths[0]); i++) {
-        char *init_argv[] = {(char *)init_paths[i], NULL};
-        int   status      = elf_loader_load_initial_path(init, init_paths[i], init_argv, NULL);
-        if (!status) {
-            chosen_path = init_paths[i];
-            break;
-        }
-        if (status != -ENOENT) plogk("Starting init: %s exists but couldn't execute it (error %d)\n", init_paths[i], -status);
-    }
-
-    /*
-     * All conventional init paths failed.  Fall back to a bootloader-supplied
-     * Limine resource module named "init" (the Linux initramfs /init
-     * analogue): if one was provided, run it as the first userspace process.
-     */
-    if (!chosen_path) {
-        lmodule_t *init_mod = get_lmodule("init");
-        if (init_mod && init_mod->data && init_mod->size) {
-            char *init_argv[] = {init_mod->path ? init_mod->path : init_mod->name, NULL};
-            int   status      = elf_loader_load_initial_process(init, init_mod->data, init_mod->size, init_argv, NULL);
-            if (!status) {
-                chosen_path = init_mod->path ? init_mod->path : init_mod->name;
-            } else if (status != -ENOENT) {
-                plogk("Starting init: %s exists but couldn't execute it (error %d)\n", init_mod->name, -status);
+    {
+        vfs_node_t console = vfs_open("/dev/console");
+        if (!console) {
+            plogk("swapper/0: Unable to open an initial console.\n");
+        } else {
+            int std_fd = process_fd_install(init, console, O_RDWR | O_NOCTTY);
+            if (std_fd != 0) {
+                /* Should never happen: a fresh process has fd 0 free. */
+                if (std_fd < 0)
+                    vfs_close(console);
+                else
+                    process_fd_close(init, std_fd);
+                plogk("swapper/0: Unable to open an initial console.\n");
+            } else {
+                (void)process_fd_dup2(init, 0, 1);
+                (void)process_fd_dup2(init, 0, 2);
+                (void)tty_console_acquire(init, O_RDWR);
             }
         }
     }
-    if (!chosen_path) panic("No working init found.");
 
+    const char *chosen_path = NULL; // raw path stored in exe_path
+
+    /* init= value buffer; chosen_path may point into it. */
+    char init_opt[VFS_PATH_MAX];
+
+#if CONFIG_INIT_MODULE
+    lmodule_t  *init_mod = get_lmodule("init");
+    const char *mod_name = init_mod ? (init_mod->path ? init_mod->path : init_mod->name) : "init";
+#endif
+
+    /* Probe order: init=, CONFIG_INIT_PATH, conventional paths, then the bootloader module. */
+    const char *init_param = cmdline_get_option("init", init_opt, sizeof(init_opt));
+    if (init_param && !swapper_try_init_path(init, init_param)) chosen_path = init_param;
+    if (!chosen_path && CONFIG_INIT_PATH[0] && !swapper_try_init_path(init, CONFIG_INIT_PATH)) chosen_path = CONFIG_INIT_PATH;
+    if (!chosen_path) {
+        static const char *const init_paths[] = {"/sbin/init", "/etc/init", "/bin/init", "/bin/sh"};
+        const size_t             n_paths      = sizeof(init_paths) / sizeof(init_paths[0]);
+
+        for (size_t i = 0; i < n_paths; i++) {
+            if (!swapper_try_init_path(init, init_paths[i])) {
+                chosen_path = init_paths[i];
+                break;
+            }
+        }
+
+#if CONFIG_INIT_MODULE
+        /* Bootloader "init" module as a last resort. */
+        if (!chosen_path) {
+            char *init_argv[] = {(char *)mod_name, NULL};
+            int   status      = (init_mod && init_mod->data && init_mod->size) ? elf_loader_load_initial_process(init, init_mod->data, init_mod->size, init_argv, NULL) : -ENOENT;
+            if (!status) {
+                chosen_path = mod_name;
+            } else {
+                plogk(status != -ENOENT ? "swapper/0: %s exists but couldn't execute it (error %d)\n" : "swapper/0: %s not found.\n", mod_name, status);
+            }
+        }
+#endif
+    }
+    if (!chosen_path) panic("No working init found.");
     strncpy(init->exe_path, chosen_path, sizeof(init->exe_path) - 1);
     init->exe_path[sizeof(init->exe_path) - 1] = '\0';
 
     for (uint32_t i = 0; i < sched_cpu_count(); i++)
         if (cpu_rqs[i].idle) cpu_rqs[i].idle->process = init;
-    plogk("swapper/0: init found and loaded from %s\n", chosen_path);
+    plogk("swapper/0: Init process (pid=1) ready: %s\n", chosen_path);
 
     /*
      * Kernel init is complete: hand the full screen back to the console.
      * The boot logo is not cleared or redrawn - it stays on screen and the
-     * first console scrolls naturally cover it line by line (Linux fbcon
-     * behaviour).
+     * first console scrolls naturally cover it line by line.
      */
     fbcon_release_logo();
 }
 
-/* Make init runnable only after driver init is complete (Linux kernel_init_freeable). */
+/* Make init runnable only after driver init is complete. */
 static void swapper_enqueue_init(void)
 {
     spin_lock(&scheduler.lock);
@@ -253,88 +290,29 @@ void kernel_entry(void)
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
     /* Architecture */
-    init_gdt();                      // Global Descriptor Table
-    init_idt();                      // Interrupt Descriptor Table
-    isr_registe_handle();            //
-    serial_irq_install();            // Serial IRQ handlers (must follow init_idt)
-                                     //
-    /* Platform Discovery */         //
-    acpi_init();                     // Advanced Configuration and Power Interface
-    tpm_init();                      // Trusted Platform Module
-    tsc_init();                      // Time Stamp Counter
-    smp_init();                      // Symmetric Multiprocessing
-    parport_pc_init();               // PC Parallel Port (SPP)
-                                     //
-    print_memory_map();              //
-    log_buffer_print(&frame_log);    //
-                                     //
-    /* Hardware Bus & Input */       //
-    pci_init();                      // Peripheral Component Interconnect
-    init_ps2();                      // PS/2 Controller
-    parport_pc_init();               // PC Parallel Port (SPP)
-                                     //
-    log_buffer_print(&serial_log);   //
-    log_buffer_print(&parallel_log); //
-    log_buffer_print(&lmodule_log);  //
-                                     //
-    /* Device Drivers */             //
-    init_ide();                      // ATA / ATAPI
-    init_ahci();                     // Advanced Host Controller Interface
-    nvme_init();                     // Non-Volatile Memory Express
-    block_register_all_disks();      // Publish discovered disks into the gendisk registry
-    net_init();                      // Initialize ARP/NDP caches and DHCP client
-    e1000_init();                    // Intel 8254x Gigabit Ethernet
-    rtl8169_init();                  // Realtek RTL8169 Gigabit Ethernet
-    rtl8139_init();                  // Realtek RTL8139 Fast Ethernet
-    usb_host_pci_scan();             // Discover and init all USB host controllers
-    sb16_init();                     // Sound Blaster 16
-    hda_init();                      // Intel HD Audio
-                                     //
-    /* Virtual Filesystem */         //
-    init_vfs();                      // Virtual Filesystem
-    tmpfs_regist();                  // Temporary File System
-    procfs_regist();                 // Process File System
-    sysfs_regist();                  // Register sysfs with the VFS layer
-    cgroupfs_regist();               // Unified Control Group File System
-
-    if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
-
-    /* Device Model */
-    sysfs_init();                                                  // Create sysfs root kobject and top-level directories
-    module_subsystem_init();                                       // Loadable kernel module registry and /sys/module
-    device_model_init();                                           // Initialise the device model (bus/class/device)
-    ppdev_init();                                                  // /dev/parportN character devices
-    chrdev_init();                                                 // Register static character devices
-    vt_driver_init();                                              // Register vt/aux tty drivers
-    devtmpfs_init();                                               // Device Temporary File System
+    init_gdt();                                                    // Global Descriptor Table
+    init_idt();                                                    // Interrupt Descriptor Table
+    isr_registe_handle();                                          //
+    serial_irq_install();                                          // Serial IRQ handlers (must follow init_idt)
                                                                    //
-    /* RAM Filesystem */                                           //
-    init_cpio();                                                   // Copy In, Copy Out
+    /* Platform Discovery */                                       //
+    acpi_init();                                                   // Advanced Configuration and Power Interface
+    tpm_init();                                                    // Trusted Platform Module
+    tsc_init();                                                    // Time Stamp Counter
+    smp_init();                                                    // Symmetric Multiprocessing
+    parport_pc_init();                                             // PC Parallel Port (SPP)
                                                                    //
-    /* Sysfs Population */                                         //
-    kernel_sysfs_init();                                           // /sys/kernel/{version,cmdline,hostname,...}
-    pci_sysfs_init();                                              // /sys/bus/pci/ + /sys/devices/pci*
-    i2c_sysfs_init();                                              // /sys/bus/i2c + /sys/class/i2c-dev
-    usb_sysfs_init();                                              // /sys/bus/usb/ + /sys/bus/usb/devices/
-    block_sysfs_init();                                            // /sys/block/{hdX,sdX,nvme*}
-    tty_sysfs_init();                                              // /sys/class/tty/
-    net_sysfs_init();                                              // /sys/class/net/<interface>/
-    input_sysfs_init();                                            // /sys/class/input/eventX
-    fb_sysfs_init();                                               // /sys/class/graphics/fb0 + platform topology
-    mem_sysfs_init();                                              // /sys/class/mem/ (null, zero, full, random, urandom)
-    sound_sysfs_init();                                            // /sys/class/sound/cardN + ALSA node sub-devices
-    rtc_sysfs_init();                                              // /sys/class/rtc/rtc0
-    tpm_vfs_init();                                                // /dev/tpm0, /dev/tpmrm0
-    tpm_sysfs_init();                                              // /sys/class/tpm{,rm}
-    dmi_sysfs_init();                                              // /sys/class/dmi/id + /sys/firmware/dmi/tables
-    drm_sysfs_init();                                              // /sys/class/drm/
-    module_sysfs_init();                                           // /sys/module/<name>/
+    print_memory_map();                                            //
+    log_buffer_print(&frame_log);                                  //
                                                                    //
-    /* Filesystem Drivers */                                       //
-    fatfs_vfs_regist();                                            // FAT File System
-    isofs_regist();                                                // ISO 9660 File System
-    ntfs_vfs_regist();                                             // New Technology File System
-    extfs_regist();                                                // ext2/ext3/ext4 File System
+    /* Hardware Bus & Input */                                     //
+    pci_init();                                                    // Peripheral Component Interconnect
+    init_ps2();                                                    // PS/2 Controller
+    parport_pc_init();                                             // PC Parallel Port (SPP)
+                                                                   //
+    log_buffer_print(&serial_log);                                 //
+    log_buffer_print(&parallel_log);                               //
+    log_buffer_print(&lmodule_log);                                //
                                                                    //
     /* Process Management */                                       //
     sched_init();                                                  // Preemptive Scheduler
@@ -344,25 +322,83 @@ void kernel_entry(void)
     cgroup_init();                                                 // Unified cgroup hierarchy and pids controller
     syscall_init();                                                // Standard System Call
                                                                    //
-    /* IPC & Event Notification */                                 //
-    pipe_init();                                                   // Pipes
-    epoll_init();                                                  // Epoll
-    eventfd_init();                                                // Event File Descriptor
-    timerfd_init();                                                // Timer File Descriptor
-    signalfd_init();                                               // Signal File Descriptor
-    inotify_init();                                                // Filesystem Event Notification
-    memfd_init();                                                  // Anonymous Memory File Descriptor
-                                                                   //
-    sysv_ipc_init();                                               // System V IPC
-    posix_mq_init();                                               // POSIX Message Queues
-    futex_init();                                                  // Futexes
-                                                                   //
-    netlink_init();                                                // AF_NETLINK socket family (uevent delivery)
-    socket_init();                                                 // UNIX Domain Sockets
-                                                                   //
-    /* Graphics Stack */                                           // Initialise before /dev/fb0 snapshots its size
-    if (virtio_gpu_init() != 0)                                    // Prefer VirtIO-GPU for card0/renderD128
-        drm_init_fallback();                                       // Software fallback only without VirtIO-GPU
+    /* Virtual Filesystem */                                       //
+    init_vfs();                                                    // Virtual Filesystem
+    tmpfs_regist();                                                // Temporary File System
+    procfs_regist();                                               // Process File System
+    sysfs_regist();                                                // Register sysfs with the VFS layer
+    cgroupfs_regist();                                             // Unified Control Group File System
+
+    if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
+
+    /* Filesystem Drivers */       //
+    fatfs_vfs_regist();            // FAT File System
+    isofs_regist();                // ISO 9660 File System
+    ntfs_vfs_regist();             // New Technology File System
+    extfs_regist();                // ext2/ext3/ext4 File System
+                                   //
+    /* IPC & Event Notification */ //
+    pipe_init();                   // Pipes
+    epoll_init();                  // Epoll
+    eventfd_init();                // Event File Descriptor
+    timerfd_init();                // Timer File Descriptor
+    signalfd_init();               // Signal File Descriptor
+    inotify_init();                // Filesystem Event Notification
+    memfd_init();                  // Anonymous Memory File Descriptor
+    posix_mq_init();               // POSIX Message Queues
+    socket_init();                 // UNIX Domain Sockets
+                                   //
+    sysv_ipc_init();               // System V IPC
+    futex_init();                  // Futexes
+    netlink_init();                // AF_NETLINK socket family (uevent delivery)
+                                   //
+    /* Device Model */             //
+    sysfs_kobject_init();          // Create sysfs root kobject and top-level directories
+    module_subsystem_init();       // Loadable kernel module registry and /sys/module
+    device_model_init();           // Initialise the device model (bus/class/device)
+    ppdev_init();                  // /dev/parportN character devices
+    chrdev_init();                 // Register static character devices
+    vt_driver_init();              // Register vt/aux tty drivers
+    devtmpfs_init();               // Device Temporary File System
+    /* Device Drivers */           //
+    init_ide();                    // ATA / ATAPI
+    init_ahci();                   // Advanced Host Controller Interface
+    nvme_init();                   // Non-Volatile Memory Express
+    block_register_all_disks();    // Publish discovered disks into the gendisk registry
+    net_init();                    // Initialize ARP/NDP caches and DHCP client
+    e1000_init();                  // Intel 8254x Gigabit Ethernet
+    rtl8169_init();                // Realtek RTL8169 Gigabit Ethernet
+    rtl8139_init();                // Realtek RTL8139 Fast Ethernet
+    usb_host_pci_scan();           // Discover and init all USB host controllers
+    sb16_init();                   // Sound Blaster 16
+    hda_init();                    // Intel HD Audio
+                                   //
+                                   //
+    /* RAM Filesystem */           //
+    init_cpio();                   // Copy In, Copy Out
+                                   //
+    /* Sysfs Population */         //
+    kernel_sysfs_init();           // /sys/kernel/{version,cmdline,hostname,...}
+    pci_sysfs_init();              // /sys/bus/pci/ + /sys/devices/pci*
+    i2c_sysfs_init();              // /sys/bus/i2c + /sys/class/i2c-dev
+    usb_sysfs_init();              // /sys/bus/usb/ + /sys/bus/usb/devices/
+    block_sysfs_init();            // /sys/block/{hdX,sdX,nvme*}
+    tty_sysfs_init();              // /sys/class/tty/
+    net_sysfs_init();              // /sys/class/net/<interface>/
+    input_sysfs_init();            // /sys/class/input/eventX
+    fb_sysfs_init();               // /sys/class/graphics/fb0 + platform topology
+    mem_sysfs_init();              // /sys/class/mem/ (null, zero, full, random, urandom)
+    sound_sysfs_init();            // /sys/class/sound/cardN + ALSA node sub-devices
+    rtc_sysfs_init();              // /sys/class/rtc/rtc0
+    tpm_vfs_init();                // /dev/tpm0, /dev/tpmrm0
+    tpm_sysfs_init();              // /sys/class/tpm{,rm}
+    dmi_sysfs_init();              // /sys/class/dmi/id + /sys/firmware/dmi/tables
+    drm_sysfs_init();              // /sys/class/drm/
+    module_sysfs_init();           // /sys/module/<name>/
+                                   //
+    /* Graphics Stack */           // Initialise before /dev/fb0 snapshots its size
+    if (virtio_gpu_init() != 0)    // Prefer VirtIO-GPU for card0/renderD128
+        drm_init_fallback();       // Software fallback only without VirtIO-GPU
 
     /*
      * kthreadd must be live before any subsystem creates a kernel worker,

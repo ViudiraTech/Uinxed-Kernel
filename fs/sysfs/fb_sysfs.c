@@ -22,6 +22,7 @@ static struct device   framebuffer_platform_device;
 static struct device  *framebuffer_class_device;
 static bool            framebuffer_sysfs_ready;
 
+/* Show the fixed framebuffer device name. */
 static ssize_t fb_name_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -29,6 +30,7 @@ static ssize_t fb_name_show(struct device *dev, struct device_attribute *attr, c
     return sysfs_emit(buf, "uinxed-virtio-gpu\n");
 }
 
+/* Show the framebuffer stride in bytes. */
 static ssize_t fb_stride_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -37,6 +39,7 @@ static ssize_t fb_stride_show(struct device *dev, struct device_attribute *attr,
     return sysfs_emit(buf, "%llu\n", (unsigned long long)info.stride * (info.bpp / 8));
 }
 
+/* Show the framebuffer bits-per-pixel. */
 static ssize_t fb_bpp_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -44,6 +47,7 @@ static ssize_t fb_bpp_show(struct device *dev, struct device_attribute *attr, ch
     return sysfs_emit(buf, "%u\n", video_get_info().bpp);
 }
 
+/* Show the framebuffer resolution as width,height. */
 static ssize_t fb_virtual_size_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -52,6 +56,7 @@ static ssize_t fb_virtual_size_show(struct device *dev, struct device_attribute 
     return sysfs_emit(buf, "%llu,%llu\n", (unsigned long long)info.width, (unsigned long long)info.height);
 }
 
+/* Show the single available video mode. */
 static ssize_t fb_modes_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -119,6 +124,6 @@ void fb_sysfs_init(void)
         return;
     }
     framebuffer_sysfs_ready = true;
-    plogk("fb_sysfs: /sys/class/graphics/fb0 registered on the platform bus.\n");
+    plogk("fb_sysfs: registered /sys/class/graphics/fb0\n");
 #endif
 }

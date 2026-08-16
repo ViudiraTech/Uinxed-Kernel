@@ -17,6 +17,7 @@
 #define KMSG_MAJOR 1
 #define KMSG_MINOR 11
 
+/* No queued records are kept; reads report -EAGAIN. */
 static int64_t kmsg_read(void *ctx, void *private_data, uint64_t flags, void *buffer, size_t offset, size_t size)
 {
     (void)ctx;
@@ -32,6 +33,7 @@ static int64_t kmsg_read(void *ctx, void *private_data, uint64_t flags, void *bu
     return -EAGAIN;
 }
 
+/* Print the written message to the kernel log. */
 static int64_t kmsg_write(void *ctx, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size)
 {
     (void)ctx;
@@ -42,7 +44,10 @@ static int64_t kmsg_write(void *ctx, void *private_data, uint64_t flags, const v
     if (!size) return 0;
 
     char *message = malloc(size + 1);
-    if (!message) return -ENOMEM;
+    if (!message) {
+        plogk("kmsg: out of memory.\n");
+        return -ENOMEM;
+    }
     memcpy(message, buffer, size);
     message[size] = '\0';
     /*

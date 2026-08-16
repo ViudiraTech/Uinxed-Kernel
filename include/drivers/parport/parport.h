@@ -68,26 +68,56 @@ struct parport {
 };
 
 /* registry */
-int        parport_register_port(const char *name, uint16_t base, int irq, void *private_data);
-void       parport_unregister_port(parport_t *p);
-int        parport_count(void);
+
+/* Register a port in the global list. */
+int parport_register_port(const char *name, uint16_t base, int irq, void *private_data);
+
+/* Remove and free a registered port. */
+void parport_unregister_port(parport_t *p);
+
+/* Return the number of registered ports. */
+int parport_count(void);
+
+/* Return the port at a list index. */
 parport_t *parport_get(int index);
+
+/* Look up a port by I/O base address. */
 parport_t *parport_find(uint16_t base);
+
+/* Look up a port by numeric id. */
 parport_t *parport_find_by_number(int number);
 
 /* port access */
+
+/* Read the data register. */
 uint8_t parport_read_data(parport_t *p);
-void    parport_write_data(parport_t *p, uint8_t v);
+
+/* Write the data register. */
+void parport_write_data(parport_t *p, uint8_t v);
+
+/* Read the status register. */
 uint8_t parport_read_status(parport_t *p);
+
+/* Read the control register. */
 uint8_t parport_read_control(parport_t *p);
-void    parport_write_control(parport_t *p, uint8_t v);
-void    parport_frob_control(parport_t *p, uint8_t mask, uint8_t v);
-void    parport_data_reverse(parport_t *p, bool reverse);
+
+/* Write the control register. */
+void parport_write_control(parport_t *p, uint8_t v);
+
+/* Modify selected control bits. */
+void parport_frob_control(parport_t *p, uint8_t mask, uint8_t v);
+
+/* Toggle the data direction. */
+void parport_data_reverse(parport_t *p, bool reverse);
 
 /* drivers/parport/parport_pc.c */
+
+/* Probe and register legacy PC parallel ports. */
 int parport_pc_init(void);
 
 /* drivers/parport/ppdev.c : /dev/parportN */
+
+/* Create /dev/parportN device nodes. */
 void ppdev_init(void);
 
 #endif // INCLUDE_PARPORT_H_

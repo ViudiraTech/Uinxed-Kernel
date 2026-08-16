@@ -19,10 +19,6 @@
 #include <mem/heap.h>
 #include <sync/spin_lock.h>
 
-#define TTY_MAJOR             4
-#define TTY_AUX_MAJOR         5
-#define TTY_SERIAL_MINOR_BASE 64
-
 static tty_driver_t *tty_driver_list;
 static spinlock_t    tty_driver_lock;
 
@@ -73,7 +69,10 @@ int tty_register_device(tty_driver_t *drv, int index, const char *node_name)
     if (!drv || !node_name || index < 0 || (uint32_t)index >= drv->num) return -EINVAL;
 
     dev = calloc(1, sizeof(*dev));
-    if (!dev) return -ENOMEM;
+    if (!dev) {
+        plogk("tty: Failed to allocate device entry for %s\n", node_name);
+        return -ENOMEM;
+    }
     strncpy(dev->name, node_name, sizeof(dev->name) - 1);
     dev->drv   = drv;
     dev->index = index;
@@ -117,7 +116,10 @@ int tty_devices_populate(void)
         uint32_t minor = dev->drv->minor_start + (uint32_t)dev->index;
 
         (void)snprintf(path, sizeof(path), "/dev/%s", dev->name);
-        if (devtmpfs_register_char_device(path, MKDEV(major, minor), MKDEV(major, minor), dev->drv->node_type, &tty_node_ops) != 0) continue;
+        if (devtmpfs_register_char_device(path, MKDEV(major, minor), MKDEV(major, minor), dev->drv->node_type, &tty_node_ops) != 0) {
+            plogk("tty: Failed to register device node /dev/%s\n", dev->name);
+            continue;
+        }
         if (dev->drv->mode) {
             vfs_node_t node = vfs_open(path);
             if (node) {
@@ -186,6 +188,7 @@ int tty_dispatch_open(struct vfs_node *node, uint64_t flags, void **private_data
     return 0;
 }
 
+/* release: invoke the driver's release and free the handle. */
 void tty_dispatch_release(struct vfs_node *node, void *private_data)
 {
     tty_dispatch_t *d = private_data;
@@ -195,6 +198,7 @@ void tty_dispatch_release(struct vfs_node *node, void *private_data)
     free(d);
 }
 
+/* read: forward to the driver's read. */
 int64_t tty_dispatch_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     tty_dispatch_t *d = private_data;
@@ -204,6 +208,7 @@ int64_t tty_dispatch_read(void *ctx, void *private_data, uint64_t flags, void *a
     return d->drv->read(d->drv, d->index, d->drv_data, flags, addr, size);
 }
 
+/* write: forward to the driver's write. */
 int64_t tty_dispatch_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     tty_dispatch_t *d = private_data;
@@ -213,6 +218,7 @@ int64_t tty_dispatch_write(void *ctx, void *private_data, uint64_t flags, const 
     return d->drv->write(d->drv, d->index, d->drv_data, flags, addr, size);
 }
 
+/* poll: forward to the driver's poll. */
 int tty_dispatch_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
 {
     tty_dispatch_t *d = private_data;
@@ -222,6 +228,7 @@ int tty_dispatch_poll(void *ctx, void *private_data, uint64_t flags, size_t even
     return d->drv->poll(d->drv, d->index, d->drv_data, flags, events);
 }
 
+/* ioctl: forward to the driver's ioctl. */
 int tty_dispatch_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     tty_dispatch_t *d = private_data;

@@ -219,7 +219,7 @@ struct edid {
         /* Vendor & product info */
         uint8_t  mfg_id[2];
         uint8_t  prod_code[2];
-        uint32_t serial; // FIXME: byte order
+        uint32_t serial;
         uint8_t  mfg_week;
         uint8_t  mfg_year;
         /* EDID version */

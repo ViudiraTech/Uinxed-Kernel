@@ -217,6 +217,7 @@ int virtgpu_cmd_attach_backing(struct virtio_gpu_device *vgdev, struct virtio_gp
     return ret;
 }
 
+/* Detach backing memory from a resource. */
 int virtgpu_cmd_detach_backing(struct virtio_gpu_device *vgdev, uint32_t res_id)
 {
     struct virtio_gpu_resource_attach_backing cmd;
@@ -254,6 +255,7 @@ int virtgpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev, struct virt
     return ret;
 }
 
+/* Transfer a 2D rectangle from guest to host. */
 int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_3d_transfer *xf)
 {
     struct virtio_gpu_transfer_to_host_2d cmd;
@@ -456,6 +458,7 @@ int virtgpu_cmd_set_scanout(struct virtio_gpu_device *vgdev, int scanout_id, str
     return ret;
 }
 
+/* Set a blob resource as a scanout. */
 int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj)
 {
     struct virtio_gpu_set_scanout_blob scanout;
@@ -516,6 +519,7 @@ int virtgpu_cmd_ctx_create(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uin
     return ret;
 }
 
+/* Destroy a GPU context. */
 int virtgpu_cmd_ctx_destroy(struct virtio_gpu_device *vgdev, uint32_t ctx_id)
 {
     struct virtio_gpu_ctx_destroy cmd;
@@ -531,6 +535,7 @@ int virtgpu_cmd_ctx_destroy(struct virtio_gpu_device *vgdev, uint32_t ctx_id)
     return ret;
 }
 
+/* Update the hardware cursor for a scanout. */
 int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, struct virtio_gpu_object *obj, int32_t x, int32_t y, int32_t hot_x, int32_t hot_y)
 {
     struct virtio_gpu_update_cursor cmd;
@@ -545,6 +550,7 @@ int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_
     return virtgpu_cursor_cmd(vgdev, &cmd, sizeof(cmd));
 }
 
+/* Move the hardware cursor. */
 int virtgpu_cmd_move_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, int32_t x, int32_t y)
 {
     struct virtio_gpu_update_cursor cmd;
@@ -570,11 +576,13 @@ static int virtgpu_cmd_ctx_resource(struct virtio_gpu_device *vgdev, uint32_t ty
     return virtgpu_ctrl_cmd(vgdev, &cmd, sizeof(cmd), &resp, sizeof(resp), NULL);
 }
 
+/* Attach a resource to a context. */
 int virtgpu_cmd_ctx_attach_resource(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t resource_id)
 {
     return virtgpu_cmd_ctx_resource(vgdev, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, ctx_id, resource_id);
 }
 
+/* Detach a resource from a context. */
 int virtgpu_cmd_ctx_detach_resource(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t resource_id)
 {
     return virtgpu_cmd_ctx_resource(vgdev, VIRTIO_GPU_CMD_CTX_DETACH_RESOURCE, ctx_id, resource_id);
@@ -636,6 +644,7 @@ int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, u
     return 0;
 }
 
+/* Query a capset from the host. */
 int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, uint32_t version, void *data, uint32_t max_size)
 {
     struct virtio_gpu_get_capset   cmd;

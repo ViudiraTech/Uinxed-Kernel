@@ -21,16 +21,19 @@
 #define EM_X86_64     62
 #define R_X86_64_PC64 24
 
+/* Whether a range lies within the image bounds */
 static int range_valid(size_t offset, size_t length, size_t total)
 {
     return offset <= total && length <= total - offset;
 }
 
+/* Whether a value is zero or a power of two */
 static int power_of_two(uint64_t value)
 {
     return !value || !(value & (value - 1));
 }
 
+/* Validate an ELF relocatable image and fill the module view */
 int module_elf_validate(const void *image, size_t size, module_elf_view_t *view)
 {
     if (!image || !view || size < sizeof(Elf64_Ehdr)) {
@@ -102,6 +105,7 @@ int module_elf_validate(const void *image, size_t size, module_elf_view_t *view)
     return EOK;
 }
 
+/* Store a signed relocation value, checking its bit range */
 static int store_signed(void *location, __int128 value, unsigned int bits)
 {
     __int128 minimum = -((__int128)1 << (bits - 1));
@@ -121,6 +125,7 @@ static int store_signed(void *location, __int128 value, unsigned int bits)
     return EOK;
 }
 
+/* Store an unsigned relocation value, checking its bit range */
 static int store_unsigned(void *location, __int128 value, unsigned int bits)
 {
     __int128 maximum = ((__int128)1 << bits) - 1;
@@ -137,6 +142,7 @@ static int store_unsigned(void *location, __int128 value, unsigned int bits)
     return EOK;
 }
 
+/* Apply one x86-64 relocation to a module location */
 int module_elf_apply_relocation(uint32_t type, void *location, uint64_t symbol_value, int64_t addend, uintptr_t place)
 {
     if (!location) {

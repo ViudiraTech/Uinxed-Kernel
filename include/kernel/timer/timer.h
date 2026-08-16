@@ -44,11 +44,13 @@ typedef struct {
         int64_t tv_nsec;
 } timer_timespec_t;
 
+/* Check whether the given clock ID and flags support sleeping */
 static inline bool timer_clock_sleep_supported(uint64_t clockid, uint64_t flags)
 {
     return (clockid == TIMER_CLOCK_REALTIME || clockid == TIMER_CLOCK_MONOTONIC || clockid == TIMER_CLOCK_BOOTTIME) && (flags == 0 || flags == TIMER_ABSTIME);
 }
 
+/* Convert a timespec to nanoseconds, validating the input range */
 static inline bool timer_timespec_to_ns(const timer_timespec_t *ts, uint64_t *ns)
 {
     if (!ts || !ns || ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= (int64_t)TIMER_NSEC_PER_SEC) return false;
@@ -58,16 +60,19 @@ static inline bool timer_timespec_to_ns(const timer_timespec_t *ts, uint64_t *ns
     return true;
 }
 
+/* Convert nanoseconds to timer ticks, rounding up */
 static inline uint64_t timer_ns_to_ticks_ceil(uint64_t ns)
 {
     return ns / TIMER_TICK_NS + (ns % TIMER_TICK_NS != 0);
 }
 
+/* Convert timer ticks to nanoseconds */
 static inline uint64_t timer_ticks_to_ns(uint64_t ticks)
 {
     return ticks > UINT64_MAX / TIMER_TICK_NS ? UINT64_MAX : ticks * TIMER_TICK_NS;
 }
 
+/* Convert timer ticks to user-space ticks */
 static inline uint64_t timer_ticks_to_user_ticks(uint64_t ticks)
 {
     uint64_t seconds = ticks / TIMER_HZ;
@@ -76,6 +81,7 @@ static inline uint64_t timer_ticks_to_user_ticks(uint64_t ticks)
     return seconds * TIMER_USER_HZ + rest * TIMER_USER_HZ / TIMER_HZ;
 }
 
+/* Convert nanoseconds to a timespec */
 static inline timer_timespec_t timer_ns_to_timespec(uint64_t ns)
 {
     timer_timespec_t ts = {
@@ -85,6 +91,7 @@ static inline timer_timespec_t timer_ns_to_timespec(uint64_t ns)
     return ts;
 }
 
+/* Compute the sleep duration and tick count for a sleep request */
 static inline bool timer_sleep_duration(const timer_timespec_t *request, uint64_t now_ns, bool absolute, uint64_t *duration_ns, uint64_t *ticks)
 {
     uint64_t request_ns;

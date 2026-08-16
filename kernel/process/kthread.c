@@ -134,7 +134,7 @@ void kthreadd_init(void)
     if (task->pid != 2) panic("kthreadd: expected PID 2, got %llu", task->pid);
 
     task->kernel_stack = malloc(TASK_KERNEL_STACK);
-    if (!task->kernel_stack) panic("kthreadd: kernel stack allocation failed");
+    if (!task->kernel_stack) panic("kthreadd: kernel stack allocation failed.");
 
     uint64_t *stack      = (uint64_t *)ALIGN_DOWN((uint64_t)(task->kernel_stack + TASK_KERNEL_STACK), 16ULL);
     *(--stack)           = 0;
@@ -144,7 +144,7 @@ void kthreadd_init(void)
     task->context.rdi    = 0;
 
     process_t *proc = process_create_kthread(task, "kthreadd");
-    if (!proc) panic("kthreadd: process bundle allocation failed");
+    if (!proc) panic("kthreadd: process bundle allocation failed.");
 
     /* kthreadd is the root of the kernel-thread tree; it has no parent. */
     kthreadd_process = proc;
@@ -153,6 +153,7 @@ void kthreadd_init(void)
     enqueue_task_initial(task);
     spin_unlock(&scheduler.lock);
     request_task_cpu(task);
+    plogk("kthread: kthreadd started (PID 2)\n");
 }
 
 /* Enqueue a creation request for kthreadd and block until it has allocated the

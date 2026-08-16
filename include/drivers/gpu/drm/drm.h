@@ -14,7 +14,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-/* Fixed-width UAPI aliases mirroring Linux __u8/__s8/... */
+/* Fixed-width UAPI aliases. */
 typedef int8_t   __s8;
 typedef uint8_t  __u8;
 typedef int16_t  __s16;
@@ -28,7 +28,7 @@ typedef uint32_t drm_context_t;
 typedef uint32_t drm_drawable_t;
 typedef uint32_t drm_magic_t;
 
-/* Generic DRM event ABI (byte-for-byte compatible with Linux). */
+/* Generic DRM event ABI. */
 #define DRM_EVENT_VBLANK        0x01
 #define DRM_EVENT_FLIP_COMPLETE 0x02
 
@@ -47,9 +47,9 @@ struct drm_event_vblank {
 };
 
 /*
- * ioctl encoding macros, x86-64 identical to Linux asm-generic/ioctl.h.
- * Guarded with #ifndef so they coexist with input_event.h which also
- * defines them (the project has no single asm/ioctl.h header).
+ * ioctl encoding macros. Guarded with #ifndef so they coexist with
+ * input_event.h which also defines them (the project has no single ioctl.h
+ * header).
  */
 #ifndef _IOC_NRBITS
 #    define _IOC_NRBITS 8
@@ -516,8 +516,8 @@ struct drm_prime_handle {
 };
 
 /*
- * ioctl command numbers. Order and values match Linux exactly so that
- * libdrm-built userspace drives this kernel without recompilation.
+ * ioctl command numbers. Values are ABI-fixed so that existing userspace
+ * drives this kernel without recompilation.
  */
 #define DRM_IOCTL_VERSION     DRM_IOWR(0x00, struct drm_version)
 #define DRM_IOCTL_GET_UNIQUE  DRM_IOWR(0x01, struct drm_unique)

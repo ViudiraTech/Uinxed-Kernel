@@ -15,14 +15,17 @@
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 
+typedef struct devtmpfs_block_registration devtmpfs_block_registration_t;
+
 typedef struct gendisk {
-        char              name[32]; // "sda", "nvme0n1", "sr0", ...
-        uint32_t          major;
-        uint32_t          minor_base; // whole-disk minor
-        blockdev_device_t device;     // whole-disk descriptor (retained)
-        bool              scan_partitions;
-        bool              use_p_separator; // partition names use a "p" separator
-        struct gendisk   *next;
+        char                           name[32]; // "sda", "nvme0n1", "sr0", ...
+        uint32_t                       major;
+        uint32_t                       minor_base; // whole-disk minor
+        blockdev_device_t              device;     // whole-disk descriptor (retained)
+        bool                           scan_partitions;
+        bool                           use_p_separator; // partition names use a "p" separator
+        devtmpfs_block_registration_t *devtmpfs;
+        struct gendisk                *next;
 } gendisk_t;
 
 /*

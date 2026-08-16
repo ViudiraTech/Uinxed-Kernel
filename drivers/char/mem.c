@@ -11,6 +11,7 @@
 #include <arch/common.h>
 #include <drivers/char/chrdev.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
@@ -113,7 +114,6 @@ static int64_t mem_read_user(void *ctx, void *private_data, uint64_t flags, void
 /* User-mode write path, delegated to mem_write(). */
 static int64_t mem_write_user(void *ctx, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size, struct process *proc)
 {
-    /* Linux's null iterator advances without fetching source bytes. */
     (void)proc;
     return mem_write(ctx, private_data, flags, buffer, offset, size);
 }

@@ -198,16 +198,19 @@ static e1000_device_t *e1000_irq_slots[E1000_MAX_DEVICES];
 static spinlock_t      e1000_irq_lock;
 static int             e1000_scheduler_ready;
 
+/* Read a 32-bit MMIO register. */
 static inline uint32_t e1000_read(const e1000_device_t *device, uint32_t reg)
 {
     return *(volatile uint32_t *)(device->mmio + reg);
 }
 
+/* Write a 32-bit MMIO register. */
 static inline void e1000_write(e1000_device_t *device, uint32_t reg, uint32_t value)
 {
     *(volatile uint32_t *)(device->mmio + reg) = value;
 }
 
+/* Force a previous MMIO write to complete by reading back the status register. */
 static inline void e1000_write_flush(e1000_device_t *device)
 {
     (void)e1000_read(device, E1000_REG_STATUS);
@@ -807,6 +810,7 @@ static void e1000_interrupt_slot(size_t slot, void *frame)
     send_eoi();
 }
 
+/* Generate the legacy and IDT interrupt wrappers for one IRQ slot. */
 #define E1000_IRQ_WRAPPERS(n)                                                     \
     static void e1000_legacy_interrupt_##n(void *frame)                           \
     {                                                                             \
@@ -1107,26 +1111,31 @@ void e1000_shutdown(void)
     }
 }
 
+/* True if the device link is up. */
 int e1000_link_up(const e1000_device_t *device)
 {
     return device && device->link_up;
 }
 
+/* Return the device MAC address (6 bytes). */
 const uint8_t *e1000_mac_address(const e1000_device_t *device)
 {
     return device ? device->mac : NULL;
 }
 
+/* Return a snapshot of device statistics. */
 const e1000_stats_t *e1000_get_stats(const e1000_device_t *device)
 {
     return device ? &device->stats : NULL;
 }
 
+/* Return the first registered device. */
 e1000_device_t *e1000_first_device(void)
 {
     return e1000_devices;
 }
 
+/* Return the device after the given one, or NULL at the end. */
 e1000_device_t *e1000_next_device(e1000_device_t *device)
 {
     return device ? device->next : NULL;

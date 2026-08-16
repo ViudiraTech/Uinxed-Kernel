@@ -299,6 +299,7 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
     return ret < 0 ? ret : 0;
 }
 
+/* Read a single byte from an I2C client. */
 int32_t i2c_smbus_read_byte(const struct i2c_client *client)
 {
     union i2c_smbus_data data;
@@ -312,6 +313,7 @@ int32_t i2c_smbus_read_byte(const struct i2c_client *client)
     return ret < 0 ? (int32_t)ret : (int32_t)data.byte;
 }
 
+/* Write a single byte to an I2C client. */
 int32_t i2c_smbus_write_byte(const struct i2c_client *client, uint8_t value)
 {
     union i2c_smbus_data data;
@@ -326,6 +328,7 @@ int32_t i2c_smbus_write_byte(const struct i2c_client *client, uint8_t value)
     return ret;
 }
 
+/* Read a byte at a command register of an I2C client. */
 int32_t i2c_smbus_read_byte_data(const struct i2c_client *client, uint8_t command)
 {
     union i2c_smbus_data data;
@@ -339,6 +342,7 @@ int32_t i2c_smbus_read_byte_data(const struct i2c_client *client, uint8_t comman
     return ret < 0 ? (int32_t)ret : (int32_t)data.byte;
 }
 
+/* Write a byte at a command register of an I2C client. */
 int32_t i2c_smbus_write_byte_data(const struct i2c_client *client, uint8_t command, uint8_t value)
 {
     union i2c_smbus_data data;
@@ -353,6 +357,7 @@ int32_t i2c_smbus_write_byte_data(const struct i2c_client *client, uint8_t comma
     return ret;
 }
 
+/* Read a 16-bit word at a command register of an I2C client. */
 int32_t i2c_smbus_read_word_data(const struct i2c_client *client, uint8_t command)
 {
     union i2c_smbus_data data;
@@ -366,6 +371,7 @@ int32_t i2c_smbus_read_word_data(const struct i2c_client *client, uint8_t comman
     return ret < 0 ? (int32_t)ret : (int32_t)data.word;
 }
 
+/* Write a 16-bit word at a command register of an I2C client. */
 int32_t i2c_smbus_write_word_data(const struct i2c_client *client, uint8_t command, uint16_t value)
 {
     union i2c_smbus_data data;
@@ -380,6 +386,7 @@ int32_t i2c_smbus_write_word_data(const struct i2c_client *client, uint8_t comma
     return ret;
 }
 
+/* Read a device-length block from an I2C client. */
 int32_t i2c_smbus_read_block_data(const struct i2c_client *client, uint8_t command, uint8_t *values)
 {
     union i2c_smbus_data data;
@@ -396,6 +403,7 @@ int32_t i2c_smbus_read_block_data(const struct i2c_client *client, uint8_t comma
     return data.block[0];
 }
 
+/* Write a block to an I2C client. */
 int32_t i2c_smbus_write_block_data(const struct i2c_client *client, uint8_t command, uint8_t length, const uint8_t *values)
 {
     union i2c_smbus_data data;
@@ -412,6 +420,7 @@ int32_t i2c_smbus_write_block_data(const struct i2c_client *client, uint8_t comm
     return ret;
 }
 
+/* Read a caller-length block from an I2C client. */
 int32_t i2c_smbus_read_i2c_block_data(const struct i2c_client *client, uint8_t command, uint8_t length, uint8_t *values)
 {
     union i2c_smbus_data data;
@@ -430,6 +439,7 @@ int32_t i2c_smbus_read_i2c_block_data(const struct i2c_client *client, uint8_t c
     return length;
 }
 
+/* Write a caller-length block to an I2C client. */
 int32_t i2c_smbus_write_i2c_block_data(const struct i2c_client *client, uint8_t command, uint8_t length, const uint8_t *values)
 {
     union i2c_smbus_data data;

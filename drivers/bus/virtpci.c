@@ -71,6 +71,7 @@ static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
     return (volatile void *)((uintptr_t)phys_to_virt(bar_phys) + cap->offset);
 }
 
+/* Scan the vendor-defined PCI capability list. */
 static int vp_scan_caps(struct vp_device *dev)
 {
     pci_device_cache_t *pci = dev->pci_dev;
@@ -304,7 +305,10 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
 
     vq->queue_page_count = (size_t)alloc_size / PAGE_4K_SIZE;
     vq->queue_phys       = alloc_frames(vq->queue_page_count);
-    if (!vq->queue_phys) return -ENOMEM;
+    if (!vq->queue_phys) {
+        plogk("virtpci: Failed to allocate queue memory for queue %d\n", index);
+        return -ENOMEM;
+    }
     vq->queue_mem = phys_to_virt(vq->queue_phys);
     memset(vq->queue_mem, 0, alloc_size);
 
@@ -316,6 +320,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     vq->free_descs = malloc(num * sizeof(uint16_t));
     vq->desc_data  = malloc(num * sizeof(void *));
     if (!vq->free_descs || !vq->desc_data) {
+        plogk("virtpci: Failed to allocate descriptor lists for queue %d\n", index);
         free(vq->free_descs);
         free(vq->desc_data);
         free_frames(vq->queue_phys, vq->queue_page_count);
@@ -363,12 +368,6 @@ void vp_del_vq(struct vp_virtqueue *vq)
     free(vq->desc_data);
     if (vq->queue_phys && vq->queue_page_count) free_frames(vq->queue_phys, vq->queue_page_count);
     memset(vq, 0, sizeof(*vq));
-}
-
-/* Placeholder for queue notification (not yet wired to the device). */
-void vp_notify(struct vp_virtqueue *vq)
-{
-    (void)vq;
 }
 
 /* Virtqueue submission helpers */
@@ -511,6 +510,7 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
     return data;
 }
 
+/* Write barrier for virtio MMIO doorbell writes. */
 static inline void virtio_wmb(void)
 {
     __asm__ volatile("sfence" ::: "memory");

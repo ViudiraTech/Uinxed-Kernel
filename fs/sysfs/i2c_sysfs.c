@@ -59,6 +59,7 @@ static struct {
         i2c_adapter_dev_t  *adev;
 } i2c_sysfs_adapters[I2C_MAX_ADAPTERS];
 
+/* Free an i2c adapter sysfs device. */
 static void i2c_adapter_release(struct device *dev)
 {
     i2c_adapter_dev_t *adev = (i2c_adapter_dev_t *)((char *)dev - offsetof(i2c_adapter_dev_t, dev));
@@ -71,6 +72,7 @@ typedef struct {
         uint16_t slave_addr;
 } i2c_dev_state_t;
 
+/* Allocate per-open state for the i2c-dev character device. */
 static int i2c_dev_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     i2c_dev_state_t *state = calloc(1, sizeof(*state));
@@ -82,12 +84,14 @@ static int i2c_dev_open(vfs_node_t node, uint64_t flags, void **private_data)
     return 0;
 }
 
+/* Free the per-open state of the i2c-dev character device. */
 static void i2c_dev_release(vfs_node_t node, void *private_data)
 {
     (void)node;
     free(private_data);
 }
 
+/* Read bytes from the configured i2c slave device. */
 static int64_t i2c_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     i2c_dev_state_t    *state = private_data;
@@ -110,6 +114,7 @@ static int64_t i2c_dev_read(void *ctx, void *private_data, uint64_t flags, void 
     return ret < 0 ? (int64_t)ret : (int64_t)size;
 }
 
+/* Write bytes to the configured i2c slave device. */
 static int64_t i2c_dev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     i2c_dev_state_t    *state = private_data;
@@ -135,6 +140,7 @@ static int64_t i2c_dev_write(void *ctx, void *private_data, uint64_t flags, cons
     return ret < 0 ? (int64_t)ret : (int64_t)size;
 }
 
+/* Handle the i2c-dev ioctl commands. */
 static int i2c_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *argument)
 {
     i2c_dev_state_t    *state = private_data;
@@ -306,6 +312,6 @@ void i2c_sysfs_init(void)
         return;
     }
     i2c_sysfs_ready = true;
-    plogk("i2c_sysfs: I2c bus and i2c-dev class registered.\n");
+    plogk("i2c_sysfs: registered /sys/bus/i2c and /sys/class/i2c-dev\n");
 #endif
 }

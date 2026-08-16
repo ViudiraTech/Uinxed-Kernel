@@ -107,6 +107,7 @@ static int extfs_touch_inode(extfs_sb_info_t *sb, uint32_t ino, int modify)
     return extfs_write_inode_raw(sb, ino, &raw);
 }
 
+/* Validate a directory entry's length and inode reference. */
 static int extfs_valid_dirent(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset)
 {
     uint32_t remaining = sb->block_size - offset;
@@ -315,6 +316,7 @@ static void extfs_open(void *parent, const char *name, vfs_node_t node)
     if (node->type & file_dir) (void)extfs_load_directory(node);
 }
 
+/* Release a file handle (no-op for extfs). */
 static void extfs_close(void *current)
 {
     (void)current;
@@ -868,6 +870,7 @@ static int extfs_rmdir_impl(void *parent, const char *name)
     return EOK;
 }
 
+/* Adjust a directory's link count by delta. */
 static int extfs_adjust_directory_links(extfs_handle_t *directory, int delta)
 {
     if (!directory || (delta != -1 && delta != 1)) return -EINVAL;
@@ -1026,21 +1029,6 @@ static int extfs_delete(void *parent, vfs_node_t node)
     return status;
 }
 
-/* VFS callback: remove an empty directory inside a transaction. */
-static int extfs_rmdir(void *parent, const char *name)
-{
-    extfs_handle_t *h = extfs_get_handle(parent);
-    fs_txn_t        transaction;
-    int             status;
-    if (!h) return -EINVAL;
-    status = extfs_transaction_begin(h->sb, &transaction, 8192);
-    if (status != EOK) return status;
-    status = extfs_rmdir_impl(parent, name);
-    status = extfs_finish_mutation(h->sb, &transaction, status);
-    if (status != EOK) (void)extfs_load_inode(h);
-    return status;
-}
-
 /* VFS callback: rename inside a transaction. */
 static int extfs_rename_cb(const vfs_rename_context_t *context)
 {
@@ -1074,6 +1062,7 @@ static int extfs_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
+/* Reject ioctl requests (extfs supports none). */
 static int extfs_ioctl_cb(void *file, size_t req, void *arg)
 {
     (void)file;
@@ -1120,6 +1109,7 @@ static vfs_node_t extfs_dup(vfs_node_t node)
     return copy;
 }
 
+/* Report the requested events as ready. */
 static int extfs_poll(void *file, size_t events)
 {
     (void)file;
@@ -1133,15 +1123,6 @@ static int extfs_free(void *handle)
     if (!h) return EOK;
     free(h);
     return EOK;
-}
-
-/* Reject link/symlink operations that the VFS layer resolves itself. */
-static int extfs_no_link(void *parent, const char *name, vfs_node_t node)
-{
-    (void)parent;
-    (void)name;
-    (void)node;
-    return -EPERM;
 }
 
 static struct vfs_callback extfs_callbacks = {

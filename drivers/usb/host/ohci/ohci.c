@@ -28,14 +28,6 @@
 #include <process/sched.h>
 #include <process/task.h>
 
-/*
- * Overview
- * OHCI is a USB 1.1 host controller programmed through MMIO. Its
- * driver keeps static pools of Endpoint Descriptors (EDs) and
- * General Transfer Descriptors (gTDs); the HCD links EDs onto the
- * controller's control/bulk and periodic lists.
- */
-
 #define OHCI_MAX_CONTROLLERS 8
 #define OHCI_MAX_PORTS       15
 #define OHCI_NUM_ED          32
@@ -94,11 +86,13 @@ typedef struct ohci_controller {
 static ohci_controller_t *ohci_controllers[OHCI_MAX_CONTROLLERS];
 static size_t             ohci_controller_count;
 
+/* Read a 32-bit MMIO register. */
 static inline uint32_t ohci_read32(ohci_controller_t *ctrl, uint8_t reg)
 {
     return mmio_read32((void *)(ctrl->mmio_base + reg));
 }
 
+/* Write a 32-bit MMIO register. */
 static inline void ohci_write32(ohci_controller_t *ctrl, uint8_t reg, uint32_t value)
 {
     mmio_write32((uint32_t *)(ctrl->mmio_base + reg), value);
@@ -273,6 +267,7 @@ static void ohci_fill_td(ohci_gtd_t *td, uint32_t flags, uint32_t buffer, size_t
  * own EDs. Completion is polled from the gTD's done status.
  */
 
+/* Submit a control transfer as a SETUP/DATA/STATUS gTD chain. */
 static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
 {
     ohci_controller_t *ctrl = device ? device->hc_private : NULL;
@@ -290,27 +285,27 @@ static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     void    *setup_dma = ohci_dma_alloc(sizeof(*setup), &setup_physical);
     void    *data_dma  = NULL;
     if (!setup_dma || setup_physical > UINT32_MAX) {
-        plogk("usb: ohci: Control DMA allocation failed on bus %u\n", ctrl->bus_number);
+        plogk("usb-ohci: Control DMA allocation failed on bus %u\n", ctrl->bus_number);
         goto control_cleanup;
     }
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
         data_dma = ohci_dma_alloc(length, &data_physical);
         if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-            plogk("usb: ohci: Control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+            plogk("usb-ohci: Control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
             goto control_cleanup;
         }
         if (!input) memcpy(data_dma, buffer, length);
     }
     ed_index = ohci_find_free_ed(ctrl);
     if (ed_index < 0) {
-        plogk("usb: ohci: ED pool exhausted on bus %u\n", ctrl->bus_number);
+        plogk("usb-ohci: ED pool exhausted on bus %u\n", ctrl->bus_number);
         goto control_cleanup;
     }
     for (size_t i = 0; i < td_count; i++) {
         td_indices[i] = ohci_find_free_td(ctrl);
         if (td_indices[i] < 0) {
-            plogk("usb: ohci: TD pool exhausted on bus %u\n", ctrl->bus_number);
+            plogk("usb-ohci: TD pool exhausted on bus %u\n", ctrl->bus_number);
             goto control_cleanup;
         }
     }
@@ -374,7 +369,7 @@ static int ohci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     uint64_t data_physical = 0;
     void    *data_dma      = ohci_dma_alloc(length, &data_physical);
     if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-        plogk("usb: ohci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        plogk("usb-ohci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         goto transfer_cleanup;
     }
     if (!input) memcpy(data_dma, buffer, length);
@@ -382,7 +377,7 @@ static int ohci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     data_index  = ohci_find_free_td(ctrl);
     dummy_index = ohci_find_free_td(ctrl);
     if (ed_index < 0 || data_index < 0 || dummy_index < 0) {
-        plogk("usb: ohci: ED/TD pool exhausted on bus %u\n", ctrl->bus_number);
+        plogk("usb-ohci: ED/TD pool exhausted on bus %u\n", ctrl->bus_number);
         goto transfer_cleanup;
     }
 
@@ -429,7 +424,7 @@ static int ohci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
     if (!transfer) return -ENOMEM;
     transfer->buffer = malloc(length);
     if (!transfer->buffer) {
-        plogk("usb: ohci: Interrupt transfer buffer allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        plogk("usb-ohci: Interrupt transfer buffer allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         free(transfer);
         return -ENOMEM;
     }
@@ -451,7 +446,7 @@ static int ohci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
         }
     }
     spin_unlock_irqrestore(&ctrl->lock, flags);
-    plogk("usb: ohci: Periodic transfer pool exhausted on bus %u\n", ctrl->bus_number);
+    plogk("usb-ohci: Periodic transfer pool exhausted on bus %u\n", ctrl->bus_number);
     free(transfer->buffer);
     free(transfer);
     return -ENOSPC;
@@ -688,7 +683,7 @@ static int ohci_worker(void *argument)
                 if (ctrl->devices[port]) ohci_disconnect_port(ctrl, port);
                 msleep(100);
                 int ret = ohci_enumerate_port(ctrl, port);
-                if (ret != EOK) plogk("usb: ohci: Port %u enumeration failed: %d\n", port, ret);
+                if (ret != EOK) plogk("usb-ohci: Port %u enumeration failed: %d\n", port, ret);
             }
         }
         ohci_service_periodic(ctrl);
@@ -717,11 +712,11 @@ static void ohci_interrupt_handler(void *frame)
         if (sts & OHCI_INTR_WDH) ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_WDH);
         if (sts & OHCI_INTR_UE) {
             ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_UE);
-            plogk("usb: ohci: Controller error on bus %u\n", ctrl->bus_number);
+            plogk("usb-ohci: Controller error on bus %u\n", ctrl->bus_number);
         }
         if (sts & OHCI_INTR_SO) {
             ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_SO);
-            plogk("usb: ohci: Scheduling overrun on bus %u\n", ctrl->bus_number);
+            plogk("usb-ohci: Scheduling overrun on bus %u\n", ctrl->bus_number);
         }
     }
     send_eoi();
@@ -849,7 +844,7 @@ static int ohci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     usb_host_register(&ctrl->hcd);
     ctrl->hcd.running = true;
 
-    plogk("usb: ohci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
+    plogk("usb-ohci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
     return EOK;
 }
 

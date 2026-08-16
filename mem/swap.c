@@ -99,16 +99,19 @@ uint64_t swap_entry_pte_flags(uint64_t pte)
     return pte & (PTE_WRITEABLE | PTE_USER | PTE_COW | PTE_SHARED | PTE_NO_EXECUTE);
 }
 
+/* Report whether a slot index is within range of the slot map. */
 static int swap_slot_valid(const swap_slot_map_t *map, uint64_t slot)
 {
     return map && map->bitmap && map->refs && slot > 0 && slot <= map->slots;
 }
 
+/* Report whether a slot is currently allocated. */
 static int swap_slot_used(const swap_slot_map_t *map, uint64_t slot)
 {
     return (map->bitmap[slot / 64] >> (slot % 64)) & 1U;
 }
 
+/* Set or clear a slot's allocation bit. */
 static void swap_slot_set(swap_slot_map_t *map, uint64_t slot, int used)
 {
     uint64_t mask = 1ULL << (slot % 64);
@@ -167,6 +170,7 @@ int swap_slot_release(swap_slot_map_t *map, uint64_t slot)
     return 0;
 }
 
+/* Return the reference count of a slot, or 0 when invalid. */
 uint32_t swap_slot_refs(const swap_slot_map_t *map, uint64_t slot)
 {
     return swap_slot_valid(map, slot) ? map->refs[slot] : 0;
@@ -211,6 +215,7 @@ static int swap_area_io(const swap_area_t *area, uint64_t slot, void *buffer, in
     return actual == SWAP_PAGE_SIZE ? EOK : -EIO;
 }
 
+/* Resolve a swap device type to its active area, if any. */
 static swap_area_t *swap_area_for_type(uint32_t type)
 {
     return type < SWAP_MAX_AREAS && swap_areas[type].active ? &swap_areas[type] : NULL;
@@ -228,16 +233,19 @@ static int swap_area_retain_entry(uint64_t pte, int retain)
     return result ? -EINVAL : EOK;
 }
 
+/* Retain the swap slot referenced by a swap entry. */
 int swap_entry_retain_pte(uint64_t pte)
 {
     return swap_area_retain_entry(pte, 1);
 }
 
+/* Release the swap slot referenced by a swap entry. */
 int swap_entry_release_pte(uint64_t pte)
 {
     return swap_area_retain_entry(pte, 0);
 }
 
+/* Initialize the swap subsystem. */
 void swap_init(void)
 {
 #    if CONFIG_SWAP
@@ -598,7 +606,7 @@ void swap_get_stats(swap_stats_t *stats)
     stats->free_pages = stats->total_pages - stats->used_pages;
 }
 
-/* Linux /proc/swaps : header plus one line per active swap area. */
+/* Emit the /proc/swaps header plus one line per active swap area. */
 int swap_format_proc_swaps(char *buf, size_t cap)
 {
     size_t off = 0;

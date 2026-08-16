@@ -34,7 +34,7 @@
 #define MMAP_END_ADDR      PROCESS_USER_STACK_TOP
 #define MMAP_DEFAULT_ALIGN PAGE_4K_SIZE
 
-/* Convert Linux mmap prot to internal vm_flags_t */
+/* Convert mmap protection flags to internal VM flags */
 static vm_flags_t prot_to_vm_flags(uint64_t prot)
 {
     vm_flags_t f = 0;
@@ -262,14 +262,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         }
         size_t file_offset = (size_t)offset;
 
-        /*
-         * memfd mappings need their page-backed implementation for both
-         * MAP_SHARED and MAP_PRIVATE.  Falling a private memfd mapping back
-         * to the generic lazy file path loses its contents because memfd I/O
-         * is implemented by the per-open file_read callback.  Wayland maps
-         * its received XKB keymap memfd MAP_PRIVATE, so that fallback turns a
-         * valid keymap into an all-zero page.
-         */
+        /* memfd mappings need their page-backed path for both MAP_SHARED and MAP_PRIVATE. */
         if (memfd_is_node(file->node)) {
             vm_area_t *vma = calloc(1, sizeof(*vma));
             if (!vma) {
@@ -453,6 +446,7 @@ vma_done:
     return (int64_t)mmap_addr;
 }
 
+/* munmap syscall: unmap and release VMAs in a range */
 int sys_munmap_full(uint64_t addr, uint64_t length)
 {
     process_t *proc = process_current();
@@ -466,6 +460,7 @@ int sys_munmap_full(uint64_t addr, uint64_t length)
     return vma_remove_range(proc, (uintptr_t)addr, (uintptr_t)addr + pages);
 }
 
+/* mprotect syscall: change VMA access protection */
 int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
 {
     process_t *proc = process_current();
@@ -563,6 +558,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     return EOK;
 }
 
+/* msync syscall: write back synchronized mapped pages */
 int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
 {
     process_t *proc = process_current();
@@ -622,15 +618,16 @@ int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
     return result;
 }
 
+/* madvise syscall: accept all hints (advisory only) */
 int sys_madvise(uint64_t addr, uint64_t length, uint64_t advice)
 {
     (void)addr;
     (void)length;
     (void)advice;
-    /* madvise is advisory - accept all hints */
     return EOK;
 }
 
+/* mlock syscall: validate arguments (pages are already pinned) */
 int sys_mlock(uint64_t addr, uint64_t length)
 {
     if (!addr || !length) return -EINVAL;
@@ -638,23 +635,27 @@ int sys_mlock(uint64_t addr, uint64_t length)
     return EOK;
 }
 
+/* munlock syscall: validate arguments */
 int sys_munlock(uint64_t addr, uint64_t length)
 {
     if (!addr || !length) return -EINVAL;
     return EOK;
 }
 
+/* mlockall syscall: accepted as a no-op */
 int sys_mlockall(uint64_t flags)
 {
     (void)flags;
     return EOK;
 }
 
+/* munlockall syscall: no-op */
 int sys_munlockall(void)
 {
     return EOK;
 }
 
+/* mremap syscall: resize or move a memory mapping */
 int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64_t flags, uint64_t new_addr)
 {
     process_t *proc = process_current();
@@ -693,14 +694,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
         return result ? result : (int64_t)old_addr;
     }
 
-    /*
-     * A Wayland wl_shm_pool starts small and is grown with
-     * mremap(MREMAP_MAYMOVE).  memfd VMAs are eagerly backed by the memfd's
-     * physical pages, so extend the mapping in place when the following
-     * address range is free.  memfd_map() accounts one VMA per invocation;
-     * neutralize the temporary accounting entry because this is still the
-     * same VMA.
-     */
+    /* Extend eager memfd mappings in place when the following range is free. */
     if (vma->vm_file && memfd_is_node(vma->vm_file)) {
         uintptr_t extension_start = (uintptr_t)old_addr + old_pages;
         uintptr_t extension_end   = (uintptr_t)old_addr + new_pages;
@@ -787,10 +781,6 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
         return (int64_t)target;
     }
 
-    /*
-     * Other file, device, and shared-memory VMAs still have no
-     * transactional growth contract.
-     */
     if (vma->vm_file || vma->vm_private_data || vma->type == VM_REGION_SHM) {
         spin_unlock(&proc->mmap_lock);
         return -ENOMEM;
@@ -809,6 +799,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
     return (int64_t)old_addr;
 }
 
+/* mincore syscall: report page residency */
 int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec)
 {
     process_t *proc = process_current();

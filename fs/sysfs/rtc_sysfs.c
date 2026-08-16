@@ -16,6 +16,7 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 
+/* Show the current RTC date as YYYY-MM-DD. */
 static ssize_t rtc_date_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     rtc_time_t t;
@@ -25,6 +26,7 @@ static ssize_t rtc_date_show(struct device *dev, struct device_attribute *attr, 
     return sysfs_emit(buf, "%04d-%02d-%02d\n", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
 }
 
+/* Show the current RTC time as HH:MM:SS. */
 static ssize_t rtc_time_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     rtc_time_t t;
@@ -34,6 +36,7 @@ static ssize_t rtc_time_show(struct device *dev, struct device_attribute *attr, 
     return sysfs_emit(buf, "%02d:%02d:%02d\n", t.tm_hour, t.tm_min, t.tm_sec);
 }
 
+/* Show the RTC time as seconds since the Unix epoch. */
 static ssize_t rtc_since_epoch_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -41,6 +44,7 @@ static ssize_t rtc_since_epoch_show(struct device *dev, struct device_attribute 
     return sysfs_emit(buf, "%llu\n", (unsigned long long)rtc_since_epoch());
 }
 
+/* Show the fixed rtc0 device name. */
 static ssize_t rtc_name_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -77,6 +81,6 @@ void rtc_sysfs_init(void)
         return;
     }
     (void)device_create(&rtc_class, NULL, MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), NULL, "rtc0");
-    plogk("rtc_sysfs: /sys/class/rtc/rtc0 registered.\n");
+    plogk("rtc_sysfs: registered /sys/class/rtc/rtc0\n");
 #endif
 }

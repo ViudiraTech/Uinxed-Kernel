@@ -264,7 +264,7 @@ static void module_holders_destroy(module_sysfs_t *entry)
 
 /* Initialization */
 
-/* Locate the /sys/module/ kobject created by sysfs_init(). */
+/* Locate the /sys/module/ kobject created by sysfs_kobject_init(). */
 void module_sysfs_init(void)
 {
 #if CONFIG_SYSFS
@@ -279,7 +279,7 @@ void module_sysfs_init(void)
     if (!module_kobj)
         plogk("module_sysfs: /sys/module/ not found.\n");
     else
-        plogk("module_sysfs: /sys/module/ located.\n");
+        plogk("module_sysfs: registered /sys/module/\n");
 #endif
 }
 

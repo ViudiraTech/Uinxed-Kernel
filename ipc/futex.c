@@ -131,6 +131,7 @@ static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket, uint32_t *uad
     return entry;
 }
 
+/* Find a waiter entry matching the exact address and bitset. */
 static futex_entry_t *futex_find_waiter(futex_bucket_t *bucket, uint32_t *uaddr, uint64_t bitset)
 {
     uintptr_t key = (uintptr_t)uaddr;
@@ -1410,4 +1411,6 @@ void futex_init(void)
         futex_hash[i].lock.lock   = 0;
         futex_hash[i].lock.rflags = 0;
     }
+
+    plogk("futex: Futex subsystem initialized (buckets=%d)\n", FUTEX_HASH_SIZE);
 }

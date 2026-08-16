@@ -28,6 +28,7 @@
 
 /* Attribute show functions */
 
+/* Show the kernel name and version. */
 static ssize_t version_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
@@ -35,6 +36,7 @@ static ssize_t version_show(struct kobject *kobj, struct attribute *attr, char *
     return (ssize_t)sysfs_emit(buf, "%s %s\n", KERNEL_NAME, KERNEL_VERSION);
 }
 
+/* Show the boot command line. */
 static ssize_t cmdline_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
@@ -43,6 +45,7 @@ static ssize_t cmdline_show(struct kobject *kobj, struct attribute *attr, char *
     return (ssize_t)sysfs_emit(buf, "%s\n", cmd ? cmd : "");
 }
 
+/* Show the current hostname. */
 static ssize_t hostname_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
@@ -50,6 +53,7 @@ static ssize_t hostname_show(struct kobject *kobj, struct attribute *attr, char 
     return (ssize_t)sysfs_emit(buf, "localhost\n");
 }
 
+/* Accept a hostname change without persisting it. */
 static ssize_t hostname_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
     (void)kobj;
@@ -59,6 +63,7 @@ static ssize_t hostname_store(struct kobject *kobj, struct attribute *attr, cons
     return (ssize_t)count;
 }
 
+/* Show the operating system type. */
 static ssize_t ostype_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
@@ -66,6 +71,7 @@ static ssize_t ostype_show(struct kobject *kobj, struct attribute *attr, char *b
     return (ssize_t)sysfs_emit(buf, "Uinxed\n");
 }
 
+/* Show the kernel release version. */
 static ssize_t osrelease_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
@@ -73,6 +79,7 @@ static ssize_t osrelease_show(struct kobject *kobj, struct attribute *attr, char
     return (ssize_t)sysfs_emit(buf, "%s\n", KERNEL_VERSION);
 }
 
+/* Show the uevent sequence number. */
 static ssize_t uevent_seqnum_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
@@ -80,6 +87,7 @@ static ssize_t uevent_seqnum_show(struct kobject *kobj, struct attribute *attr, 
     return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)kobject_uevent_seqnum());
 }
 
+/* Show the profiling mode. */
 static ssize_t profiling_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
@@ -87,6 +95,7 @@ static ssize_t profiling_show(struct kobject *kobj, struct attribute *attr, char
     return (ssize_t)sysfs_emit(buf, "0\n");
 }
 
+/* Accept a profiling mode change. */
 static ssize_t profiling_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
     (void)kobj;
@@ -95,6 +104,7 @@ static ssize_t profiling_store(struct kobject *kobj, struct attribute *attr, con
     return (ssize_t)count;
 }
 
+/* Show system uptime in seconds. */
 static ssize_t uptime_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
@@ -139,6 +149,7 @@ static ssize_t kernel_attr_show(struct kobject *kobj, struct attribute *attr, ch
     return -EIO;
 }
 
+/* Dispatch a store operation to the matching attribute handler. */
 static ssize_t kernel_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
     if (attr == &hostname_attr) return hostname_store(kobj, attr, buf, count);
@@ -153,6 +164,7 @@ static const struct sysfs_ops kernel_sysfs_ops_dispatch = {
 
 /* Kobj type */
 
+/* Release the static /sys/kernel/ kobject. */
 static void kernel_kobj_release(struct kobject *kobj)
 {
     (void)kobj;
@@ -200,6 +212,6 @@ void kernel_sysfs_init(void)
             if ((*attr)->name) sysfs_create_file(kernel_kobj, *attr);
     }
 
-    plogk("kernel_sysfs: /sys/kernel/ registered.\n");
+    plogk("kernel_sysfs: registered /sys/kernel/\n");
 #endif
 }

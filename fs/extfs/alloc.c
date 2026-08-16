@@ -23,16 +23,19 @@
  * on-disk group descriptors.
  */
 
+/* Test a bit in a bitmap. */
 static int extfs_test_bit(const uint8_t *bitmap, uint32_t bit)
 {
     return (bitmap[bit / 8] >> (bit % 8)) & 1;
 }
 
+/* Set a bit in a bitmap. */
 static void extfs_set_bit(uint8_t *bitmap, uint32_t bit)
 {
     bitmap[bit / 8] |= (1 << (bit % 8));
 }
 
+/* Clear a bit in a bitmap. */
 static void extfs_clear_bit(uint8_t *bitmap, uint32_t bit)
 {
     bitmap[bit / 8] &= ~(1 << (bit % 8));
@@ -127,6 +130,7 @@ static uint32_t extfs_inodes_in_group(extfs_sb_info_t *sb, uint32_t group)
     return remaining < sb->inodes_per_group ? (uint32_t)remaining : sb->inodes_per_group;
 }
 
+/* Whether value is a power of base. */
 static int extfs_is_power(uint32_t value, uint32_t base)
 {
     if (!value) return 0;
@@ -146,6 +150,7 @@ static int extfs_group_has_super(extfs_sb_info_t *sb, uint32_t group)
     return group <= 1 || extfs_is_power(group, 3) || extfs_is_power(group, 5) || extfs_is_power(group, 7);
 }
 
+/* Mark a physical block as allocated in a group bitmap. */
 static void extfs_mark_group_block(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap, uint64_t physical)
 {
     uint64_t first = (uint64_t)sb->s_first_data_block + (uint64_t)group * sb->blocks_per_group;

@@ -17,7 +17,7 @@
 /*
  * Overview
  * pagecache.c caches file pages between a block device and memory,
- * indexed by (device, inode, page index) in a growable hash table.
+ * indexed by (mapping, page index) in a growable hash table.
  * It tracks dirty / uptodate / writeback state, performs read-ahead
  * and reclaims clean pages when the system is low on memory.
  */
@@ -92,6 +92,7 @@ typedef struct {
 
 static pagecache_state_t pagecache;
 
+/* Pause to yield the cache line under lock contention. */
 static inline void pc_relax(void)
 {
 #if defined(__x86_64__) || defined(__i386__)
@@ -101,18 +102,21 @@ static inline void pc_relax(void)
 #endif
 }
 
+/* Acquire a pagecache lock, spinning until available. */
 static void pc_lock(pc_lock_t *lock)
 {
     while (__atomic_exchange_n(&lock->value, 1, __ATOMIC_ACQUIRE))
         while (__atomic_load_n(&lock->value, __ATOMIC_RELAXED)) pc_relax();
 }
 
+/* Try to acquire a pagecache lock without blocking. */
 static int pc_trylock(pc_lock_t *lock)
 {
     uint32_t expected = 0;
     return __atomic_compare_exchange_n(&lock->value, &expected, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
 }
 
+/* Release a pagecache lock. */
 static void pc_unlock(pc_lock_t *lock)
 {
     __atomic_store_n(&lock->value, 0, __ATOMIC_RELEASE);
@@ -127,11 +131,13 @@ static inline size_t pc_hash(uint64_t index, size_t bucket_count)
     return (size_t)index & (bucket_count - 1);
 }
 
+/* Atomically increment a statistics counter. */
 static inline void pc_stat_inc(uint64_t *value)
 {
     __atomic_add_fetch(value, 1, __ATOMIC_RELAXED);
 }
 
+/* Atomically decrement a statistics counter. */
 static inline void pc_stat_dec(uint64_t *value)
 {
     __atomic_sub_fetch(value, 1, __ATOMIC_RELAXED);
@@ -342,6 +348,7 @@ static int pc_writeback_page_locked(pagecache_page_t *page)
     return EOK;
 }
 
+/* Initialize the page cache with the given allocator and page limit. */
 int pagecache_init(const pagecache_allocator_t *allocator, size_t max_pages)
 {
     if (!allocator || !allocator->alloc || !allocator->free || !max_pages) {
@@ -359,6 +366,7 @@ int pagecache_init(const pagecache_allocator_t *allocator, size_t max_pages)
     return EOK;
 }
 
+/* Flush all dirty pages and tear down the page cache. */
 void pagecache_shutdown(void)
 {
     if (!__atomic_load_n(&pagecache.initialized, __ATOMIC_ACQUIRE)) return;
@@ -366,6 +374,7 @@ void pagecache_shutdown(void)
     __atomic_store_n(&pagecache.initialized, 0, __ATOMIC_RELEASE);
 }
 
+/* Create a new page cache mapping backed by the given operations. */
 pagecache_mapping_t *pagecache_mapping_create(void *context, const pagecache_ops_t *ops, uint64_t size, uint32_t flags)
 {
     if (!ops || !ops->read || !__atomic_load_n(&pagecache.initialized, __ATOMIC_ACQUIRE)) {
@@ -392,6 +401,7 @@ pagecache_mapping_t *pagecache_mapping_create(void *context, const pagecache_ops
     return mapping;
 }
 
+/* Write back and invalidate all pages, then free the mapping. */
 void pagecache_mapping_destroy(pagecache_mapping_t *mapping)
 {
     if (!mapping) return;
@@ -410,6 +420,7 @@ void pagecache_mapping_destroy(pagecache_mapping_t *mapping)
     free(mapping);
 }
 
+/* Fetch a page, optionally creating, touching and reclaiming as needed. */
 static pagecache_page_t *pc_get_page(pagecache_mapping_t *mapping, uint64_t index, int create, int accessed, int reclaim)
 {
     if (!mapping) return NULL;
@@ -475,17 +486,20 @@ static pagecache_page_t *pc_get_page(pagecache_mapping_t *mapping, uint64_t inde
     return page;
 }
 
+/* Get the page at index, creating it when create is set. */
 pagecache_page_t *pagecache_get_page(pagecache_mapping_t *mapping, uint64_t index, int create)
 {
     return pc_get_page(mapping, index, create, 1, 1);
 }
 
+/* Drop one reference on a page cache page. */
 void pagecache_put_page(pagecache_page_t *page)
 {
     if (!page) return;
     __atomic_sub_fetch(&page->references, 1, __ATOMIC_ACQ_REL);
 }
 
+/* Lock a page and optionally populate it from the backing store. */
 int pagecache_lock_page(pagecache_page_t *page, int populate)
 {
     if (!page) return -EINVAL;
@@ -504,26 +518,31 @@ int pagecache_lock_page(pagecache_page_t *page, int populate)
     return EOK;
 }
 
+/* Unlock a page cache page. */
 void pagecache_unlock_page(pagecache_page_t *page)
 {
     if (page) pc_unlock(&page->lock);
 }
 
+/* Return the in-memory buffer of a page cache page. */
 void *pagecache_page_data(pagecache_page_t *page)
 {
     return page ? page->data : NULL;
 }
 
+/* Return the physical frame backing a page cache page. */
 uint64_t pagecache_page_physical(pagecache_page_t *page)
 {
     return page ? page->physical : 0;
 }
 
+/* Return the file page index of a page cache page. */
 uint64_t pagecache_page_index(pagecache_page_t *page)
 {
     return page ? page->index : 0;
 }
 
+/* Mark a page dirty and uptodate. */
 void pagecache_mark_dirty(pagecache_page_t *page)
 {
     if (!page) return;
@@ -592,6 +611,7 @@ static void pc_adaptive_readahead(pagecache_mapping_t *mapping, uint64_t first, 
     if (prefetch_count && last != UINT64_MAX) (void)pc_readahead_pages(mapping, prefetch_first, prefetch_count, 0);
 }
 
+/* Read a range of the mapping into buffer. */
 int64_t pagecache_read(pagecache_mapping_t *mapping, void *buffer, uint64_t offset, size_t size)
 {
     if (!mapping || (!buffer && size)) return -EINVAL;
@@ -629,6 +649,7 @@ static void pc_extend_size(pagecache_mapping_t *mapping, uint64_t end)
     while (old < end && !__atomic_compare_exchange_n(&mapping->size, &old, end, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE));
 }
 
+/* Write a range of buffer into the mapping, marking pages dirty. */
 int64_t pagecache_write(pagecache_mapping_t *mapping, const void *buffer, uint64_t offset, size_t size)
 {
     if (!mapping || (!buffer && size)) return -EINVAL;
@@ -692,6 +713,7 @@ static void pc_sort_sift_down(pagecache_page_t **pages, size_t root, size_t coun
     }
 }
 
+/* Sort pages by index so writeback proceeds in file order. */
 static void pc_sort_pages(pagecache_page_t **pages, size_t count)
 {
     /*
@@ -707,6 +729,7 @@ static void pc_sort_pages(pagecache_page_t **pages, size_t count)
     }
 }
 
+/* Write back dirty pages in [start, end] to the backing store. */
 int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, uint32_t flags)
 {
     if (!mapping) return -EINVAL;
@@ -765,6 +788,7 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
     return first_error;
 }
 
+/* Write back dirty pages of every live mapping. */
 int pagecache_writeback_all(uint32_t flags)
 {
     int first_error = EOK;
@@ -796,6 +820,7 @@ int pagecache_writeback_all(uint32_t flags)
     return first_error;
 }
 
+/* Drop and free pages in [start, end] from the mapping. */
 int pagecache_invalidate(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, uint32_t flags)
 {
     if (!mapping) return -EINVAL;
@@ -838,6 +863,7 @@ int pagecache_invalidate(pagecache_mapping_t *mapping, uint64_t start, uint64_t 
     }
 }
 
+/* Write back or discard pages in [start, end], then free them. */
 int pagecache_evict(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, uint32_t flags)
 {
     if (!mapping || end < start || (flags & ~(PAGECACHE_EVICT_WRITEBACK | PAGECACHE_EVICT_DISCARD_DIRTY))) return -EINVAL;
@@ -866,6 +892,7 @@ int pagecache_evict(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, 
     return pagecache_invalidate(mapping, start, end, invalidate);
 }
 
+/* Resize a mapping and drop pages beyond the new size. */
 int pagecache_truncate(pagecache_mapping_t *mapping, uint64_t size)
 {
     if (!mapping || !mapping->ops.resize) return -EOPNOTSUPP;
@@ -894,26 +921,31 @@ int pagecache_truncate(pagecache_mapping_t *mapping, uint64_t size)
     return EOK;
 }
 
+/* Return the current size of a mapping. */
 uint64_t pagecache_size(const pagecache_mapping_t *mapping)
 {
     return mapping ? __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE) : 0;
 }
 
+/* Return the sticky I/O error recorded on a mapping. */
 int pagecache_mapping_error(pagecache_mapping_t *mapping)
 {
     return mapping ? __atomic_load_n(&mapping->error, __ATOMIC_ACQUIRE) : -EINVAL;
 }
 
+/* Pin a mapping so its pages are not reclaimed. */
 void pagecache_mapping_pin(pagecache_mapping_t *mapping)
 {
     if (mapping) __atomic_add_fetch(&mapping->pins, 1, __ATOMIC_ACQ_REL);
 }
 
+/* Drop a pin previously taken on a mapping. */
 void pagecache_mapping_unpin(pagecache_mapping_t *mapping)
 {
     if (mapping) __atomic_sub_fetch(&mapping->pins, 1, __ATOMIC_ACQ_REL);
 }
 
+/* Prefetch the pages covering [offset, offset + size). */
 int pagecache_readahead(pagecache_mapping_t *mapping, uint64_t offset, size_t size)
 {
     if (!mapping || (size && offset > UINT64_MAX - size)) return -EINVAL;
@@ -931,6 +963,7 @@ int pagecache_readahead(pagecache_mapping_t *mapping, uint64_t offset, size_t si
     return EOK;
 }
 
+/* Free clean pages up to target, writing back dirty candidates. */
 size_t pagecache_reclaim(size_t target)
 {
     size_t reclaimed = 0;
@@ -991,6 +1024,7 @@ size_t pagecache_reclaim(size_t target)
     return reclaimed;
 }
 
+/* Snapshot the global page cache statistics. */
 void pagecache_get_stats(pagecache_stats_t *stats)
 {
     if (!stats) return;

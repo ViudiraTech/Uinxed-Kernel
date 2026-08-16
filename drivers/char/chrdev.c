@@ -25,10 +25,16 @@ int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, 
 {
     cdev_t *cdev;
 
-    if (!name || !ops) return -EINVAL;
+    if (!name || !ops) {
+        plogk("chrdev: cdev_add: missing name or ops.\n");
+        return -EINVAL;
+    }
 
     cdev = calloc(1, sizeof(*cdev));
-    if (!cdev) return -ENOMEM;
+    if (!cdev) {
+        plogk("chrdev: cdev_add: out of memory.\n");
+        return -ENOMEM;
+    }
     if (dir) strncpy(cdev->dir, dir, sizeof(cdev->dir) - 1);
     strncpy(cdev->name, name, sizeof(cdev->name) - 1);
     cdev->major      = major;
@@ -52,7 +58,10 @@ int cdev_del(const char *path)
     cdev_t **link;
     int      status = -ENOENT;
 
-    if (!path) return -EINVAL;
+    if (!path) {
+        plogk("chrdev: cdev_del: NULL path.\n");
+        return -EINVAL;
+    }
     (void)snprintf(full, sizeof(full), "/dev/%s", path);
 
     spin_lock(&chrdev_lock);

@@ -169,6 +169,7 @@ static procfs_sysctl_t procfs_sysctl_kernel[] = {
 
 /* Helpers */
 
+/* No-op for procfs link callbacks that need no implementation. */
 static void procfs_dummy(void)
 {
 }
@@ -242,6 +243,7 @@ static void procfs_deactivate_pid_nodes(vfs_node_t root)
 
 /* Content generators */
 
+/* Generate /proc/stat content. */
 static void gen_info_stat(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -275,6 +277,7 @@ static void gen_info_stat(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/meminfo content. */
 static void gen_info_meminfo(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -323,6 +326,7 @@ static void gen_info_meminfo(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/vmstat content. */
 static void gen_info_vmstat(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -353,6 +357,7 @@ static void gen_info_vmstat(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/modules content. */
 static void gen_info_modules(procfs_file_t *pf)
 {
     size_t capacity = (size_t)64 * 1024;
@@ -363,6 +368,7 @@ static void gen_info_modules(procfs_file_t *pf)
     pf->capacity = capacity;
 }
 
+/* Generate /proc/mounts or /proc/self/mountinfo content. */
 static void gen_mount_table(procfs_file_t *pf, bool mountinfo)
 {
     size_t capacity = (size_t)64 * 1024;
@@ -373,6 +379,7 @@ static void gen_mount_table(procfs_file_t *pf, bool mountinfo)
     pf->capacity = capacity;
 }
 
+/* Generate /proc/filesystems content. */
 static void gen_info_filesystems(procfs_file_t *pf)
 {
     size_t capacity = 4096;
@@ -383,6 +390,7 @@ static void gen_info_filesystems(procfs_file_t *pf)
     pf->capacity = capacity;
 }
 
+/* Generate /proc/cmdline content. */
 static void gen_info_cmdline(procfs_file_t *pf)
 {
     const char *cmdline = get_cmdline();
@@ -398,6 +406,7 @@ static void gen_info_cmdline(procfs_file_t *pf)
     pf->capacity     = length + 1;
 }
 
+/* Generate /proc/cgroups content. */
 static void gen_info_cgroups(procfs_file_t *pf)
 {
     char *buffer = malloc(PROCFS_BUF_SIZE);
@@ -409,6 +418,7 @@ static void gen_info_cgroups(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/cpuinfo content. */
 static void gen_info_cpuinfo(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -504,6 +514,7 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/uptime content. */
 static void gen_info_uptime(procfs_file_t *pf)
 {
     char *buf = malloc(128);
@@ -521,6 +532,7 @@ static void gen_info_uptime(procfs_file_t *pf)
     pf->capacity = 128;
 }
 
+/* Generate /proc/version content. */
 static void gen_info_version(procfs_file_t *pf)
 {
     char *buf = malloc(256);
@@ -533,6 +545,7 @@ static void gen_info_version(procfs_file_t *pf)
     pf->capacity = 256;
 }
 
+/* Generate /proc/loadavg content. */
 static void gen_info_loadavg(procfs_file_t *pf)
 {
     char *buf = malloc(128);
@@ -553,6 +566,7 @@ static void gen_info_loadavg(procfs_file_t *pf)
     pf->capacity = 128;
 }
 
+/* Generate /proc/interrupts content. */
 static void gen_info_interrupts(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -614,6 +628,7 @@ static void gen_info_interrupts(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/softirqs content. */
 static void gen_info_softirqs(procfs_file_t *pf)
 {
     static const char *names[] = {"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "IRQ_POLL", "TASKLET", "SCHED", "HRTIMER", "RCU"};
@@ -655,6 +670,7 @@ static void gen_info_softirqs(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/partitions content. */
 static void gen_info_partitions(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -666,6 +682,7 @@ static void gen_info_partitions(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/devices content. */
 static void gen_info_devices(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -677,6 +694,7 @@ static void gen_info_devices(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/diskstats content. */
 static void gen_info_diskstats(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -688,6 +706,7 @@ static void gen_info_diskstats(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/swaps content. */
 static void gen_info_swaps(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -699,6 +718,7 @@ static void gen_info_swaps(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/misc content. */
 static void gen_info_misc(procfs_file_t *pf)
 {
     /* This kernel has no Linux "misc" (major 10) devices registered. */
@@ -710,6 +730,7 @@ static void gen_info_misc(procfs_file_t *pf)
     pf->capacity = 8;
 }
 
+/* Generate /proc/ioports content. */
 static void gen_info_ioports(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -739,6 +760,7 @@ static void gen_info_ioports(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/iomem content. */
 static void gen_info_iomem(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -758,6 +780,7 @@ static void gen_info_iomem(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/tty/drivers content. */
 static void gen_tty_drivers(procfs_file_t *pf)
 {
     char *buf = malloc(1024);
@@ -775,6 +798,7 @@ static void gen_tty_drivers(procfs_file_t *pf)
     pf->capacity = 1024;
 }
 
+/* Generate /proc/tty/ldiscs content. */
 static void gen_tty_ldiscs(procfs_file_t *pf)
 {
     char *buf = malloc(256);
@@ -787,12 +811,14 @@ static void gen_tty_ldiscs(procfs_file_t *pf)
 
 /* /proc/sys sysctl support */
 
+/* Return the sysctl entry for a directory index. */
 static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
 {
     if (dir == PROC_SYS_KERNEL && index < PROCFS_SYSCTL_KERNEL_COUNT) return &procfs_sysctl_kernel[index];
     return NULL;
 }
 
+/* Find a sysctl entry by name. */
 static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
 {
     if (dir == PROC_SYS_KERNEL) {
@@ -802,6 +828,7 @@ static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
     return NULL;
 }
 
+/* Generate a /proc/sys sysctl file content. */
 static void gen_sysctl_file(procfs_file_t *pf)
 {
     procfs_sysctl_t *sc = procfs_sysctl_lookup(pf->subtype, (size_t)pf->pid);
@@ -833,6 +860,7 @@ static void gen_sysctl_file(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Apply a written value to a sysctl entry. */
 static int procfs_sysctl_apply(procfs_sysctl_t *sc, const char *data, size_t size)
 {
     if (sc->readonly) return -EPERM;
@@ -898,6 +926,7 @@ typedef struct procfs_net_context {
         size_t capacity;
 } procfs_net_context_t;
 
+/* Append one network device line to /proc/net/dev. */
 static void procfs_gen_net_dev(net_device_t *device, void *opaque)
 {
     procfs_net_context_t *context = opaque;
@@ -915,6 +944,7 @@ static void procfs_gen_net_dev(net_device_t *device, void *opaque)
     if (n > 0) context->length += (size_t)n < context->capacity - context->length ? (size_t)n : context->capacity - context->length;
 }
 
+/* Append one route line to /proc/net/route. */
 static void procfs_gen_net_route(net_device_t *device, void *opaque)
 {
     procfs_net_context_t *context = opaque;
@@ -938,6 +968,7 @@ static void procfs_gen_net_route(net_device_t *device, void *opaque)
     if (n > 0) context->length += (size_t)n < context->capacity - context->length ? (size_t)n : context->capacity - context->length;
 }
 
+/* Generate /proc/net file content. */
 static void gen_net_file(procfs_file_t *pf)
 {
     static const char *headers[] = {
@@ -978,6 +1009,7 @@ static void gen_net_file(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/<pid>/status content. */
 static void gen_pid_status(procfs_file_t *pf)
 {
     process_t *proc = process_find(pf->pid);
@@ -1060,6 +1092,7 @@ static void gen_pid_status(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/<pid>/maps content. */
 static void gen_pid_maps(procfs_file_t *pf)
 {
     process_t *proc = process_find(pf->pid);
@@ -1136,6 +1169,7 @@ static void gen_pid_maps(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+/* Generate /proc/<pid>/cmdline content. */
 static void gen_pid_cmdline(procfs_file_t *pf)
 {
     process_t *proc = process_find(pf->pid);
@@ -1152,6 +1186,7 @@ static void gen_pid_cmdline(procfs_file_t *pf)
     pf->capacity = len + 1;
 }
 
+/* Generate /proc/<pid>/cgroup content. */
 static void gen_pid_cgroup(procfs_file_t *pf)
 {
     process_t *proc = process_find_get(pf->pid);
@@ -1177,6 +1212,7 @@ static void gen_pid_cgroup(procfs_file_t *pf)
     pf->capacity = capacity;
 }
 
+/* Generate /proc/<pid>/name content. */
 static void gen_pid_name(procfs_file_t *pf)
 {
     process_t *proc = process_find(pf->pid);
@@ -1195,6 +1231,7 @@ static void gen_pid_name(procfs_file_t *pf)
     pf->capacity = PROCESS_NAME_LEN + 2;
 }
 
+/* Generate /proc/<pid>/comm content. */
 static void gen_pid_comm(procfs_file_t *pf)
 {
     process_t *proc = process_find(pf->pid);
@@ -1213,6 +1250,7 @@ static void gen_pid_comm(procfs_file_t *pf)
     pf->capacity = PROCESS_NAME_LEN + 2;
 }
 
+/* Generate /proc/<pid>/statm content. */
 static void gen_pid_statm(procfs_file_t *pf)
 {
     process_t *proc = process_find_get(pf->pid);
@@ -1245,6 +1283,7 @@ static void gen_pid_statm(procfs_file_t *pf)
     pf->capacity = 256;
 }
 
+/* Generate /proc/<pid>/limits content. */
 static void gen_pid_limits(procfs_file_t *pf)
 {
     static const char *const names[PROCESS_RLIMIT_COUNT] = {
@@ -1289,6 +1328,7 @@ static void gen_pid_limits(procfs_file_t *pf)
     pf->capacity = 4096;
 }
 
+/* Generate /proc/<pid>/io content. */
 static void gen_pid_io(procfs_file_t *pf)
 {
     (void)pf;
@@ -1307,6 +1347,7 @@ static void gen_pid_io(procfs_file_t *pf)
     pf->capacity = 256;
 }
 
+/* Generate /proc/<pid>/oom_score_adj content. */
 static void gen_pid_oom_score_adj(procfs_file_t *pf)
 {
     char *buf = malloc(16);
@@ -1342,6 +1383,7 @@ static void procfs_fd_target(process_t *proc, int fd, char *target, size_t capac
     process_file_put(file);
 }
 
+/* Generate /proc/<pid>/mem content. */
 static void gen_pid_mem(procfs_file_t *pf)
 {
     process_t *proc = process_find(pf->pid);
@@ -1369,6 +1411,7 @@ static void gen_pid_mem(procfs_file_t *pf)
     pf->capacity = 256;
 }
 
+/* Generate /proc/<pid>/stat content. */
 static void gen_pid_stat(procfs_file_t *pf)
 {
     process_t *proc = process_find_get(pf->pid);
@@ -1843,6 +1886,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
     node->handle = pf;
 }
 
+/* Release a procfs file handle (no-op). */
 static void procfs_close(void *current)
 {
     (void)current;
@@ -1937,6 +1981,7 @@ static int procfs_file_open(vfs_node_t node, uint64_t flags, void **private_data
     return EOK;
 }
 
+/* Release a per-open procfs snapshot. */
 static void procfs_file_release(vfs_node_t node, void *private_data)
 {
     (void)node;
@@ -2201,6 +2246,7 @@ static int64_t procfs_file_write(vfs_node_t node, void *private_data, uint64_t f
     return -EACCES;
 }
 
+/* procfs is read-only; reject directory creation. */
 static int procfs_mkdir(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -2209,6 +2255,7 @@ static int procfs_mkdir(void *parent, const char *name, vfs_node_t node)
     return -EROFS;
 }
 
+/* procfs is read-only; reject file creation. */
 static int procfs_mkfile(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -2217,6 +2264,7 @@ static int procfs_mkfile(void *parent, const char *name, vfs_node_t node)
     return -EROFS;
 }
 
+/* procfs is read-only; reject deletion. */
 static int procfs_delete(void *parent, vfs_node_t node)
 {
     (void)parent;
@@ -2224,6 +2272,7 @@ static int procfs_delete(void *parent, vfs_node_t node)
     return -EROFS;
 }
 
+/* procfs is read-only; reject rename. */
 static int procfs_rename(const vfs_rename_context_t *context)
 {
     (void)context;
@@ -2270,6 +2319,7 @@ static vfs_node_t procfs_dup(vfs_node_t node)
     return copy;
 }
 
+/* Report read/write readiness for a procfs file. */
 static int procfs_poll(void *file, size_t events)
 {
     (void)file;
@@ -2279,6 +2329,7 @@ static int procfs_poll(void *file, size_t events)
     return revents;
 }
 
+/* Accept all ioctl requests (procfs handles none). */
 static int procfs_ioctl(void *file, size_t req, void *arg)
 {
     (void)file;

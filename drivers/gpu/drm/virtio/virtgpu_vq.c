@@ -46,6 +46,7 @@ int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
     return 0;
 }
 
+/* Tear down the control and cursor virtqueues. */
 void virtgpu_vq_fini(struct virtio_gpu_device *vgdev)
 {
     /* Stop device DMA before returning queue pages to the frame allocator. */

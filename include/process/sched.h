@@ -20,7 +20,7 @@
 
 /* EEVDF constants */
 
-#define SCHED_NICE_0_LOAD 1024ULL // weight of nice 0
+#define SCHED_NICE_0_LOAD 1024ULL
 
 /* Per-CPU EEVDF runqueue */
 

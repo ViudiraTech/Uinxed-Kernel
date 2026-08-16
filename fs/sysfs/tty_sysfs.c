@@ -31,6 +31,7 @@ typedef struct {
         int           devices;
 } tty_sysfs_ctx_t;
 
+/* Publish one tty device under /sys/class/tty/. */
 static int tty_sysfs_add_device(tty_driver_t *drv, int index, const char *name, void *opaque)
 {
     tty_sysfs_ctx_t *ctx   = opaque;
@@ -62,6 +63,6 @@ void tty_sysfs_init(void)
     /* Auxiliary tty device exported by the pty subsystem. */
     if (device_create(&tty_class, NULL, MKDEV(5, 2), NULL, "ptmx")) ctx.devices++;
 
-    plogk("tty_sysfs: %d tty device(s) exported to /sys/class/tty\n", ctx.devices);
+    plogk("tty_sysfs: exported %d tty device(s) to /sys/class/tty\n", ctx.devices);
 #endif
 }

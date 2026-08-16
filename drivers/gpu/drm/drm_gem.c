@@ -65,16 +65,19 @@ static spinlock_t         dumb_alloc_lock = {.lock = 0, .rflags = 0};
 static dumb_slot_range_t dumb_range_pool[DUMB_RANGE_POOL_SIZE];
 static uint32_t          dumb_range_pool_used = 0;
 
+/* Mark a dumb-buffer offset slot as used. */
 static inline void dumb_bitmap_set(uint32_t slot)
 {
     if (slot < DUMB_OFFSET_MAX_SLOTS) dumb_bitmap[slot / 8] |= (uint8_t)(1U << (slot % 8));
 }
 
+/* Mark a dumb-buffer offset slot as free. */
 static inline void dumb_bitmap_clear(uint32_t slot)
 {
     if (slot < DUMB_OFFSET_MAX_SLOTS) dumb_bitmap[slot / 8] &= (uint8_t) ~(1U << (slot % 8));
 }
 
+/* Allocate a dumb-buffer range node. */
 static dumb_slot_range_t *dumb_range_alloc_node(void)
 {
     if (dumb_range_pool_used < DUMB_RANGE_POOL_SIZE) {
@@ -90,6 +93,7 @@ static dumb_slot_range_t *dumb_range_alloc_node(void)
     }
 }
 
+/* Free a dumb-buffer range node. */
 static void dumb_range_free_node(dumb_slot_range_t *r)
 {
     /*
@@ -101,6 +105,7 @@ static void dumb_range_free_node(dumb_slot_range_t *r)
 
 static bool dumb_offset_inited = false;
 
+/* Initialize the dumb-buffer offset allocator. */
 static void dumb_offset_init(void)
 {
     memset(dumb_bitmap, 0, sizeof(dumb_bitmap));

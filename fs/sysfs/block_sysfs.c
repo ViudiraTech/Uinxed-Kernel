@@ -40,6 +40,7 @@ static struct kobject *block_root_kobj;
 
 /* Attribute show functions */
 
+/* Return the block sysfs wrapper containing a kobject. */
 static block_sysfs_dev_t *to_bsd(struct kobject *kobj)
 {
     return (block_sysfs_dev_t *)((char *)kobj - offsetof(block_sysfs_dev_t, kobj));
@@ -48,6 +49,7 @@ static block_sysfs_dev_t *to_bsd(struct kobject *kobj)
 static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd);
 static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd);
 
+/* Show the device size in 512-byte sectors. */
 static ssize_t size_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     block_sysfs_dev_t *bsd = to_bsd(kobj);
@@ -57,6 +59,7 @@ static ssize_t size_show(struct kobject *kobj, struct attribute *attr, char *buf
     return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)sz);
 }
 
+/* Show the logical sector size. */
 static ssize_t sector_size_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     block_sysfs_dev_t *bsd = to_bsd(kobj);
@@ -65,18 +68,21 @@ static ssize_t sector_size_show(struct kobject *kobj, struct attribute *attr, ch
     return (ssize_t)sysfs_emit(buf, "%u\n", bsd->bdev.sector_size);
 }
 
+/* Show whether the device is read-only. */
 static ssize_t ro_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)attr;
     return (ssize_t)sysfs_emit(buf, "%d\n", to_bsd(kobj)->read_only);
 }
 
+/* Show the partition number. */
 static ssize_t partition_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)attr;
     return (ssize_t)sysfs_emit(buf, "%u\n", to_bsd(kobj)->partition);
 }
 
+/* Show the partition start offset. */
 static ssize_t start_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     block_sysfs_dev_t *bsd = to_bsd(kobj);
@@ -84,6 +90,7 @@ static ssize_t start_show(struct kobject *kobj, struct attribute *attr, char *bu
     return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)bsd->start_lba * (bsd->bdev.sector_size / 512));
 }
 
+/* Show whether the device is removable. */
 static ssize_t removable_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)attr;
@@ -92,6 +99,7 @@ static ssize_t removable_show(struct kobject *kobj, struct attribute *attr, char
 
 /* Sysfs ops */
 
+/* Dispatch a show operation to the matching block attribute. */
 static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     if (streq(attr->name, "size")) return size_show(kobj, attr, buf);
@@ -113,6 +121,7 @@ static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, cha
     return -EIO;
 }
 
+/* Handle the writable uevent attribute. */
 static ssize_t block_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
     if (!streq(attr->name, "uevent")) return -EIO;
@@ -145,18 +154,21 @@ static struct attribute *partition_attrs[] = {
     &size_attr, &partition_attr, &start_attr, &ro_attr, &uevent_attr, NULL,
 };
 
+/* Free a block sysfs device wrapper. */
 static void block_kobj_release(struct kobject *kobj)
 {
     block_sysfs_dev_t *bsd = to_bsd(kobj);
     free(bsd);
 }
 
+/* Return the uevent subsystem name. */
 static const char *block_uevent_name(struct kobject *kobj)
 {
     (void)kobj;
     return "block";
 }
 
+/* Emit the block device uevent environment variables. */
 static int block_kobj_uevent(struct kobject *kobj, struct kobj_uevent_env *env)
 {
     block_sysfs_dev_t *bsd = to_bsd(kobj);
@@ -281,6 +293,7 @@ static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd)
     if (sysfs_dev_block_kobj) (void)sysfs_create_symlink(sysfs_dev_block_kobj, &bsd->kobj, link);
 }
 
+/* Remove the /sys/dev/block major:minor symlink. */
 static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd)
 {
     uint32_t               major, minor;
@@ -382,6 +395,6 @@ void block_sysfs_init(void)
         if (block_sysfs_register_device(disk->name, &disk->device, false, &handle) == EOK) count++;
     }
 
-    plogk("block_sysfs: %d block devices exported to /sys/block/\n", count);
+    plogk("block_sysfs: exported %d block device(s) to /sys/block\n", count);
 #endif
 }

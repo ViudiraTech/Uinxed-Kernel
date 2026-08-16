@@ -17,11 +17,11 @@
 #define FBDEV_IOCTL_GET_INFO 0x1000
 
 /*
- * Linux framebuffer userspace ABI.
+ * Framebuffer userspace ABI.
  *
- * Keep these layouts in sync with include/uapi/linux/fb.h.  Xorg passes the
- * structures below directly through ioctl(2), so this is an ABI contract,
- * not an internal convenience structure.
+ * Keep these layouts byte-compatible with the userspace ABI.  Xorg passes
+ * the structures below directly through ioctl(2), so this is an ABI
+ * contract, not an internal convenience structure.
  */
 #define FBIOGET_VSCREENINFO 0x4600
 #define FBIOPUT_VSCREENINFO 0x4601

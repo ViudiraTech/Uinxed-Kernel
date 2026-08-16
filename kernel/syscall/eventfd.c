@@ -31,6 +31,7 @@ static int eventfd_fsid = -1;
 
 /* VFS callback implementations */
 
+/* VFS open callback (no-op) */
 static void eventfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -38,6 +39,7 @@ static void eventfd_vfs_open(void *parent, const char *name, vfs_node_t node)
     (void)node;
 }
 
+/* VFS close callback: reset the counter and wake all waiters */
 static void eventfd_vfs_close(void *current)
 {
     eventfd_ctx_t *ctx = (eventfd_ctx_t *)current;
@@ -48,6 +50,7 @@ static void eventfd_vfs_close(void *current)
     wait_queue_wake_all(&ctx->wq);
 }
 
+/* VFS read callback: consume the counter value, blocking on empty */
 static size_t eventfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -89,6 +92,7 @@ static size_t eventfd_vfs_read(void *file, void *addr, size_t offset, size_t siz
     return sizeof(uint64_t);
 }
 
+/* VFS write callback: add to the counter, blocking on overflow */
 static size_t eventfd_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -124,6 +128,7 @@ static size_t eventfd_vfs_write(void *file, const void *addr, size_t offset, siz
     return sizeof(uint64_t);
 }
 
+/* VFS poll callback: report readability and writability */
 static int eventfd_vfs_poll(void *file, size_t events)
 {
     eventfd_ctx_t *ctx = (eventfd_ctx_t *)file;
@@ -139,6 +144,7 @@ static int eventfd_vfs_poll(void *file, size_t events)
     return revents & (int)events;
 }
 
+/* File read entry: validate size then delegate to the read callback */
 static int64_t eventfd_vfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)private_data;
@@ -148,6 +154,7 @@ static int64_t eventfd_vfs_file_read(vfs_node_t node, void *private_data, uint64
     return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
 }
 
+/* File write entry: validate size and value then delegate to the write callback */
 static int64_t eventfd_vfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)private_data;
@@ -160,6 +167,7 @@ static int64_t eventfd_vfs_file_write(vfs_node_t node, void *private_data, uint6
     return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
 }
 
+/* VFS free callback: release the eventfd context */
 static int eventfd_vfs_free(void *handle)
 {
     eventfd_ctx_t *ctx = (eventfd_ctx_t *)handle;
@@ -170,11 +178,13 @@ static int eventfd_vfs_free(void *handle)
 
 /* Generic stubs for unused VFS callbacks */
 
+/* Unsupported unmount callback */
 static void eventfd_stub_unmount(void *root)
 {
     (void)root;
 }
 
+/* Unsupported stat callback */
 static int eventfd_stub_stat(void *f, vfs_node_t n)
 {
     (void)f;
@@ -182,6 +192,7 @@ static int eventfd_stub_stat(void *f, vfs_node_t n)
     return EOK;
 }
 
+/* Unsupported mkdir/mkfile/link/symlink callback */
 static int eventfd_stub_mk(void *p, const char *nm, vfs_node_t n)
 {
     (void)p;
@@ -190,6 +201,7 @@ static int eventfd_stub_mk(void *p, const char *nm, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported readlink callback */
 static size_t eventfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 {
     (void)n;
@@ -199,6 +211,7 @@ static size_t eventfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
     return (size_t)-1;
 }
 
+/* Unsupported ioctl callback */
 static int eventfd_stub_ioctl(void *f, size_t o, void *a)
 {
     (void)f;
@@ -207,12 +220,14 @@ static int eventfd_stub_ioctl(void *f, size_t o, void *a)
     return -ENOSYS;
 }
 
+/* Unsupported dup callback */
 static vfs_node_t eventfd_stub_dup(vfs_node_t n)
 {
     (void)n;
     return NULL;
 }
 
+/* Unsupported delete callback */
 static int eventfd_stub_del(void *p, vfs_node_t n)
 {
     (void)p;
@@ -220,12 +235,14 @@ static int eventfd_stub_del(void *p, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported rename callback */
 static int eventfd_stub_rename(const vfs_rename_context_t *context)
 {
     (void)context;
     return -ENOSYS;
 }
 
+/* Unsupported mount callback */
 static int eventfd_stub_mount(const char *s, vfs_node_t n)
 {
     (void)s;
@@ -235,6 +252,7 @@ static int eventfd_stub_mount(const char *s, vfs_node_t n)
 
 /* Public API */
 
+/* Allocate and initialize an eventfd VFS node */
 static vfs_node_t eventfd_node_create(unsigned int initval, int flags)
 {
     if (eventfd_fsid < 0) return NULL;
@@ -261,6 +279,7 @@ static vfs_node_t eventfd_node_create(unsigned int initval, int flags)
     return node;
 }
 
+/* eventfd syscall: create an eventfd descriptor */
 int sys_eventfd(unsigned int initval, int flags)
 {
     if (flags & ~(EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC)) return -EINVAL;
@@ -281,11 +300,13 @@ int sys_eventfd(unsigned int initval, int flags)
     return fd;
 }
 
+/* eventfd2 syscall: create an eventfd descriptor with flags */
 int sys_eventfd2(unsigned int initval, int flags)
 {
     return sys_eventfd(initval, flags);
 }
 
+/* Register the eventfd filesystem callback set */
 void eventfd_init(void)
 {
     vfs_callback_t cb = calloc(1, sizeof(struct vfs_callback));

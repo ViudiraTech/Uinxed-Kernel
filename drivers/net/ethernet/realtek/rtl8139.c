@@ -174,36 +174,43 @@ static rtl8139_device_t *rtl8139_irq_slots[RTL8139_MAX_DEVICES];
 static spinlock_t        rtl8139_irq_lock;
 static int               rtl8139_scheduler_ready;
 
+/* Read an 8-bit I/O register. */
 static inline uint8_t rtl8139_read8(const rtl8139_device_t *device, uint32_t reg)
 {
     return inb((uint16_t)(device->ioaddr + reg));
 }
 
+/* Read a 16-bit I/O register. */
 static inline uint16_t rtl8139_read16(const rtl8139_device_t *device, uint32_t reg)
 {
     return inw((uint16_t)(device->ioaddr + reg));
 }
 
+/* Read a 32-bit I/O register. */
 static inline uint32_t rtl8139_read32(const rtl8139_device_t *device, uint32_t reg)
 {
     return inl((uint16_t)(device->ioaddr + reg));
 }
 
+/* Write an 8-bit I/O register. */
 static inline void rtl8139_write8(rtl8139_device_t *device, uint32_t reg, uint8_t value)
 {
     outb((uint16_t)(device->ioaddr + reg), value);
 }
 
+/* Write a 16-bit I/O register. */
 static inline void rtl8139_write16(rtl8139_device_t *device, uint32_t reg, uint16_t value)
 {
     outw((uint16_t)(device->ioaddr + reg), value);
 }
 
+/* Write a 32-bit I/O register. */
 static inline void rtl8139_write32(rtl8139_device_t *device, uint32_t reg, uint32_t value)
 {
     outl((uint16_t)(device->ioaddr + reg), value);
 }
 
+/* Force a previous I/O write to complete by reading back the command register. */
 static inline void rtl8139_write_flush(rtl8139_device_t *device)
 {
     (void)rtl8139_read8(device, RTL8139_REG_CR);
@@ -694,6 +701,7 @@ static void rtl8139_interrupt_slot(size_t slot, void *frame)
     send_eoi();
 }
 
+/* Generate the legacy and IDT interrupt wrappers for one IRQ slot. */
 #define RTL8139_IRQ_WRAPPERS(n)                                                     \
     static void rtl8139_legacy_interrupt_##n(void *frame)                           \
     {                                                                               \
@@ -992,26 +1000,31 @@ void rtl8139_shutdown(void)
     }
 }
 
+/* True if the device link is up. */
 int rtl8139_link_up(const rtl8139_device_t *device)
 {
     return device && device->link_up;
 }
 
+/* Return the device MAC address (6 bytes). */
 const uint8_t *rtl8139_mac_address(const rtl8139_device_t *device)
 {
     return device ? device->mac : NULL;
 }
 
+/* Return a snapshot of device statistics. */
 const rtl8139_stats_t *rtl8139_get_stats(const rtl8139_device_t *device)
 {
     return device ? &device->stats : NULL;
 }
 
+/* Return the first registered device. */
 rtl8139_device_t *rtl8139_first_device(void)
 {
     return rtl8139_devices;
 }
 
+/* Return the device after the given one, or NULL at the end. */
 rtl8139_device_t *rtl8139_next_device(rtl8139_device_t *device)
 {
     return device ? device->next : NULL;

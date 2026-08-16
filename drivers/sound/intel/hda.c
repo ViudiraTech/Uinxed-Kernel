@@ -288,71 +288,86 @@ typedef struct hda_controller {
 static hda_controller_t hda_ctrl;
 
 /* MMIO access helpers */
+
+/* Read a 32-bit MMIO register. */
 static inline uint32_t hda_read32(uint16_t reg)
 {
     return mmio_read32((void *)((uintptr_t)hda_ctrl.mmio + reg));
 }
 
+/* Write a 32-bit MMIO register. */
 static inline void hda_write32(uint16_t reg, uint32_t val)
 {
     mmio_write32((void *)((uintptr_t)hda_ctrl.mmio + reg), val);
 }
 
+/* Read a 16-bit MMIO register. */
 static inline uint16_t hda_read16(uint16_t reg)
 {
     volatile uint16_t *ptr = (volatile uint16_t *)((uintptr_t)hda_ctrl.mmio + reg);
     return *ptr;
 }
 
+/* Write a 16-bit MMIO register. */
 static inline void hda_write16(uint16_t reg, uint16_t val)
 {
     volatile uint16_t *ptr = (volatile uint16_t *)((uintptr_t)hda_ctrl.mmio + reg);
     *ptr                   = val;
 }
 
+/* Read an 8-bit MMIO register. */
 static inline uint8_t hda_read8(uint16_t reg)
 {
     volatile uint8_t *ptr = (volatile uint8_t *)((uintptr_t)hda_ctrl.mmio + reg);
     return *ptr;
 }
 
+/* Write an 8-bit MMIO register. */
 static inline void hda_write8(uint16_t reg, uint8_t val)
 {
     volatile uint8_t *ptr = (volatile uint8_t *)((uintptr_t)hda_ctrl.mmio + reg);
     *ptr                  = val;
 }
 
+/* Read a 32-bit stream descriptor register. */
 static inline uint32_t sd_read32(int stream, uint16_t reg)
 {
     return hda_read32(0x80 + stream * 0x20 + reg);
 }
 
+/* Write a 32-bit stream descriptor register. */
 static inline void sd_write32(int stream, uint16_t reg, uint32_t val)
 {
     hda_write32(0x80 + stream * 0x20 + reg, val);
 }
 
+/* Read a 16-bit stream descriptor register. */
 static inline uint16_t sd_read16(int stream, uint16_t reg)
 {
     return hda_read16(0x80 + stream * 0x20 + reg);
 }
 
+/* Write a 16-bit stream descriptor register. */
 static inline void sd_write16(int stream, uint16_t reg, uint16_t val)
 {
     hda_write16(0x80 + stream * 0x20 + reg, val);
 }
 
+/* Read an 8-bit stream descriptor register. */
 static inline uint8_t sd_read8(int stream, uint16_t reg)
 {
     return hda_read8(0x80 + stream * 0x20 + reg);
 }
 
+/* Write an 8-bit stream descriptor register. */
 static inline void sd_write8(int stream, uint16_t reg, uint8_t val)
 {
     hda_write8(0x80 + stream * 0x20 + reg, val);
 }
 
 /* BAR size probing */
+
+/* Probe the size of a PCI BAR. */
 static uint32_t hda_read_bar_size(pci_device_cache_t *dev, int bar_idx)
 {
     pci_device_reg_t reg  = {.parent = dev, .offset = (uint16_t)(0x10 + 4 * bar_idx)};
@@ -384,6 +399,8 @@ static uint32_t hda_read_bar_size(pci_device_cache_t *dev, int bar_idx)
 }
 
 /* Verb helpers */
+
+/* Build a codec verb from address, node, verb id and payload. */
 static inline uint32_t hda_mk_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload)
 {
     return ((uint32_t)(addr & 0xf) << 28) | ((uint32_t)(nid & 0xff) << 20) | (verb_id << 8) | (payload & 0xffff);
@@ -469,6 +486,8 @@ static uint32_t hda_get_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t 
 }
 
 /* Controller reset */
+
+/* Reset the HDA controller. */
 static void hda_reset_controller(void)
 {
     int timeout;
@@ -492,6 +511,8 @@ static void hda_reset_controller(void)
 }
 
 /* CORB/RIRB */
+
+/* Allocate and map the CORB/RIRB DMA buffers. */
 static int hda_alloc_corb_rirb(void)
 {
     int      corb_entries = HDA_CORB_ENTRIES;
@@ -552,6 +573,8 @@ static void hda_init_corb_rirb(void)
 }
 
 /* Codec probing */
+
+/* Probe one codec address and record vendor/device id. */
 static int hda_probe_codec(int addr)
 {
     uint32_t vid = hda_get_param(addr, 0, AC_PAR_VENDOR_ID);
@@ -612,7 +635,10 @@ static int hda_parse_widgets(hda_codec_t *codec)
 
     codec->num_widgets = count;
     codec->widgets     = malloc(sizeof(hda_widget_t) * count);
-    if (!codec->widgets) return -ENOMEM;
+    if (!codec->widgets) {
+        plogk("hda: Codec #%d widget allocation failed.\n", codec->addr);
+        return -ENOMEM;
+    }
     memset(codec->widgets, 0, sizeof(hda_widget_t) * count);
 
     for (int i = 0; i < count; i++) {
@@ -627,7 +653,10 @@ static int hda_parse_widgets(hda_codec_t *codec)
             w->num_conns = cl & 0xff;
             if (w->num_conns > 0) {
                 w->conns = malloc(sizeof(uint16_t) * w->num_conns);
-                if (!w->conns) return -ENOMEM;
+                if (!w->conns) {
+                    plogk("hda: Codec #%d connection list allocation failed.\n", codec->addr);
+                    return -ENOMEM;
+                }
                 for (int j = 0; j < w->num_conns; j += 4) {
                     uint32_t entry  = hda_get_verb(codec->addr, nid, AC_VERB_GET_CONNECT_LIST, (uint32_t)j);
                     int      remain = w->num_conns - j;
@@ -659,6 +688,8 @@ static int hda_parse_widgets(hda_codec_t *codec)
 }
 
 /* Codec configuration */
+
+/* Configure the codec DAC/ADC/pin routing and gain. */
 static void hda_config_codec(hda_codec_t *codec)
 {
     if (codec->dac_nid < 0 && codec->adc_nid < 0) {
@@ -753,6 +784,8 @@ static void hda_config_codec(hda_codec_t *codec)
 }
 
 /* Stream DMA with multi-BDL entries */
+
+/* Set up a stream DMA descriptor and BDL. */
 static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size, size_t period_bytes, int direction)
 {
     if (stream_idx >= HDA_MAX_STREAMS || hda_ctrl.streams[stream_idx].allocated) return -EBUSY;
@@ -840,6 +873,7 @@ static void hda_stop_stream(int stream_idx)
 }
 
 /* Audio subsystem interface */
+
 /* Find a free stream descriptor for the given direction. */
 static int hda_allocate_stream(int direction)
 {
@@ -1146,6 +1180,8 @@ static const audio_card_ops_t hda_audio_ops = {
 };
 
 /* Interrupt handler */
+
+/* Handle HDA controller interrupts. */
 static void hda_interrupt_handler(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -1200,6 +1236,8 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
 }
 
 /* Initialization */
+
+/* Probe the PCI controller and register an audio card. */
 void hda_init(void)
 {
 #if !CONFIG_SOUND_HDA

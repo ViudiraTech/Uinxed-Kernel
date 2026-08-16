@@ -35,16 +35,9 @@ typedef struct {
         uint32_t   writable_mappings;
 } memfd_file_t;
 
-/*
- * Overview
- * memfd implements anonymous memory-backed files (memfd_create).
- * A memfd_file_t holds a growable page array; reads/writes/truncate
- * touch it through the VFS, and mmap attaches physical pages to the
- * caller's page tables. Seals restrict later mutations.
- */
-
 static int memfd_fsid;
 
+/* Grow the page array to hold at least the given count */
 static int memfd_expand_page_array(memfd_file_t *file, size_t count)
 {
     if (count <= file->page_capacity) return EOK;
@@ -81,6 +74,7 @@ static int memfd_expand_page_array(memfd_file_t *file, size_t count)
     return EOK;
 }
 
+/* Ensure the page at index is backed by a physical frame */
 static int memfd_allocate_page(memfd_file_t *file, size_t index)
 {
     int ret = memfd_expand_page_array(file, index + 1);
@@ -97,6 +91,7 @@ static int memfd_allocate_page(memfd_file_t *file, size_t index)
     return EOK;
 }
 
+/* Resize a memfd, honoring write/grow/shrink seals */
 static int memfd_resize_locked(memfd_file_t *file, uint64_t size)
 {
     if (file->seals & F_SEAL_WRITE) {
@@ -134,6 +129,7 @@ static int memfd_resize_locked(memfd_file_t *file, uint64_t size)
     return EOK;
 }
 
+/* Read file content, zero-filling holes */
 static int64_t memfd_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)private_data;
@@ -165,6 +161,7 @@ static int64_t memfd_file_read(vfs_node_t node, void *private_data, uint64_t fla
     return (int64_t)size;
 }
 
+/* Write file content, allocating pages on demand */
 static int64_t memfd_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)private_data;
@@ -211,6 +208,7 @@ static int64_t memfd_file_write(vfs_node_t node, void *private_data, uint64_t fl
     return (int64_t)size;
 }
 
+/* Stat callback: update the node type and size */
 static int memfd_stat(void *handle, vfs_node_t node)
 {
     memfd_file_t *file = handle;
@@ -225,6 +223,7 @@ static int memfd_stat(void *handle, vfs_node_t node)
     return EOK;
 }
 
+/* Free callback: release pages and the memfd object */
 static int memfd_free(void *handle)
 {
     memfd_file_t *file = handle;
@@ -243,16 +242,23 @@ static struct vfs_callback memfd_callbacks = {
     .file_write = memfd_file_write,
 };
 
+/* Register the memfd filesystem */
 void memfd_init(void)
 {
     memfd_fsid = vfs_regist_fs("memfd", &memfd_callbacks);
+    if (memfd_fsid < 0)
+        plogk("memfd: Failed to register filesystem (%d)\n", memfd_fsid);
+    else
+        plogk("memfd: Filesystem registered (fsid=%d)\n", memfd_fsid);
 }
 
+/* Check whether a node belongs to the memfd filesystem */
 int memfd_is_node(vfs_node_t node)
 {
     return node && node->fsid == memfd_fsid;
 }
 
+/* memfd_create syscall: create an anonymous memory file */
 int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -318,6 +324,7 @@ int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t 
     return fd;
 }
 
+/* Read the seals of a memfd node */
 int memfd_get_seals(vfs_node_t node, uint32_t *seals)
 {
     if (!memfd_is_node(node) || !seals) {
@@ -331,6 +338,7 @@ int memfd_get_seals(vfs_node_t node, uint32_t *seals)
     return EOK;
 }
 
+/* Add seals to a memfd node */
 int memfd_add_seals(vfs_node_t node, uint32_t seals)
 {
     if (!memfd_is_node(node)) {
@@ -358,6 +366,7 @@ int memfd_add_seals(vfs_node_t node, uint32_t seals)
     return EOK;
 }
 
+/* Resize a memfd node and sync its VFS size */
 int memfd_resize(vfs_node_t node, uint64_t size)
 {
     if (!memfd_is_node(node)) {
@@ -372,6 +381,7 @@ int memfd_resize(vfs_node_t node, uint64_t size)
     return ret;
 }
 
+/* Fallocate operation on a memfd node */
 int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t length)
 {
     if (!memfd_is_node(node)) {
@@ -431,6 +441,7 @@ int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t le
     return EOK;
 }
 
+/* Map memfd pages into a process address space */
 int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, uint64_t offset, vm_flags_t flags)
 {
     if (!memfd_is_node(node) || !proc || offset > UINT64_MAX - length) {
@@ -446,13 +457,7 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
         return -EPERM;
     }
 
-    /*
-     * mmap() rounds its length up to a page.  A mapping may therefore cover
-     * the final partial page of a memfd even when the byte length is not
-     * page-aligned; Linux exposes the bytes past EOF in that page as zeroes
-     * (and callers such as Weston's keymap builder rely on this).  Do not
-     * permit mapping a whole page beyond the rounded EOF.
-     */
+    /* Permit mappings within the page-rounded EOF. */
     uint64_t map_limit = ALIGN_UP(file->size, PAGE_4K_SIZE);
     if (offset > map_limit || length > map_limit - offset) {
         spin_unlock(&file->lock);
@@ -500,6 +505,7 @@ rollback:
     return -ENOMEM;
 }
 
+/* Account a VMA reference to a memfd mapping */
 void memfd_vma_retain(vfs_node_t node, vm_flags_t flags)
 {
     if (!memfd_is_node(node)) return;
@@ -510,6 +516,7 @@ void memfd_vma_retain(vfs_node_t node, vm_flags_t flags)
     spin_unlock(&file->lock);
 }
 
+/* Drop a VMA reference to a memfd mapping */
 void memfd_vma_release(vfs_node_t node, vm_flags_t flags)
 {
     if (!memfd_is_node(node)) return;
@@ -520,6 +527,7 @@ void memfd_vma_release(vfs_node_t node, vm_flags_t flags)
     spin_unlock(&file->lock);
 }
 
+/* Update writable mapping accounting on a protection change */
 int memfd_vma_protect(vfs_node_t node, vm_flags_t old_flags, vm_flags_t new_flags)
 {
     if (!memfd_is_node(node)) return EOK;

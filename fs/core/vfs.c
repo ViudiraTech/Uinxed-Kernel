@@ -51,6 +51,7 @@ static void vfs_rename_serial_acquire(void)
     spin_unlock(&vfs_rename_serial_lock);
 }
 
+/* Release the rename serialization lock. */
 static void vfs_rename_serial_release(void)
 {
     spin_lock(&vfs_rename_serial_lock);
@@ -59,17 +60,20 @@ static void vfs_rename_serial_release(void)
     wait_queue_wake_all(&vfs_rename_wait);
 }
 
+/* Return the current realtime clock in seconds. */
 static int64_t vfs_now_seconds(void)
 {
     int64_t nanoseconds = timer_realtime_ns();
     return nanoseconds / (int64_t)TIMER_NSEC_PER_SEC;
 }
 
+/* Update a node's atime. */
 static void vfs_touch_access(vfs_node_t node)
 {
     if (node) node->readtime = vfs_now_seconds();
 }
 
+/* Update a node's mtime and ctime. */
 static void vfs_touch_modify(vfs_node_t node)
 {
     if (!node) return;
@@ -78,6 +82,7 @@ static void vfs_touch_modify(vfs_node_t node)
     node->createtime = now;
 }
 
+/* Update a node's ctime. */
 static void vfs_touch_change(vfs_node_t node)
 {
     if (node) node->createtime = vfs_now_seconds();
@@ -218,24 +223,28 @@ static void *vfs_page_alloc(uint64_t *physical)
     return phys_to_virt(frame);
 }
 
+/* Release a pagecache frame. */
 static void vfs_page_free(void *page, uint64_t physical)
 {
     (void)page;
     free_frames(physical, 1);
 }
 
+/* Pagecache read callback forwarding to the filesystem. */
 static int64_t vfs_page_read_backend(void *context, void *buffer, uint64_t offset, size_t size)
 {
     vfs_node_t node = context;
     return (int64_t)callbackof(node, read)(node->handle, buffer, (size_t)offset, size);
 }
 
+/* Pagecache write callback forwarding to the filesystem. */
 static int64_t vfs_page_write_backend(void *context, const void *buffer, uint64_t offset, size_t size)
 {
     vfs_node_t node = context;
     return (int64_t)callbackof(node, write)(node->handle, buffer, (size_t)offset, size);
 }
 
+/* Pagecache resize callback forwarding to the filesystem. */
 static int vfs_page_resize_backend(void *context, uint64_t size)
 {
     vfs_node_t node = context;
@@ -243,6 +252,7 @@ static int vfs_page_resize_backend(void *context, uint64_t size)
     return callbackof(node, resize)(node->handle, size);
 }
 
+/* Pagecache sync callback forwarding to the filesystem. */
 static int vfs_page_sync_backend(void *context)
 {
     vfs_node_t node = context;
@@ -277,6 +287,7 @@ static pagecache_mapping_t *vfs_pagecache_mapping(vfs_node_t node, int create)
     return new_mapping;
 }
 
+/* Drop a node's cache mapping. */
 static void vfs_pagecache_destroy(vfs_node_t node)
 {
     pagecache_mapping_t *mapping = __atomic_exchange_n(&node->mapping, NULL, __ATOMIC_ACQ_REL);
@@ -355,6 +366,7 @@ int vfs_node_path(vfs_node_t node, char *path, size_t size)
 
 #ifndef VFS_PATH_TEST_ONLY
 
+/* Build the absolute path of a node into a malloc'd buffer. */
 static char *vfs_node_absolute_path(vfs_node_t node)
 {
     size_t     len = 0;
@@ -661,6 +673,7 @@ err:
     return 0;
 }
 
+/* Open a file or directory by path. */
 vfs_node_t vfs_open(const char *str)
 {
     spin_lock(&vfs_namespace_lock);
@@ -669,6 +682,7 @@ vfs_node_t vfs_open(const char *str)
     return node;
 }
 
+/* Open a file or directory by path, reporting lookup errors. */
 vfs_node_t vfs_open_checked(const char *str, int *error)
 {
     spin_lock(&vfs_namespace_lock);
@@ -677,6 +691,7 @@ vfs_node_t vfs_open_checked(const char *str, int *error)
     return node;
 }
 
+/* Open a path without following the final symlink component. */
 vfs_node_t vfs_open_nofollow(const char *str)
 {
     spin_lock(&vfs_namespace_lock);
@@ -685,6 +700,7 @@ vfs_node_t vfs_open_nofollow(const char *str)
     return node;
 }
 
+/* Open a path without following the final symlink, reporting errors. */
 vfs_node_t vfs_open_nofollow_checked(const char *str, int *error)
 {
     spin_lock(&vfs_namespace_lock);
@@ -1535,6 +1551,7 @@ int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flag
     return result;
 }
 
+/* Read a file node as the current process. */
 int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     return vfs_file_read_process(file, private_data, flags, addr, offset, size, process_current());
@@ -1578,6 +1595,7 @@ int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t fla
     return ret;
 }
 
+/* Write a file node as the current process. */
 int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     return vfs_file_write_process(file, private_data, flags, addr, offset, size, process_current());
@@ -1841,6 +1859,7 @@ int vfs_cache_mapping_pin(vfs_node_t file)
     return EOK;
 }
 
+/* Release a pin on the file's cache mapping. */
 void vfs_cache_mapping_unpin(vfs_node_t file)
 {
     if (file && file->mapping) pagecache_mapping_unpin(file->mapping);
@@ -1910,12 +1929,14 @@ int vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t ev
     return callbackof(file, poll)(file->handle, events);
 }
 
+/* Notify the filesystem that the last descriptor closed. */
 void vfs_file_descriptor_close(vfs_node_t file, void *private_data)
 {
     if (!file) return;
     if (callbackof(file, file_descriptor_close) != vfs_empty_callback.file_descriptor_close) callbackof(file, file_descriptor_close)(file, private_data);
 }
 
+/* Return the readiness-notification source of a file. */
 vfs_poll_source_t *vfs_file_poll_source(vfs_node_t file, void *private_data)
 {
     if (!file) return NULL;
@@ -1926,6 +1947,7 @@ vfs_poll_source_t *vfs_file_poll_source(vfs_node_t file, void *private_data)
     return &file->poll_source;
 }
 
+/* Initialize a poll source. */
 void vfs_poll_source_init(vfs_poll_source_t *source)
 {
     if (!source) return;
@@ -2004,16 +2026,19 @@ void vfs_poll_source_close(vfs_poll_source_t *source, uint32_t events)
     }
 }
 
+/* Subscribe to readiness notifications on a node's poll source. */
 void vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context)
 {
     if (file) vfs_poll_source_subscribe(&file->poll_source, subscription, events, notify, context);
 }
 
+/* Remove a readiness-notification subscription. */
 void vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription)
 {
     if (file) vfs_poll_source_unsubscribe(&file->poll_source, subscription);
 }
 
+/* Notify subscribers of readiness events on a node. */
 void vfs_poll_notify(vfs_node_t file, uint32_t events)
 {
     if (file) vfs_poll_source_notify(&file->poll_source, events);
@@ -2270,6 +2295,7 @@ delete_failed:
     return status;
 }
 
+/* Enforce the sticky bit on rename victims. */
 static int vfs_rename_sticky_check(vfs_node_t parent, vfs_node_t victim)
 {
     process_t *process = process_current();

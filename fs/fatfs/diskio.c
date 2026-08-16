@@ -26,6 +26,7 @@ static blockdev_device_t fatfs_devices[FF_VOLUMES];
 static BYTE              fatfs_ready[FF_VOLUMES];
 static BYTE              fatfs_bound[FF_VOLUMES];
 
+/* Bind a block device to a FatFs physical drive. */
 int fatfs_bind_device(uint8_t drive, const blockdev_device_t *device)
 {
     if (drive >= FF_VOLUMES || !device) return -EINVAL;
@@ -36,6 +37,7 @@ int fatfs_bind_device(uint8_t drive, const blockdev_device_t *device)
     return EOK;
 }
 
+/* Unbind a FatFs physical drive, invalidating its ready state. */
 void fatfs_unbind_device(uint8_t drive)
 {
     if (drive >= FF_VOLUMES) return;
@@ -43,6 +45,7 @@ void fatfs_unbind_device(uint8_t drive)
     fatfs_ready[drive] = 0;
 }
 
+/* Open the block device backing a FatFs physical drive. */
 static DRESULT fatfs_open_drive(BYTE pdrv)
 {
     if (pdrv >= FF_VOLUMES) return RES_PARERR;
@@ -56,6 +59,7 @@ static DRESULT fatfs_open_drive(BYTE pdrv)
     return RES_OK;
 }
 
+/* Return the readiness status of a FatFs physical drive. */
 DSTATUS disk_status(BYTE pdrv)
 {
     if (pdrv >= FF_VOLUMES) return STA_NOINIT;
@@ -63,11 +67,13 @@ DSTATUS disk_status(BYTE pdrv)
     return 0;
 }
 
+/* Initialize a FatFs physical drive. */
 DSTATUS disk_initialize(BYTE pdrv)
 {
     return fatfs_open_drive(pdrv) == RES_OK ? 0 : STA_NOINIT;
 }
 
+/* Read sectors from a FatFs physical drive. */
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
     if (!buff || !count) return RES_PARERR;
@@ -82,6 +88,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 }
 
 #if FF_FS_READONLY == 0
+/* Write sectors to a FatFs physical drive. */
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
     if (!buff || !count) return RES_PARERR;
@@ -96,6 +103,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 }
 #endif
 
+/* Handle a FatFs disk control command. */
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 {
     if (disk_status(pdrv) & STA_NOINIT) return RES_NOTRDY;

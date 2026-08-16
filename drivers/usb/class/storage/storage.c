@@ -27,13 +27,6 @@
 #define USB_MSC_REQ_RESET     0xff
 #define USB_MSC_REQ_MAX_LUN   0xfe
 
-/*
- * Overview
- * USB mass-storage (Bulk-Only Transport) driver. It issues CBW
- * commands over the bulk endpoints, interprets the CSW response,
- * and exposes the device as a blockdev backed by SCSI-style reads
- * and writes.
- */
 #define USB_MSC_MAX_LUNS  16
 #define USB_MSC_MAX_DISKS 256
 #define USB_MSC_IO_CHUNK  4096
@@ -164,14 +157,14 @@ static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun
     }
     if (status != EOK) goto recover;
     if (csw.signature != USB_MSC_CSW_SIGNATURE || csw.tag != tag || csw.residue > data_length || csw.status > 2) {
-        plogk("usb: storage: %s: CSW protocol error sig=0x%08x tag=0x%08x residue=%u\n", storage->interface->device->path, csw.signature, csw.tag, csw.residue);
+        plogk("usb-storage: %s: CSW protocol error sig=0x%08x tag=0x%08x residue=%u\n", storage->interface->device->path, csw.signature, csw.tag, csw.residue);
         status = -EPROTO;
         goto recover;
     }
     uint32_t expected_residue = data_length - transferred;
     if (csw.status == 0) return csw.residue == expected_residue && csw.residue == 0 ? EOK : -EREMOTEIO;
     if (csw.status == 1) {
-        plogk("usb: storage: %s: device reported SCSI check condition (residue=%u)\n", storage->interface->device->path, csw.residue);
+        plogk("usb-storage: %s: device reported SCSI check condition (residue=%u)\n", storage->interface->device->path, csw.residue);
         return -EIO;
     }
     status = -EPROTO;
@@ -292,11 +285,13 @@ static int usb_storage_rw(const blockdev_device_t *device, uint64_t lba, uint32_
     return EOK;
 }
 
+/* Read a block range from the device. */
 static int usb_storage_read(const blockdev_device_t *device, uint64_t lba, uint32_t count, void *buffer)
 {
     return usb_storage_rw(device, lba, count, buffer, false);
 }
 
+/* Write a block range to the device. */
 static int usb_storage_write(const blockdev_device_t *device, uint64_t lba, uint32_t count, const void *buffer)
 {
     return usb_storage_rw(device, lba, count, (void *)buffer, true);
@@ -380,7 +375,7 @@ static int usb_storage_register_lun(usb_storage_lun_t *lun)
     lun->blockdev.read_only    = lun->read_only;
     (void)snprintf(path, sizeof(path), "/dev/%s", lun->name);
     uint64_t devt = MKDEV(USB_MSC_MAJOR, (uint32_t)lun->disk_index * 16);
-    status        = devtmpfs_register_block_device(path, &lun->blockdev, devt, devt, true, &lun->devtmpfs);
+    status        = devtmpfs_register_block_device(path, &lun->blockdev, devt, devt, true, false, &lun->devtmpfs);
     if (status != EOK) goto fail_name;
     status = block_sysfs_register_device(lun->name, &lun->blockdev, true, &lun->sysfs);
     if (status != EOK) goto fail_devtmpfs;
@@ -442,13 +437,13 @@ int usb_storage_probe(usb_interface_t *interface)
         usb_storage_mode_sense(lun);
         int status = usb_storage_register_lun(lun);
         if (status != EOK) {
-            plogk("usb: storage: %s: LUN %u registration failed: %d\n", interface->device->path, index, status);
+            plogk("usb-storage: %s: LUN %u registration failed: %d\n", interface->device->path, index, status);
             continue;
         }
         storage->lun_count++;
     }
     if (!storage->lun_count) {
-        plogk("usb: storage: %s: no usable LUN.\n", interface->device->path);
+        plogk("usb-storage: %s: no usable LUN.\n", interface->device->path);
         storage->connected = false;
         free(storage);
         return -ENOMEDIUM;

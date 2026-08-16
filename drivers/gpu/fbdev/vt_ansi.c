@@ -16,25 +16,20 @@ static const uint32_t ansi_palette[16] = {
     0x000000, 0xaa0000, 0x00aa00, 0xaaaa00, 0x0000aa, 0xaa00aa, 0x00aaaa, 0xaaaaaa, 0x555555, 0xff5555, 0x55ff55, 0xffff55, 0x5555ff, 0xff55ff, 0x55ffff, 0xffffff,
 };
 
-/*
- * Overview
- * vt_ansi.c is a small ANSI X3.64 / ECMA-48 parser. It consumes a
- * byte stream and updates a vt_ansi_state_t (cursor, SGR attributes,
- * colors, scroll region); the actual framebuffer writes are done by
- * the vt_ansi_callbacks_t provided by the caller (vt.c).
- */
-
+/* Return the 16-color ANSI palette entry for an index. */
 static uint32_t vt_ansi_palette(uint8_t idx)
 {
     if (idx < 16) return ansi_palette[idx];
     return 0;
 }
 
+/* Test whether reverse video is in effect. */
 static bool vt_ansi_is_reverse(const vt_ansi_state_t *s)
 {
     return s->attrs.reverse ^ s->reverse_video;
 }
 
+/* Resolve the effective background color. */
 static uint32_t vt_ansi_bg(const vt_ansi_state_t *s)
 {
     uint32_t c = s->bg_color.fg;
@@ -43,6 +38,7 @@ static uint32_t vt_ansi_bg(const vt_ansi_state_t *s)
     return c;
 }
 
+/* Resolve the effective foreground color. */
 static uint32_t vt_ansi_fg(const vt_ansi_state_t *s)
 {
     uint32_t c = s->fg_color.fg;
@@ -91,6 +87,7 @@ static void vt_ansi_gotoxy(vt_ansi_state_t *s, int new_x, int new_y)
     s->wrap_next = false;
 }
 
+/* Move the cursor relative to the scroll region origin. */
 static void vt_ansi_gotoxay(vt_ansi_state_t *s, int new_x, int new_y)
 {
     vt_ansi_gotoxy(s, new_x, s->origin_mode ? (int)(s->scroll_top + new_y) : new_y);
@@ -143,12 +140,14 @@ static void vt_ansi_ri(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     s->wrap_next = false;
 }
 
+/* Carriage return: move the cursor to column zero. */
 static void vt_ansi_cr(vt_ansi_state_t *s)
 {
     s->x         = 0;
     s->wrap_next = false;
 }
 
+/* Advance to the next tab stop. */
 static void vt_ansi_tab(vt_ansi_state_t *s)
 {
     uint32_t max_col = s->cols < VT_ANSI_TABS ? s->cols : VT_ANSI_TABS;
@@ -158,6 +157,7 @@ static void vt_ansi_tab(vt_ansi_state_t *s)
     s->wrap_next = false;
 }
 
+/* Backspace: move the cursor one column left. */
 static void vt_ansi_bs(vt_ansi_state_t *s)
 {
     if (s->x > 0) {
@@ -166,18 +166,21 @@ static void vt_ansi_bs(vt_ansi_state_t *s)
     }
 }
 
+/* CSI J: erase display. */
 static void vt_ansi_csi_j(vt_ansi_state_t *s, uint32_t mode, const vt_ansi_callbacks_t *cb)
 {
     if (cb && cb->erase_display) cb->erase_display(mode, s->x, s->y);
     s->wrap_next = false;
 }
 
+/* CSI K: erase line. */
 static void vt_ansi_csi_k(vt_ansi_state_t *s, uint32_t mode, const vt_ansi_callbacks_t *cb)
 {
     if (cb && cb->erase_line) cb->erase_line(mode, s->x, s->y);
     s->wrap_next = false;
 }
 
+/* CSI X: erase characters. */
 static void vt_ansi_csi_x(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     uint32_t n     = s->par[0] ? s->par[0] : 1;
@@ -186,6 +189,7 @@ static void vt_ansi_csi_x(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     s->wrap_next = false;
 }
 
+/* CSI @: insert blank characters. */
 static void vt_ansi_csi_at(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     uint32_t n = s->par[0] ? s->par[0] : 1;
@@ -193,6 +197,7 @@ static void vt_ansi_csi_at(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     s->wrap_next = false;
 }
 
+/* CSI L: insert lines. */
 static void vt_ansi_csi_l(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     uint32_t n     = s->par[0] ? s->par[0] : 1;
@@ -202,6 +207,7 @@ static void vt_ansi_csi_l(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     s->wrap_next = false;
 }
 
+/* CSI M: delete lines. */
 static void vt_ansi_csi_m(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     uint32_t n     = s->par[0] ? s->par[0] : 1;
@@ -211,6 +217,7 @@ static void vt_ansi_csi_m(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     s->wrap_next = false;
 }
 
+/* CSI I: forward tab. */
 static void vt_ansi_csi_i(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     (void)cb;
@@ -218,6 +225,7 @@ static void vt_ansi_csi_i(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     for (uint32_t k = 0; k < n; k++) vt_ansi_tab(s);
 }
 
+/* CSI Z: backward tab. */
 static void vt_ansi_csi_z(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     (void)cb;
@@ -264,6 +272,7 @@ static void vt_ansi_csi_b(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     }
 }
 
+/* CSI P: delete characters. */
 static void vt_ansi_csi_p(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     uint32_t n     = s->par[0] ? s->par[0] : 1;
@@ -298,16 +307,19 @@ static void vt_ansi_rgb_from_256_color(uint8_t i, rgb_t *c)
     }
 }
 
+/* Set the foreground color from RGB components. */
 static void vt_ansi_set_fg_rgb(vt_ansi_state_t *s, const rgb_t *c)
 {
     s->fg_color.fg = ((uint32_t)c->r << 16) | ((uint32_t)c->g << 8) | c->b;
 }
 
+/* Set the background color from RGB components. */
 static void vt_ansi_set_bg_rgb(vt_ansi_state_t *s, const rgb_t *c)
 {
     s->bg_color.fg = ((uint32_t)c->r << 16) | ((uint32_t)c->g << 8) | c->b;
 }
 
+/* Parse a 38/48 extended color parameter. */
 static int vt_ansi_t416_color(vt_ansi_state_t *s, int i, int is_fg)
 {
     rgb_t c;
@@ -463,6 +475,7 @@ static void vt_ansi_sgr(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     }
 }
 
+/* ANSI mode set/reset (sm / rm). */
 static void vt_ansi_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks_t *cb)
 {
     (void)cb;

@@ -22,4 +22,7 @@ int64_t sys_pipe(int pipefd[2]);
 /* Create a pipe honoring flags (e.g. O_CLOEXEC | O_NONBLOCK). */
 int64_t sys_pipe2(int pipefd[2], int flags);
 
+/* Create a FIFO (named pipe) node at the given resolved path. */
+int pipe_mknod(char *path, uint16_t mode, uint64_t dev);
+
 #endif // INCLUDE_PIPE_H_

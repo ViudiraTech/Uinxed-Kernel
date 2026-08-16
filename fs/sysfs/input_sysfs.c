@@ -15,11 +15,13 @@
 
 static bool input_class_ready;
 
+/* Test one bit in an input capability bitmap. */
 static bool input_test_bit(unsigned int bit, const uint32_t *bits)
 {
     return bits && ((bits[bit / 32] >> (bit % 32)) & 1U);
 }
 
+/* Heuristically classify an input device as a keyboard. */
 static bool input_is_keyboard(const input_dev_t *input)
 {
     if (!input || !input_test_bit(EV_KEY, input->evbit)) return false;
@@ -33,17 +35,20 @@ static bool input_is_keyboard(const input_dev_t *input)
            && input_test_bit(KEY_SPACE, input->keybit);
 }
 
+/* Heuristically classify an input device as a mouse. */
 static bool input_is_mouse(const input_dev_t *input)
 {
     if (!input || !input_test_bit(EV_REL, input->evbit) || !input_test_bit(EV_KEY, input->evbit)) return false;
     return input_test_bit(REL_X, input->relbit) && input_test_bit(REL_Y, input->relbit) && input_test_bit(BTN_LEFT, input->keybit);
 }
 
+/* Return the evdev bound to a device-model device. */
 static evdev_t *input_evdev(struct device *dev)
 {
     return dev ? dev->driver_data : NULL;
 }
 
+/* Show the device name. */
 static ssize_t name_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -51,6 +56,7 @@ static ssize_t name_show(struct device *dev, struct device_attribute *attr, char
     return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->name : "");
 }
 
+/* Show the physical device path. */
 static ssize_t phys_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -58,6 +64,7 @@ static ssize_t phys_show(struct device *dev, struct device_attribute *attr, char
     return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->phys : "");
 }
 
+/* Show the unique device identifier. */
 static ssize_t uniq_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -65,6 +72,7 @@ static ssize_t uniq_show(struct device *dev, struct device_attribute *attr, char
     return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->uniq : "");
 }
 
+/* Show the bus type. */
 static ssize_t bustype_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -72,6 +80,7 @@ static ssize_t bustype_show(struct device *dev, struct device_attribute *attr, c
     return sysfs_emit(buf, "%04x\n", evdev && evdev->input_dev ? evdev->input_dev->id.bustype : 0);
 }
 
+/* Show the vendor id. */
 static ssize_t vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -79,6 +88,7 @@ static ssize_t vendor_show(struct device *dev, struct device_attribute *attr, ch
     return sysfs_emit(buf, "%04x\n", evdev && evdev->input_dev ? evdev->input_dev->id.vendor : 0);
 }
 
+/* Show the product id. */
 static ssize_t product_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -86,6 +96,7 @@ static ssize_t product_show(struct device *dev, struct device_attribute *attr, c
     return sysfs_emit(buf, "%04x\n", evdev && evdev->input_dev ? evdev->input_dev->id.product : 0);
 }
 
+/* Show the driver version. */
 static ssize_t version_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -93,6 +104,7 @@ static ssize_t version_show(struct device *dev, struct device_attribute *attr, c
     return sysfs_emit(buf, "%04x\n", evdev && evdev->input_dev ? evdev->input_dev->id.version : 0);
 }
 
+/* Format a capability bitmap as space-separated hex words. */
 static ssize_t bitmap_show(char *buf, const uint32_t *bits, size_t words)
 {
     int at = 0;
@@ -101,60 +113,70 @@ static ssize_t bitmap_show(char *buf, const uint32_t *bits, size_t words)
     return at;
 }
 
+/* Show the supported event types. */
 static ssize_t ev_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->evbit, (EV_CNT + 31) / 32);
 }
 
+/* Show the supported key codes. */
 static ssize_t key_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->keybit, (KEY_CNT + 31) / 32);
 }
 
+/* Show the supported relative axes. */
 static ssize_t rel_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->relbit, (REL_CNT + 31) / 32);
 }
 
+/* Show the supported absolute axes. */
 static ssize_t abs_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->absbit, (ABS_CNT + 31) / 32);
 }
 
+/* Show the supported miscellaneous events. */
 static ssize_t msc_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->mscbit, (MSC_CNT + 31) / 32);
 }
 
+/* Show the supported LEDs. */
 static ssize_t led_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->ledbit, (LED_CNT + 31) / 32);
 }
 
+/* Show the supported sound events. */
 static ssize_t snd_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->sndbit, (SND_CNT + 31) / 32);
 }
 
+/* Show the supported switch events. */
 static ssize_t sw_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->swbit, (SW_CNT + 31) / 32);
 }
 
+/* Show the supported force-feedback effects. */
 static ssize_t ff_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->ffbit, (FF_CNT + 31) / 32);
 }
 
+/* Show the input property bitmap. */
 static ssize_t properties_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -207,6 +229,7 @@ static struct attribute_group input_capability_group = {
     .attrs = input_capability_attributes,
 };
 
+/* Emit input device uevent environment variables. */
 static int input_device_uevent(struct device *device, struct kobj_uevent_env *env)
 {
     evdev_t *evdev = input_evdev(device);
@@ -271,7 +294,7 @@ void input_sysfs_init(void)
         if (!evdev) continue;
         if (input_sysfs_register_evdev(evdev) == EOK) devices++;
     }
-    plogk("input_sysfs: %d input device(s) exported to /sys/class/input\n", devices);
+    plogk("input_sysfs: exported %d input device(s) to /sys/class/input\n", devices);
 #endif
 }
 

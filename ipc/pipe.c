@@ -79,6 +79,7 @@ static inline void pipe_ring_lock(spinlock_t *lock)
     while (__atomic_exchange_n(&lock->lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
 }
 
+/* Release the process-context pipe ring lock. */
 static inline void pipe_ring_unlock(spinlock_t *lock)
 {
     __atomic_store_n(&lock->lock, 0, __ATOMIC_RELEASE);
@@ -94,6 +95,7 @@ static int pipe_fsid = -1;
 
 /* Internal helpers */
 
+/* Notify a pipe node's poll source of readiness changes. */
 static inline void pipe_poll_notify(vfs_node_t node, uint32_t events)
 {
     if (!node) return;
@@ -103,16 +105,19 @@ static inline void pipe_poll_notify(vfs_node_t node, uint32_t events)
     vfs_poll_source_notify(&node->poll_source, events);
 }
 
+/* Return the number of unread bytes in the ring. */
 static uint32_t pipe_ring_readable(const pipe_ring_t *ring)
 {
     return ring->size;
 }
 
+/* Return the number of free bytes in the ring. */
 static uint32_t pipe_ring_writable(const pipe_ring_t *ring)
 {
     return ring->capacity - ring->size;
 }
 
+/* Advance a ring index by count, wrapping at the ring capacity. */
 static inline uint32_t pipe_ring_advance(const pipe_ring_t *ring, uint32_t index, uint32_t count)
 {
     if (ring->index_mask) return (index + count) & ring->index_mask;
@@ -121,12 +126,14 @@ static inline uint32_t pipe_ring_advance(const pipe_ring_t *ring, uint32_t index
     return next >= ring->capacity ? next - ring->capacity : next;
 }
 
+/* Advance the tail past count consumed bytes. */
 static void pipe_ring_consume(pipe_ring_t *ring, uint32_t count)
 {
     ring->tail = pipe_ring_advance(ring, ring->tail, count);
     ring->size -= count;
 }
 
+/* Advance the head past count produced bytes. */
 static void pipe_ring_produce(pipe_ring_t *ring, uint32_t count)
 {
     ring->head = pipe_ring_advance(ring, ring->head, count);
@@ -157,6 +164,7 @@ static uint32_t pipe_ring_copy_in(pipe_ring_t *ring, const uint8_t *src, uint32_
     return count;
 }
 
+/* Copy ring data to user memory, handling tail wraparound. */
 static int pipe_ring_copy_out_user(pipe_ring_t *ring, process_t *proc, uint8_t *dst, uint32_t count)
 {
     uint32_t first_chunk = ring->capacity - ring->tail;
@@ -167,6 +175,7 @@ static int pipe_ring_copy_out_user(pipe_ring_t *ring, process_t *proc, uint8_t *
     return EOK;
 }
 
+/* Copy user memory into the ring, handling head wraparound. */
 static int pipe_ring_copy_in_user(pipe_ring_t *ring, process_t *proc, const uint8_t *src, uint32_t count)
 {
     uint32_t first_chunk = ring->capacity - ring->head;
@@ -246,10 +255,10 @@ static void pipe_vfs_open(void *parent, const char *name, vfs_node_t node)
     if (!node) return;
 
     /*
-     * For FIFO (named pipe) nodes created by sys_mknod / sys_mkfifo,
-     * the handle is NULL on first open.  Create the pipe ring here.
-     * For anonymous pipes created by sys_pipe, the handle is already
-     * set before the node enters the VFS, so this path is a no-op.
+     * For FIFO (named pipe) nodes, the handle is NULL on first open.
+     * Create the pipe ring here.  For anonymous pipes created by
+     * sys_pipe, the handle is already set before the node enters the
+     * VFS, so this path is a no-op.
      */
     if (!node->handle) {
         pipe_ring_t *ring = pipe_ring_alloc();
@@ -288,6 +297,7 @@ static void pipe_vfs_close(void *current)
     wait_queue_wake_all(&ring->write_wq);
 }
 
+/* Open a pipe endpoint, applying FIFO rendezvous rules. */
 static int pipe_file_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     if (!node || !private_data) return -EINVAL;
@@ -361,6 +371,7 @@ static int pipe_file_open(vfs_node_t node, uint64_t flags, void **private_data)
     return EOK;
 }
 
+/* Release a pipe endpoint, waking peers when the last reader or writer goes away. */
 static void pipe_file_release(vfs_node_t node, void *private_data)
 {
     pipe_endpoint_t *endpoint = private_data;
@@ -891,43 +902,30 @@ int64_t sys_pipe2(int pipefd[2], int flags)
     return EOK;
 }
 
-/* Syscall: mknod / mkfifo (FIFO / named pipe) */
-
-static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
+/* Create a FIFO (named pipe) node at the given resolved path */
+int pipe_mknod(char *path, uint16_t mode, uint64_t dev)
 {
-    (void)dev;
+    if (!path || path[0] != '/') return -EINVAL;
 
-    if (!path) return -EFAULT;
-
-    /* Only support FIFO creation through mknod */
-    if ((mode & 0170000) != 0010000) return -EINVAL;
-
-    /*
-     * Use vfs_mkfile to create the node, then override its type and fsid.
-     * We need to manually construct the FIFO node because vfs_mkfile
-     * delegates to the parent filesystem's mkfile callback, which would
-     * treat it as a regular file.
-     */
-    char path_copy[256];
-    int  copied = strncpy_from_user(path_copy, path, sizeof(path_copy));
-    if (copied < 0) return copied;
-
-    if (path_copy[0] != '/') return -EINVAL;
-
-    /* Find the last '/' to separate parent path from filename */
-    char      *fullpath  = path_copy;
-    char      *lastslash = strrchr(fullpath, '/');
+    /* Find the last '/' to separate the parent path from the filename */
+    char      *lastslash = strrchr(path, '/');
     char      *filename;
     vfs_node_t parent;
 
-    if (lastslash == fullpath) {
-        /* path is "/filename" */
-        filename = fullpath + 1;
+    if (lastslash == path) {
+        /* Path is "/filename" */
+        filename = lastslash + 1;
         parent   = rootdir;
     } else if (lastslash) {
-        *lastslash = '\0';
-        filename   = lastslash + 1;
-        parent     = vfs_open(fullpath);
+        /* Open the parent via a private copy so the caller's path buffer is
+         * left intact. */
+        size_t parent_len = (size_t)(lastslash - path);
+        char   parent_path[VFS_PATH_MAX];
+        if (parent_len + 1 > sizeof(parent_path)) return -EINVAL;
+        memcpy(parent_path, path, parent_len);
+        parent_path[parent_len] = '\0';
+        filename                = lastslash + 1;
+        parent                  = vfs_open(parent_path);
     } else
         return -EINVAL;
 
@@ -936,13 +934,16 @@ static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
         return -ENOENT;
     }
 
-    /* Check for existing node with same name */
+    /* Reject a node that already exists */
     if (vfs_do_search(parent, filename)) {
         if (parent != rootdir) vfs_close(parent);
         return -EEXIST;
     }
 
-    /* Create the child node */
+    /*
+     * Construct the FIFO node directly: the parent filesystem's mkfile
+     * callback would otherwise treat it as a regular file.
+     */
     vfs_node_t node = vfs_node_alloc(parent, filename);
     if (!node) {
         if (parent != rootdir) vfs_close(parent);
@@ -954,95 +955,17 @@ static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
     node->mode        = mode & 07777;
     node->dev         = dev;
     node->rdev        = dev;
-    node->handle      = NULL; // ring created in VFS open callback
+    node->handle      = NULL; // ring created in the VFS open callback
     node->permissions = mode & 07777;
+
+    process_t *proc = process_current();
+    if (proc) {
+        node->owner = proc->fsuid;
+        node->group = proc->fsgid;
+    }
 
     if (parent != rootdir) vfs_close(parent);
 
-    return EOK;
-}
-
-static int64_t sys_mkfifo(const char *path, uint32_t mode)
-{
-    return sys_mknod(path, 0010000 | (mode & 07777), 0);
-}
-
-/*
- * FIFO open helper
- *
- * Called by the syscall layer after vfs_open() has completed for a
- * FIFO node.  This function blocks the caller until the other end
- * of the FIFO is also opened, unless O_NONBLOCK was specified.
- *
- * Parameters:
- * node  - the FIFO vfs node (must have type file_pipe)
- * flags - open flags (O_RDONLY / O_WRONLY / O_NONBLOCK)
- *
- * Returns:
- * EOK    - both ends are now open
- * -EAGAIN - O_NONBLOCK was set and the other end is not open yet
- * -ENXIO  - O_NONBLOCK | O_WRONLY and no reader exists
- */
-
-static int pipe_open(vfs_node_t node, uint64_t flags)
-{
-    if (!node || !(node->type & file_pipe)) return -EINVAL;
-
-    pipe_ring_t *ring = (pipe_ring_t *)node->handle;
-    if (!ring) return -EINVAL;
-
-    int is_read  = ((flags & O_ACCMODE) == O_RDONLY);
-    int is_write = ((flags & O_ACCMODE) == O_WRONLY);
-
-    spin_lock(&ring->lock);
-
-    if (is_read) {
-        ring->readers++;
-    } else if (is_write) {
-        ring->writers++;
-    }
-
-    /* If both ends are now open, we are done. */
-    if (ring->readers > 0 && ring->writers > 0) {
-        spin_unlock(&ring->lock);
-        return EOK;
-    }
-
-    /* O_NONBLOCK: return immediately. */
-    if (flags & O_NONBLOCK) {
-        if (is_write && ring->readers == 0) {
-            /* Opening write-only with no readers and O_NONBLOCK - ENXIO */
-            ring->writers--;
-            spin_unlock(&ring->lock);
-            return -ENXIO;
-        }
-        spin_unlock(&ring->lock);
-        return -EAGAIN;
-    }
-
-    /* Block until the other end opens or the pipe is closed. */
-    while (ring->readers == 0 || ring->writers == 0) {
-        if (ring->closed) {
-            if (is_read) ring->readers--;
-            if (is_write) ring->writers--;
-            spin_unlock(&ring->lock);
-            return -EIO;
-        }
-        /*
-         * Prepare wait under lock, then block. The other end's open
-         * will wake us via wait_queue_wake_all.
-         */
-        if (is_read) {
-            wait_queue_prepare(&ring->read_wq);
-        } else {
-            wait_queue_prepare(&ring->write_wq);
-        }
-        spin_unlock(&ring->lock);
-        wait_queue_sleep();
-        spin_lock(&ring->lock);
-    }
-
-    spin_unlock(&ring->lock);
     return EOK;
 }
 

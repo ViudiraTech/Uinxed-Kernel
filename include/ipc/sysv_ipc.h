@@ -190,6 +190,11 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);
 int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgflg);
 int64_t sys_msgctl(int msqid, int cmd, void *buf);
 
+struct process;
+
+/* Release a process's SEM_UNDO adjustments (called on process exit). */
+void sysv_sem_undo_release(struct process *proc);
+
 /* Initialize the System V IPC subsystem. */
 void sysv_ipc_init(void);
 

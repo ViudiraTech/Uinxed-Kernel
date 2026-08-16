@@ -30,6 +30,7 @@ static uart_driver_t uart_8250_driver = {
     .nr          = UART_MAX_PORTS,
 };
 
+/* Return the port's I/O base address. */
 static uint16_t uart8250_base(const uart_port_t *port)
 {
     return (uint16_t)(uintptr_t)port->private_data;
@@ -78,6 +79,7 @@ static int uart8250_tx_write(uart_port_t *port, const uint8_t *data, size_t len)
     return (int)len;
 }
 
+/* Console write: transmit through the UART. */
 static void uart8250_console_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
     (void)uart8250_tx_write(port, data, len);
@@ -245,6 +247,7 @@ void serial_irq_install(void)
     if (need_irq4) register_interrupt_handler(IRQ_4, (void *)uart8250_irq4_handler, 0, 0x8e);
 }
 
+/* True when the legacy serial port at the given index was detected. */
 int serial_port_present(int index)
 {
     if (index < 0 || index >= UART_MAX_PORTS) return 0;

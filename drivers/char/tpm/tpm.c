@@ -18,19 +18,20 @@
 static tpm_device_t g_tpm_device;
 static int          g_tpm_available = 0;
 
+/* Return the global TPM device if one was found. */
 tpm_device_t *tpm_get_device(void)
 {
     return g_tpm_available ? &g_tpm_device : NULL;
 }
 
-/* Timeout and delay helpers (HPET-based for accuracy) */
-
+/* Busy-wait for the given number of microseconds. */
 void tpm_udelay(uint32_t us)
 {
     uint64_t target = nano_time() + (uint64_t)us * 1000ULL;
     while (nano_time() < target) __asm__ volatile("pause" ::: "memory");
 }
 
+/* Call check(ctx) until it succeeds or the timeout expires. */
 int tpm_poll_timeout(int (*check)(void *ctx), void *ctx, uint32_t timeout_ms)
 {
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
@@ -44,26 +45,28 @@ int tpm_poll_timeout(int (*check)(void *ctx), void *ctx, uint32_t timeout_ms)
     }
 }
 
-/* Endianness helpers (inlined, no dependency on external libraries) */
-
+/* Convert a big-endian 16-bit value to host order. */
 static uint16_t be16_to_cpu(uint16_t x)
 {
     uint8_t *b = (uint8_t *)&x;
     return ((uint16_t)b[0] << 8) | b[1];
 }
 
+/* Convert a big-endian 32-bit value to host order. */
 static uint32_t be32_to_cpu(uint32_t x)
 {
     uint8_t *b = (uint8_t *)&x;
     return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | b[3];
 }
 
+/* Store a 16-bit value as big-endian bytes. */
 static void cpu_to_be16(uint16_t x, uint8_t out[2])
 {
     out[0] = (x >> 8) & 0xFF;
     out[1] = x & 0xFF;
 }
 
+/* Store a 32-bit value as big-endian bytes. */
 static void cpu_to_be32(uint32_t x, uint8_t out[4])
 {
     out[0] = (x >> 24) & 0xFF;
@@ -72,8 +75,7 @@ static void cpu_to_be32(uint32_t x, uint8_t out[4])
     out[3] = x & 0xFF;
 }
 
-/* Common transmit function */
-
+/* Send a command and receive the response in-place. */
 int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
 {
     int rc;
@@ -391,7 +393,10 @@ int tpm_init(void)
         g_tpm_device.mmio_base = phys_to_virt(TPM_LEGACY_BASE_PHYS);
 
         uint32_t did_vid = tpm_verify_mmio(g_tpm_device.mmio_base);
-        if (!did_vid) return -1;
+        if (!did_vid) {
+            plogk("tpm: No TPM at legacy address.\n");
+            return -1;
+        }
 
         g_tpm_device.did_vid   = did_vid;
         g_tpm_device.timeout_a = TPM_TIMEOUT_A;

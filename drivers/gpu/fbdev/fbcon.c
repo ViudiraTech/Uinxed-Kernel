@@ -110,8 +110,8 @@ static void fbcon_set_logo_active_locked(bool active)
 }
 
 /*
- * An explicit erase that reaches above the logo reclaims the area for good
- * (like Linux clearing above vc_top); the logo is then wiped by the clear.
+ * An explicit erase that reaches above the logo reclaims the area for good;
+ * the logo is then wiped by the clear.
  */
 static void fbcon_erase_release_logo_locked(void)
 {
@@ -148,7 +148,7 @@ void fbcon_set_logo_active(bool active)
 /*
  * Release the boot-logo area at kernel-init completion.  The logo bitmap is
  * left untouched; the console merely reclaims the full screen and scrolling
- * gradually covers it, matching Linux fbcon behaviour.
+ * gradually covers it.
  */
 void fbcon_release_logo(void)
 {
@@ -255,6 +255,7 @@ static void fbcon_clear_uncovered_bottom(void)
     }
 }
 
+/* Scroll a region of the console up by @lines. */
 void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
 {
     uint32_t region = bottom - top;
@@ -300,6 +301,7 @@ void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
     full_redraw_pending = 1;
 }
 
+/* Scroll a region of the console down by @lines. */
 void fbcon_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
 {
     uint32_t region = bottom - top;
@@ -333,14 +335,14 @@ void fbcon_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
     full_redraw_pending = 1;
 }
 
+/* Erase the display according to the ANSI mode. */
 void fbcon_erase_display(uint32_t mode)
 {
     if (!text_grid || !color_grid) return;
 #if BOOT_LOGO
     /*
-     * A clear that reaches above the logo reclaims the area just like Linux
-     * (clearing above vc_top releases the logo).  Mode 0 reaches the top
-     * rows only when the cursor sits inside the logo area.
+     * A clear that reaches above the logo reclaims the area.  Mode 0 reaches
+     * the top rows only when the cursor sits inside the logo area.
      */
     if (logo_cover_rows && (mode == 1 || mode == 2 || mode == 3 || (mode == 0 && cy < logo_cover_rows))) fbcon_erase_release_logo_locked();
 #endif
@@ -401,6 +403,7 @@ void fbcon_erase_display(uint32_t mode)
     }
 }
 
+/* Erase part of a line according to the ANSI mode. */
 void fbcon_erase_line(uint32_t mode, uint32_t y)
 {
     if (!text_grid || !color_grid || y >= c_height) return;
@@ -440,6 +443,7 @@ void fbcon_erase_line(uint32_t mode, uint32_t y)
     }
 }
 
+/* Erase @count characters starting at (x, y). */
 void fbcon_erase_chars(uint32_t x, uint32_t y, uint32_t count)
 {
     if (!text_grid || !color_grid || y >= c_height) return;
@@ -453,6 +457,7 @@ void fbcon_erase_chars(uint32_t x, uint32_t y, uint32_t count)
     }
 }
 
+/* Insert @n blank characters at (x, y). */
 void fbcon_insert_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
 {
     if (!text_grid || !color_grid || y >= c_height) return;
@@ -475,6 +480,7 @@ void fbcon_insert_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
     for (uint32_t col = x; col < cols; col++) fbcon_mark_cell_dirty(y, col);
 }
 
+/* Delete @n characters starting at (x, y). */
 void fbcon_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
 {
     if (!text_grid || !color_grid || y >= c_height) return;
@@ -677,6 +683,7 @@ void fbcon_resize(void)
     tty_console_resize(rows, cols);
 }
 
+/* Quiesce drawing before a framebuffer switch. */
 void fbcon_handoff_begin(void)
 {
     spin_lock(&fbcon_lock);
@@ -687,6 +694,7 @@ void fbcon_handoff_begin(void)
     spin_unlock(&fbcon_lock);
 }
 
+/* Resume drawing after a framebuffer switch. */
 void fbcon_handoff_end(void)
 {
     spin_lock(&fbcon_lock);
@@ -698,6 +706,7 @@ void fbcon_handoff_end(void)
     spin_unlock(&fbcon_lock);
 }
 
+/* True once the text grid is allocated. */
 bool fbcon_is_ready(void)
 {
     bool ready;
@@ -744,6 +753,7 @@ static uint32_t fbcon_rgb24_to_fb(uint32_t rgb24)
     return color_to_fb_color(c);
 }
 
+/* ANSI callback: draw a character cell. */
 static void vt_ansicb_draw_char(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
 {
     if (!text_grid || !color_grid || y >= c_height || x >= c_width) return;
@@ -754,16 +764,19 @@ static void vt_ansicb_draw_char(char c, uint32_t x, uint32_t y, uint32_t fg, uin
     fbcon_mark_cell_dirty(y, x);
 }
 
+/* ANSI callback: scroll a region up. */
 static void vt_ansicb_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
 {
     fbcon_scroll_up(top, bottom, lines);
 }
 
+/* ANSI callback: scroll a region down. */
 static void vt_ansicb_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
 {
     fbcon_scroll_down(top, bottom, lines);
 }
 
+/* ANSI callback: erase the display. */
 static void vt_ansicb_erase_display(uint32_t mode, uint32_t x, uint32_t y)
 {
     cx = x;
@@ -771,6 +784,7 @@ static void vt_ansicb_erase_display(uint32_t mode, uint32_t x, uint32_t y)
     fbcon_erase_display(mode);
 }
 
+/* ANSI callback: erase a line. */
 static void vt_ansicb_erase_line(uint32_t mode, uint32_t x, uint32_t y)
 {
     cx = x;
@@ -778,31 +792,37 @@ static void vt_ansicb_erase_line(uint32_t mode, uint32_t x, uint32_t y)
     fbcon_erase_line(mode, y);
 }
 
+/* ANSI callback: erase characters. */
 static void vt_ansicb_erase_chars(uint32_t x, uint32_t y, uint32_t count)
 {
     fbcon_erase_chars(x, y, count);
 }
 
+/* ANSI callback: insert lines. */
 static void vt_ansicb_insert_lines(uint32_t y, uint32_t bottom, uint32_t n)
 {
     fbcon_scroll_down(y, bottom, n);
 }
 
+/* ANSI callback: delete lines. */
 static void vt_ansicb_delete_lines(uint32_t y, uint32_t bottom, uint32_t n)
 {
     fbcon_scroll_up(y, bottom, n);
 }
 
+/* ANSI callback: insert characters. */
 static void vt_ansicb_insert_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
 {
     fbcon_insert_chars(x, y, n, cols);
 }
 
+/* ANSI callback: delete characters. */
 static void vt_ansicb_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
 {
     fbcon_delete_chars(x, y, n, cols);
 }
 
+/* ANSI callback: set cursor visibility. */
 static void vt_ansicb_cursor_visible(bool visible)
 {
     (void)visible;

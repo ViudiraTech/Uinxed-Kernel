@@ -28,15 +28,6 @@
 #include <process/sched.h>
 #include <process/task.h>
 
-/*
- * Overview
- * EHCI is the USB 2.0 host controller. It schedules transfers as
- * Queue Heads (QHs) on a periodic or asynchronous list, each QH
- * pointing to a chain of Queue Transfer Descriptors (qTDs). The
- * driver maintains static pools of QHs and qTDs for the endpoints
- * it serves.
- */
-
 #define EHCI_MAX_CONTROLLERS 8
 #define EHCI_MAX_PORTS       15
 #define EHCI_NUM_QH          32
@@ -97,11 +88,13 @@ typedef struct ehci_controller {
 static ehci_controller_t *ehci_controllers[EHCI_MAX_CONTROLLERS];
 static size_t             ehci_controller_count;
 
+/* Read a 32-bit MMIO register. */
 static inline uint32_t ehci_read32(const volatile uint8_t *base, size_t offset)
 {
     return *(volatile const uint32_t *)(base + offset);
 }
 
+/* Write a 32-bit MMIO register. */
 static inline void ehci_write32(volatile uint8_t *base, size_t offset, uint32_t value)
 {
     *(volatile uint32_t *)(base + offset) = value;
@@ -266,6 +259,7 @@ static void ehci_unschedule_async(ehci_controller_t *ctrl, int qh_index)
  * use the same qTD mechanism on their own QHs.
  */
 
+/* Submit a control transfer as a SETUP/DATA/STATUS qTD chain. */
 static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
 {
     ehci_controller_t *ctrl = device ? device->hc_private : NULL;
@@ -283,27 +277,27 @@ static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     void    *setup_dma = ehci_dma_alloc(sizeof(*setup), &setup_physical);
     void    *data_dma  = NULL;
     if (!setup_dma || setup_physical > UINT32_MAX) {
-        plogk("usb: ehci: Control DMA allocation failed on bus %u\n", ctrl->bus_number);
+        plogk("usb-ehci: Control DMA allocation failed on bus %u\n", ctrl->bus_number);
         goto control_cleanup;
     }
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
         data_dma = ehci_dma_alloc(length, &data_physical);
         if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-            plogk("usb: ehci: Control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+            plogk("usb-ehci: Control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
             goto control_cleanup;
         }
         if (!input) memcpy(data_dma, buffer, length);
     }
     qh_index = ehci_find_free_qh(ctrl);
     if (qh_index < 0) {
-        plogk("usb: ehci: QH pool exhausted on bus %u\n", ctrl->bus_number);
+        plogk("usb-ehci: QH pool exhausted on bus %u\n", ctrl->bus_number);
         goto control_cleanup;
     }
     for (size_t i = 0; i < qtd_count; i++) {
         qtd_indices[i] = ehci_find_free_qtd(ctrl);
         if (qtd_indices[i] < 0) {
-            plogk("usb: ehci: QTD pool exhausted on bus %u\n", ctrl->bus_number);
+            plogk("usb-ehci: QTD pool exhausted on bus %u\n", ctrl->bus_number);
             goto control_cleanup;
         }
     }
@@ -361,14 +355,14 @@ static int ehci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     uint64_t data_physical = 0;
     void    *data_dma      = ehci_dma_alloc(length, &data_physical);
     if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-        plogk("usb: ehci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        plogk("usb-ehci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         goto transfer_cleanup;
     }
     if (!input) memcpy(data_dma, buffer, length);
     qh_index  = ehci_find_free_qh(ctrl);
     qtd_index = ehci_find_free_qtd(ctrl);
     if (qh_index < 0 || qtd_index < 0) {
-        plogk("usb: ehci: QH/QTD pool exhausted on bus %u\n", ctrl->bus_number);
+        plogk("usb-ehci: QH/QTD pool exhausted on bus %u\n", ctrl->bus_number);
         goto transfer_cleanup;
     }
     ehci_fill_qtd(ctrl->qtds[qtd_index].virtual, input ? EHCI_QTD_PID_IN : EHCI_QTD_PID_OUT, endpoint->data_toggle ? EHCI_QTD_TOGGLE : 0, (uint32_t)data_physical, length, EHCI_QTD_NEXT_TERMINATE,
@@ -410,7 +404,7 @@ static int ehci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
     if (!transfer) return -ENOMEM;
     transfer->buffer = malloc(length);
     if (!transfer->buffer) {
-        plogk("usb: ehci: Interrupt transfer buffer allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        plogk("usb-ehci: Interrupt transfer buffer allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         free(transfer);
         return -ENOMEM;
     }
@@ -434,7 +428,7 @@ static int ehci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
         }
     }
     spin_unlock_irqrestore(&ctrl->lock, flags);
-    plogk("usb: ehci: Periodic transfer pool exhausted on bus %u\n", ctrl->bus_number);
+    plogk("usb-ehci: Periodic transfer pool exhausted on bus %u\n", ctrl->bus_number);
     free(transfer->buffer);
     free(transfer);
     return -ENOSPC;
@@ -677,7 +671,7 @@ static int ehci_worker(void *argument)
                 if (ctrl->devices[port]) ehci_disconnect_port(ctrl, port);
                 msleep(100);
                 int ret = ehci_enumerate_port(ctrl, port);
-                if (ret != EOK) plogk("usb: ehci: Port %u enumeration failed: %d\n", port, ret);
+                if (ret != EOK) plogk("usb-ehci: Port %u enumeration failed: %d\n", port, ret);
             }
         }
         ehci_service_periodic(ctrl);
@@ -706,11 +700,11 @@ static void ehci_interrupt_handler(void *frame)
         if (sts & EHCI_STS_INT) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_INT);
         if (sts & EHCI_STS_ERR) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_ERR);
-            plogk("usb: ehci: USB error interrupt on bus %u\n", ctrl->bus_number);
+            plogk("usb-ehci: USB error interrupt on bus %u\n", ctrl->bus_number);
         }
         if (sts & EHCI_STS_HSE) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_HSE);
-            plogk("usb: ehci: Host system error on bus %u\n", ctrl->bus_number);
+            plogk("usb-ehci: Host system error on bus %u\n", ctrl->bus_number);
         }
         if (sts & EHCI_STS_IAA) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_IAA);
     }
@@ -837,7 +831,7 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     usb_host_register(&ctrl->hcd);
     ctrl->hcd.running = true;
 
-    plogk("usb: ehci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
+    plogk("usb-ehci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
     return EOK;
 }
 

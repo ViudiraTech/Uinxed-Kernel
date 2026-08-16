@@ -25,11 +25,13 @@ void page_fault_entry(void);
 
 #define USER_CS 0x1B
 
+/* Check whether the interrupt came from user mode */
 static inline int is_user_mode(interrupt_frame_t *frame)
 {
     return (frame->cs & 3) == 3;
 }
 
+/* Deliver a signal for a user-mode exception */
 static inline int user_exception(interrupt_frame_t *frame, int sig, int code, const char *name, const char *msg)
 {
     if (is_user_mode(frame)) {
@@ -146,6 +148,7 @@ static void user_gp_report(interrupt_frame_t *frame, uint64_t error_code)
     plogk("[exception] stack[%zu]=%p %p %p %p\n", stack_len, (void *)stack[0], (void *)stack[1], (void *)stack[2], (void *)stack[3]);
 }
 
+/* Divide error (#DE) */
 INTERRUPT_BEGIN static void ISR_0_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGFPE, FPE_INTDIV, "#DE", "Floating point exception")) return;
@@ -153,6 +156,7 @@ INTERRUPT_BEGIN static void ISR_0_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Debug exception (#DB) */
 INTERRUPT_BEGIN static void ISR_1_handle(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -160,6 +164,7 @@ INTERRUPT_BEGIN static void ISR_1_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Non-maskable interrupt (#NMI) */
 INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -168,6 +173,7 @@ INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Breakpoint (#BP) */
 INTERRUPT_BEGIN static void ISR_3_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGTRAP, TRAP_BRKPT, "#BP", "Breakpoint trap")) return;
@@ -175,6 +181,7 @@ INTERRUPT_BEGIN static void ISR_3_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Overflow (#OF) */
 INTERRUPT_BEGIN static void ISR_4_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGFPE, FPE_INTOVF, "#OF", "Integer overflow")) return;
@@ -182,6 +189,7 @@ INTERRUPT_BEGIN static void ISR_4_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Bound range exceeded (#BR) */
 INTERRUPT_BEGIN static void ISR_5_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGSEGV, SEGV_ACCERR, "#BR", "Bound range exceeded")) return;
@@ -189,6 +197,7 @@ INTERRUPT_BEGIN static void ISR_5_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Invalid opcode (#UD) */
 INTERRUPT_BEGIN static void ISR_6_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGILL, ILL_ILLOPC, "#UD", "Invalid opcode")) return;
@@ -196,6 +205,7 @@ INTERRUPT_BEGIN static void ISR_6_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Device not available (#NM) */
 INTERRUPT_BEGIN static void ISR_7_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGFPE, FPE_FLTINV, "#NM", "Device not available")) return;
@@ -203,15 +213,17 @@ INTERRUPT_BEGIN static void ISR_7_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Double fault (#DF) */
 INTERRUPT_BEGIN static void ISR_8_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
     (void)error_code;
-    carry_error_code = 1; // carry error code
+    carry_error_code = 1;
     panic("Kernel exception: #DF");
 }
 INTERRUPT_END
 
+/* Coprocessor segment overrun */
 INTERRUPT_BEGIN static void ISR_9_handle(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -219,36 +231,40 @@ INTERRUPT_BEGIN static void ISR_9_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Invalid TSS (#TS) */
 INTERRUPT_BEGIN static void ISR_10_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
     (void)error_code;
-    carry_error_code = 1; // carry error code
+    carry_error_code = 1;
     panic("Kernel exception: #TS");
 }
 INTERRUPT_END
 
+/* Segment not present (#NP) */
 INTERRUPT_BEGIN static void ISR_11_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
     (void)error_code;
-    carry_error_code = 1; // carry error code
+    carry_error_code = 1;
     panic("Kernel exception: #NP");
 }
 INTERRUPT_END
 
+/* Stack segment fault (#SS) */
 INTERRUPT_BEGIN static void ISR_12_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
     (void)error_code;
-    carry_error_code = 1; // carry error code
+    carry_error_code = 1;
     panic("Kernel exception: #SS");
 }
 INTERRUPT_END
 
+/* General protection fault (#GP) */
 INTERRUPT_BEGIN static void ISR_13_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
-    carry_error_code = 1; // carry error code
+    carry_error_code = 1;
     if (is_user_mode(frame)) user_gp_report(frame, error_code);
     if (user_exception(frame, SIGSEGV, SEGV_ACCERR, "#GP", NULL)) return;
     panic("Kernel exception: #GP rip=%p cs=0x%llx error=0x%llx", (void *)frame->rip, frame->cs, error_code);
@@ -259,6 +275,7 @@ INTERRUPT_END
 
 /* ISR 15 CPU reserved */
 
+/* x87 floating point error (#MF) */
 INTERRUPT_BEGIN static void ISR_16_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGFPE, FPE_FLTINV, "#MF", "x87 FPU error")) return;
@@ -266,6 +283,7 @@ INTERRUPT_BEGIN static void ISR_16_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Alignment check (#AC) */
 INTERRUPT_BEGIN static void ISR_17_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGBUS, BUS_ADRALN, "#AC", "Alignment check")) return;
@@ -273,6 +291,7 @@ INTERRUPT_BEGIN static void ISR_17_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Machine check (#MC) */
 INTERRUPT_BEGIN static void ISR_18_handle(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -280,6 +299,7 @@ INTERRUPT_BEGIN static void ISR_18_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* SIMD floating point exception (#XM) */
 INTERRUPT_BEGIN static void ISR_19_handle(interrupt_frame_t *frame)
 {
     if (user_exception(frame, SIGFPE, FPE_FLTINV, "#XM", "SIMD floating point exception")) return;

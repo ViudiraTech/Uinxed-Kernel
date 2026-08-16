@@ -67,4 +67,12 @@ void syscall_entry(void);
 void syscall_return(void);
 int  syscall_dispatch(syscall_frame_t *frame);
 
+/* Internal path helpers shared between syscall.c and syscall_basic.c. */
+int         copy_path_from_user(uint64_t upath, char path[SYSCALL_PATH_MAX]);
+const char *path_basename(const char *path);
+vfs_node_t  vfs_open_parent_of(char *path);
+
+/* Create a filesystem node at an already-resolved path, dispatching on mode. */
+int64_t mknod_create_node(char *resolved, uint64_t mode, uint64_t dev);
+
 #endif // INCLUDE_SYSCALL_H_

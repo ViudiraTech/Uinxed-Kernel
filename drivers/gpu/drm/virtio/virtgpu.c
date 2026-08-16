@@ -582,6 +582,7 @@ static int virtgpu_ioctl_transfer_from_host(struct drm_device *dev, void *data, 
     return ret;
 }
 
+/* DRM_VIRTGPU_TRANSFER_TO_HOST ioctl handler. */
 static int virtgpu_ioctl_transfer_to_host(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct virtio_gpu_device       *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -1021,9 +1022,10 @@ int virtio_gpu_driver_init(void)
     memset(&gpu_config, 0, sizeof(gpu_config));
     vp_read_device_config(vp, &gpu_config, 0, sizeof(gpu_config));
     vgdev->num_scanouts = gpu_config.num_scanouts > 16 ? 16 : (int)gpu_config.num_scanouts;
+
     /*
      * capset_index is 32-bit, but an untrusted device must not force an
-     * unbounded probe loop.  The advertised Linux UAPI mask has 64 bits.
+     * unbounded probe loop.  The advertised UAPI mask has 64 bits.
      */
     vgdev->num_capsets = gpu_config.num_capsets > 64 ? 64 : gpu_config.num_capsets;
     for (uint32_t i = 0; i < vgdev->num_capsets; i++) {
@@ -1114,8 +1116,8 @@ void *virtio_gpu_get_device(void)
     return dev->dev_private;
 }
 
-/* Module exit stub. */
+/* Module exit hook. */
 void virtio_gpu_module_exit(void)
 {
-    /* No-op: device lifecycle managed by gpu.c/release */
+    /* No-op: device lifecycle is managed by the DRM release callback. */
 }

@@ -38,6 +38,7 @@ int extfs_detect_version(const ext2_super_block_t *es)
     return 2;
 }
 
+/* Convert a block number to a byte offset. */
 static uint64_t extfs_block_offset(extfs_sb_info_t *sb, uint32_t block)
 {
     return (uint64_t)block * sb->block_size;
@@ -72,6 +73,7 @@ static int extfs_disk_read(extfs_sb_info_t *sb, uint64_t offset, void *buf, size
     return status;
 }
 
+/* Read a 32-bit field from the superblock at a byte offset. */
 static uint32_t extfs_super_u32(const ext2_super_block_t *super, size_t offset)
 {
     uint32_t value;
@@ -79,6 +81,7 @@ static uint32_t extfs_super_u32(const ext2_super_block_t *super, size_t offset)
     return value;
 }
 
+/* Write a 32-bit field into the superblock at a byte offset. */
 static void extfs_super_put_u32(ext2_super_block_t *super, size_t offset, uint32_t value)
 {
     memcpy((uint8_t *)super + offset, &value, sizeof(value));

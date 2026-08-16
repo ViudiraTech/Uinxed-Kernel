@@ -643,6 +643,7 @@ static void drm_atomic_commit_wait_turn(struct drm_atomic_state *state)
     spin_unlock(&config->commit_queue_lock);
 }
 
+/* Complete the current nonblocking commit turn. */
 static void drm_atomic_commit_finish_turn(struct drm_device *dev)
 {
     spin_lock(&dev->mode_config.commit_queue_lock);

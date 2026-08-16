@@ -175,8 +175,8 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
             /*
              * A synchronous fault cannot be deferred.  If SIGSEGV is
              * blocked (normally because its handler faulted recursively) or
-             * ignored, Linux terminates the process instead of retrying the
-             * same faulting instruction forever.
+             * ignored, terminate the process instead of retrying the same
+             * faulting instruction forever.
              */
             if (signal_is_blocked_or_ignored(proc, SIGSEGV)) process_exit(-SIGSEGV);
 

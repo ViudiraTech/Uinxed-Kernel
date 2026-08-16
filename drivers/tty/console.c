@@ -13,7 +13,6 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
-#include <mem/heap.h>
 #include <sync/spin_lock.h>
 
 console_cmdline_t console_cmdline[NR_CONSOLES];
@@ -54,27 +53,22 @@ static void console_cmdline_add(const char *arg)
     console_cmdline_count++;
 }
 
+/* Adapter for cmdline_foreach_option. */
+static void console_cmdline_add_cb(const char *value, void *ctx)
+{
+    (void)ctx;
+    console_cmdline_add(value);
+}
+
 /* Scan the kernel command line for console= entries (once). */
 void console_cmdline_parse(void)
 {
-    const char *cmdline;
-    char       *copy;
-    char       *token;
+    char value[64];
 
     if (console_cmdline_parsed) return;
     console_cmdline_parsed = true;
 
-    cmdline = get_cmdline();
-    if (!cmdline) return;
-    copy = strdup(cmdline);
-    if (!copy) return;
-
-    token = strtok(copy, " ");
-    while (token) {
-        if (!strncmp(token, "console=", 8)) console_cmdline_add(token + 8);
-        token = strtok(NULL, " ");
-    }
-    free(copy);
+    cmdline_foreach_option("console", console_cmdline_add_cb, NULL, value, sizeof(value));
 }
 
 /* True when a console was requested by name/index on the command line. */
@@ -99,6 +93,7 @@ int register_console(console_t *c)
     for (cur = console_list; cur; cur = cur->next) {
         if (streq(cur->name, c->name) && cur->index == c->index) {
             spin_unlock(&console_lock);
+            plogk("console: Console %s%u is already registered.\n", c->name, (unsigned)c->index);
             return -EEXIST;
         }
     }

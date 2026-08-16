@@ -191,36 +191,43 @@ static rtl8169_device_t *rtl8169_irq_slots[RTL8169_MAX_DEVICES];
 static spinlock_t        rtl8169_irq_lock;
 static int               rtl8169_scheduler_ready;
 
+/* Read an 8-bit MMIO register. */
 static inline uint8_t rtl8169_read8(const rtl8169_device_t *device, uint32_t reg)
 {
     return *(volatile uint8_t *)(device->mmio + reg);
 }
 
+/* Read a 16-bit MMIO register. */
 static inline uint16_t rtl8169_read16(const rtl8169_device_t *device, uint32_t reg)
 {
     return *(volatile uint16_t *)(device->mmio + reg);
 }
 
+/* Read a 32-bit MMIO register. */
 static inline uint32_t rtl8169_read32(const rtl8169_device_t *device, uint32_t reg)
 {
     return *(volatile uint32_t *)(device->mmio + reg);
 }
 
+/* Write an 8-bit MMIO register. */
 static inline void rtl8169_write8(rtl8169_device_t *device, uint32_t reg, uint8_t value)
 {
     *(volatile uint8_t *)(device->mmio + reg) = value;
 }
 
+/* Write a 16-bit MMIO register. */
 static inline void rtl8169_write16(rtl8169_device_t *device, uint32_t reg, uint16_t value)
 {
     *(volatile uint16_t *)(device->mmio + reg) = value;
 }
 
+/* Write a 32-bit MMIO register. */
 static inline void rtl8169_write32(rtl8169_device_t *device, uint32_t reg, uint32_t value)
 {
     *(volatile uint32_t *)(device->mmio + reg) = value;
 }
 
+/* Force a previous MMIO write to complete by reading back the PHY status register. */
 static inline void rtl8169_write_flush(rtl8169_device_t *device)
 {
     (void)rtl8169_read32(device, RTL8169_REG_PHYSTATUS);
@@ -767,6 +774,7 @@ static void rtl8169_interrupt_slot(size_t slot, void *frame)
     send_eoi();
 }
 
+/* Generate the legacy and IDT interrupt wrappers for one IRQ slot. */
 #define RTL8169_IRQ_WRAPPERS(n)                                                     \
     static void rtl8169_legacy_interrupt_##n(void *frame)                           \
     {                                                                               \
@@ -1071,26 +1079,31 @@ void rtl8169_shutdown(void)
     }
 }
 
+/* True if the device link is up. */
 int rtl8169_link_up(const rtl8169_device_t *device)
 {
     return device && device->link_up;
 }
 
+/* Return the device MAC address (6 bytes). */
 const uint8_t *rtl8169_mac_address(const rtl8169_device_t *device)
 {
     return device ? device->mac : NULL;
 }
 
+/* Return a snapshot of device statistics. */
 const rtl8169_stats_t *rtl8169_get_stats(const rtl8169_device_t *device)
 {
     return device ? &device->stats : NULL;
 }
 
+/* Return the first registered device. */
 rtl8169_device_t *rtl8169_first_device(void)
 {
     return rtl8169_devices;
 }
 
+/* Return the device after the given one, or NULL at the end. */
 rtl8169_device_t *rtl8169_next_device(rtl8169_device_t *device)
 {
     return device ? device->next : NULL;

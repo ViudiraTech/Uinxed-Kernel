@@ -58,6 +58,7 @@ void drm_device_list_remove(struct drm_device *dev)
     spin_unlock(&drm_device_list_lock);
 }
 
+/* Return the first registered DRM device, or NULL. */
 struct drm_device *drm_get_singleton(void)
 {
     /*
@@ -105,17 +106,20 @@ static int drm_dummy_open(struct drm_device *dev, struct drm_file *file)
     return 0;
 }
 
+/* Dummy driver postclose callback. */
 static void drm_dummy_postclose(struct drm_device *dev, struct drm_file *file)
 {
     (void)dev;
     (void)file;
 }
 
+/* Dummy driver lastclose callback. */
 static void drm_dummy_lastclose(struct drm_device *dev)
 {
     (void)dev;
 }
 
+/* Dummy driver GEM object free callback. */
 static void drm_dummy_gem_free_object(struct drm_gem_object *obj)
 {
     if (obj) {
@@ -126,6 +130,7 @@ static void drm_dummy_gem_free_object(struct drm_gem_object *obj)
     }
 }
 
+/* Dummy driver PRIME import callback. */
 static struct drm_gem_object *drm_dummy_gem_prime_import(struct drm_device *dev, void *dma_buf)
 {
     /*
@@ -419,6 +424,7 @@ size_t drm_dev_read(void *file, void *addr, size_t offset, size_t size)
     return ret < 0 ? (size_t)-1 : (size_t)ret;
 }
 
+/* VFS write wrapper for /dev/dri nodes. */
 size_t drm_dev_write(void *file, const void *addr, size_t offset, size_t size)
 {
     (void)file;
@@ -489,6 +495,7 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
     return 0;
 }
 
+/* VFS release callback for /dev/dri nodes. */
 void drm_dev_release(void *node_ptr, void *private_data)
 {
     (void)node_ptr;
@@ -496,6 +503,7 @@ void drm_dev_release(void *node_ptr, void *private_data)
     if (private_data) drm_release((struct drm_file *)private_data);
 }
 
+/* VFS ioctl wrapper for /dev/dri files. */
 int drm_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     (void)ctx;
@@ -503,6 +511,7 @@ int drm_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req
     return drm_dev_ioctl(private_data, req, arg);
 }
 
+/* VFS read wrapper for /dev/dri files. */
 int64_t drm_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -510,6 +519,7 @@ int64_t drm_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *a
     return drm_read((struct drm_file *)private_data, (char *)addr, size, &position, (flags & O_NONBLOCK) != 0);
 }
 
+/* VFS write wrapper for /dev/dri files. */
 int64_t drm_dev_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -517,6 +527,7 @@ int64_t drm_dev_file_write(void *ctx, void *private_data, uint64_t flags, const 
     return (int64_t)drm_dev_write(private_data, addr, offset, size);
 }
 
+/* VFS poll wrapper for /dev/dri files. */
 int drm_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
 {
     (void)ctx;
@@ -524,6 +535,7 @@ int drm_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t even
     return drm_dev_poll(private_data, events);
 }
 
+/* VFS poll callback for /dev/dri nodes. */
 int drm_dev_poll(void *file, size_t events)
 {
     return (int)drm_poll((struct drm_file *)file, (unsigned int)events);

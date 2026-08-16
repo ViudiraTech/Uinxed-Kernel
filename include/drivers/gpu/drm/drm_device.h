@@ -95,7 +95,7 @@ struct drm_vblank_crtc {
 struct drm_private_obj;
 struct drm_private_state;
 
-/* Kernel-internal enums (not UAPI; mirror Linux include/drm/drm_*.h) */
+/* Kernel-internal enums (not UAPI). */
 
 enum drm_mode_status {
     MODE_OK              = 0,

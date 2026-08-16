@@ -48,6 +48,6 @@ void mem_sysfs_init(void)
     for (size_t i = 0; i < sizeof(mem_devices) / sizeof(mem_devices[0]); i++) {
         if (device_create(&mem_class, NULL, MKDEV(1, mem_devices[i].minor), NULL, "%s", mem_devices[i].name)) devices++;
     }
-    plogk("mem_sysfs: %zu memory device(s) exported to /sys/class/mem\n", devices);
+    plogk("mem_sysfs: exported %zu memory device(s) to /sys/class/mem\n", devices);
 #endif
 }

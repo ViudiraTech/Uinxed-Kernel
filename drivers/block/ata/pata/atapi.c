@@ -36,6 +36,7 @@ static uint8_t atapi_wait_busy(uint8_t channel)
     return status;
 }
 
+/* Poll until DRQ is set, or report an error state */
 static uint8_t atapi_wait_drq(uint8_t channel)
 {
     uint8_t status;

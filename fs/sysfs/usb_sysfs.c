@@ -250,7 +250,7 @@ void usb_sysfs_init(void)
         plogk("usb_sysfs: Bus_register(usb) failed: %d\n", ret);
         return;
     }
-    plogk("usb_sysfs: /sys/bus/usb registered.\n");
+    plogk("usb_sysfs: registered /sys/bus/usb\n");
     usb_core_init();
 #endif
 }

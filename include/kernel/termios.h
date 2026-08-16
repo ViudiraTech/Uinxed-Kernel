@@ -559,7 +559,6 @@ _Static_assert(TIOCSETD == 0x5423 && TIOCGETD == 0x5424 && TCSBRKP == 0x5425 && 
 _Static_assert(TIOCSBRK == 0x5427 && TIOCCBRK == 0x5428 && TIOCGSID == 0x5429, "Linux break/session ioctl ABI");
 _Static_assert(TIOCGPTN == 0x80045430UL, "Linux TIOCGPTN ABI");
 _Static_assert(TIOCSPTLCK == 0x40045431UL, "Linux TIOCSPTLCK ABI");
-_Static_assert(TIOCSPTLCK == 0x40045431UL, "Linux TIOCSPTLCK ABI");
 _Static_assert(TIOCGDEV == 0x80045432UL, "Linux TIOCGDEV ABI");
 _Static_assert(TCGETS2 == 0x802c542aUL, "Linux TCGETS2 ABI");
 _Static_assert(TCSETS2 == 0x402c542bUL, "Linux TCSETS2 ABI");

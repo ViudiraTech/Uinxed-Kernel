@@ -649,6 +649,7 @@ int blockdev_open_partition(const blockdev_device_t *parent, uint64_t first_lba,
     return EOK;
 }
 
+/* Read `count` sectors starting at `lba` into `buffer` */
 int blockdev_read_sectors(const blockdev_device_t *device, uint64_t lba, uint32_t count, void *buffer)
 {
     if (!device) return -EINVAL;
@@ -659,6 +660,7 @@ int blockdev_read_sectors(const blockdev_device_t *device, uint64_t lba, uint32_
     return blk_ops(device, read_sectors)(device, lba, count, buffer);
 }
 
+/* Write `count` sectors starting at `lba` from `buffer` */
 int blockdev_write_sectors(const blockdev_device_t *device, uint64_t lba, uint32_t count, const void *buffer)
 {
     if (!device) return -EINVAL;
@@ -670,22 +672,26 @@ int blockdev_write_sectors(const blockdev_device_t *device, uint64_t lba, uint32
     return blk_ops(device, write_sectors)(device, lba, count, buffer);
 }
 
+/* Commit volatile device write caches, if the backend provides one */
 int blockdev_flush(const blockdev_device_t *device)
 {
     if (!device) return -EINVAL;
     return blk_ops(device, flush)(device);
 }
 
+/* Hold a backend reference for a copied blockdev descriptor */
 void blockdev_retain(const blockdev_device_t *device)
 {
     if (device) blk_ops(device, retain)(device);
 }
 
+/* Drop a backend reference for a copied blockdev descriptor */
 void blockdev_release(const blockdev_device_t *device)
 {
     if (device) blk_ops(device, release)(device);
 }
 
+/* Byte-granularity read (handles partial sectors internally) */
 int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *buffer, size_t size)
 {
     size_t   sector_offset;
@@ -720,6 +726,7 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
     return EOK;
 }
 
+/* Byte-granularity write (read-modify-write for partial sectors) */
 int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const void *buffer, size_t size)
 {
     size_t   sector_offset;

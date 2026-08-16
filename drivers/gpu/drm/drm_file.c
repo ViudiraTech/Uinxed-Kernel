@@ -109,6 +109,7 @@ static void drm_event_release_file_ref(struct drm_pending_vblank_event *e)
     wait_queue_wake_all(&file_priv->event_wait);
 }
 
+/* Queue a pending vblank event for delivery to userspace. */
 int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
 {
     struct drm_event_node *node;

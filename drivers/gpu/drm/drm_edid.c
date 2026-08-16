@@ -33,6 +33,7 @@
 #define max_t(t, a, b)          ((t)(a) > (t)(b) ? (t)(a) : (t)(b))
 #define clamp(v, lo, hi)        (max((lo), min((hi), (v))))
 
+/* Convert a little-endian 16-bit value to CPU order. */
 static inline uint16_t le16_to_cpu(uint16_t v)
 {
     return v;
@@ -1627,6 +1628,7 @@ static int edid_timing_standard(const struct edid *edid)
     return 0;
 }
 
+/* True if the EDID input field indicates a digital display. */
 static bool edid_is_digital_input(const struct edid *edid)
 {
     return edid->input & DRM_EDID_INPUT_DIGITAL;
@@ -1692,7 +1694,7 @@ static struct drm_display_mode *mode_from_std_timing(struct drm_connector *conne
         vsize = (hsize * 9) / 16;
     }
 
-    /* HDTV hack, part 1 */
+    /* HDTV mode handling, part 1 */
     if (vrefresh_rate == 60 && ((hsize == 1360 && vsize == 765) || (hsize == 1368 && vsize == 769))) {
         hsize = 1366;
         vsize = 768;
@@ -1709,7 +1711,7 @@ static struct drm_display_mode *mode_from_std_timing(struct drm_connector *conne
         }
     }
 
-    /* HDTV hack, part 2 */
+    /* HDTV mode handling, part 2 */
     if (hsize == 1366 && vsize == 768 && vrefresh_rate == 60) {
         mode = edid_cvt_mode(dev, 1366, 768, vrefresh_rate, 0, 0, false);
         if (!mode) return NULL;
@@ -1910,11 +1912,13 @@ static int collect_detailed_modes(struct drm_connector *connector, const struct 
 #define HDMI_IEEE_OUI       0x000c03
 #define HDMI_FORUM_IEEE_OUI 0xc45dd8
 
+/* Return the CTA extension revision, or -1. */
 static int cta_revision(const uint8_t *cea)
 {
     return cea[1];
 }
 
+/* Map a short video descriptor to its VIC code. */
 static uint8_t svd_to_video_code(uint8_t svd)
 {
     /* 0-6 bit vic, 7th bit native mode indicator */
@@ -1922,6 +1926,7 @@ static uint8_t svd_to_video_code(uint8_t svd)
     return svd;
 }
 
+/* True if the VIC is a valid CTA video code. */
 static bool vic_is_valid(uint8_t vic)
 {
     return cta_mode_for_vic(vic) != NULL;
@@ -2121,11 +2126,13 @@ static bool is_display_descriptor(const struct detailed_timing *descriptor, uint
     return descriptor->pixel_clock == 0 && descriptor->data.other_data.pad1 == 0 && descriptor->data.other_data.type == type;
 }
 
+/* Read the monitor name descriptor. */
 static void read_monitor_name(const struct detailed_timing *timing, const uint8_t **res)
 {
     if (is_display_descriptor(timing, EDID_DETAIL_MONITOR_NAME)) *res = timing->data.other_data.data.str.str;
 }
 
+/* Extract the monitor name string from the EDID. */
 static int extract_monitor_name(const struct edid *edid, char name[13])
 {
     const uint8_t *edid_name = NULL;
@@ -2148,6 +2155,7 @@ static int extract_monitor_name(const struct edid *edid, char name[13])
 
 static const uint8_t edid_header[] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
 
+/* Validate the 8-byte EDID header. */
 int drm_edid_header_is_valid(const void *_edid)
 {
     const struct edid *edid = _edid;
@@ -2159,6 +2167,7 @@ int drm_edid_header_is_valid(const void *_edid)
     return score;
 }
 
+/* Compute the checksum of a 128-byte EDID block. */
 static int block_compute_checksum(const void *_block)
 {
     const uint8_t *block = _block;
@@ -2171,6 +2180,7 @@ static int block_compute_checksum(const void *_block)
     return crc;
 }
 
+/* True if the EDID block is all zeroes. */
 static bool block_is_blank(const void *edid)
 {
     int i;
@@ -2291,21 +2301,25 @@ void drm_edid_to_display_info(struct drm_connector *connector, const struct edid
     connector->display_info_height_mm = (uint32_t)edid->height_cm * 10;
 }
 
+/* True if the EDID describes a digital display. */
 bool drm_edid_is_digital(const struct edid *edid)
 {
     return edid && (edid->input & DRM_EDID_INPUT_DIGITAL);
 }
 
+/* True if the EDID carries HDMI sink information. */
 bool drm_detect_hdmi_monitor(const struct edid *edid)
 {
     return scan_cta_for_hdmi(edid);
 }
 
+/* True if the EDID declares audio support. */
 bool drm_detect_monitor_audio(const struct edid *edid)
 {
     return scan_cta_for_audio(edid);
 }
 
+/* Parse EDID and add its modes to the connector. */
 int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid)
 {
     int num_modes = 0;
@@ -2372,6 +2386,7 @@ static int est3_modes_from_descriptor(struct drm_connector *connector, const str
     return modes;
 }
 
+/* Collect modes from an established-timings III descriptor. */
 static void collect_est3_descriptor(const struct detailed_timing *timing, struct detailed_mode_closure *closure)
 {
     if (!is_display_descriptor(timing, EDID_DETAIL_EST_TIMINGS)) return;
@@ -2415,6 +2430,7 @@ static int collect_established_modes(struct drm_connector *connector, const stru
     return modes + closure.modes;
 }
 
+/* Collect modes from a standard-timings descriptor. */
 static void collect_std_descriptor(const struct detailed_timing *timing, struct detailed_mode_closure *closure)
 {
     const struct detailed_non_pixel *data = &timing->data.other_data;
@@ -2529,28 +2545,33 @@ static int cta_alternate_clock(const struct drm_display_mode *cea_mode)
     return clock;
 }
 
+/* Return the number of CTA VIC entries. */
 static uint8_t cta_vic_count(void)
 {
     return 193 + (uint8_t)ARRAY_SIZE(edid_cea_modes_193);
 }
 
+/* Return the next CTA VIC, or 0. */
 static uint8_t cta_next_vic(uint8_t vic)
 {
     if (++vic == 1 + (uint8_t)ARRAY_SIZE(edid_cea_modes_1)) vic = 193;
     return vic;
 }
 
+/* True if two modes have identical timing values. */
 static bool modes_match_timings(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
 {
     return mode1->hdisplay == mode2->hdisplay && mode1->hsync_start == mode2->hsync_start && mode1->hsync_end == mode2->hsync_end && mode1->htotal == mode2->htotal && mode1->hskew == mode2->hskew
            && mode1->vdisplay == mode2->vdisplay && mode1->vsync_start == mode2->vsync_start && mode1->vsync_end == mode2->vsync_end && mode1->vtotal == mode2->vtotal && mode1->vscan == mode2->vscan;
 }
 
+/* True if two modes have identical flags. */
 static bool modes_match_flags(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
 {
     return (mode1->flags & ~DRM_MODE_FLAG_3D_MASK) == (mode2->flags & ~DRM_MODE_FLAG_3D_MASK);
 }
 
+/* Compare two modes against a flag mask. */
 static bool modes_match(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2, unsigned int match_flags)
 {
     if (!mode1 && !mode2) return true;

@@ -101,6 +101,7 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
     return 0;
 }
 
+/* Handle DRM_IOCTL_SET_CLIENT_CAP. */
 int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_set_client_cap *cap = (struct drm_set_client_cap *)data;
@@ -320,7 +321,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     }
 
     if (!desc->func) {
-        /* NULL func = no-op success (e.g. GET_UNIQUE stub). */
+        /* A NULL func means this ioctl is a no-op success. */
         ret = 0;
         goto out;
     }
@@ -356,6 +357,7 @@ static int drm_version_copy_string(uint64_t user_ptr, uint64_t capacity, uint64_
     return 0;
 }
 
+/* Handle DRM_IOCTL_VERSION. */
 int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_version *ver;

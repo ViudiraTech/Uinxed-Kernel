@@ -31,6 +31,7 @@ bool evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int 
     return true;
 }
 
+/* Return whether a complete packet is available. */
 bool evdev_queue_has_packet(const evdev_queue_t *queue)
 {
     return queue && queue->packet_head != queue->tail;

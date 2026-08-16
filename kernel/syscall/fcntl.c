@@ -20,6 +20,7 @@
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
 
+/* fcntl syscall: manipulate file descriptor flags, locks, and seals */
 int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
 {
     process_t *proc = process_current();
@@ -30,8 +31,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
 
     int64_t result = -EINVAL;
 
-    /* Todo: Implement fcntl cmds full implementation */
-    /* We use raw fd table access for operations that need it */
     switch (cmd) {
         case F_DUPFD : {
             int      start = (int)arg;
@@ -155,7 +154,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             break;
         }
         case F_GETLK : {
-            /* Advisory file locking - not supported, always return success */
             if (arg) {
                 /* Write back an unlocked lock struct */
                 struct {
@@ -179,7 +177,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
         case F_SETOWN :
         case F_GETOWN :
         case F_SETOWN_EX :
-            /* Non-blocking / blocking lock - no-op (no mandatory locking) */
             result = 0;
             break;
         case F_GETOWN_EX : {

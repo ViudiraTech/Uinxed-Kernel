@@ -535,12 +535,11 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     sk->refcount    = 1;
 
     /*
-     * Every unbound AF_UNIX socket has an unnamed local address.  Linux
-     * reports that address as just sa_family_t (length 2); it is not an
-     * abstract address and must never consume a slot in the bound-name
-     * table.  Initialize it at socket creation so connect(), socketpair(),
-     * getsockname(), and datagram sender metadata all share one consistent
-     * representation.
+     * Every unbound AF_UNIX socket has an unnamed local address, reported as
+     * just sa_family_t (length 2); it is not an abstract address and must
+     * never consume a slot in the bound-name table.  Initialize it at socket
+     * creation so connect(), socketpair(), getsockname(), and datagram sender
+     * metadata all share one consistent representation.
      */
     sk->local_addr.ss_family = AF_UNIX;
     sk->local_addr_len       = sizeof(sa_family_t);
@@ -663,8 +662,8 @@ static void socket_free(socket_t *sk)
     sock_bound_remove(sk);
 
     /*
-     * A pathname socket inode persists after close, as on Linux.  Drop only
-     * the endpoint's retained VFS reference; unlink(2) owns namespace removal.
+     * A pathname socket inode persists after close.  Drop only the endpoint's
+     * retained VFS reference; unlink(2) owns namespace removal.
      */
     if (sk->bound_node) {
         vfs_close(sk->bound_node);

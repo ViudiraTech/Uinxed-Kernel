@@ -40,16 +40,16 @@
 #    define SCHED_LOAD_BALANCE_INTERVAL 8
 #endif
 #ifndef SCHED_BASE_SLICE
-#    define SCHED_BASE_SLICE 2ULL // 2 ms at the default 1000 Hz timer
+#    define SCHED_BASE_SLICE 2ULL
 #endif
 #ifndef SCHED_LATENCY
-#    define SCHED_LATENCY 8ULL // 8 ms target scheduling latency
+#    define SCHED_LATENCY 8ULL
 #endif
 #ifndef SCHED_MIN_GRANULARITY
-#    define SCHED_MIN_GRANULARITY 1ULL // one 1 ms timer tick
+#    define SCHED_MIN_GRANULARITY 1ULL
 #endif
 #ifndef SCHED_WAKEUP_GRANULARITY
-#    define SCHED_WAKEUP_GRANULARITY 0ULL // preempt on a strictly earlier VD
+#    define SCHED_WAKEUP_GRANULARITY 0ULL
 #endif
 
 /* Global state */
@@ -96,16 +96,19 @@ __attribute__((naked)) void context_switch(task_context_t *prev __attribute__((u
 
 /* Helpers: container_of variants */
 
+/* Return the task whose scheduler-list node is given */
 static task_t *sched_node_to_task(ilist_node_t *node)
 {
     return (task_t *)((uint8_t *)node - offsetof(task_t, sched_node));
 }
 
+/* Return the task whose timer-list node is given */
 static task_t *timer_node_to_task(ilist_node_t *node)
 {
     return (task_t *)((uint8_t *)node - offsetof(task_t, timer_node));
 }
 
+/* Whether an intrusive-list node is currently linked */
 static int node_is_linked(const ilist_node_t *node)
 {
     return node->prev && node->next && node->prev != node;
@@ -175,6 +178,7 @@ static uint64_t calc_effective_slice(eevdf_rq_t *rq)
  * avg_vruntime >= (vruntime - min_vruntime) * avg_load
  */
 
+/* Whether a vruntime is eligible given the runqueue state */
 static int entity_eligible_vruntime(eevdf_rq_t *rq, uint64_t vruntime)
 {
     int64_t  avg  = rq->avg_vruntime;
@@ -189,6 +193,7 @@ static int entity_eligible_vruntime(eevdf_rq_t *rq, uint64_t vruntime)
     return avg >= (int64_t)(vruntime - rq->min_vruntime) * (int64_t)load;
 }
 
+/* Whether a task is eligible to run */
 static int entity_eligible(eevdf_rq_t *rq, task_t *task)
 {
     return entity_eligible_vruntime(rq, task->vruntime);
@@ -258,6 +263,7 @@ static void advance_min_vruntime(eevdf_rq_t *rq)
 
 /* EEVDF core: avg_vruntime / avg_load bookkeeping */
 
+/* Add a task's vruntime contribution to the runqueue */
 static void avg_vruntime_add(eevdf_rq_t *rq, task_t *task)
 {
     int64_t delta = (int64_t)(task->vruntime - rq->min_vruntime) * (int64_t)task->weight;
@@ -266,6 +272,7 @@ static void avg_vruntime_add(eevdf_rq_t *rq, task_t *task)
     rq->avg_load += task->weight;
 }
 
+/* Subtract a task's vruntime contribution from the runqueue */
 static void avg_vruntime_sub(eevdf_rq_t *rq, task_t *task)
 {
     int64_t delta = (int64_t)(task->vruntime - rq->min_vruntime) * (int64_t)task->weight;
@@ -360,6 +367,7 @@ static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
     rq->nr_running++;
 }
 
+/* Remove a task from the EEVDF timeline */
 static void dequeue_entity(eevdf_rq_t *rq, task_t *task)
 {
     rb_erase_augmented(&rq->timeline, &task->run_node, update_min_vruntime, NULL);
@@ -436,16 +444,19 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
 
 /* Per-CPU helpers */
 
+/* Return the runqueue of the current CPU */
 static eevdf_rq_t *local_rq(void)
 {
     return &cpu_rqs[get_current_cpu_id()];
 }
 
+/* Return the task currently running on this CPU */
 static task_t *local_current(void)
 {
     return local_rq()->curr;
 }
 
+/* Point the TSS stack at the given task's kernel stack */
 static void update_tss_stack(task_t *task)
 {
     if (!task) return;
@@ -457,6 +468,7 @@ static void update_tss_stack(task_t *task)
     }
 }
 
+/* Place a task on the given CPU's runqueue */
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 {
     if (!task || task->state == TASK_ZOMBIE || task->state == TASK_IDLE) return;
@@ -475,11 +487,13 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 
 /* Public API: enqueue_task */
 
+/* Enqueue a task on its assigned CPU */
 void enqueue_task(task_t *task)
 {
     enqueue_task_on_cpu(task, task->cpu_id, 0);
 }
 
+/* Enqueue a newly created task with initial placement */
 void enqueue_task_initial(task_t *task)
 {
     enqueue_task_on_cpu(task, task->cpu_id, 1);
@@ -487,6 +501,7 @@ void enqueue_task_initial(task_t *task)
 
 /* Wake / sleep helpers */
 
+/* Wake a sleeping or blocked task, enqueueing it if runnable */
 static void wake_task_locked(task_t *task, int remove_linked_node)
 {
     if (!task) return;
@@ -526,11 +541,13 @@ static void finish_wait_locked(task_t *task, task_wake_reason_t reason)
     if (task->state == TASK_BLOCKED) wake_task_locked(task, 0);
 }
 
+/* Send a reschedule IPI to a task's CPU when it is remote */
 void request_task_cpu(task_t *task)
 {
     if (task && task->cpu_id != get_current_cpu_id() && scheduler.started) send_ipi_cpu(task->cpu_id, IPI_RESCHEDULE);
 }
 
+/* Put a task to sleep until a wake tick */
 static void sleep_task(task_t *task, uint64_t wake_tick)
 {
     task->state      = TASK_SLEEPING;
@@ -541,6 +558,7 @@ static void sleep_task(task_t *task, uint64_t wake_tick)
 
 /* Load balancing */
 
+/* Choose the least loaded CPU for a new task */
 uint32_t choose_task_cpu_locked(void)
 {
     uint32_t best = next_task_cpu++ % cpu_scheduler_count;
@@ -550,6 +568,7 @@ uint32_t choose_task_cpu_locked(void)
     return best;
 }
 
+/* Whether the current runqueue has a runnable task */
 static int has_ready_task(void)
 {
     return local_rq()->nr_running > 0;
@@ -748,6 +767,7 @@ void sched_init(void)
 
 /* AP management */
 
+/* Mark an application processor's runqueue online */
 void sched_ap_online(uint32_t cpu_id)
 {
     if (!cpu_rqs || cpu_id >= cpu_scheduler_count) return;
@@ -755,6 +775,7 @@ void sched_ap_online(uint32_t cpu_id)
     cpu_rqs[cpu_id].online = 1;
 }
 
+/* Enter the scheduler loop on an application processor */
 void sched_ap_start(uint32_t cpu_id)
 {
     while (!cpu_rqs || !cpu_scheduler_count) __asm__ volatile("pause");
@@ -766,6 +787,7 @@ void sched_ap_start(uint32_t cpu_id)
     panic("sched: AP scheduler exited.");
 }
 
+/* Handle a reschedule IPI, yielding when work is ready */
 void sched_ipi_reschedule(void)
 {
     uint32_t cpu_id = get_current_cpu_id();
@@ -780,6 +802,7 @@ void sched_ipi_reschedule(void)
     if (ready) sched_yield();
 }
 
+/* Return the number of registered scheduler CPUs */
 uint32_t sched_cpu_count(void)
 {
     return cpu_scheduler_count;
@@ -808,8 +831,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
     return 0;
 }
 
-/* sched_yield - core context switch entry point */
-
+/* Switch to the next runnable task on the current CPU */
 static void sched_switch(bool account_runtime)
 {
     spin_lock(&scheduler.lock);
@@ -898,6 +920,7 @@ static void sched_switch(bool account_runtime)
     context_switch(&prev->context, &next->context, &prev->on_cpu);
 }
 
+/* Yield the current task to the scheduler */
 void sched_yield(void)
 {
     sched_switch(true);
@@ -998,6 +1021,7 @@ int task_continue(task_t *task)
 
 /* Wait queue implementation */
 
+/* Initialize a wait queue */
 void wait_queue_init(wait_queue_t *queue)
 {
     if (!queue) return;
@@ -1158,6 +1182,7 @@ task_t *wait_queue_wake_one_sync(wait_queue_t *queue)
     return task;
 }
 
+/* Wake every task waiting on the queue */
 uint64_t wait_queue_wake_all(wait_queue_t *queue)
 {
     if (!queue) return 0;

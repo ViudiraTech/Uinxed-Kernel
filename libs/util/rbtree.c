@@ -263,6 +263,7 @@ rb_node_t *rb_next(rb_node_t *node)
     return parent;
 }
 
+/* Report whether the tree is empty. */
 int rb_is_empty(rb_root_t *root)
 {
     return root->root == NULL;

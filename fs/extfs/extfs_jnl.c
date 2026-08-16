@@ -62,18 +62,21 @@ typedef struct extfs_journal {
         uint32_t            record_count;
 } extfs_journal_t;
 
+/* Read a big-endian 16-bit value. */
 static uint16_t extfs_jnl_get_be16(const void *address)
 {
     const uint8_t *p = address;
     return (uint16_t)((uint16_t)p[0] << 8 | p[1]);
 }
 
+/* Read a big-endian 32-bit value. */
 static uint32_t extfs_jnl_get_be32(const void *address)
 {
     const uint8_t *p = address;
     return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
 }
 
+/* Write a big-endian 16-bit value. */
 static void extfs_jnl_put_be16(void *address, uint16_t value)
 {
     uint8_t *p = address;
@@ -81,6 +84,7 @@ static void extfs_jnl_put_be16(void *address, uint16_t value)
     p[1]       = (uint8_t)value;
 }
 
+/* Write a big-endian 32-bit value. */
 static void extfs_jnl_put_be32(void *address, uint32_t value)
 {
     uint8_t *p = address;
@@ -119,11 +123,13 @@ static int extfs_jnl_logical_io(extfs_journal_t *journal, uint32_t logical, void
     return write ? blockdev_write_bytes(&journal->sb->device, offset, data, journal->block_size) : blockdev_read_bytes(&journal->sb->device, offset, data, journal->block_size);
 }
 
+/* Read one journal block. */
 static int extfs_jnl_read(extfs_journal_t *journal, uint32_t logical, void *data)
 {
     return extfs_jnl_logical_io(journal, logical, data, 0);
 }
 
+/* Write one journal block. */
 static int extfs_jnl_write(extfs_journal_t *journal, uint32_t logical, void *data)
 {
     return extfs_jnl_logical_io(journal, logical, data, 1);
@@ -147,6 +153,7 @@ static int extfs_jnl_write_super(extfs_journal_t *journal, uint32_t start, uint3
     return status;
 }
 
+/* Free all staged journal records. */
 static void extfs_jnl_free_records(extfs_journal_t *journal)
 {
     extfs_jnl_record_t *record = journal->records;
@@ -226,6 +233,7 @@ static int extfs_jnl_verify_descriptor(extfs_journal_t *journal, uint8_t *block)
     return EOK;
 }
 
+/* Store the descriptor block tail checksum. */
 static void extfs_jnl_set_descriptor_checksum(extfs_journal_t *journal, uint8_t *block)
 {
     if (!(journal->incompat & (EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3))) return;
@@ -394,6 +402,7 @@ static int extfs_jnl_v1_transaction_checksum(extfs_journal_t *journal, uint32_t 
     return status;
 }
 
+/* Free a revoke list. */
 static void extfs_jnl_free_revokes(extfs_jnl_revoke_t *revoke)
 {
     while (revoke) {
@@ -403,6 +412,7 @@ static void extfs_jnl_free_revokes(extfs_jnl_revoke_t *revoke)
     }
 }
 
+/* Recover the journal by replaying committed transactions. */
 static int extfs_jnl_recover(void *context)
 {
     extfs_journal_t    *journal = context;

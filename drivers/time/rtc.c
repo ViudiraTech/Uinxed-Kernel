@@ -81,6 +81,7 @@ uint64_t rtc_since_epoch(void)
 
 /* Character device callbacks */
 
+/* Read the current CMOS time as a byte stream. */
 int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     rtc_time_t t;
@@ -107,6 +108,7 @@ int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, 
     return (int64_t)size;
 }
 
+/* Reject byte-stream writes (the RTC device is read-only). */
 int64_t rtc_dev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -119,6 +121,7 @@ int64_t rtc_dev_write(void *ctx, void *private_data, uint64_t flags, const void 
     return -EIO; // RTC is not writable as a byte stream
 }
 
+/* Handle RTC_RD_TIME and RTC_SET_TIME ioctls. */
 int rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *argument)
 {
     rtc_time_t t;

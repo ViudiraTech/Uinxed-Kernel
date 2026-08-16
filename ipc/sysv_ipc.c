@@ -164,8 +164,11 @@ static int ipc_id_alloc(void **table, uint16_t *seq_table, int max, spinlock_t *
     return -ENOSPC;
 }
 
-/* Look up an IPC object by id, verifying its sequence still matches. */
-static void *ipc_id_lookup(void **table, uint16_t *seq_table, int max, spinlock_t *lock, int id)
+/* Look up an IPC object by id while holding the table lock. Returns NULL with
+ * the lock released if the id is stale; otherwise returns the object with
+ * *lock still held (the caller must spin_unlock it) so the object cannot be
+ * freed concurrently while the caller operates on it. */
+static void *ipc_id_lookup_held(void **table, uint16_t *seq_table, int max, spinlock_t *lock, int id)
 {
     int idx = id & IPC_ID_MASK;
     if (idx < 0 || idx >= max) return NULL;
@@ -177,7 +180,14 @@ static void *ipc_id_lookup(void **table, uint16_t *seq_table, int max, spinlock_
         spin_unlock(lock);
         return NULL;
     }
-    spin_unlock(lock);
+    return obj;
+}
+
+/* Look up an IPC object by id, verifying its sequence still matches. */
+static void *ipc_id_lookup(void **table, uint16_t *seq_table, int max, spinlock_t *lock, int id)
+{
+    void *obj = ipc_id_lookup_held(table, seq_table, max, lock, id);
+    if (obj) spin_unlock(lock);
     return obj;
 }
 
@@ -210,28 +220,35 @@ static sem_undo_t *sem_undo_find(process_t *proc, int semid)
 }
 
 /* Replay a process's adjustments onto the semaphore values. */
-static void sem_undo_apply(sem_undo_t *u, sem_array_t *sem)
+static uint32_t sem_undo_apply(sem_undo_t *u, sem_array_t *sem)
 {
     spin_lock(&sem->lock);
     uint32_t n = u->nsems;
     if (n > sem->nsems) n = sem->nsems;
     for (uint32_t i = 0; i < n; i++) sem->values[i] = (uint16_t)((int32_t)sem->values[i] + u->adj[i]);
     spin_unlock(&sem->lock);
+    return n;
 }
 
-__attribute__((unused)) static void sem_undo_release_process(process_t *proc)
+/* Release and undo a process's SEM_UNDO adjustments on exit. */
+void sysv_sem_undo_release(process_t *proc)
 {
     spin_lock(&sem_undo_lock);
     sem_undo_t **prev = &sem_undo_list;
     while (*prev != NULL) {
         sem_undo_t *u = *prev;
         if (u->proc == proc) {
-            *prev            = u->next;
-            sem_array_t *sem = (sem_array_t *)ipc_id_lookup((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, u->semid);
+            *prev = u->next;
+
+            /* Apply the undo while holding the set's table lock so the set
+             * cannot be freed concurrently. */
+            sem_array_t *sem = (sem_array_t *)ipc_id_lookup_held((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, u->semid);
             if (sem != NULL) {
-                sem_undo_apply(u, sem);
-                wait_queue_wake_all(&sem->waitq[0]);
+                uint32_t n = sem_undo_apply(u, sem);
+                for (uint32_t i = 0; i < n; i++) wait_queue_wake_all(&sem->waitq[i]);
+                spin_unlock(&sem_global_lock);
             }
+
             free(u->adj);
             free(u);
             continue;
@@ -543,15 +560,20 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
                     u->nsems = sem->nsems;
                     u->proc  = proc;
                     u->adj   = malloc(sizeof(int16_t) * sem->nsems);
-                    if (u->adj != NULL) memset(u->adj, 0, sizeof(int16_t) * sem->nsems);
-                    u->next       = sem_undo_list;
-                    sem_undo_list = u;
+                    if (u->adj != NULL) {
+                        memset(u->adj, 0, sizeof(int16_t) * sem->nsems);
+                        u->next       = sem_undo_list;
+                        sem_undo_list = u;
+                    } else {
+                        free(u);
+                        u = NULL;
+                    }
                 }
             }
-            if (u != NULL && u->adj != NULL) {
+            if (u != NULL) {
                 for (uint32_t i = 0; i < sem->nsems; i++) u->adj[i] = (int16_t)(u->adj[i] + undo_adj[i]);
-            } else if (u != NULL) {
-                plogk("sysv_ipc: Semtimedop undo tracking lost for semid %d (adj allocation failed)\n", semid);
+            } else {
+                plogk("sysv_ipc: Semtimedop undo tracking lost for semid %d (allocation failed)\n", semid);
             }
             spin_unlock(&sem_undo_lock);
         }
@@ -787,6 +809,7 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 
 /* Shared memory subsystem */
 
+/* Increment the attach count when a VMA maps a shared-memory segment. */
 int sysv_shm_vma_get(void *identity, uint32_t pid)
 {
     shm_seg_t *seg = identity;
@@ -804,6 +827,7 @@ int sysv_shm_vma_get(void *identity, uint32_t pid)
     return EOK;
 }
 
+/* Resolve and attach to a shared-memory segment for shmat. */
 static shm_seg_t *shm_attach_get(int shmid, int mode, uint32_t pid, int *error)
 {
     int idx = shmid & IPC_ID_MASK;
@@ -844,6 +868,7 @@ static shm_seg_t *shm_attach_get(int shmid, int mode, uint32_t pid, int *error)
     return seg;
 }
 
+/* Decrement the attach count and free the segment once detached and marked for removal. */
 void sysv_shm_vma_put(void *identity, uint32_t pid)
 {
     shm_seg_t *seg = identity;

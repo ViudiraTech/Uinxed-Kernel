@@ -20,13 +20,6 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/*
- * Overview
- * cgroup.c implements the unified cgroup v2 hierarchy: a tree of
- * cgroup nodes, membership tracking of tasks, and the pids/events
- * controllers exposed through cgroupfs.
- */
-
 typedef struct cgroup {
         char        *name;
         cgroup_t    *parent;
@@ -175,6 +168,7 @@ int cgroup_register_controller(const char *name, uint64_t id)
     return EOK;
 }
 
+/* Return the root cgroup once initialized */
 cgroup_t *cgroup_root(void)
 {
     return cgroup_ready ? &root_cgroup : NULL;
@@ -402,16 +396,19 @@ int cgroup_move_pid(cgroup_t *cg, const char *value, size_t size)
     return status;
 }
 
+/* Return a cgroup's parent */
 cgroup_t *cgroup_parent(cgroup_t *cg)
 {
     return cg ? cg->parent : NULL;
 }
 
+/* Return a cgroup's name */
 const char *cgroup_name(cgroup_t *cg)
 {
     return cg ? cg->name : NULL;
 }
 
+/* Return a cgroup's subtree controller mask */
 uint64_t cgroup_subtree_control(cgroup_t *cg)
 {
     return cg ? cg->subtree_control : 0;
@@ -428,6 +425,7 @@ int cgroup_pids_available(cgroup_t *cg)
     return available;
 }
 
+/* Whether the given cgroup is the root */
 int cgroup_is_root(cgroup_t *cg)
 {
     return cg == &root_cgroup;

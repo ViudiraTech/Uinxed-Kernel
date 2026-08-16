@@ -62,14 +62,6 @@ typedef struct pty_pair {
         char              slave_path[32];
 } pty_pair_t;
 
-/*
- * Overview
- * A pty_pair links a /dev/ptmx-style master node with its slave tty
- * (/dev/pts/N). Bytes written to one end appear at the other, with
- * the master side supporting TIOCPKT packet mode and flow control.
- * The pair is reference-counted and freed once both ends close.
- */
-
 typedef enum pty_endpoint_kind {
     PTY_MASTER,
     PTY_SLAVE,
@@ -110,11 +102,13 @@ static void pty_put(pty_pair_t *pair)
     free(pair);
 }
 
+/* tty retain callback: take a reference on the pair. */
 static void pty_tty_retain(void *context)
 {
     pty_get(context);
 }
 
+/* tty release callback: drop a reference on the pair. */
 static void pty_tty_release(void *context)
 {
     pty_put(context);
@@ -488,7 +482,7 @@ static vfs_poll_source_t *pty_poll_source(void *context, void *private_data)
     return endpoint->kind == PTY_MASTER ? &endpoint->pair->master_poll_source : &endpoint->pair->slave_poll_source;
 }
 
-/* Encode a device number in the Linux dev_t layout. */
+/* Encode a device number in the dev_t layout. */
 static unsigned int pty_linux_dev(unsigned int major, unsigned int minor)
 {
     return (minor & 0xff) | (major << 8) | ((minor & ~0xff) << 12);

@@ -233,16 +233,6 @@ mcfg_info_t *get_acpi_mcfg(void)
     return mcfg_info.mcfg;
 }
 
-/* Search MCFG entry by bus */
-static mcfg_entry_t *mcfg_search_entry(uint16_t bus)
-{
-    for (size_t i = 0; i < mcfg_info.count; i++) {
-        mcfg_entry_t *entry = &mcfg_info.mcfg->entries[i];
-        if (bus >= entry->start_bus && bus <= entry->end_bus) return entry;
-    }
-    return 0;
-}
-
 /* Get ECAM address of register */
 void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg)
 {
@@ -1103,6 +1093,7 @@ static int pci_cache_process(pci_device_cache_t *cache)
     return 1;
 }
 
+/* Scan the secondary bus behind a PCI-to-PCI bridge. */
 static void pci_scan_bridge_children(pci_device_cache_t *cache, uint16_t end_bus)
 {
     uint32_t class = cache->class_code & 0xffff00;

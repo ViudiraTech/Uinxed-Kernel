@@ -221,7 +221,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
 
     int result = usb_parse_configuration(device, configuration, length);
     if (result != EOK) {
-        plogk("usb: core: %s: configuration descriptor parse failed: %d\n", device->path, result);
+        plogk("usb: %s: configuration descriptor parse failed: %d\n", device->path, result);
         return result;
     }
 
@@ -230,7 +230,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
         for (size_t endpoint_index = 0; endpoint_index < interface->endpoint_count; endpoint_index++) {
             result = device->hcd_ops->configure_endpoint(&interface->endpoints[endpoint_index]);
             if (result != EOK) {
-                plogk("usb: core: %s: endpoint 0x%02x configuration failed: %d\n", device->path, interface->endpoints[endpoint_index].descriptor.endpoint_address, result);
+                plogk("usb: %s: endpoint 0x%02x configuration failed: %d\n", device->path, interface->endpoints[endpoint_index].descriptor.endpoint_address, result);
                 usb_cleanup_endpoints(device, interface_index, endpoint_index);
                 return result;
             }
@@ -240,14 +240,14 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
     int temp_result
         = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION, device->configuration.configuration_value, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
     if (temp_result != EOK) {
-        plogk("usb: core: %s: SET_CONFIGURATION failed: %d\n", device->path, temp_result);
+        plogk("usb: %s: SET_CONFIGURATION failed: %d\n", device->path, temp_result);
         usb_cleanup_endpoints(device, device->interface_count, 0);
         return temp_result;
     }
     device->configured = true;
     result             = usb_register_device_model(device);
     if (result != EOK) {
-        plogk("usb: core: %s: device model registration failed: %d\n", device->path, result);
+        plogk("usb: %s: device model registration failed: %d\n", device->path, result);
         device->configured = false;
         for (size_t i = 0; i < device->interface_count; i++) {
             if (device->interfaces[i].registered) {
@@ -259,7 +259,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
         usb_cleanup_endpoints(device, device->interface_count, 0);
 
         temp_result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION, 0U, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
-        if (temp_result != EOK) plogk("usb: core: Failed to reset device configuration: %d\n", temp_result);
+        if (temp_result != EOK) plogk("usb: Failed to reset device configuration: %d\n", temp_result);
         return result;
     }
 
@@ -277,7 +277,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
 void usb_disconnect_device(usb_device_t *device)
 {
     if (!device || !device->connected) return;
-    plogk("usb: core: Device %s (addr %u) disconnected.\n", device->path, device->address);
+    plogk("usb: Device %s (addr %u) disconnected.\n", device->path, device->address);
     device->connected = false;
     for (size_t i = 0; i < device->interface_count; i++) {
         usb_interface_t *interface = &device->interfaces[i];

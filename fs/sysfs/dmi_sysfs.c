@@ -38,6 +38,7 @@ static DEVICE_ATTR(board_serial, 0444, str_show, NULL);
 static DEVICE_ATTR(product_uuid, 0444, product_uuid_show, NULL);
 static DEVICE_ATTR(modalias, 0444, modalias_show, NULL);
 
+/* Show a string-valued DMI attribute. */
 static ssize_t str_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     const char *(*getter)(void) = NULL;
@@ -60,6 +61,7 @@ static ssize_t str_show(struct device *dev, struct device_attribute *attr, char 
     return sysfs_emit(buf, "%s\n", getter() ? getter() : "");
 }
 
+/* Show the product UUID in canonical form. */
 static ssize_t product_uuid_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     uint8_t uuid[16];
@@ -70,6 +72,7 @@ static ssize_t product_uuid_show(struct device *dev, struct device_attribute *at
                       uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
 }
 
+/* Show the DMI modalias string. */
 static ssize_t modalias_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -105,6 +108,7 @@ static struct class dmi_class = {.name = "dmi", .dev_groups = dmi_groups};
 
 /* /sys/firmware/dmi/tables/DMI binary dump */
 
+/* Return the SMBIOS structure table base and capacity. */
 static const uint8_t *dmi_table_base(size_t *capacity)
 {
     void *entry = smbios_entry();
@@ -137,6 +141,7 @@ static size_t dmi_table_walk(const uint8_t *table, size_t capacity)
     return offset;
 }
 
+/* Read the raw SMBIOS structure table. */
 static ssize_t dmi_tables_read(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count)
 {
     const uint8_t *table;
@@ -168,6 +173,7 @@ static size_t smbios_entry_length(void)
     return 0;
 }
 
+/* Read the raw SMBIOS entry point. */
 static ssize_t smbios_entry_point_read(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count)
 {
     const uint8_t *entry  = smbios_entry();
@@ -239,7 +245,7 @@ void dmi_sysfs_init(void)
 
     dmi_sysfs_ready = true;
     if (tables_registered)
-        plogk("dmi_sysfs: /sys/class/dmi/id and /sys/firmware/dmi/tables registered.\n");
+        plogk("dmi_sysfs: registered /sys/class/dmi/id and /sys/firmware/dmi/tables\n");
     else
         plogk("dmi_sysfs: Failed to register /sys/firmware/dmi/tables\n");
 #endif

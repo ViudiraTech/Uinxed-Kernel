@@ -17,8 +17,7 @@
 /*
  * A static character device. Drivers announce devices they own through
  * cdev_add(); devtmpfs walks the registry to publish the /dev nodes at
- * boot, mirroring how Linux creates device nodes for registered char
- * devices.
+ * boot.
  */
 typedef struct cdev {
         char               dir[64];  // /dev-relative parent dir ("" for the root)

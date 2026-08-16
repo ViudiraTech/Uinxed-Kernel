@@ -67,11 +67,13 @@ struct drm_mm {
 
 #define drm_mm_initialized(mm) ((mm)->size != 0)
 
+/* Exclusive end offset of the node. */
 static inline uint64_t drm_mm_node_end(const struct drm_mm_node *node)
 {
     return node->start + node->size;
 }
 
+/* True if the node is currently allocated. */
 static inline bool drm_mm_node_allocated(const struct drm_mm_node *node)
 {
     return node->allocated;

@@ -731,6 +731,7 @@ out:
     return ret;
 }
 
+/* Handle DRM_IOCTL_MODE_CURSOR. */
 int drm_mode_cursor_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_cursor *cursor = (struct drm_mode_cursor *)data;

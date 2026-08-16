@@ -105,6 +105,7 @@ static int extent_header_valid(extfs_sb_info_t *sb, const ext4_extent_header_t *
     return header->magic == EXT4_EXT_MAGIC && header->depth == expected_depth && header->depth <= EXT4_EXT_MAX_DEPTH && header->entries <= header->max && header->max <= capacity;
 }
 
+/* Compute the extent-tree checksum seed for an inode. */
 static uint32_t extent_checksum_seed(extfs_handle_t *h)
 {
     ext2_inode_t raw;
@@ -113,6 +114,7 @@ static uint32_t extent_checksum_seed(extfs_handle_t *h)
     return crc32c_update(checksum, &raw.i_generation, sizeof(raw.i_generation));
 }
 
+/* Return the checksum tail offset of an extent block. */
 static size_t extent_tail_offset(extfs_handle_t *h, const uint8_t *block)
 {
     const ext4_extent_header_t *header = (const ext4_extent_header_t *)block;
@@ -120,6 +122,7 @@ static size_t extent_tail_offset(extfs_handle_t *h, const uint8_t *block)
     return offset <= h->sb->block_size - sizeof(uint32_t) ? offset : 0;
 }
 
+/* Verify the checksum of an extent block. */
 static int extent_block_checksum_verify(extfs_handle_t *h, uint8_t *block)
 {
     if (!(h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) return 1;
@@ -130,6 +133,7 @@ static int extent_block_checksum_verify(extfs_handle_t *h, uint8_t *block)
     return stored == crc32c_update(extent_checksum_seed(h), block, tail);
 }
 
+/* Store the checksum of an extent block. */
 static void extent_block_checksum_set(extfs_handle_t *h, uint8_t *block)
 {
     if (!(h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) return;
@@ -211,6 +215,7 @@ static int extent_collect(extfs_handle_t *h, extent_vector_t *vector)
     return extent_collect_node(h, (uint8_t *)h->ei.i_data, root->depth, 1, vector);
 }
 
+/* Free the extent vector storage. */
 static void extent_vector_destroy(extent_vector_t *vector)
 {
     free(vector->metadata);
@@ -247,6 +252,7 @@ static void extent_sort_and_merge(extent_vector_t *vector)
     vector->count = output;
 }
 
+/* Fill an extent header with the given geometry. */
 static void extent_fill_header(ext4_extent_header_t *header, uint16_t entries, uint16_t max, uint16_t depth)
 {
     header->magic      = EXT4_EXT_MAGIC;
@@ -256,6 +262,7 @@ static void extent_fill_header(ext4_extent_header_t *header, uint16_t entries, u
     header->generation = 0;
 }
 
+/* Allocate and zero a new extent node block. */
 static int extent_alloc_node(extfs_handle_t *h, uint32_t *block, uint8_t **buffer, uint32_t **allocated, uint32_t *allocated_count, uint32_t *allocated_capacity)
 {
     int status = extfs_alloc_block(h->sb, 0, block);
@@ -493,6 +500,7 @@ int extfs_extent_remove_space(extfs_handle_t *h, uint32_t first, uint32_t last)
     return status;
 }
 
+/* Free every extent owned by an inode. */
 int extfs_extent_free_all(extfs_handle_t *h)
 {
     return extfs_extent_remove_space(h, 0, UINT32_MAX);

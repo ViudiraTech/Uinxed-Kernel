@@ -414,11 +414,13 @@ static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size
 static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8 *buf, size_t size, u64 max_size);
 static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, const u8 *buf, size_t size, u64 max_size);
 
+/* Align a value up to 8 bytes. */
 static u32 align8(u32 value)
 {
     return (value + 7) & ~7U;
 }
 
+/* Whether an attribute is the $I30 directory index. */
 static int ntfs_attr_name_is_i30(const attr_rec_t *attribute, u32 length)
 {
     static const u16 i30[] = {'$', 'I', '3', '0'};
@@ -432,6 +434,7 @@ static int ntfs_attr_name_is_i30(const attr_rec_t *attribute, u32 length)
     return 1;
 }
 
+/* Uppercase one UTF-16 code unit. */
 static u16 ntfs_upcase_char(ntfs_mount_t *mnt, u16 value)
 {
     if (mnt && mnt->upcase && value < mnt->upcase_length) return mnt->upcase[value];
@@ -517,6 +520,7 @@ invalid:
     return -EINVAL;
 }
 
+/* Convert a UTF-8 name to UTF-16 for a file name. */
 static int ntfs_name_from_utf8(const char *source, u16 **name, u8 *name_length)
 {
     return ntfs_utf16_from_utf8(source, name, name_length, 1);
@@ -1096,6 +1100,7 @@ static int ntfs_build_symlink_record(ntfs_mount_t *mnt, u8 *record, u64 record_n
     return 0;
 }
 
+/* Set the reparse tag of an index entry. */
 static int ntfs_index_root_set_reparse_tag(ntfs_mount_t *mnt, u8 *record, u64 file_reference, const u16 *name, u8 name_length)
 {
     u32 bytes_in_use = le32(record + 0x18);
@@ -1569,6 +1574,7 @@ static int runlist_parse(u8 *rl, int len, s64 *vcn, s64 *lcn, s64 *run, int max)
     return -EIO;
 }
 
+/* Return the byte width of a signed runlist value. */
 static int runlist_signed_bytes(s64 value)
 {
     for (int bytes = 1; bytes < 8; bytes++) {
@@ -1578,6 +1584,7 @@ static int runlist_signed_bytes(s64 value)
     return 8;
 }
 
+/* Return the byte width of an unsigned runlist value. */
 static int runlist_unsigned_bytes(u64 value)
 {
     int bytes = 1;
@@ -1718,6 +1725,7 @@ static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, c
     return (s64)done;
 }
 
+/* Zero a byte range through a runlist. */
 static int zero_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u64 size, u64 max_size)
 {
     u8 *zeros;
@@ -1840,6 +1848,7 @@ static int zero_extents(ntfs_mount_t *mnt, const s64 *extent_lcn, const s64 *ext
     return 0;
 }
 
+/* Return the VCN size of an index record. */
 static u32 ntfs_index_vcn_size(const ntfs_mount_t *mnt)
 {
     return mnt->indx_size < mnt->cluster_size ? mnt->indx_size : mnt->cluster_size;
@@ -1859,6 +1868,7 @@ static int ntfs_index_reclaim_stage(ntfs_mount_t *mnt, const s64 *lcn, const s64
     return 0;
 }
 
+/* Commit staged index-cluster reclamation. */
 static int ntfs_index_reclaim_commit(ntfs_mount_t *mnt)
 {
     int status;
@@ -1869,6 +1879,7 @@ static int ntfs_index_reclaim_commit(ntfs_mount_t *mnt)
     return status;
 }
 
+/* Abort staged index-cluster reclamation. */
 static void ntfs_index_reclaim_abort(ntfs_mount_t *mnt)
 {
     if (mnt) mnt->index_reclaim_count = 0;
@@ -2008,6 +2019,7 @@ out:
     return status;
 }
 
+/* Build an index entry for a file name. */
 static u32 ntfs_index_entry_build(u8 *entry, u32 capacity, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size, u64 allocated_size)
 {
     u16 key_length   = sizeof(fname_attr_t) + (size_t)name_length * 2;
@@ -2028,6 +2040,7 @@ static u32 ntfs_index_entry_build(u8 *entry, u32 capacity, u64 file_reference, u
     return entry_length;
 }
 
+/* Insert a promoted child pointer into the index root. */
 static int ntfs_index_root_insert_child(ntfs_mount_t *mnt, u8 *record, u64 old_child_vcn, u64 new_child_vcn, const u8 *key)
 {
     attr_rec_t *root = NULL;
@@ -2455,6 +2468,7 @@ static int ntfs_directory_index_insert(ntfs_mount_t *mnt, u8 *record, u64 file_r
     return -EIO;
 }
 
+/* Replace the key of an index root entry. */
 static int ntfs_index_root_replace_key(ntfs_mount_t *mnt, u8 *record, u32 entry_offset, const u8 *replacement)
 {
     attr_rec_t *root = NULL;
@@ -2511,6 +2525,7 @@ typedef struct ntfs_index_attributes {
         u32         bitmap_offset;
 } ntfs_index_attributes_t;
 
+/* Free a collected index item list. */
 static void ntfs_index_items_free(ntfs_index_item_t *items, u32 count)
 {
     if (!items) return;
@@ -2518,6 +2533,7 @@ static void ntfs_index_items_free(ntfs_index_item_t *items, u32 count)
     free(items);
 }
 
+/* Locate the index root, allocation, and bitmap attributes. */
 static int ntfs_index_attributes_find(ntfs_mount_t *mnt, u8 *record, ntfs_index_attributes_t *attributes)
 {
     u32 used;
@@ -2554,6 +2570,7 @@ static int ntfs_index_attributes_find(ntfs_mount_t *mnt, u8 *record, ntfs_index_
     return attributes->root ? 0 : -EIO;
 }
 
+/* Test one bit of an index bitmap. */
 static int ntfs_index_bitmap_test(ntfs_mount_t *mnt, attr_rec_t *bitmap, u64 bit, int *set)
 {
     u32 length;
@@ -2577,6 +2594,7 @@ static int ntfs_index_bitmap_test(ntfs_mount_t *mnt, attr_rec_t *bitmap, u64 bit
     return 0;
 }
 
+/* Append one index item to the list. */
 static int ntfs_index_item_append(ntfs_index_item_t **items, u32 *count, u32 *capacity, const u8 *entry, int node)
 {
     u16 key_length;
@@ -2616,6 +2634,7 @@ static int ntfs_index_item_append(ntfs_index_item_t **items, u32 *count, u32 *ca
     return 0;
 }
 
+/* Collect one index header entry into the item list. */
 static int ntfs_index_collect_header(ntfs_index_item_t **items, u32 *count, u32 *capacity, u8 *buffer, u32 buffer_size, u32 header_offset)
 {
     u8 *header;
@@ -2709,6 +2728,7 @@ out:
     return status;
 }
 
+/* Set the reparse tag of a directory index entry. */
 static int ntfs_directory_index_set_reparse_tag(ntfs_mount_t *mnt, u8 *record, u64 file_reference, const u16 *name, u8 name_length)
 {
     ntfs_index_attributes_t attributes;
@@ -2782,6 +2802,7 @@ out:
     return status;
 }
 
+/* Compare two index items for sorting. */
 static int ntfs_index_item_compare(ntfs_mount_t *mnt, const ntfs_index_item_t *left, const ntfs_index_item_t *right)
 {
     fname_attr_t *left_name  = (fname_attr_t *)(left->entry + 16);
@@ -2793,6 +2814,7 @@ static int ntfs_index_item_compare(ntfs_mount_t *mnt, const ntfs_index_item_t *l
     return ntfs_utf16_compare(mnt, left_utf16, left_name->name_len, right_utf16, right_name->name_len);
 }
 
+/* Remove an attribute from a record. */
 static int ntfs_record_remove_attribute(u8 *record, u32 record_size, u32 offset)
 {
     u32 used;
@@ -2808,6 +2830,7 @@ static int ntfs_record_remove_attribute(u8 *record, u32 record_size, u32 offset)
     return 0;
 }
 
+/* Collapse a sparse directory index back to resident form. */
 static int ntfs_index_try_collapse(ntfs_mount_t *mnt, u8 *record)
 {
     ntfs_index_attributes_t attributes;
@@ -3580,6 +3603,7 @@ static int ntfs_vfs_mount(const char *src, vfs_node_t node)
     return 0;
 }
 
+/* Unmount and release the NTFS mount. */
 static void ntfs_vfs_unmount(void *root)
 {
     ntfs_handle_t *h = root;
@@ -3610,6 +3634,7 @@ static void ntfs_vfs_open(void *parent, const char *name, vfs_node_t node)
     if (h->is_dir && !h->dir_loaded) ntfs_load_directory(h, node);
 }
 
+/* Release a file handle (no-op). */
 static void ntfs_vfs_close(void *current)
 {
     (void)current;
@@ -4255,6 +4280,7 @@ out:
     return status;
 }
 
+/* Create a hard link inside a transaction. */
 static int ntfs_namespace_hardlink(ntfs_handle_t *parent, ntfs_handle_t *target, const char *name, vfs_node_t node)
 {
     if (!parent || !parent->mnt) return -EINVAL;
@@ -4379,6 +4405,7 @@ out:
     return status;
 }
 
+/* Create a symlink inside a transaction. */
 static int ntfs_namespace_symlink(ntfs_handle_t *parent, const char *name, const char *target, vfs_node_t node)
 {
 #if NTFS_HOST_TEST
@@ -4408,16 +4435,19 @@ static int ntfs_namespace_symlink(ntfs_handle_t *parent, const char *name, const
 #endif
 }
 
+/* Create a directory inside a transaction. */
 static int ntfs_vfs_mkdir(void *p, const char *n, vfs_node_t nd)
 {
     return ntfs_namespace_create(p, n, nd, 1);
 }
 
+/* Create a file inside a transaction. */
 static int ntfs_vfs_mkfile(void *p, const char *n, vfs_node_t nd)
 {
     return ntfs_namespace_create(p, n, nd, 0);
 }
 
+/* Create a hard link through the VFS. */
 static int ntfs_vfs_link(void *p, const char *target_name, vfs_node_t node)
 {
     vfs_node_t target;
@@ -4434,6 +4464,7 @@ static int ntfs_vfs_link(void *p, const char *target_name, vfs_node_t node)
     return status;
 }
 
+/* Create a symlink through the VFS. */
 static int ntfs_vfs_symlink(void *p, const char *target_name, vfs_node_t node)
 {
     if (!node || !node->name) return -EINVAL;
@@ -4465,6 +4496,8 @@ static int ntfs_vfs_stat(void *file, vfs_node_t nd)
     nd->blksz = h->mnt->cluster_size;
     return 0;
 }
+
+/* Reject ioctl requests (ntfs supports none). */
 static int ntfs_vfs_ioctl(void *f, size_t r, void *a)
 {
     (void)f;
@@ -4812,7 +4845,7 @@ int ntfs_vfs_regist(void)
         plogk("ntfs: Failed to register filesystem.\n");
         return -EINVAL;
     }
-    plogk("ntfs: Filesystem registered (id=%d)\n", id);
+    plogk("ntfs: Filesystem registered (fsid=%d)\n", id);
     return 0;
 }
 #else

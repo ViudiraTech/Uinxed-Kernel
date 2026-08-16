@@ -42,6 +42,7 @@ static inline int kref_get_unless_zero(kref_t *kref)
     return 0;
 }
 
+/* Take an additional reference */
 static inline void kref_get(kref_t *kref)
 {
     (void)kref_get_unless_zero(kref);

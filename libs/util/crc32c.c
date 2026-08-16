@@ -17,16 +17,20 @@
  * polynomial as this software loop).  It touches no XMM state, so it can
  * be used without a kernel_fpu_begin()/end() section.
  */
+
+/* Hardware CRC32C of a single byte. */
 __attribute__((target("crc32"))) static inline uint32_t crc32c_hw_byte(uint32_t crc, uint8_t value)
 {
     return __builtin_ia32_crc32qi(crc, value);
 }
 
+/* Hardware CRC32C of a 32-bit word. */
 __attribute__((target("crc32"))) static inline uint32_t crc32c_hw_dword(uint32_t crc, uint32_t value)
 {
     return __builtin_ia32_crc32si(crc, value);
 }
 
+/* Hardware CRC32C of a 64-bit word. */
 __attribute__((target("crc32"))) static inline uint32_t crc32c_hw_qword(uint32_t crc, uint64_t value)
 {
     return __builtin_ia32_crc32di(crc, value);

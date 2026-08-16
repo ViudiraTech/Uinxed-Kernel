@@ -13,6 +13,7 @@
 #include <libs/std/stdint.h>
 #include <mem/buddy.h>
 
+/* Number of pages covered by a block of the given order. */
 static size_t order_units(unsigned order)
 {
     return (size_t)1 << order;

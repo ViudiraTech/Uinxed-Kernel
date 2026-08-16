@@ -21,6 +21,9 @@
 #define AUDIO_MAX_CARDS 4
 #define AUDIO_NAME_MAX  32
 
+/* Linux ALSA character-device major. */
+#define SND_DEV_MAJOR 116
+
 /* ALSA-compatible ioctl numbers */
 #define SNDRV_PCM_IOCTL_PVERSION      0x80044100
 #define SNDRV_PCM_IOCTL_INFO          0x80044101
@@ -261,33 +264,73 @@ audio_card_t *audio_get_card(uint32_t card);
 size_t audio_card_count(void);
 
 /* Enumerate the /dev/snd/xxx device nodes. */
-size_t               audio_device_node_count(void);
+
+/* Return the number of device nodes. */
+size_t audio_device_node_count(void);
+
+/* Return the device node at an index. */
 audio_device_node_t *audio_get_device_node(size_t index);
 
 /* Per-open instance callbacks */
-int     audio_file_open(vfs_node_t node, uint64_t flags, void **private_data);
-void    audio_file_release(vfs_node_t node, void *private_data);
+
+/* Open a device node and create the PCM file state. */
+int audio_file_open(vfs_node_t node, uint64_t flags, void **private_data);
+
+/* Release a PCM file state. */
+void audio_file_release(vfs_node_t node, void *private_data);
+
+/* Read from a PCM file. */
 int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+
+/* Write to a PCM file. */
 int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
-int     audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
-int     audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
+
+/* Poll a PCM file for ready events. */
+int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
+
+/* Handle an ioctl on a PCM file. */
+int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
 
 /* Legacy device callbacks */
+
+/* Read device-node data. */
 size_t audio_device_read(void *ctx, void *addr, size_t offset, size_t size);
+
+/* Write device-node data. */
 size_t audio_device_write(void *ctx, const void *addr, size_t offset, size_t size);
-int    audio_device_poll(void *ctx, size_t events);
-int    audio_device_ioctl(void *ctx, size_t req, void *arg);
+
+/* Poll a device node. */
+int audio_device_poll(void *ctx, size_t events);
+
+/* Handle an ioctl on a device node. */
+int audio_device_ioctl(void *ctx, size_t req, void *arg);
 
 /* PCM ring buffer helpers */
-int               pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames);
-void              pcm_ring_buffer_destroy(audio_pcm_file_t *pf);
-size_t            pcm_ring_buffer_write_frames(audio_pcm_file_t *pf, const void *data, size_t frames);
-size_t            pcm_ring_buffer_read_frames(audio_pcm_file_t *pf, void *data, size_t frames);
+
+/* Allocate and initialize a ring buffer. */
+int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames);
+
+/* Free a ring buffer. */
+void pcm_ring_buffer_destroy(audio_pcm_file_t *pf);
+
+/* Write frames into the ring. */
+size_t pcm_ring_buffer_write_frames(audio_pcm_file_t *pf, const void *data, size_t frames);
+
+/* Read frames out of the ring. */
+size_t pcm_ring_buffer_read_frames(audio_pcm_file_t *pf, void *data, size_t frames);
+
+/* Number of frames available for the application. */
 snd_pcm_sframes_t pcm_ring_buffer_avail(audio_pcm_file_t *pf);
+
+/* Free frame capacity left in the ring. */
 snd_pcm_sframes_t pcm_ring_buffer_space(audio_pcm_file_t *pf);
-void              pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_uframes_t frames);
+
+/* Advance the hardware pointer. */
+void pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_uframes_t frames);
 
 /* Mixer helpers */
+
+/* Add src into dst with s16 clamping. */
 size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames, unsigned int channels);
 
 #endif // INCLUDE_AUDIO_H_

@@ -35,6 +35,7 @@ int wait_ps2_write(void)
     return -ETIMEDOUT;
 }
 
+/* Read the controller status register. */
 uint8_t ps2_read_status(void)
 {
     return inb(PS2_STATUS_PORT);
@@ -49,6 +50,7 @@ int ps2_read_data_timeout(uint8_t *data)
     return EOK;
 }
 
+/* Read one byte from the PS/2 data port. */
 uint8_t ps2_read_data(void)
 {
     uint8_t data = 0;
@@ -56,22 +58,26 @@ uint8_t ps2_read_data(void)
     return data;
 }
 
+/* Write one byte to the PS/2 data port. */
 void ps2_write_data(uint8_t data)
 {
     if (wait_ps2_write() == EOK) outb(PS2_DATA_PORT, data);
 }
 
+/* Issue a command byte to the i8042 controller. */
 void ps2_write_cmd(uint8_t cmd)
 {
     if (wait_ps2_write() == EOK) outb(PS2_STATUS_PORT, cmd);
 }
 
+/* Read the controller configuration byte. */
 uint8_t ps2_read_config(void)
 {
     ps2_write_cmd(PS2_CMD_READ_CONFIG);
     return ps2_read_data();
 }
 
+/* Write the controller configuration byte. */
 void ps2_write_config(uint8_t config)
 {
     ps2_write_cmd(PS2_CMD_WRITE_CONFIG);
@@ -108,11 +114,13 @@ int ps2_send_device_command(bool second_port, uint8_t command)
     return -EIO;
 }
 
+/* Send raw data to the selected PS/2 port. */
 int ps2_send_device_data(bool second_port, uint8_t data)
 {
     return ps2_send_device_command(second_port, data);
 }
 
+/* Return whether the given PS/2 port exists and is usable. */
 bool ps2_port_available(bool second_port)
 {
     return second_port ? ps2_port2_ok : ps2_port1_ok;
@@ -126,7 +134,7 @@ INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
 
     (void)frame;
     status = ps2_read_status();
-    if (status & (0x40 | 0x80)) plogk("ps/2: %s receive error (status=0x%02x)\n", (status & PS2_STATUS_AUX_DATA) ? "mouse" : "keyboard", status);
+    if (status & (0x40 | 0x80)) plogk("ps2: %s receive error (status=0x%02x)\n", (status & PS2_STATUS_AUX_DATA) ? "mouse" : "keyboard", status);
     if (status & PS2_STATUS_OUTPUT_FULL) {
         data = inb(PS2_DATA_PORT);
         if (status & PS2_STATUS_AUX_DATA)
@@ -160,7 +168,7 @@ void init_ps2(void)
 
     ps2_write_cmd(PS2_CMD_SELF_TEST);
     if (ps2_read_data_timeout(&result) != EOK || result != PS2_RESPONSE_SELFTEST) {
-        plogk("ps/2: Controller self-test failed.\n");
+        plogk("ps2: Controller self-test failed.\n");
         return;
     }
 
@@ -203,5 +211,5 @@ void init_ps2(void)
         ps2_mouse_init();
         register_interrupt_handler(IRQ_12, (void *)ps2_irq, 0, 0x8e);
     }
-    plogk("ps/2: Keyboard=%s mouse-port=%s\n", ps2_port1_ok ? "ready" : "unavailable", ps2_port2_ok ? "ready" : "unavailable");
+    plogk("ps2: Keyboard=%s mouse-port=%s\n", ps2_port1_ok ? "ready" : "unavailable", ps2_port2_ok ? "ready" : "unavailable");
 }

@@ -68,6 +68,7 @@ int ps2_mouse_decode_packet(enum ps2_mouse_protocol protocol, const uint8_t *raw
     return EOK;
 }
 
+/* Reset a streaming packet assembler. */
 void ps2_mouse_stream_init(struct ps2_mouse_stream *stream, enum ps2_mouse_protocol protocol)
 {
     if (!stream) return;

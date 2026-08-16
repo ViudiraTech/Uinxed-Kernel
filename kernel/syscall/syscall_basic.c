@@ -11,6 +11,7 @@
 #include <arch/smp.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
+#include <ipc/pipe.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
@@ -29,33 +30,6 @@
 #include <syscall/syscall.h>
 #include <syscall/syscall_basic.h>
 
-/* Helper: extract basename from a path */
-static const char *path_basename_local(const char *path)
-{
-    if (!path || !*path) return "";
-    const char *last = path;
-    for (const char *p = path; *p; p++)
-        if (*p == '/') last = p + 1;
-    return last;
-}
-
-static vfs_node_t open_parent_local(char *path)
-{
-    char *slash = strrchr(path, '/');
-    if (!slash || slash == path) return vfs_open("/");
-    *slash = '\0';
-    return vfs_open(path);
-}
-
-/* Helper: copy a path string from user space */
-static int copy_path_from_user_fwd(uint64_t upath, char *path, size_t sz)
-{
-    if (!upath) return -EFAULT;
-    int ret = strncpy_from_user(path, (const char *)upath, sz);
-    return ret < 0 ? ret : 0;
-}
-
-/* struct timespec64 (used by multiple syscalls) */
 /* getitimer / setitimer / alarm */
 
 typedef struct linux_itimerval {
@@ -65,6 +39,7 @@ typedef struct linux_itimerval {
         int64_t it_value_usec;
 } linux_itimerval_t;
 
+/* Convert seconds+microseconds to timer ticks */
 static int itimer_time_to_ticks(int64_t sec, int64_t usec, uint64_t *ticks)
 {
     if (!ticks || sec < 0 || usec < 0 || usec >= 1000000) return -EINVAL;
@@ -74,6 +49,7 @@ static int itimer_time_to_ticks(int64_t sec, int64_t usec, uint64_t *ticks)
     return 0;
 }
 
+/* Convert ticks back to an itimerval */
 static linux_itimerval_t itimer_ticks_to_value(uint64_t remaining, uint64_t interval)
 {
     linux_itimerval_t value = {
@@ -85,6 +61,7 @@ static linux_itimerval_t itimer_ticks_to_value(uint64_t remaining, uint64_t inte
     return value;
 }
 
+/* getitimer syscall: read an interval timer */
 int64_t sys_getitimer_impl(uint64_t which, uint64_t curr_value, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -101,6 +78,7 @@ int64_t sys_getitimer_impl(uint64_t which, uint64_t curr_value, uint64_t arg2, u
     return copy_to_user((void *)curr_value, &tv, sizeof(tv)) ? -EFAULT : 0;
 }
 
+/* setitimer syscall: arm or disarm an interval timer */
 int64_t sys_setitimer_impl(uint64_t which, uint64_t new_value, uint64_t old_value, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -110,7 +88,7 @@ int64_t sys_setitimer_impl(uint64_t which, uint64_t new_value, uint64_t old_valu
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /* Linux treats a NULL new_value as a zero value (disarm). */
+    /* A NULL new_value disarms the timer. */
     linux_itimerval_t requested = {0};
     if (new_value && copy_from_user(&requested, (const void *)new_value, sizeof(requested))) return -EFAULT;
     uint64_t value_ticks = 0, interval_ticks = 0;
@@ -128,6 +106,7 @@ int64_t sys_setitimer_impl(uint64_t which, uint64_t new_value, uint64_t old_valu
     return 0;
 }
 
+/* alarm syscall: schedule a SIGALRM after N seconds */
 int64_t sys_alarm_impl(uint64_t seconds, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -147,6 +126,7 @@ int64_t sys_alarm_impl(uint64_t seconds, uint64_t arg1, uint64_t arg2, uint64_t 
 
 /* getgroups / setgroups */
 
+/* getgroups syscall: read supplementary groups */
 int64_t sys_getgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -163,6 +143,7 @@ int64_t sys_getgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
     return count;
 }
 
+/* setgroups syscall: set supplementary groups */
 int64_t sys_setgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -195,6 +176,7 @@ typedef struct linux_cap_data {
         uint32_t inheritable;
 } linux_cap_data_t;
 
+/* capget syscall: read process capabilities */
 int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -216,6 +198,7 @@ int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t 
     return 0;
 }
 
+/* capset syscall: set process capabilities */
 int64_t sys_capset_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -234,6 +217,7 @@ int64_t sys_capset_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t 
 
 /* flock */
 
+/* flock syscall: validate the fd (no mandatory locks) */
 int64_t sys_flock_impl(uint64_t fd, uint64_t operation, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -264,12 +248,14 @@ typedef struct linux_utimeval {
         int64_t tv_usec;
 } linux_utimeval_t;
 
+/* Current realtime in whole seconds */
 static int64_t utime_now_seconds(void)
 {
     int64_t nanoseconds = timer_realtime_ns();
     return nanoseconds / (int64_t)TIMER_NSEC_PER_SEC;
 }
 
+/* Set file times by dirfd and path */
 static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_timespec64_t requested[2], uint64_t flags)
 {
     if (!proc) return -ESRCH;
@@ -293,7 +279,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
             *seconds[i] = requested[i].tv_sec;
             time_flags |= VFS_SET_TIME_EXPLICIT;
         }
-        /* Linux does not even resolve the path when both fields are omitted. */
+        /* When both fields are omitted, do not resolve the path. */
         if (!(time_flags & (VFS_SET_TIME_ATIME | VFS_SET_TIME_MTIME))) return EOK;
     }
     if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) return -EINVAL;
@@ -310,7 +296,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
         node = file->node;
     } else {
         char input[SYSCALL_PATH_MAX];
-        ret = copy_path_from_user_fwd(upath, input, sizeof(input));
+        ret = copy_path_from_user(upath, input);
         if (ret != EOK) return ret;
 
         if (!input[0]) {
@@ -344,6 +330,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
     return ret;
 }
 
+/* utime syscall: set file access and modification times */
 int64_t sys_utime_impl(uint64_t filename, uint64_t times, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -365,6 +352,7 @@ int64_t sys_utime_impl(uint64_t filename, uint64_t times, uint64_t arg2, uint64_
     return set_times_at(proc, PROCESS_AT_FDCWD, filename, times ? requested : NULL, 0);
 }
 
+/* utimes syscall: set file timestamps with microsecond resolution */
 int64_t sys_utimes_impl(uint64_t filename, uint64_t times, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -389,6 +377,7 @@ int64_t sys_utimes_impl(uint64_t filename, uint64_t times, uint64_t arg2, uint64
 
 /* getpriority / setpriority */
 
+/* getpriority syscall: return the default nice value */
 int64_t sys_getpriority_impl(uint64_t which, uint64_t who, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)who;
@@ -400,6 +389,7 @@ int64_t sys_getpriority_impl(uint64_t which, uint64_t who, uint64_t arg2, uint64
     return 20; // default nice value: 0 -> return 20
 }
 
+/* setpriority syscall: validate the nice value */
 int64_t sys_setpriority_impl(uint64_t which, uint64_t who, uint64_t niceval, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)who;
@@ -416,6 +406,7 @@ int64_t sys_setpriority_impl(uint64_t which, uint64_t who, uint64_t niceval, uin
 
 /* sched_* family */
 
+/* sched_setparam syscall */
 int64_t sys_sched_setparam_impl(uint64_t pid, uint64_t param, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -429,6 +420,7 @@ int64_t sys_sched_setparam_impl(uint64_t pid, uint64_t param, uint64_t arg2, uin
     return 0;
 }
 
+/* sched_getparam syscall */
 int64_t sys_sched_getparam_impl(uint64_t pid, uint64_t param, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -445,6 +437,7 @@ int64_t sys_sched_getparam_impl(uint64_t pid, uint64_t param, uint64_t arg2, uin
     return copy_to_user((void *)param, &p, sizeof(p)) ? -EFAULT : 0;
 }
 
+/* sched_setscheduler syscall */
 int64_t sys_sched_setscheduler_impl(uint64_t pid, uint64_t policy, uint64_t param, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -459,6 +452,7 @@ int64_t sys_sched_setscheduler_impl(uint64_t pid, uint64_t policy, uint64_t para
     return 0;
 }
 
+/* sched_getscheduler syscall */
 int64_t sys_sched_getscheduler_impl(uint64_t pid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -470,6 +464,7 @@ int64_t sys_sched_getscheduler_impl(uint64_t pid, uint64_t arg1, uint64_t arg2, 
     return 0; // SCHED_NORMAL
 }
 
+/* sched_get_priority_max syscall */
 int64_t sys_sched_get_priority_max_impl(uint64_t policy, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -482,6 +477,7 @@ int64_t sys_sched_get_priority_max_impl(uint64_t policy, uint64_t arg1, uint64_t
     return -EINVAL;
 }
 
+/* sched_get_priority_min syscall */
 int64_t sys_sched_get_priority_min_impl(uint64_t policy, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -494,6 +490,7 @@ int64_t sys_sched_get_priority_min_impl(uint64_t policy, uint64_t arg1, uint64_t
     return -EINVAL;
 }
 
+/* sched_rr_get_interval syscall */
 int64_t sys_sched_rr_get_interval_impl(uint64_t pid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -508,6 +505,7 @@ int64_t sys_sched_rr_get_interval_impl(uint64_t pid, uint64_t tp, uint64_t arg2,
 
 /* sched_setaffinity / sched_getaffinity */
 
+/* sched_setaffinity syscall */
 int64_t sys_sched_setaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -521,6 +519,7 @@ int64_t sys_sched_setaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t m
     return 0;
 }
 
+/* sched_getaffinity syscall */
 int64_t sys_sched_getaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -540,6 +539,7 @@ int64_t sys_sched_getaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t m
 
 /* sched_setattr / sched_getattr */
 
+/* sched_setattr syscall */
 int64_t sys_sched_setattr_impl(uint64_t pid, uint64_t attr, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -553,6 +553,7 @@ int64_t sys_sched_setattr_impl(uint64_t pid, uint64_t attr, uint64_t flags, uint
     return 0;
 }
 
+/* sched_getattr syscall */
 int64_t sys_sched_getattr_impl(uint64_t pid, uint64_t attr, uint64_t size, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)pid;
@@ -566,6 +567,7 @@ int64_t sys_sched_getattr_impl(uint64_t pid, uint64_t attr, uint64_t size, uint6
 
 /* sethostname / setdomainname */
 
+/* sethostname syscall */
 int64_t sys_sethostname_impl(uint64_t name, uint64_t len, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)name;
@@ -579,6 +581,7 @@ int64_t sys_sethostname_impl(uint64_t name, uint64_t len, uint64_t arg2, uint64_
     return 0;
 }
 
+/* setdomainname syscall */
 int64_t sys_setdomainname_impl(uint64_t name, uint64_t len, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)name;
@@ -594,6 +597,7 @@ int64_t sys_setdomainname_impl(uint64_t name, uint64_t len, uint64_t arg2, uint6
 
 /* set_robust_list / get_robust_list */
 
+/* set_robust_list syscall */
 int64_t sys_set_robust_list_impl(uint64_t head, uint64_t len, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -606,6 +610,7 @@ int64_t sys_set_robust_list_impl(uint64_t head, uint64_t len, uint64_t arg2, uin
     return 0;
 }
 
+/* get_robust_list syscall */
 int64_t sys_get_robust_list_impl(uint64_t pid, uint64_t head_ptr, uint64_t len_ptr, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -636,6 +641,7 @@ int64_t sys_get_robust_list_impl(uint64_t pid, uint64_t head_ptr, uint64_t len_p
 
 /* fchownat / futimesat / fchmodat */
 
+/* fchownat syscall: change ownership by dirfd+path */
 int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_t group, uint64_t flags, uint64_t arg5)
 {
     (void)arg5;
@@ -653,7 +659,7 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
         node = file->node;
     } else {
         char input[SYSCALL_PATH_MAX];
-        ret = copy_path_from_user_fwd(path, input, sizeof(input));
+        ret = copy_path_from_user(path, input);
         if (ret != EOK) return ret;
 
         if (!input[0]) {
@@ -687,6 +693,7 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
     return ret;
 }
 
+/* futimesat syscall: set timestamps by dirfd+path */
 int64_t sys_futimesat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -708,7 +715,7 @@ int64_t sys_futimesat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64
     return set_times_at(proc, (int)dirfd, path, times ? requested : NULL, 0);
 }
 
-/* Linux's legacy fchmodat syscall has three arguments; flags belong to fchmodat2. */
+/* Legacy fchmodat takes three arguments; flags belong to fchmodat2. */
 int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -718,7 +725,7 @@ int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t
     if (!proc) return -ESRCH;
 
     char input[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user_fwd(path, input, sizeof(input));
+    int  ret = copy_path_from_user(path, input);
     if (ret != 0) return ret;
     if (!input[0]) return -ENOENT;
 
@@ -743,6 +750,7 @@ typedef struct linux_tms {
         int64_t tms_cstime;
 } linux_tms_t;
 
+/* times syscall: return process CPU time */
 int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -761,16 +769,19 @@ int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3
 
 #define CREDENTIAL_ID_UNCHANGED UINT32_MAX
 
+/* Check whether a UID transition is permitted */
 static bool credential_uid_allowed(const process_t *proc, uint32_t uid)
 {
     return uid == CREDENTIAL_ID_UNCHANGED || proc->uid == 0 || uid == proc->uid || uid == proc->fsuid;
 }
 
+/* Check whether a GID transition is permitted */
 static bool credential_gid_allowed(const process_t *proc, uint32_t gid)
 {
     return gid == CREDENTIAL_ID_UNCHANGED || proc->uid == 0 || gid == proc->gid || gid == proc->fsgid;
 }
 
+/* setuid syscall */
 int64_t sys_setuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -788,6 +799,7 @@ int64_t sys_setuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg
     return 0;
 }
 
+/* setgid syscall */
 int64_t sys_setgid_impl(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -805,6 +817,7 @@ int64_t sys_setgid_impl(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t arg
     return 0;
 }
 
+/* setreuid syscall */
 int64_t sys_setreuid_impl(uint64_t ruid, uint64_t euid, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -815,10 +828,6 @@ int64_t sys_setreuid_impl(uint64_t ruid, uint64_t euid, uint64_t arg2, uint64_t 
     if (!proc) return -ESRCH;
     uint32_t real = (uint32_t)ruid, effective = (uint32_t)euid;
     if (!credential_uid_allowed(proc, real) || !credential_uid_allowed(proc, effective)) return -EPERM;
-    /*
-     * The current process model has one real/effective UID.  Preserve it
-     * when Linux's -1 sentinel says the effective UID is unchanged.
-     */
     if (effective != CREDENTIAL_ID_UNCHANGED) {
         proc->uid   = effective;
         proc->fsuid = effective;
@@ -826,6 +835,7 @@ int64_t sys_setreuid_impl(uint64_t ruid, uint64_t euid, uint64_t arg2, uint64_t 
     return 0;
 }
 
+/* setregid syscall */
 int64_t sys_setregid_impl(uint64_t rgid, uint64_t egid, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -843,6 +853,7 @@ int64_t sys_setregid_impl(uint64_t rgid, uint64_t egid, uint64_t arg2, uint64_t 
     return 0;
 }
 
+/* setresuid syscall */
 int64_t sys_setresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -859,6 +870,7 @@ int64_t sys_setresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t
     return 0;
 }
 
+/* setresgid syscall */
 int64_t sys_setresgid_impl(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -875,6 +887,7 @@ int64_t sys_setresgid_impl(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t
     return 0;
 }
 
+/* setfsuid syscall */
 int64_t sys_setfsuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -889,6 +902,7 @@ int64_t sys_setfsuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t a
     return old;
 }
 
+/* setfsgid syscall */
 int64_t sys_setfsgid_impl(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -903,6 +917,7 @@ int64_t sys_setfsgid_impl(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t a
     return old;
 }
 
+/* getresuid syscall */
 int64_t sys_getresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -917,6 +932,7 @@ int64_t sys_getresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t
     return 0;
 }
 
+/* getresgid syscall */
 int64_t sys_getresgid_impl(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -933,6 +949,7 @@ int64_t sys_getresgid_impl(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t
 
 /* umask */
 
+/* umask syscall */
 int64_t sys_umask_impl(uint64_t mask, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -949,6 +966,7 @@ int64_t sys_umask_impl(uint64_t mask, uint64_t arg1, uint64_t arg2, uint64_t arg
 
 /* chdir / fchdir */
 
+/* chdir syscall */
 int64_t sys_chdir_impl(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -960,7 +978,7 @@ int64_t sys_chdir_impl(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user_fwd(path, name, sizeof(name));
+    int  ret = copy_path_from_user(path, name);
     if (ret) return ret;
     char resolved[SYSCALL_PATH_MAX];
     ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, name, resolved, sizeof(resolved));
@@ -977,6 +995,7 @@ int64_t sys_chdir_impl(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg
     return 0;
 }
 
+/* fchdir syscall */
 int64_t sys_fchdir_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -1009,6 +1028,7 @@ int64_t sys_fchdir_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3
 
 /* truncate / ftruncate */
 
+/* truncate syscall */
 int64_t sys_truncate_impl(uint64_t path, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1019,7 +1039,7 @@ int64_t sys_truncate_impl(uint64_t path, uint64_t length, uint64_t arg2, uint64_
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user_fwd(path, name, sizeof(name));
+    int  ret = copy_path_from_user(path, name);
     if (ret) return ret;
     char resolved[SYSCALL_PATH_MAX];
     ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, name, resolved, sizeof(resolved));
@@ -1031,6 +1051,7 @@ int64_t sys_truncate_impl(uint64_t path, uint64_t length, uint64_t arg2, uint64_
     return ret;
 }
 
+/* ftruncate syscall */
 int64_t sys_ftruncate_impl(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1060,6 +1081,7 @@ int64_t sys_ftruncate_impl(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t
 
 /* sync */
 
+/* sync syscall: flush all filesystems */
 int64_t sys_sync_impl(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg0;
@@ -1074,6 +1096,7 @@ int64_t sys_sync_impl(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3
 
 /* listxattr / llistxattr / flistxattr */
 
+/* listxattr syscall: no extended attributes */
 int64_t sys_listxattr_impl(uint64_t path, uint64_t list, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)path;
@@ -1087,6 +1110,7 @@ int64_t sys_listxattr_impl(uint64_t path, uint64_t list, uint64_t size, uint64_t
 
 /* setxattr / getxattr / removexattr (and l-variants and f-variants) */
 
+/* setxattr syscall: unsupported */
 int64_t sys_setxattr_impl(uint64_t path, uint64_t name, uint64_t value, uint64_t size, uint64_t flags, uint64_t arg5)
 {
     (void)path;
@@ -1098,6 +1122,7 @@ int64_t sys_setxattr_impl(uint64_t path, uint64_t name, uint64_t value, uint64_t
     return -EOPNOTSUPP;
 }
 
+/* getxattr syscall: no extended attributes */
 int64_t sys_getxattr_impl(uint64_t path, uint64_t name, uint64_t value, uint64_t size, uint64_t arg4, uint64_t arg5)
 {
     (void)path;
@@ -1109,6 +1134,7 @@ int64_t sys_getxattr_impl(uint64_t path, uint64_t name, uint64_t value, uint64_t
     return -ENODATA; // no xattrs -> name not found
 }
 
+/* removexattr syscall: no extended attributes */
 int64_t sys_removexattr_impl(uint64_t path, uint64_t name, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)path;
@@ -1122,6 +1148,7 @@ int64_t sys_removexattr_impl(uint64_t path, uint64_t name, uint64_t arg2, uint64
 
 /* tkill */
 
+/* tkill syscall: send a signal to a thread */
 int64_t sys_tkill_real(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1138,6 +1165,7 @@ int64_t sys_tkill_real(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_t arg3,
 
 /* pread64 / pwrite64 */
 
+/* pread64 syscall */
 int64_t sys_pread64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint64_t offset, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1149,6 +1177,7 @@ int64_t sys_pread64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint64_t off
     return process_fd_pread_user(proc, (int)fd, (void *)buf, (size_t)count, offset);
 }
 
+/* pwrite64 syscall */
 int64_t sys_pwrite64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint64_t offset, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1162,6 +1191,7 @@ int64_t sys_pwrite64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint64_t of
 
 /* getcpu */
 
+/* getcpu syscall */
 int64_t sys_getcpu_impl(uint64_t cpu, uint64_t node, uint64_t tcache, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)tcache;
@@ -1178,6 +1208,7 @@ int64_t sys_getcpu_impl(uint64_t cpu, uint64_t node, uint64_t tcache, uint64_t a
 
 /* getrandom */
 
+/* getrandom syscall */
 int64_t sys_getrandom_impl(uint64_t buf, uint64_t buflen, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -1216,6 +1247,7 @@ int64_t sys_getrandom_impl(uint64_t buf, uint64_t buflen, uint64_t flags, uint64
 
 /* renameat2 */
 
+/* renameat2 syscall */
 int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd, uint64_t newpath, uint64_t flags, uint64_t arg5)
 {
     (void)arg5;
@@ -1228,9 +1260,9 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
     if (!proc) return -ESRCH;
 
     char old_name[SYSCALL_PATH_MAX], new_name[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user_fwd(oldpath, old_name, sizeof(old_name));
+    int  ret = copy_path_from_user(oldpath, old_name);
     if (ret) return ret;
-    ret = copy_path_from_user_fwd(newpath, new_name, sizeof(new_name));
+    ret = copy_path_from_user(newpath, new_name);
     if (ret) return ret;
 
     char old_resolved[SYSCALL_PATH_MAX], new_resolved[SYSCALL_PATH_MAX];
@@ -1247,12 +1279,12 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
     char old_parent_path[SYSCALL_PATH_MAX], new_parent_path[SYSCALL_PATH_MAX];
     memcpy(old_parent_path, old_resolved, sizeof(old_parent_path));
     memcpy(new_parent_path, new_resolved, sizeof(new_parent_path));
-    vfs_node_t old_dir = open_parent_local(old_parent_path);
-    vfs_node_t new_dir = open_parent_local(new_parent_path);
+    vfs_node_t old_dir = vfs_open_parent_of(old_parent_path);
+    vfs_node_t new_dir = vfs_open_parent_of(new_parent_path);
     if (!old_dir || !new_dir)
         ret = -ENOENT;
     else
-        ret = vfs_rename(node, new_dir, path_basename_local(new_resolved), (flags & RENAME_NOREPLACE) ? VFS_RENAME_NOREPLACE : 0);
+        ret = vfs_rename(node, new_dir, path_basename(new_resolved), (flags & RENAME_NOREPLACE) ? VFS_RENAME_NOREPLACE : 0);
     if (old_dir) vfs_close(old_dir);
     if (new_dir) vfs_close(new_dir);
     vfs_close(node);
@@ -1261,6 +1293,7 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
 
 /* clock_gettime / clock_getres */
 
+/* clock_gettime syscall */
 int64_t sys_clock_gettime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1293,6 +1326,7 @@ int64_t sys_clock_gettime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uin
     return copy_to_user((void *)tp, &ts, sizeof(ts)) ? -EFAULT : 0;
 }
 
+/* clock_getres syscall */
 int64_t sys_clock_getres_impl(uint64_t clockid, uint64_t res, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1320,6 +1354,7 @@ int64_t sys_clock_getres_impl(uint64_t clockid, uint64_t res, uint64_t arg2, uin
 
 /* utimensat */
 
+/* utimensat syscall */
 int64_t sys_utimensat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1334,6 +1369,7 @@ int64_t sys_utimensat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64
 
 /* fallocate */
 
+/* fallocate syscall */
 int64_t sys_fallocate_impl(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t len, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1371,6 +1407,7 @@ int64_t sys_fallocate_impl(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t
 
 /* sync_file_range */
 
+/* sync_file_range syscall */
 int64_t sys_sync_file_range_impl(uint64_t fd, uint64_t offset, uint64_t nbytes, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)offset;
@@ -1388,6 +1425,7 @@ int64_t sys_sync_file_range_impl(uint64_t fd, uint64_t offset, uint64_t nbytes, 
 
 /* set_tid_address */
 
+/* set_tid_address syscall */
 int64_t sys_set_tid_address_impl(uint64_t tidptr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -1402,21 +1440,26 @@ int64_t sys_set_tid_address_impl(uint64_t tidptr, uint64_t arg1, uint64_t arg2, 
 
 /* mknodat */
 
+/* mknodat syscall */
 int64_t sys_mknodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t dev, uint64_t arg4, uint64_t arg5)
 {
-    (void)dirfd;
-    (void)path;
-    (void)mode;
-    (void)dev;
     (void)arg4;
     (void)arg5;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
-    return 0;
+    if (!proc) return -ESRCH;
+
+    char input[SYSCALL_PATH_MAX];
+    int  ret = copy_path_from_user(path, input);
+    if (ret != EOK) return ret;
+    char resolved[SYSCALL_PATH_MAX];
+    ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
+    if (ret != EOK) return ret;
+    return mknod_create_node(resolved, mode, dev);
 }
 
 /* sendfile */
 
+/* sendfile syscall: copy data between file descriptors */
 int64_t sys_sendfile_impl(uint64_t out_fd, uint64_t in_fd, uint64_t offset, uint64_t count, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1487,6 +1530,7 @@ typedef struct sys_iovec {
         size_t iov_len;
 } sys_iovec_t;
 
+/* preadv syscall */
 int64_t sys_preadv_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t offset, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1533,6 +1577,7 @@ int64_t sys_preadv_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t off
     return (int64_t)total;
 }
 
+/* pwritev syscall */
 int64_t sys_pwritev_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t offset, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1581,6 +1626,7 @@ int64_t sys_pwritev_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t of
 
 /* preadv2 / pwritev2 */
 
+/* preadv2 syscall */
 int64_t sys_preadv2_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t offset, uint64_t flags, uint64_t arg5)
 {
     (void)arg5;
@@ -1588,6 +1634,7 @@ int64_t sys_preadv2_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t of
     return sys_preadv_impl(fd, iov, iovcnt, offset, 0, 0);
 }
 
+/* pwritev2 syscall */
 int64_t sys_pwritev2_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t offset, uint64_t flags, uint64_t arg5)
 {
     (void)arg5;
@@ -1597,6 +1644,7 @@ int64_t sys_pwritev2_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t o
 
 /* pkey_alloc / pkey_free */
 
+/* pkey_alloc syscall: unsupported */
 int64_t sys_pkey_alloc_impl(uint64_t flags, uint64_t access_rights, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)flags;
@@ -1608,6 +1656,7 @@ int64_t sys_pkey_alloc_impl(uint64_t flags, uint64_t access_rights, uint64_t arg
     return -ENOSYS; // no PKU on this x86 config
 }
 
+/* pkey_free syscall: unsupported */
 int64_t sys_pkey_free_impl(uint64_t pkey, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)pkey;
@@ -1621,6 +1670,7 @@ int64_t sys_pkey_free_impl(uint64_t pkey, uint64_t arg1, uint64_t arg2, uint64_t
 
 /* io_pgetevents */
 
+/* io_pgetevents syscall: unsupported */
 int64_t sys_io_pgetevents_impl(uint64_t ctx_id, uint64_t min_nr, uint64_t nr, uint64_t events, uint64_t timeout, uint64_t sigmask)
 {
     (void)ctx_id;
@@ -1629,11 +1679,12 @@ int64_t sys_io_pgetevents_impl(uint64_t ctx_id, uint64_t min_nr, uint64_t nr, ui
     (void)events;
     (void)timeout;
     (void)sigmask;
-    return -ENOSYS; // AIO not supported
+    return -ENOSYS;
 }
 
 /* pidfd_send_signal */
 
+/* pidfd_send_signal syscall */
 int64_t sys_pidfd_send_signal_impl(uint64_t pidfd, uint64_t sig, uint64_t info, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)info;
@@ -1666,6 +1717,7 @@ int64_t sys_pidfd_send_signal_impl(uint64_t pidfd, uint64_t sig, uint64_t info, 
 
 /* process_vm_readv / process_vm_writev */
 
+/* process_vm_readv syscall: unsupported */
 int64_t sys_process_vm_readv_impl(uint64_t pid, uint64_t local_iov, uint64_t local_iovcnt, uint64_t remote_iov, uint64_t remote_iovcnt, uint64_t flags)
 {
     (void)pid;
@@ -1674,9 +1726,10 @@ int64_t sys_process_vm_readv_impl(uint64_t pid, uint64_t local_iov, uint64_t loc
     (void)remote_iov;
     (void)remote_iovcnt;
     if (flags) return -EINVAL;
-    return -ENOSYS; // cross-process VM operations not yet implemented
+    return -ENOSYS;
 }
 
+/* process_vm_writev syscall: unsupported */
 int64_t sys_process_vm_writev_impl(uint64_t pid, uint64_t local_iov, uint64_t local_iovcnt, uint64_t remote_iov, uint64_t remote_iovcnt, uint64_t flags)
 {
     (void)pid;
@@ -1690,6 +1743,7 @@ int64_t sys_process_vm_writev_impl(uint64_t pid, uint64_t local_iov, uint64_t lo
 
 /* unshare */
 
+/* unshare syscall: unsupported */
 int64_t sys_unshare_impl(uint64_t unshare_flags, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -1701,8 +1755,9 @@ int64_t sys_unshare_impl(uint64_t unshare_flags, uint64_t arg1, uint64_t arg2, u
     return 0;
 }
 
-/* splice / tee / vmsplice (we already have these stubs, but add real ones) */
+/* splice / tee / vmsplice */
 
+/* splice syscall: copy data between file descriptors */
 int64_t sys_splice_impl(uint64_t fd_in, uint64_t off_in, uint64_t fd_out, uint64_t off_out, uint64_t len, uint64_t flags)
 {
     if (flags & ~6ULL) return -EINVAL;
@@ -1729,6 +1784,7 @@ int64_t sys_splice_impl(uint64_t fd_in, uint64_t off_in, uint64_t fd_out, uint64
     return (int64_t)total;
 }
 
+/* tee syscall */
 int64_t sys_tee_impl(uint64_t fd_in, uint64_t fd_out, uint64_t len, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1737,6 +1793,7 @@ int64_t sys_tee_impl(uint64_t fd_in, uint64_t fd_out, uint64_t len, uint64_t fla
     return sys_splice_impl(fd_in, 0, fd_out, 0, len, 0);
 }
 
+/* vmsplice syscall: unsupported */
 int64_t sys_vmsplice_impl(uint64_t fd, uint64_t iov, uint64_t nr_segs, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)fd;
@@ -1750,6 +1807,7 @@ int64_t sys_vmsplice_impl(uint64_t fd, uint64_t iov, uint64_t nr_segs, uint64_t 
 
 /* ioprio_set / ioprio_get */
 
+/* ioprio_set syscall */
 int64_t sys_ioprio_set_impl(uint64_t which, uint64_t who, uint64_t ioprio, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)who;
@@ -1761,6 +1819,7 @@ int64_t sys_ioprio_set_impl(uint64_t which, uint64_t who, uint64_t ioprio, uint6
     return 0;
 }
 
+/* ioprio_get syscall */
 int64_t sys_ioprio_get_impl(uint64_t which, uint64_t who, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)who;
@@ -1774,6 +1833,7 @@ int64_t sys_ioprio_get_impl(uint64_t which, uint64_t who, uint64_t arg2, uint64_
 
 /* timer_create / settime / gettime / getoverrun / delete */
 
+/* timer_create syscall */
 int64_t sys_timer_create_impl(uint64_t clockid, uint64_t evp, uint64_t timerid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)clockid;
@@ -1788,6 +1848,7 @@ int64_t sys_timer_create_impl(uint64_t clockid, uint64_t evp, uint64_t timerid, 
     return 0;
 }
 
+/* timer_settime syscall */
 int64_t sys_timer_settime_impl(uint64_t timerid, uint64_t flags, uint64_t new_value, uint64_t old_value, uint64_t arg4, uint64_t arg5)
 {
     (void)timerid;
@@ -1802,6 +1863,7 @@ int64_t sys_timer_settime_impl(uint64_t timerid, uint64_t flags, uint64_t new_va
     return 0;
 }
 
+/* timer_gettime syscall */
 int64_t sys_timer_gettime_impl(uint64_t timerid, uint64_t curr_value, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)timerid;
@@ -1814,6 +1876,7 @@ int64_t sys_timer_gettime_impl(uint64_t timerid, uint64_t curr_value, uint64_t a
     return copy_to_user((void *)curr_value, &tv, sizeof(tv)) ? -EFAULT : 0;
 }
 
+/* timer_getoverrun syscall */
 int64_t sys_timer_getoverrun_impl(uint64_t timerid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)timerid;
@@ -1825,6 +1888,7 @@ int64_t sys_timer_getoverrun_impl(uint64_t timerid, uint64_t arg1, uint64_t arg2
     return 0;
 }
 
+/* timer_delete syscall */
 int64_t sys_timer_delete_impl(uint64_t timerid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)timerid;
@@ -1838,6 +1902,7 @@ int64_t sys_timer_delete_impl(uint64_t timerid, uint64_t arg1, uint64_t arg2, ui
 
 /* syslog */
 
+/* syslog syscall */
 int64_t sys_syslog_impl(uint64_t type, uint64_t buf, uint64_t len, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)buf;
@@ -1856,6 +1921,7 @@ int64_t sys_syslog_impl(uint64_t type, uint64_t buf, uint64_t len, uint64_t arg3
 
 /* adjtimex */
 
+/* adjtimex syscall */
 int64_t sys_adjtimex_impl(uint64_t txc, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)txc;
@@ -1869,6 +1935,7 @@ int64_t sys_adjtimex_impl(uint64_t txc, uint64_t arg1, uint64_t arg2, uint64_t a
 
 /* settimeofday */
 
+/* settimeofday syscall */
 int64_t sys_settimeofday_impl(uint64_t tv, uint64_t tz, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)tz;
@@ -1890,6 +1957,7 @@ int64_t sys_settimeofday_impl(uint64_t tv, uint64_t tz, uint64_t arg2, uint64_t 
 
 /* settimeofday + clock_adjtime */
 
+/* clock_adjtime syscall */
 int64_t sys_clock_adjtime_impl(uint64_t clockid, uint64_t txc, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)clockid;
@@ -1903,6 +1971,7 @@ int64_t sys_clock_adjtime_impl(uint64_t clockid, uint64_t txc, uint64_t arg2, ui
 
 /* acct */
 
+/* acct syscall: accepted as no-op */
 int64_t sys_acct_impl(uint64_t filename, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)filename;
@@ -1932,11 +2001,7 @@ int64_t sys_acct_impl(uint64_t filename, uint64_t arg1, uint64_t arg2, uint64_t 
  * See syscall.c for the table entries.
  */
 
-/*
- * openat2 (437)
- * Modern openat with extensible how argument.
- * For now, delegate to openat.
- */
+/* openat2 syscall: openat with an extensible how argument */
 
 typedef struct open_how {
         uint64_t flags;
@@ -1944,6 +2009,7 @@ typedef struct open_how {
         uint64_t resolve;
 } open_how_t;
 
+/* openat2 syscall: openat with an extensible how argument */
 int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t usize, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1963,7 +2029,7 @@ int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t u
     if (!proc) return -ESRCH;
 
     char input[VFS_PATH_MAX];
-    int  ret = copy_path_from_user_fwd(path, input, sizeof(input));
+    int  ret = copy_path_from_user(path, input);
     if (ret) return ret;
 
     char resolved[VFS_PATH_MAX];

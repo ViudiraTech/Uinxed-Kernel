@@ -37,11 +37,13 @@ typedef struct {
         bool             running;
 } usb_hid_device_t;
 
+/* Release an input device allocated by the HID driver. */
 static void hid_input_release(input_dev_t *input)
 {
     free(input);
 }
 
+/* Set a single bit in an evdev capability bitmap. */
 static void hid_set_bit(unsigned int bit, uint32_t *bitmap)
 {
     bitmap[bit / 32] |= 1U << (bit % 32);
@@ -318,7 +320,7 @@ fail_registered:
 fail_inputs:
     hid_unregister_inputs(hid);
 fail:
-    plogk("usb: hid: %s: probe failed: %d\n", interface->device->path, result);
+    plogk("usb-hid: %s: probe failed: %d\n", interface->device->path, result);
     evdev_unregister_led_notify(hid_led_notify, hid);
     free(hid->report_descriptor);
     free(hid);

@@ -90,7 +90,7 @@ static int kobject_list_add(clist_t *list, void *data)
     return EOK;
 }
 
-/* kobject_init */
+/* Initialize a kobject. */
 
 void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
 {
@@ -119,7 +119,7 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
     kobj->uevent_suppress          = 0;
 }
 
-/* kobject_set_name */
+/* Set a formatted name on a kobject. */
 
 int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
 {
@@ -144,7 +144,7 @@ int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
     return EOK;
 }
 
-/* kobject_add */
+/* Add a kobject to its parent and kset, creating its sysfs entry. */
 
 int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...)
 {
@@ -237,7 +237,7 @@ err_refs:
     return ret;
 }
 
-/* kobject_init_and_add */
+/* Initialize a kobject and add it to sysfs. */
 
 int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...)
 {
@@ -255,7 +255,7 @@ int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct k
     return kobject_add(kobj, parent, "%s", namebuf);
 }
 
-/* kobject_create_and_add */
+/* Allocate, initialize and add a kobject. */
 
 struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
 {
@@ -276,7 +276,7 @@ struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
     return kobj;
 }
 
-/* kobject_get / kobject_put */
+/* Increment a kobject's reference count. */
 
 struct kobject *kobject_get(struct kobject *kobj)
 {
@@ -298,13 +298,14 @@ static void kobject_release_internal(kref_t *kref)
     if (kobj->ktype && kobj->ktype->release) kobj->ktype->release(kobj);
 }
 
+/* Decrement a kobject's reference count. */
 void kobject_put(struct kobject *kobj)
 {
     if (!kobj) return;
     kref_put(&kobj->kref, kobject_release_internal);
 }
 
-/* kobject_del */
+/* Remove a kobject from sysfs and its parent/kset. */
 
 void kobject_del(struct kobject *kobj)
 {
@@ -353,7 +354,7 @@ void kobject_del(struct kobject *kobj)
     kset_put(kset);
 }
 
-/* kobject_rename */
+/* Rename a kobject and update its sysfs entry. */
 
 int kobject_rename(struct kobject *kobj, const char *new_name)
 {
@@ -395,7 +396,7 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
     return EOK;
 }
 
-/* kobject_move */
+/* Move a kobject under a new parent. */
 
 int kobject_move(struct kobject *kobj, struct kobject *new_parent)
 {
@@ -463,7 +464,7 @@ int kobject_move(struct kobject *kobj, struct kobject *new_parent)
     return EOK;
 }
 
-/* kobject_name */
+/* Return the name of a kobject. */
 
 const char *kobject_name(const struct kobject *kobj)
 {
@@ -471,7 +472,7 @@ const char *kobject_name(const struct kobject *kobj)
     return kobj->name ? kobj->name : "(unnamed)";
 }
 
-/* kset_init */
+/* Initialize a kset. */
 
 void kset_init(struct kset *kset)
 {
@@ -481,7 +482,7 @@ void kset_init(struct kset *kset)
     kobject_init(&kset->kobj, &static_kset_ktype);
 }
 
-/* kset_create_and_add */
+/* Allocate, initialize and add a kset. */
 
 struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops *uevent_ops, struct kobject *parent_kobj)
 {
@@ -507,7 +508,7 @@ struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops 
     return kset;
 }
 
-/* kset_unregister */
+/* Remove a kset from sysfs and release it. */
 
 void kset_unregister(struct kset *kset)
 {
@@ -516,7 +517,7 @@ void kset_unregister(struct kset *kset)
     kobject_put(&kset->kobj);
 }
 
-/* kobject_get_path */
+/* Build the sysfs path of a kobject. */
 
 char *kobject_get_path(struct kobject *kobj)
 {
@@ -561,7 +562,7 @@ char *kobject_get_path(struct kobject *kobj)
     return path;
 }
 
-/* kobject_uevent */
+/* Broadcast a uevent for a kobject. */
 
 int kobject_uevent(struct kobject *kobj, enum kobject_action action)
 {
@@ -569,21 +570,21 @@ int kobject_uevent(struct kobject *kobj, enum kobject_action action)
     return kobject_uevent_env(kobj, action, NULL, 0);
 }
 
-/* Global uevent sequence number */
-
 static uint64_t uevent_seqnum;
 
+/* Return the next uevent sequence number. */
 uint64_t kobject_uevent_seqnum(void)
 {
     return __atomic_load_n(&uevent_seqnum, __ATOMIC_RELAXED);
 }
 
-/* kobject_uevent_env - build and broadcast the Linux uevent ABI */
+/* Build and broadcast a uevent message. */
 
 static const char *const kobject_actions[] = {
     [KOBJ_ADD] = "add", [KOBJ_REMOVE] = "remove", [KOBJ_CHANGE] = "change", [KOBJ_MOVE] = "move", [KOBJ_ONLINE] = "online", [KOBJ_OFFLINE] = "offline", [KOBJ_BIND] = "bind", [KOBJ_UNBIND] = "unbind",
 };
 
+/* Return the string name of a uevent action. */
 const char *kobject_action_name(enum kobject_action action)
 {
     if ((unsigned int)action >= sizeof(kobject_actions) / sizeof(kobject_actions[0])) return NULL;
@@ -677,6 +678,7 @@ static int kobject_uevent_message(struct kobj_uevent_env *env, const char *actio
     return EOK;
 }
 
+/* Build and broadcast a uevent with extra environment variables. */
 int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *envp[], int nenv)
 {
     struct kobj_uevent_env *env;

@@ -102,6 +102,7 @@ static int populate(vfs_node_t dir)
     return EOK;
 }
 
+/* Mount the cgroup2 filesystem on a VFS node. */
 static int mount_cgroup2(const char *src, vfs_node_t node)
 {
     /* cgroup2 is nodev; the source operand is informational. */
@@ -305,6 +306,9 @@ void cgroupfs_regist(void)
 {
 #if CONFIG_CGROUP
     cgroupfs_id = vfs_regist_fs_flags("cgroup2", &callbacks, VFS_FS_NODEV);
-    if (cgroupfs_id & ERRNO_MASK) plogk("cgroup2: Registration failed (%d)\n", cgroupfs_id);
+    if (cgroupfs_id & ERRNO_MASK)
+        plogk("cgroup2: Registration failed (%d)\n", cgroupfs_id);
+    else
+        plogk("cgroup2: Filesystem registered (fsid=%d)\n", cgroupfs_id);
 #endif
 }

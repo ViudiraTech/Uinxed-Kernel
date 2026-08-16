@@ -141,7 +141,6 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
         return -ENOSPC;
     }
 
-    plogk("devtmpfs: Registered %s as %s device (dev=%llu, rdev=%llu)\n", path, node_type & file_block ? "block" : "char", dev, rdev);
     /* The registry owns the reference returned by vfs_open(). */
     return 0;
 }
@@ -263,7 +262,8 @@ static int devtmpfs_register_one_block(const char *path, const blockdev_device_t
 }
 
 /* Register a whole disk plus its partitions, tracking the created paths. */
-int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool scan_partitions, devtmpfs_block_registration_t **registration)
+int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool scan_partitions, bool use_p_separator,
+                                   devtmpfs_block_registration_t **registration)
 {
     devtmpfs_block_registration_t *nodes;
     partition_table_t              table;
@@ -282,7 +282,7 @@ int devtmpfs_register_block_device(const char *path, const blockdev_device_t *de
     nodes->count = 1;
 
     if (scan_partitions && partition_scan(device, &table) == EOK) {
-        bool separator = path[strlen(path) - 1] >= '0' && path[strlen(path) - 1] <= '9';
+        bool separator = use_p_separator;
         for (size_t i = 0; i < table.count && nodes->count < DEVTMPFS_MAX_BLOCK_NODES; i++) {
             blockdev_device_t       view;
             char                    part_path[96];
@@ -312,91 +312,6 @@ void devtmpfs_unregister_block_device(devtmpfs_block_registration_t *registratio
     free(registration);
 }
 
-/* Create a block device node for the given device descriptor. */
-static int devtmpfs_create_block_node(const char *dev_path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool is_partition)
-{
-    static const tmpfs_device_ops_t block_ops = {
-        .read  = devtmpfs_block_read,
-        .write = devtmpfs_block_write,
-    };
-    blockdev_device_t *context;
-    tmpfs_device_ops_t ops;
-    vfs_node_t         node;
-    int                status;
-
-    if (!device || !device->sector_size || device->sector_count > UINT64_MAX / device->sector_size) return -EINVAL;
-
-    status = vfs_mkfile(dev_path);
-    if (status != EOK && status != -EEXIST) {
-        plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
-        return status;
-    }
-
-    node = vfs_open(dev_path);
-    if (!node) {
-        plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
-        return -ENOENT;
-    }
-
-    context = malloc(sizeof(*context));
-    if (!context) {
-        vfs_close(node);
-        return -ENOMEM;
-    }
-    *context = *device;
-    ops      = block_ops;
-    ops.ctx  = context;
-    status   = tmpfs_bind_device(node, file_block, &ops);
-    if (status != EOK) {
-        free(context);
-        vfs_close(node);
-        return status;
-    }
-
-    node->blksz = device->sector_size;
-    node->dev   = dev;
-    node->rdev  = rdev;
-    node->size  = device->sector_count * device->sector_size;
-
-    if (!is_partition) plogk("devtmpfs: Registered %s as block device (dev=%llu, rdev=%llu)\n", dev_path, dev, rdev);
-
-    vfs_close(node);
-    return EOK;
-}
-
-/* Create the device node for a single partition. */
-static void devtmpfs_create_partition_node(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *parent, uint64_t dev, uint64_t rdev_base, const partition_info_t *partition)
-{
-    char dev_path[96];
-    (void)snprintf(dev_path, sizeof(dev_path), "%s%s%u", dev_prefix, use_p_separator ? "p" : "", partition->number);
-
-    blockdev_device_t view;
-
-    if (blockdev_open_partition(parent, partition->start_lba, partition->sector_count, &view) != EOK) return;
-    if (partition->read_only) view.read_only = true;
-    if (devtmpfs_create_block_node(dev_path, &view, dev, (rdev_base << 8) | partition->number, true) == EOK)
-        plogk("devtmpfs: Registered %s as partition device (start %llu, sectors %llu%s%s)\n", dev_path, (unsigned long long)partition->start_lba, (unsigned long long)partition->sector_count,
-              partition->name[0] ? ", name " : "", partition->name);
-}
-
-/* Create device nodes for every partition of a disk. */
-static int devtmpfs_create_partitions(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *device, uint64_t dev, uint64_t rdev_base)
-{
-    partition_table_t table;
-    int               status;
-
-    status = partition_scan(device, &table);
-    if (status == -ENOENT) return 0;
-    if (status != EOK) {
-        plogk("devtmpfs: Ignoring invalid partition table on %s: %d\n", dev_prefix, status);
-        return 0;
-    }
-    for (size_t i = 0; i < table.count; i++) devtmpfs_create_partition_node(dev_prefix, use_p_separator, device, dev, rdev_base, &table.partitions[i]);
-    int count = (int)table.count;
-    partition_table_destroy(&table);
-    return count;
-}
-
 /* Register the /dev/fb0 framebuffer device node. */
 static int devtmpfs_create_framebuffer_node(void)
 {
@@ -424,25 +339,6 @@ static int devtmpfs_create_framebuffer_node(void)
     return 0;
 }
 
-/* Register all audio card device nodes under /dev/snd. */
-static int devtmpfs_create_audio_nodes(void)
-{
-    int count = 0;
-
-    if (!audio_device_node_count()) return 0;
-
-    for (size_t i = 0; i < audio_device_node_count(); i++) {
-        audio_device_node_t *audio_node = audio_get_device_node(i);
-        char                 dev_path[64];
-
-        if (!audio_node) continue;
-
-        (void)snprintf(dev_path, sizeof(dev_path), "/dev/snd/%s", audio_node->name);
-        if (devtmpfs_register_char_device(dev_path, audio_node->card->id, i, file_audio | file_stream, &audio_node->tmpfs_ops) == 0) count++;
-    }
-    return count;
-}
-
 #if CONFIG_UNIX98_PTYS
 /* Register the /dev/ptmx pseudo-terminal master node. */
 static int devtmpfs_create_ptmx_node(void)
@@ -456,37 +352,6 @@ static int devtmpfs_create_ptmx_node(void)
     return 1;
 }
 #endif
-
-/* Register the DRM card and render device nodes. */
-static int devtmpfs_create_drm_node(void)
-{
-    static const tmpfs_device_ops_t drm_device = {
-        .read       = 0,
-        .write      = 0,
-        .poll       = 0,
-        .ioctl      = 0,
-        .open       = (tmpfs_dev_open_t)drm_dev_open,
-        .release    = (tmpfs_dev_release_t)drm_dev_release,
-        .mmap       = drm_dev_file_mmap,
-        .file_read  = drm_dev_file_read,
-        .file_write = drm_dev_file_write,
-        .file_poll  = drm_dev_file_poll,
-        .file_ioctl = drm_dev_file_ioctl,
-        .ctx        = 0,
-    };
-
-    struct drm_device *drm_dev = drm_get_singleton();
-    if (!drm_dev) return 0;
-
-    int total = 0;
-    if (devtmpfs_register_char_device("/dev/dri/card0", MKDEV(226, 0), MKDEV(226, 0), file_stream, &drm_device) == 0) total++;
-    /*
-     * libdrm probes the canonical render node as well. The current kernel
-     * shares the DRM device implementation for this render-only minor.
-     */
-    if (devtmpfs_register_char_device("/dev/dri/renderD128", MKDEV(226, 128), MKDEV(226, 128), file_stream, &drm_device) == 0) total++;
-    return total;
-}
 
 /* Register the /dev/rtc0 real-time clock device node. */
 static int devtmpfs_create_rtc_node(void)
@@ -722,26 +587,13 @@ void devtmpfs_init(void)
         vfs_close(shm_root);
     }
 
-    /* Register whole disks without issuing media I/O during early boot. */
-    for (int i = 0; i < block_disk_count(); i++) {
-        gendisk_t *disk = block_get_disk(i);
-        char       dev_path[96];
-
-        if (!disk) continue;
-        (void)snprintf(dev_path, sizeof(dev_path), "/dev/%s", disk->name);
-        if (devtmpfs_create_block_node(dev_path, &disk->device, disk->major, disk->minor_base, false) == EOK) total_devices++;
-        if (disk->scan_partitions) total_devices += devtmpfs_create_partitions(dev_path, disk->use_p_separator, &disk->device, disk->major, disk->minor_base);
-    }
-
     total_devices += evdev_publish_nodes();
     total_devices += chrdev_populate();
     total_devices += tty_devices_populate();
     total_devices += devtmpfs_create_framebuffer_node();
-    total_devices += devtmpfs_create_audio_nodes();
 #if CONFIG_UNIX98_PTYS
     total_devices += devtmpfs_create_ptmx_node();
 #endif
-    total_devices += devtmpfs_create_drm_node();
     total_devices += devtmpfs_create_rtc_node();
 
     /* Conventional process-fd aliases expected by libc and service scripts. */

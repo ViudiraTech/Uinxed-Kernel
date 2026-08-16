@@ -228,9 +228,9 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
     }
 
     /*
-     * This driver intentionally exposes the same scanout formats as Linux
-     * virtgpu's 2D plane.  Rejecting unsupported layouts is safer than
-     * creating a framebuffer that the host will later misinterpret.
+     * This driver exposes only the supported 2D scanout formats.  Rejecting
+     * unsupported layouts is safer than creating a framebuffer that the host
+     * will later misinterpret.
      */
     if (r->pixel_format != DRM_FORMAT_XRGB8888 && r->pixel_format != DRM_FORMAT_ARGB8888) {
         plogk("drm: Addfb2: unsupported pixel format 0x%x\n", r->pixel_format);
@@ -264,7 +264,7 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
                 return -EINVAL;
             }
     } else {
-        /* Linux treats modifier[] as ignored unless the flag is set. */
+        /* modifier[] is ignored unless the flag is set. */
         r->modifier[0] = DRM_FORMAT_MOD_LINEAR;
     }
 
@@ -471,7 +471,7 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
  * @data: pointer to struct drm_mode_fb_dirty_cmd (userspace buffer)
  * @file_priv: DRM file handle
  *
- * Mirrors Linux DRM UAPI validation and passes annotations through to
+ * Validates the dirty-fb arguments and passes annotations through to
  * the framebuffer's dirty callback unchanged.
  */
 int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_priv)

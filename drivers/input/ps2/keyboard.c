@@ -24,6 +24,7 @@ static size_t                 ps2kbd_pending_events;
 static ps2_keyboard_decoder_t ps2kbd_decoder;
 evdev_t                      *ps2_keyboard_evdev;
 
+/* Set one bit in a bitmap word array. */
 static void set_bit(unsigned int bit, uint32_t *bits)
 {
     bits[bit / 32] |= 1U << (bit % 32);

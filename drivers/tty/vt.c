@@ -83,6 +83,7 @@ static void tty_vga_queue_push(char ch)
     tty_vga_head                = next;
 }
 
+/* Number of queued VGA output bytes. */
 static size_t tty_vga_queue_used(void)
 {
     return (tty_vga_head + TTY_VGA_QUEUE_SIZE - tty_vga_tail) % TTY_VGA_QUEUE_SIZE;
@@ -368,6 +369,7 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
 
 #else
 
+/* No-op scancode handler when CONFIG_VT is disabled. */
 void tty_handle_scancode(uint8_t scancode, bool pressed)
 {
     (void)scancode;
@@ -429,6 +431,7 @@ static int vt_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **p
     return 0;
 }
 
+/* tty driver release for a virtual console (no-op). */
 static int vt_driver_release(tty_driver_t *drv, int index, void *private_data)
 {
     (void)drv;
@@ -615,6 +618,7 @@ static void vga_console_write(console_t *c, const uint8_t *buf, size_t len)
     }
 }
 
+/* Resolve the vt console's tty core. */
 static tty_core_t *vt_console_get_tty(console_t *c)
 {
     (void)c;

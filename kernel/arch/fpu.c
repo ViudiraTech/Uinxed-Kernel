@@ -21,7 +21,7 @@
 
 #define FPU_FXSAVE_SIZE     512U
 #define FPU_STATE_ALIGNMENT 64U
-#define FPU_INITIAL_MAX     4096U // static template cap; see guard in fpu_init()
+#define FPU_INITIAL_MAX     4096U
 #define FPU_DEFAULT_FCW     0x037fU
 #define FPU_DEFAULT_MXCSR   0x1f80U
 
@@ -54,11 +54,13 @@ static uint8_t  fpu_use_xsaveopt;
  */
 static uint8_t fpu_sse_enabled;
 
+/* Check whether the kernel may execute SSE/AVX instructions */
 int kernel_sse_available(void)
 {
     return fpu_sse_enabled;
 }
 
+/* Return the FPU state size exposed to signal handlers */
 size_t fpu_signal_state_size(void)
 {
 #if CPU_FEATURE_FPU
@@ -239,6 +241,7 @@ void fpu_init(void)
 
 /* Task FPU state lifecycle */
 
+/* Allocate and initialize a task's FPU state area */
 int fpu_task_init(struct task *task)
 {
 #if CPU_FEATURE_FPU
@@ -257,6 +260,7 @@ int fpu_task_init(struct task *task)
     return 0;
 }
 
+/* Release a task's FPU state area */
 void fpu_task_destroy(struct task *task)
 {
 #if CPU_FEATURE_FPU
@@ -277,6 +281,7 @@ void fpu_task_destroy(struct task *task)
 #endif
 }
 
+/* Copy the parent task's FPU state into the child */
 void fpu_task_clone(struct task *parent, struct task *child)
 {
 #if CPU_FEATURE_FPU
@@ -309,6 +314,7 @@ void fpu_task_clone(struct task *parent, struct task *child)
 #endif
 }
 
+/* Reset a task's FPU state to the x86-64 initial state */
 void fpu_task_reset(struct task *task)
 {
 #if CPU_FEATURE_FPU
@@ -364,6 +370,7 @@ void fpu_switch(struct task *prev, struct task *next)
 #endif
 }
 
+/* Save a task's FPU state into a signal frame */
 int fpu_signal_save(struct task *task, void *state, size_t capacity)
 {
 #if CPU_FEATURE_FPU
@@ -393,6 +400,7 @@ int fpu_signal_save(struct task *task, void *state, size_t capacity)
 #endif
 }
 
+/* Restore a task's FPU state from a signal frame */
 int fpu_signal_restore(struct task *task, const void *state, size_t size)
 {
 #if CPU_FEATURE_FPU
@@ -439,6 +447,7 @@ int fpu_signal_restore(struct task *task, const void *state, size_t size)
 
 /* kernel_fpu_begin/end - explicit kernel FPU sections */
 
+/* Begin an explicit kernel FPU/SSE/AVX section */
 void kernel_fpu_begin(void)
 {
 #if CPU_FEATURE_FPU
@@ -462,6 +471,7 @@ void kernel_fpu_begin(void)
 #endif
 }
 
+/* End an explicit kernel FPU/SSE/AVX section */
 void kernel_fpu_end(void)
 {
 #if CPU_FEATURE_FPU

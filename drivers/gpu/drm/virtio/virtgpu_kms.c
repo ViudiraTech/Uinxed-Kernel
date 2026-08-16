@@ -305,8 +305,8 @@ static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object 
         /*
          * The VirtIO cursor command requires a 64x64 resource but does not
          * impose a DRM fourcc.  Xorg allocates cursor storage through the
-         * dumb-buffer API, which creates XRGB8888 objects in the same way as
-         * Linux virtio-gpu.  Accept both advertised 32-bit KMS formats here.
+         * dumb-buffer API, which creates XRGB8888 objects.  Accept both
+         * advertised 32-bit KMS formats here.
          */
         if (width != 64 || height != 64 || gem->size < 64 * 64 * 4 || obj->width != 64 || obj->height != 64 || (obj->format != DRM_FORMAT_XRGB8888 && obj->format != DRM_FORMAT_ARGB8888)
             || obj->created_3d || obj->created_blob)

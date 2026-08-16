@@ -67,7 +67,7 @@ uint64_t tsc_calibrate_with_hpet(hpet_info_t *hpet_addr)
     tsc_frequency = total_frequency / calibration_runs;
     tsc_ns_ratio  = (1000000000ULL << 32) / tsc_frequency;
 
-    plogk("tsc: calibrated frequency = %lu MHz.\n", tsc_frequency / 1000000);
+    plogk("tsc: calibrated frequency = %lu MHz\n", tsc_frequency / 1000000);
     plogk("tsc: ns ratio = %lu\n", tsc_ns_ratio);
     return tsc_frequency;
 }

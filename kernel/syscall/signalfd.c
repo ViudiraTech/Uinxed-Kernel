@@ -27,6 +27,7 @@
 
 static int signalfd_fsid = -1;
 
+/* Copy a signal into the signalfd info layout */
 static void signalfd_format_info(signalfd_siginfo_t *dest, int sig, const siginfo_t *source)
 {
     memset(dest, 0, sizeof(*dest));
@@ -54,6 +55,7 @@ static void signalfd_format_info(signalfd_siginfo_t *dest, int sig, const siginf
 
 /* VFS callback implementations */
 
+/* VFS open callback (no-op) */
 static void signalfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -61,11 +63,13 @@ static void signalfd_vfs_open(void *parent, const char *name, vfs_node_t node)
     (void)node;
 }
 
+/* VFS close callback (no-op) */
 static void signalfd_vfs_close(void *current)
 {
     (void)current;
 }
 
+/* VFS read callback: dequeue a pending signal, blocking if needed */
 static size_t signalfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -103,6 +107,7 @@ static size_t signalfd_vfs_read(void *file, void *addr, size_t offset, size_t si
     }
 }
 
+/* VFS poll callback: report readability when a signal is pending */
 static int signalfd_vfs_poll(void *file, size_t events)
 {
     signalfd_ctx_t *ctx = (signalfd_ctx_t *)file;
@@ -114,6 +119,7 @@ static int signalfd_vfs_poll(void *file, size_t events)
     return signal_has_pending_masked(process_current(), &mask) ? (0x001 & (int)events) : 0;
 }
 
+/* File read entry: validate size then delegate to the read callback */
 static int64_t signalfd_vfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)private_data;
@@ -123,6 +129,7 @@ static int64_t signalfd_vfs_file_read(vfs_node_t node, void *private_data, uint6
     return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
 }
 
+/* VFS free callback: release the signalfd context */
 static int signalfd_vfs_free(void *handle)
 {
     signalfd_ctx_t *ctx = (signalfd_ctx_t *)handle;
@@ -133,11 +140,13 @@ static int signalfd_vfs_free(void *handle)
 
 /* Generic stubs */
 
+/* Unsupported unmount callback */
 static void signalfd_stub_unmount(void *root)
 {
     (void)root;
 }
 
+/* Unsupported stat callback */
 static int signalfd_stub_stat(void *f, vfs_node_t n)
 {
     (void)f;
@@ -145,6 +154,7 @@ static int signalfd_stub_stat(void *f, vfs_node_t n)
     return EOK;
 }
 
+/* Unsupported mkdir/mkfile/link/symlink callback */
 static int signalfd_stub_mk(void *p, const char *nm, vfs_node_t n)
 {
     (void)p;
@@ -153,6 +163,7 @@ static int signalfd_stub_mk(void *p, const char *nm, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported write callback */
 static size_t signalfd_stub_write(void *f, const void *a, size_t o, size_t s)
 {
     (void)f;
@@ -162,6 +173,7 @@ static size_t signalfd_stub_write(void *f, const void *a, size_t o, size_t s)
     return (size_t)-1;
 }
 
+/* Unsupported readlink callback */
 static size_t signalfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 {
     (void)n;
@@ -171,6 +183,7 @@ static size_t signalfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
     return (size_t)-1;
 }
 
+/* Unsupported ioctl callback */
 static int signalfd_stub_ioctl(void *f, size_t o, void *a)
 {
     (void)f;
@@ -179,12 +192,14 @@ static int signalfd_stub_ioctl(void *f, size_t o, void *a)
     return -ENOSYS;
 }
 
+/* Unsupported dup callback */
 static vfs_node_t signalfd_stub_dup(vfs_node_t n)
 {
     (void)n;
     return NULL;
 }
 
+/* Unsupported delete callback */
 static int signalfd_stub_del(void *p, vfs_node_t n)
 {
     (void)p;
@@ -192,12 +207,14 @@ static int signalfd_stub_del(void *p, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported rename callback */
 static int signalfd_stub_rename(const vfs_rename_context_t *context)
 {
     (void)context;
     return -ENOSYS;
 }
 
+/* Unsupported mount callback */
 static int signalfd_stub_mount(const char *s, vfs_node_t n)
 {
     (void)s;
@@ -207,6 +224,7 @@ static int signalfd_stub_mount(const char *s, vfs_node_t n)
 
 /* Public API */
 
+/* Allocate and initialize a signalfd VFS node */
 static vfs_node_t signalfd_node_create(sigset_t sigmask, int flags)
 {
     if (signalfd_fsid < 0) return NULL;
@@ -233,11 +251,13 @@ static vfs_node_t signalfd_node_create(sigset_t sigmask, int flags)
     return node;
 }
 
+/* signalfd syscall: create a signalfd descriptor */
 int sys_signalfd(int fd, const void *mask, int flags)
 {
     return sys_signalfd4(fd, mask, 8, flags);
 }
 
+/* signalfd4 syscall: create or update a signalfd descriptor */
 int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
 {
     process_t *proc = process_current();
@@ -293,6 +313,7 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
     return fd;
 }
 
+/* Wake any signalfd matching a delivered signal */
 void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source)
 {
     if (!proc || !sig_valid(sig)) return;
@@ -319,6 +340,7 @@ void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source)
     spin_unlock(&proc->fd_lock);
 }
 
+/* Register the signalfd filesystem callback set */
 void signalfd_init(void)
 {
     vfs_callback_t cb = calloc(1, sizeof(struct vfs_callback));

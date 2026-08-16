@@ -113,12 +113,14 @@ int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *
     return valid;
 }
 
+/* Store the checksum of a directory block. */
 static void extfs_dir_block_checksum_set(extfs_handle_t *dir_h, void *block)
 {
     ext4_dir_entry_tail_t *tail = extfs_dir_tail(dir_h, block);
     if (tail) tail->checksum = crc32c_update(extfs_dir_checksum_seed(dir_h), block, dir_h->sb->block_size - sizeof(*tail));
 }
 
+/* Initialize the checksum tail of a directory block. */
 static void extfs_dir_tail_init(extfs_handle_t *dir_h, void *block)
 {
     if (!(dir_h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) return;
@@ -128,6 +130,7 @@ static void extfs_dir_tail_init(extfs_handle_t *dir_h, void *block)
     tail->reserved_ft = EXT4_FT_DIR_CSUM;
 }
 
+/* Write a directory leaf block with its checksum. */
 static int extfs_dir_write_leaf(extfs_handle_t *dir_h, uint32_t physical, void *block)
 {
     extfs_dir_block_checksum_set(dir_h, block);
@@ -242,6 +245,7 @@ static int extfs_dir_deindex(extfs_handle_t *dir_h, ext2_inode_t *raw)
     return status;
 }
 
+/* Round a name length to the directory record length. */
 static uint32_t extfs_dir_rec_len(uint32_t name_len)
 {
     return EXT2_DIR_REC_LEN(name_len);

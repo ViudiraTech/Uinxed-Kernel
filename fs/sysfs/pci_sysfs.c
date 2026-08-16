@@ -28,6 +28,7 @@ typedef struct pci_sysfs_dev {
         pci_device_cache_t *cache;
 } pci_sysfs_dev_t;
 
+/* Emit PCI uevent environment variables. */
 static int pci_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -61,6 +62,7 @@ static struct bus_type pci_bus_type = {
 
 /* Device attribute show/store functions */
 
+/* Show the PCI vendor id. */
 static ssize_t pci_vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -69,6 +71,7 @@ static ssize_t pci_vendor_show(struct device *dev, struct device_attribute *attr
     return (ssize_t)sysfs_emit(buf, "0x%04x\n", (uint32_t)psd->cache->vendor_id);
 }
 
+/* Show the PCI device id. */
 static ssize_t pci_device_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -77,6 +80,7 @@ static ssize_t pci_device_show(struct device *dev, struct device_attribute *attr
     return (ssize_t)sysfs_emit(buf, "0x%04x\n", (uint32_t)psd->cache->device_id);
 }
 
+/* Show the PCI class code. */
 static ssize_t pci_class_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -85,6 +89,7 @@ static ssize_t pci_class_show(struct device *dev, struct device_attribute *attr,
     return (ssize_t)sysfs_emit(buf, "0x%06x\n", (uint32_t)psd->cache->class_code);
 }
 
+/* Show the PCI revision. */
 static ssize_t pci_revision_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -95,6 +100,7 @@ static ssize_t pci_revision_show(struct device *dev, struct device_attribute *at
     return (ssize_t)sysfs_emit(buf, "0x%02x\n", rev);
 }
 
+/* Show the PCI subsystem vendor id. */
 static ssize_t pci_subsystem_vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -105,6 +111,7 @@ static ssize_t pci_subsystem_vendor_show(struct device *dev, struct device_attri
     return (ssize_t)sysfs_emit(buf, "0x%04x\n", val);
 }
 
+/* Show the PCI subsystem device id. */
 static ssize_t pci_subsystem_device_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -115,6 +122,7 @@ static ssize_t pci_subsystem_device_show(struct device *dev, struct device_attri
     return (ssize_t)sysfs_emit(buf, "0x%04x\n", val);
 }
 
+/* Show the PCI header type. */
 static ssize_t pci_header_type_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -123,6 +131,7 @@ static ssize_t pci_header_type_show(struct device *dev, struct device_attribute 
     return (ssize_t)sysfs_emit(buf, "0x%02x\n", (uint32_t)psd->cache->header_type);
 }
 
+/* Show the PCI modalias string. */
 static ssize_t pci_modalias_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -173,6 +182,7 @@ static const struct attribute_group *pci_dev_groups[] = {
 
 /* Device release */
 
+/* Release a PCI sysfs device and its private data. */
 static void pci_dev_release(struct device *dev)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
@@ -249,6 +259,6 @@ void pci_sysfs_init(void)
         dev_count++;
     }
 
-    plogk("pci_sysfs: Registered %d PCI devices on bus 'pci'\n", dev_count);
+    plogk("pci_sysfs: exported %d PCI device(s) to /sys/bus/pci\n", dev_count);
 #endif
 }

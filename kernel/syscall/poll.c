@@ -26,14 +26,6 @@
 #include <sync/signal.h>
 #include <syscall/poll.h>
 
-/*
- * Overview
- * poll.c implements poll(2)/select(2)/ppoll(2). It collects the
- * file descriptors to watch, evaluates each one's readiness through
- * the VFS poll callback, and blocks in the scheduler until an event
- * or the timeout expires.
- */
-
 #define POLL_ALWAYS_MASK   (POLLERR | POLLHUP | POLLNVAL)
 #define POLL_REQUEST_MASK  (POLLIN | POLLPRI | POLLOUT | POLLRDNORM | POLLRDBAND | POLLWRNORM | POLLWRBAND | POLLMSG | POLLRDHUP)
 #define SELECT_READ_MASK   (POLLIN | POLLRDNORM | POLLRDBAND | POLLRDHUP | POLLHUP | POLLERR)
@@ -84,27 +76,32 @@ typedef struct {
         bool            active;
 } poll_sigmask_guard_t;
 
+/* Test a bit in an fd_set */
 static bool fdset_test(const uint8_t *set, uint64_t fd)
 {
     return (set[fd / 8] & (uint8_t)(1U << (fd % 8))) != 0;
 }
 
+/* Set a bit in an fd_set */
 static void fdset_set(uint8_t *set, uint64_t fd)
 {
     set[fd / 8] |= (uint8_t)(1U << (fd % 8));
 }
 
+/* Saturating 64-bit addition */
 static uint64_t saturating_add_u64(uint64_t left, uint64_t right)
 {
     return UINT64_MAX - left < right ? UINT64_MAX : left + right;
 }
 
+/* Saturating 64-bit multiplication */
 static uint64_t saturating_mul_u64(uint64_t left, uint64_t right)
 {
     if (left && right > UINT64_MAX / left) return UINT64_MAX;
     return left * right;
 }
 
+/* Initialize a poll timeout from a duration */
 static void poll_timeout_init(poll_timeout_t *timeout, bool infinite, uint64_t duration_ns)
 {
     timeout->infinite      = infinite;
@@ -113,6 +110,7 @@ static void poll_timeout_init(poll_timeout_t *timeout, bool infinite, uint64_t d
     timeout->deadline_tick = infinite ? 0 : saturating_add_u64(timeout->start_tick, timer_ns_to_ticks_ceil(duration_ns));
 }
 
+/* Compute remaining timeout in nanoseconds */
 static uint64_t poll_timeout_remaining_ns(const poll_timeout_t *timeout)
 {
     if (timeout->infinite) return 0;
@@ -122,6 +120,7 @@ static uint64_t poll_timeout_remaining_ns(const poll_timeout_t *timeout)
     return used_ns < timeout->duration_ns ? timeout->duration_ns - used_ns : 0;
 }
 
+/* Check whether the process has a pending signal */
 static bool poll_signal_pending(process_t *proc)
 {
     bool pending;
@@ -131,6 +130,7 @@ static bool poll_signal_pending(process_t *proc)
     return pending;
 }
 
+/* Event callback: bump the generation and wake waiters */
 static void poll_event_notify(vfs_poll_subscription_t *subscription, uint32_t events)
 {
     (void)events;
@@ -139,6 +139,7 @@ static void poll_event_notify(vfs_poll_subscription_t *subscription, uint32_t ev
     wait_queue_wake_all(&watch->context->wq);
 }
 
+/* Close callback: mark the watch closed and wake waiters */
 static void poll_close_notify(vfs_poll_subscription_t *subscription, uint32_t events)
 {
     (void)events;
@@ -149,6 +150,7 @@ static void poll_close_notify(vfs_poll_subscription_t *subscription, uint32_t ev
     wait_queue_wake_all(&watch->context->wq);
 }
 
+/* Unsubscribe and release all watches */
 static void poll_watches_release(poll_watch_t *watches, uint64_t nfds)
 {
     if (!watches) return;
@@ -262,6 +264,7 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
     return ret;
 }
 
+/* Temporarily install a signal mask for the poll duration */
 static int poll_sigmask_install(process_t *proc, const sigset_t *new_mask, poll_sigmask_guard_t *guard)
 {
     memset(guard, 0, sizeof(*guard));
@@ -280,6 +283,7 @@ static int poll_sigmask_install(process_t *proc, const sigset_t *new_mask, poll_
     return EOK;
 }
 
+/* Restore the saved signal mask */
 static void poll_sigmask_finish(poll_sigmask_guard_t *guard, bool interrupted)
 {
     if (!guard->active) return;
@@ -293,6 +297,7 @@ static void poll_sigmask_finish(poll_sigmask_guard_t *guard, bool interrupted)
     spin_unlock(&guard->state->lock);
 }
 
+/* Copy a signal mask from user space */
 static int copy_sigmask(uint64_t address, uint64_t size, sigset_t *mask)
 {
     if (!address) return EOK;
@@ -413,6 +418,7 @@ static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uin
     return ret;
 }
 
+/* poll syscall: wait for fd readiness */
 int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout_ms, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -424,6 +430,7 @@ int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout_ms, uint64_t arg3
     return do_poll(fds, nfds, &timeout, NULL);
 }
 
+/* select syscall: wait for fd set readiness */
 int64_t sys_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout_ptr, uint64_t arg5)
 {
     (void)arg5;
@@ -452,6 +459,7 @@ int64_t sys_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t 
     return ret;
 }
 
+/* pselect6 syscall: select with a signal mask and nanosecond timeout */
 int64_t sys_pselect6(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout_ptr, uint64_t sigarg_ptr)
 {
     linux_timespec_t ts = {0};
@@ -496,6 +504,7 @@ int64_t sys_pselect6(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_
     return ret;
 }
 
+/* ppoll syscall: poll with a signal mask and nanosecond timeout */
 int64_t sys_ppoll(uint64_t fds, uint64_t nfds, uint64_t timeout_ptr, uint64_t sigmask_ptr, uint64_t sigsetsize, uint64_t arg5)
 {
     (void)arg5;

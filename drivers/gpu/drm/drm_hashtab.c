@@ -15,7 +15,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 
-/* Linux hash_long multiplier for 64-bit keys. */
+/* Hash multiplier for 64-bit keys. */
 #define HT_HASH_MULT 0x9e370001UL
 
 /* Compute the bucket index for @key using multiplicative hashing. */

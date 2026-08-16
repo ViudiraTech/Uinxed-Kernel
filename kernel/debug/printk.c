@@ -21,7 +21,7 @@
 #    include <drivers/firmware/acpi.h>
 #endif
 
-#define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')
+#define BUF_SIZE 2048
 
 /* Lock for printk */
 spinlock_t printk_lock = {

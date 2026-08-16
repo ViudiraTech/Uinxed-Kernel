@@ -754,11 +754,13 @@ void nvme_init(void)
 #endif
 }
 
+/* Return the number of discovered controllers */
 int nvme_controller_count(void)
 {
     return nvme_ctrl_count;
 }
 
+/* Return controller at index `i`, or NULL */
 nvme_controller_t *nvme_get_controller(int i)
 {
     if (i < 0 || i >= nvme_ctrl_count) return NULL;

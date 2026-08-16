@@ -30,11 +30,13 @@ static struct {
 } net_devices[NETDEV_MAX];
 static spinlock_t net_devices_lock;
 
+/* Return the netdev bound to a device-model device. */
 static net_device_t *to_netdev(struct device *device)
 {
     return device ? device->driver_data : NULL;
 }
 
+/* Show the MAC address. */
 static ssize_t address_show(struct device *device, struct device_attribute *attr, char *buf)
 {
     uint8_t       address[6];
@@ -50,6 +52,7 @@ static ssize_t address_show(struct device *device, struct device_attribute *attr
     return sysfs_emit(buf, "%02x:%02x:%02x:%02x:%02x:%02x\n", address[0], address[1], address[2], address[3], address[4], address[5]);
 }
 
+/* Show the MTU. */
 static ssize_t mtu_show(struct device *device, struct device_attribute *attr, char *buf)
 {
     net_device_t *netdev = to_netdev(device);
@@ -65,6 +68,7 @@ static ssize_t mtu_show(struct device *device, struct device_attribute *attr, ch
     return sysfs_emit(buf, "%u\n", mtu);
 }
 
+/* Show the operational state. */
 static ssize_t operstate_show(struct device *device, struct device_attribute *attr, char *buf)
 {
     net_device_t *netdev = to_netdev(device);
@@ -80,6 +84,7 @@ static ssize_t operstate_show(struct device *device, struct device_attribute *at
     return sysfs_emit(buf, "%s\n", (flags & NETDEV_F_RUNNING) ? "up" : "down");
 }
 
+/* Show the interface flags. */
 static ssize_t flags_show(struct device *device, struct device_attribute *attr, char *buf)
 {
     net_device_t *netdev = to_netdev(device);
@@ -99,6 +104,7 @@ static ssize_t flags_show(struct device *device, struct device_attribute *attr, 
     return sysfs_emit(buf, "0x%x\n", flags);
 }
 
+/* Show the interface hardware type. */
 static ssize_t type_show(struct device *device, struct device_attribute *attr, char *buf)
 {
     (void)device;
@@ -106,6 +112,7 @@ static ssize_t type_show(struct device *device, struct device_attribute *attr, c
     return sysfs_emit(buf, "%u\n", ARPHRD_ETHER);
 }
 
+/* Show the interface index. */
 static ssize_t ifindex_show(struct device *device, struct device_attribute *attr, char *buf)
 {
     net_device_t *netdev = to_netdev(device);
@@ -117,6 +124,7 @@ static ssize_t ifindex_show(struct device *device, struct device_attribute *attr
     return sysfs_emit(buf, "%u\n", netdev->ifindex);
 }
 
+/* Show one network statistic counter. */
 static ssize_t statistic_show(struct device *device, struct device_attribute *attr, char *buf)
 {
     netdev_stats_t stats;
@@ -180,6 +188,7 @@ static struct attribute_group net_group = {
     .attrs = net_attributes,
 };
 
+/* Emit network uevent environment variables. */
 static int net_device_uevent(struct device *device, struct kobj_uevent_env *env)
 {
     net_device_t *netdev = to_netdev(device);
@@ -200,6 +209,7 @@ static const struct attribute_group *net_dev_groups[] = {
 
 static struct class net_class = {.name = "net", .dev_uevent = net_device_uevent, .dev_groups = net_dev_groups};
 
+/* Publish one network device to /sys/class/net/. */
 static void net_sysfs_publish(net_device_t *netdev, void *context)
 {
     struct device *device;
@@ -246,6 +256,7 @@ clear_slot:
     spin_unlock(&net_devices_lock);
 }
 
+/* Remove one network device from sysfs. */
 static void net_sysfs_unpublish(net_device_t *netdev)
 {
     struct device *device = NULL;
@@ -264,6 +275,7 @@ static void net_sysfs_unpublish(net_device_t *netdev)
     device_unregister(device);
 }
 
+/* Handle network device lifecycle events. */
 static void net_sysfs_lifecycle(net_device_t *netdev, netdev_lifecycle_event_t event, void *context)
 {
     (void)context;
@@ -291,5 +303,5 @@ void net_sysfs_init(void)
         return;
     }
     netdev_iterate(net_sysfs_publish, &devices);
-    plogk("net_sysfs: %d network device(s) exported to /sys/class/net\n", devices);
+    plogk("net_sysfs: exported %d network device(s) to /sys/class/net\n", devices);
 }

@@ -67,10 +67,10 @@ void tty_deferred_flush(void);
 /* Publish framebuffer character geometry through the console TTY. */
 void tty_console_resize(uint16_t rows, uint16_t cols);
 
-/* Write a byte buffer to the TTY device (standard Linux semantics) */
+/* Write a byte buffer to the TTY device. */
 size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size);
 
-/* Read a byte buffer from the TTY device (standard Linux semantics) */
+/* Read a byte buffer from the TTY device. */
 size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size);
 
 /* Poll TTY device for write readiness */

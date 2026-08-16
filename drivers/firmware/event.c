@@ -49,6 +49,7 @@ static void pm1_setup(void)
     pm1b_en = pm1b_sts ? pm1b_sts + evt_len / 2 : 0;
 }
 
+/* Read the PM1 status register. */
 uint16_t acpi_pm1_status(void)
 {
     uint16_t sts = inw(pm1a_sts);
@@ -56,6 +57,7 @@ uint16_t acpi_pm1_status(void)
     return sts;
 }
 
+/* Read the PM1 enable register. */
 uint16_t acpi_pm1_enable(void)
 {
     uint16_t en = inw(pm1a_en);
@@ -63,12 +65,14 @@ uint16_t acpi_pm1_enable(void)
     return en;
 }
 
+/* Clear the given PM1 status bits. */
 void acpi_pm1_status_clear(uint16_t bits)
 {
     outw(pm1a_sts, bits);
     if (pm1b_sts) outw(pm1b_sts, bits);
 }
 
+/* Set the given PM1 enable bits. */
 void acpi_pm1_enable_set(uint16_t bits)
 {
     outw(pm1a_en, bits);
@@ -91,9 +95,13 @@ static struct {
     [ACPI_EVENT_RTC]          = {.status_mask = ACPI_PM1_STS_RTC,    .enable_mask = ACPI_PM1_EN_RTC,    .name = "RTC"         },
 };
 
+/* Register a handler for a fixed ACPI event. */
 int acpi_register_fixed_event(uint8_t event, acpi_event_callback_t handler, void *context)
 {
-    if (event >= ACPI_NUM_FIXED_EVENTS) return -1;
+    if (event >= ACPI_NUM_FIXED_EVENTS) {
+        plogk("acpi-event: Invalid fixed event id %u\n", event);
+        return -1;
+    }
     fixed_events[event].handler = handler;
     fixed_events[event].context = context;
     return 0;
@@ -122,6 +130,7 @@ static struct {
         uint8_t  block1_base; // base GPE number
 } gpe_blocks;
 
+/* Decode the GPE block addresses from the FADT. */
 static void gpe_setup(void)
 {
     acpi_facp_t *f = get_acpi_facp();
@@ -144,6 +153,7 @@ static void gpe_setup(void)
     gpe_blocks.block1_base = f->gpe1_base;
 }
 
+/* Read the status register of the given GPE block. */
 uint8_t acpi_gpe_status(uint8_t block_index)
 {
     uint16_t addr = block_index ? gpe_blocks.block1_addr : gpe_blocks.block0_addr;
@@ -151,6 +161,7 @@ uint8_t acpi_gpe_status(uint8_t block_index)
     return inb(addr);
 }
 
+/* Clear a pending GPE status bit. */
 void acpi_gpe_status_clear(uint8_t block_index, uint8_t bit)
 {
     uint16_t addr = block_index ? gpe_blocks.block1_addr : gpe_blocks.block0_addr;
@@ -174,11 +185,18 @@ static int gpe_number_to_bit(uint8_t gpe, uint8_t *block, uint8_t *bit)
     return -1;
 }
 
+/* Register a handler for a GPE number. */
 int acpi_register_gpe(uint8_t gpe_number, acpi_event_callback_t handler, void *context)
 {
-    if (gpe_handler_count >= ACPI_MAX_GPE_HANDLERS) return -1;
+    if (gpe_handler_count >= ACPI_MAX_GPE_HANDLERS) {
+        plogk("acpi-event: Too many GPE handlers.\n");
+        return -1;
+    }
     uint8_t block, bit;
-    if (gpe_number_to_bit(gpe_number, &block, &bit)) return -1;
+    if (gpe_number_to_bit(gpe_number, &block, &bit)) {
+        plogk("acpi-event: GPE %u out of range.\n", gpe_number);
+        return -1;
+    }
 
     gpe_handlers[gpe_handler_count].gpe_number = gpe_number;
     gpe_handlers[gpe_handler_count].handler    = handler;
@@ -235,6 +253,7 @@ static void sci_handler(interrupt_frame_t *frame)
     dispatch_gpes();
 }
 
+/* Initialize the SCI interrupt and register the fixed-event callbacks. */
 int acpi_sci_init(void)
 {
     acpi_facp_t *f = get_acpi_facp();
@@ -259,8 +278,7 @@ int acpi_sci_init(void)
     return 0;
 }
 
-/* Poll entry (for systems without working SCI routing) */
-
+/* Poll and dispatch pending ACPI events. */
 void acpi_event_poll(void)
 {
     uint16_t sts = acpi_pm1_status();
@@ -282,8 +300,7 @@ static void power_button_handler(void *context)
     power_off();
 }
 
-/* Public initializer */
-
+/* Initialize the ACPI event subsystem. */
 void acpi_event_init(void)
 {
     acpi_facp_t *f = get_acpi_facp();

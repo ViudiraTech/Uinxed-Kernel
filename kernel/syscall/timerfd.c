@@ -41,6 +41,7 @@ static spinlock_t   timerfd_list_lock;
 
 #define TIMERFD_TICK_NS TIMER_TICK_NS
 
+/* Convert a timespec to timer ticks, validating the input */
 static int timerfd_timespec_to_ticks(const timerfd_timespec_t *ts, uint64_t *ticks)
 {
     if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000LL) return -EINVAL;
@@ -51,6 +52,7 @@ static int timerfd_timespec_to_ticks(const timerfd_timespec_t *ts, uint64_t *tic
     return EOK;
 }
 
+/* Convert timer ticks back to a timespec */
 static timerfd_timespec_t timerfd_ticks_to_timespec(uint64_t ticks)
 {
     timerfd_timespec_t ts = {
@@ -62,6 +64,7 @@ static timerfd_timespec_t timerfd_ticks_to_timespec(uint64_t ticks)
 
 /* VFS callback implementations */
 
+/* VFS open callback (no-op) */
 static void timerfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -69,6 +72,7 @@ static void timerfd_vfs_open(void *parent, const char *name, vfs_node_t node)
     (void)node;
 }
 
+/* VFS close callback: unlink the timer from the global list */
 static void timerfd_vfs_close(void *current)
 {
     timerfd_ctx_t *ctx = (timerfd_ctx_t *)current;
@@ -79,6 +83,7 @@ static void timerfd_vfs_close(void *current)
     spin_unlock(&timerfd_list_lock);
 }
 
+/* VFS read callback: consume the expiration count, blocking on empty */
 static size_t timerfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -112,6 +117,7 @@ static size_t timerfd_vfs_read(void *file, void *addr, size_t offset, size_t siz
     return sizeof(uint64_t);
 }
 
+/* VFS poll callback: report readability when the timer expired */
 static int timerfd_vfs_poll(void *file, size_t events)
 {
     timerfd_ctx_t *ctx = (timerfd_ctx_t *)file;
@@ -124,6 +130,7 @@ static int timerfd_vfs_poll(void *file, size_t events)
     return revents & (int)events;
 }
 
+/* File read entry: validate size then delegate to the read callback */
 static int64_t timerfd_vfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)private_data;
@@ -133,6 +140,7 @@ static int64_t timerfd_vfs_file_read(vfs_node_t node, void *private_data, uint64
     return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
 }
 
+/* VFS free callback: release the timerfd context */
 static int timerfd_vfs_free(void *handle)
 {
     timerfd_ctx_t *ctx = (timerfd_ctx_t *)handle;
@@ -143,11 +151,13 @@ static int timerfd_vfs_free(void *handle)
 
 /* Generic stubs */
 
+/* Unsupported unmount callback */
 static void timerfd_stub_unmount(void *root)
 {
     (void)root;
 }
 
+/* Unsupported stat callback */
 static int timerfd_stub_stat(void *f, vfs_node_t n)
 {
     (void)f;
@@ -155,6 +165,7 @@ static int timerfd_stub_stat(void *f, vfs_node_t n)
     return EOK;
 }
 
+/* Unsupported mkdir/mkfile/link/symlink callback */
 static int timerfd_stub_mk(void *p, const char *nm, vfs_node_t n)
 {
     (void)p;
@@ -163,6 +174,7 @@ static int timerfd_stub_mk(void *p, const char *nm, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported write callback */
 static size_t timerfd_stub_write(void *f, const void *a, size_t o, size_t s)
 {
     (void)f;
@@ -172,6 +184,7 @@ static size_t timerfd_stub_write(void *f, const void *a, size_t o, size_t s)
     return (size_t)-1;
 }
 
+/* Unsupported readlink callback */
 static size_t timerfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 {
     (void)n;
@@ -181,6 +194,7 @@ static size_t timerfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
     return (size_t)-1;
 }
 
+/* Unsupported ioctl callback */
 static int timerfd_stub_ioctl(void *f, size_t o, void *a)
 {
     (void)f;
@@ -189,12 +203,14 @@ static int timerfd_stub_ioctl(void *f, size_t o, void *a)
     return -ENOSYS;
 }
 
+/* Unsupported dup callback */
 static vfs_node_t timerfd_stub_dup(vfs_node_t n)
 {
     (void)n;
     return NULL;
 }
 
+/* Unsupported delete callback */
 static int timerfd_stub_del(void *p, vfs_node_t n)
 {
     (void)p;
@@ -202,12 +218,14 @@ static int timerfd_stub_del(void *p, vfs_node_t n)
     return -ENOSYS;
 }
 
+/* Unsupported rename callback */
 static int timerfd_stub_rename(const vfs_rename_context_t *context)
 {
     (void)context;
     return -ENOSYS;
 }
 
+/* Unsupported mount callback */
 static int timerfd_stub_mount(const char *s, vfs_node_t n)
 {
     (void)s;
@@ -217,6 +235,7 @@ static int timerfd_stub_mount(const char *s, vfs_node_t n)
 
 /* Public API */
 
+/* Allocate and initialize a timerfd VFS node */
 static vfs_node_t timerfd_node_create(int clockid, int flags)
 {
     if (timerfd_fsid < 0) return NULL;
@@ -253,6 +272,7 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
     return node;
 }
 
+/* timerfd_create syscall: create a timerfd descriptor */
 int sys_timerfd_create(int clockid, int flags)
 {
     if (clockid != CLOCK_REALTIME && clockid != CLOCK_MONOTONIC && clockid != CLOCK_BOOTTIME) return -EINVAL;
@@ -277,6 +297,7 @@ int sys_timerfd_create(int clockid, int flags)
     return fd;
 }
 
+/* timerfd_settime syscall: arm, reprogram, or disarm a timer */
 int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_value)
 {
     process_t *proc = process_current();
@@ -302,10 +323,6 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         process_file_put(file);
         return -EFAULT;
     }
-    /*
-     * CLOCK_REALTIME changes are not tracked yet, so cancellation cannot be
-     * reported correctly. Reject the flag instead of silently losing it.
-     */
     if (flags & TFD_TIMER_CANCEL_ON_SET) {
         process_file_put(file);
         return -EINVAL;
@@ -343,13 +360,7 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         spin_lock(&ctx->lock);
     }
 
-    /*
-     * Reprogramming a timerfd discards expirations from the previous timer.
-     * libwayland deliberately does not read its timer-heap timerfd: after an
-     * EPOLLIN it dispatches due timers and calls timerfd_settime() to arm the
-     * next deadline (or disarm it).  Leaving expire_count set makes that fd
-     * permanently readable and traps Weston in an epoll/settime busy loop.
-     */
+    /* Reprogramming discards expirations from the previous timer. */
     ctx->expire_count = 0;
     ctx->interval_ns  = interval_ticks;
     if (!value_ticks) {
@@ -367,6 +378,7 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
     return EOK;
 }
 
+/* timerfd_gettime syscall: read the current timer state */
 int sys_timerfd_gettime(int fd, void *curr_value)
 {
     process_t *proc = process_current();
@@ -405,6 +417,7 @@ int sys_timerfd_gettime(int fd, void *curr_value)
     return EOK;
 }
 
+/* Periodic tick: fire expired timers and publish readiness */
 void timerfd_tick(void)
 {
     if (get_current_cpu_id() != 0) return;
@@ -428,12 +441,8 @@ void timerfd_tick(void)
                 ctx->expire_count += expirations;
             spin_unlock(&ctx->lock);
             wait_queue_wake_all(&ctx->wq);
-            /*
-             * libwayland registers its compositor timerfd in epoll.  A
-             * wait-queue wake only reaches a task blocked directly in
-             * read(); publish readiness to VFS subscribers so Weston wakes
-             * for its scheduled output repaint.
-             */
+
+            /* Publish readiness to VFS subscribers, not just direct waiters. */
             vfs_poll_notify(ctx->node, 0x001U);
             continue;
         }
@@ -442,6 +451,7 @@ void timerfd_tick(void)
     spin_unlock(&timerfd_list_lock);
 }
 
+/* Register the timerfd filesystem callback set */
 void timerfd_init(void)
 {
     ilist_init(&timerfd_list);

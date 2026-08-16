@@ -92,6 +92,7 @@ static uint32_t epoll_map_poll_result(int poll_result, uint32_t requested)
     return revents & (requested | EPOLLERR | EPOLLHUP);
 }
 
+/* Notify the epoll instance that a watched fd became ready. */
 static void epoll_item_notify(vfs_poll_subscription_t *subscription, uint32_t events)
 {
     epoll_item_t *item = subscription->context;
@@ -109,6 +110,7 @@ static void epoll_item_notify(vfs_poll_subscription_t *subscription, uint32_t ev
     }
 }
 
+/* Handle closure of a watched fd by publishing EPOLLHUP. */
 static void epoll_target_close(vfs_poll_subscription_t *subscription, uint32_t events)
 {
     (void)events;
@@ -307,6 +309,7 @@ static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_event
 
 /* VFS callbacks */
 
+/* VFS open callback; epoll nodes carry no name-based open state. */
 static void epoll_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;

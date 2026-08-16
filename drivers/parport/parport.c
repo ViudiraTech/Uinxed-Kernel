@@ -83,7 +83,6 @@ parport_t *parport_get(int index)
 
     spin_lock(&parport_lock);
     for (p = parport_list; p && i < index; p = p->next) i++;
-    if (p) p = p; // keep address
     spin_unlock(&parport_lock);
     return p;
 }
@@ -114,27 +113,32 @@ parport_t *parport_find_by_number(int number)
 
 /* port access */
 
+/* Read the data register through the port's accessor. */
 uint8_t parport_read_data(parport_t *p)
 {
     return p && p->read_data ? p->read_data(p) : 0;
 }
 
+/* Write the data register through the port's accessor. */
 void parport_write_data(parport_t *p, uint8_t v)
 {
     if (p && p->write_data) p->write_data(p, v);
 }
 
+/* Read the status register through the port's accessor. */
 uint8_t parport_read_status(parport_t *p)
 {
     return p && p->read_status ? p->read_status(p) : 0;
 }
 
+/* Read the control register, falling back to the cached value. */
 uint8_t parport_read_control(parport_t *p)
 {
     if (p && p->read_control) return p->read_control(p);
     return p ? p->control : 0;
 }
 
+/* Write and cache the control register value. */
 void parport_write_control(parport_t *p, uint8_t v)
 {
     if (!p) return;
@@ -142,6 +146,7 @@ void parport_write_control(parport_t *p, uint8_t v)
     if (p->write_control) p->write_control(p, v);
 }
 
+/* Modify a subset of control bits. */
 void parport_frob_control(parport_t *p, uint8_t mask, uint8_t v)
 {
     if (!p) return;
@@ -152,6 +157,7 @@ void parport_frob_control(parport_t *p, uint8_t mask, uint8_t v)
     parport_write_control(p, (parport_read_control(p) & ~mask) | (v & mask));
 }
 
+/* Switch the data lines between forward and reverse direction. */
 void parport_data_reverse(parport_t *p, bool reverse)
 {
     if (!p) return;

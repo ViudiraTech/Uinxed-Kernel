@@ -197,9 +197,6 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
 /* Tear down a virtqueue previously set up with vp_setup_vq */
 void vp_del_vq(struct vp_virtqueue *vq);
 
-/* Notify the device that new descriptors are available */
-void vp_notify(struct vp_virtqueue *vq);
-
 /* Read `len` bytes of device configuration space */
 void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len);
 

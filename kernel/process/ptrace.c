@@ -49,14 +49,7 @@ typedef struct ptrace_user_area {
 _Static_assert(offsetof(ptrace_user_area_t, debug_regs) == PTRACE_USER_DEBUGREG_OFFSET, "Linux x86-64 struct user debug-register offset");
 _Static_assert(sizeof(ptrace_user_area_t) == PTRACE_USER_AREA_SIZE, "Linux x86-64 struct user size");
 
-/*
- * Overview
- * ptrace.c implements the x86-64 Linux PTRACE ABI: attaching to a
- * target task, trapping syscall entry/exit, single-stepping through
- * the debug registers, and reading/writing the tracee's registers,
- * memory and FPU state.
- */
-
+/* Find a task by PID, returning its owning process */
 static task_t *ptrace_find_task_get(int64_t pid, process_t **owner)
 {
     if (owner) *owner = NULL;
@@ -128,16 +121,19 @@ void ptrace_regs_to_frame(syscall_frame_t *frame, const ptrace_user_regs_t *regs
     frame->ss = 0x23;
 }
 
+/* Encode a wait status from a signal and event */
 int ptrace_wait_status(int sig, uint32_t event)
 {
     return ((sig & 0xff) << 8) | 0x7f | ((int)event << 16);
 }
 
+/* Return the SIGTRAP to report for a syscall stop */
 int ptrace_syscall_stop_signal(uint32_t options)
 {
     return SIGTRAP | ((options & PTRACE_O_TRACESYSGOOD) ? 0x80 : 0);
 }
 
+/* Return the PID of the tracer attached to a task */
 int64_t ptrace_tracer_pid(const task_t *task)
 {
     if (!task) return 0;
@@ -161,11 +157,13 @@ static int ptrace_attached_by_current(task_t *target)
     return ptrace_tracer_pid(target) == (int64_t)current->pid;
 }
 
+/* Save the current FPU state into a buffer */
 static void ptrace_fpu_save(void *area)
 {
     __asm__ volatile("fxsave64 (%0)" : : "r"(area) : "memory");
 }
 
+/* Restore the FPU state from a buffer */
 static void ptrace_fpu_restore(const void *area)
 {
     __asm__ volatile("fxrstor64 (%0)" : : "r"(area) : "memory");
@@ -200,6 +198,7 @@ static void ptrace_debug_restore(const task_t *task)
     __asm__ volatile("mov %0, %%dr7" : : "r"(dr7));
 }
 
+/* Save/restore debug registers across a task switch */
 void ptrace_arch_switch(task_t *previous, task_t *next)
 {
     int previous_active = previous && previous->ptrace.debug_regs[7];

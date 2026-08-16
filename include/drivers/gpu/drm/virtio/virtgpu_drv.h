@@ -354,7 +354,7 @@ struct virtio_gpu_resp_map_info {
 #define VIRTIO_GPU_BLOB_FLAG_USE_SHAREABLE    (1 << 1)
 #define VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE (1 << 2)
 
-/* DRM UAPI - ioctl codes (match Linux virtgpu_drm.h exactly) */
+/* DRM UAPI ioctl codes. */
 
 #define DRM_VIRTGPU_MAP                  0x01
 #define DRM_VIRTGPU_EXECBUFFER           0x02
@@ -734,7 +734,7 @@ int  virtgpu_kms_get_modes(struct drm_connector *connector);
  *
  *   DRM_FORMAT_XRGB8888 -> VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM  (2)
  *   DRM_FORMAT_ARGB8888 -> VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM  (1)
- * Scanout only exposes the two Linux virtgpu 2D plane formats.  Other
+ * Scanout only exposes the two VirtIO GPU 2D plane formats.  Other
  * formats need a negotiated 3D path and must not be silently reinterpreted.
  *
  * Returns the VirtIO GPU format code, or 0 if unsupported.

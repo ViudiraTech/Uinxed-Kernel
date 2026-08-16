@@ -144,6 +144,23 @@ menu "Process management"
     help
       Default user-space stack size for newly created processes.
 
+  config INIT_PATH
+    string "Default init program path"
+    default ""
+    help
+      Default path to the init program executed as PID 1. If set, the
+      kernel tries this path after any `init=` boot parameter and before
+      the conventional /sbin/init, /etc/init, /bin/init and /bin/sh
+      locations. Leave empty to disable this fallback.
+
+  config INIT_MODULE
+    bool "Bootloader init module fallback"
+    default n
+    help
+      Fall back to the bootloader-supplied "init" module when no other init
+      program can be loaded. Disabled by default; enable only when booting
+      with a bootloader that provides an init module.
+
 endmenu
 
 menu "IPC (Inter-Process Communication)"

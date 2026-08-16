@@ -135,7 +135,7 @@ void sysfs_remove_dir(struct kobject *kobj);
 
 /* Register sysfs with the VFS layer and mount at /sys */
 void sysfs_regist(void);
-int  sysfs_init(void);
+int  sysfs_kobject_init(void);
 
 /* Internal: remove all attribute files and symlinks under a kobject */
 void sysfs_cleanup_kobject_files(struct kobject *kobj);

@@ -57,11 +57,13 @@ static const audio_card_ops_t sb16_audio_ops = {
     .set_params   = sb16_audio_set_params,
 };
 
+/* Read a byte from an SB16 I/O port. */
 static inline uint8_t sb16_inb(uint16_t port)
 {
     return inb(port);
 }
 
+/* Write a byte to an SB16 I/O port. */
 static inline void sb16_outb(uint16_t port, uint8_t val)
 {
     outb(port, val);
@@ -181,6 +183,8 @@ int sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor)
 }
 
 /* Mixer */
+
+/* Read a mixer register. */
 uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg)
 {
     sb16_outb(dev->base + SB16_MIXER_ADDR, reg);
@@ -234,6 +238,8 @@ void sb16_set_input_source(sb16_device_t *dev, uint8_t source)
 }
 
 /* Sample rate setting */
+
+/* Set the 8-bit sample rate via the DSP. */
 int sb16_set_rate8(sb16_device_t *dev, uint16_t rate)
 {
     if (rate < 4000) rate = 4000;
@@ -254,6 +260,8 @@ int sb16_set_rate16(sb16_device_t *dev, uint16_t rate)
 }
 
 /* Playback */
+
+/* Play one 8-bit DMA buffer through the DSP. */
 int sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
 {
     if (!dev->detected || !buffer || !size) return -1;
@@ -297,13 +305,14 @@ int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
 }
 
 /* Capture */
+
+/* Capture one 8-bit DMA buffer from the DSP. */
 int sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
 {
     if (!dev->detected || !buffer || !size) return -1;
     if (size > dev->dma_buffer_size) return -1;
 
     sb16_dma_program(dev->dma8, dev->dma_buffer_phys, size, 0x44);
-
     if (sb16_set_rate8(dev, dev->sample_rate)) return -1;
 
     uint16_t block = (uint16_t)(size - 1);
@@ -336,7 +345,6 @@ int sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     if (size > dev->dma_buffer_size) return -1;
 
     sb16_dma_program(dev->dma16, dev->dma_buffer_phys, size, 0x44);
-
     if (sb16_set_rate16(dev, dev->sample_rate)) return -1;
 
     uint16_t words = (uint16_t)(size / 2 - 1);
@@ -371,6 +379,8 @@ void sb16_stop(sb16_device_t *dev)
 }
 
 /* Audio subsystem callbacks */
+
+/* audio callback: start playback. */
 static int sb16_audio_start(audio_card_t *card)
 {
     (void)card;
@@ -421,9 +431,7 @@ static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offs
     if (!dev || !dev->detected || !addr || !size) return 0;
 
     spin_lock(&sb16_lock);
-
     size_t chunk = (size > dev->dma_buffer_size) ? dev->dma_buffer_size : size;
-
     if (card->format.bits == 16) {
         if (sb16_play_16bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
             plogk("sb16: Playback start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
@@ -451,9 +459,7 @@ static size_t sb16_audio_read(audio_card_t *card, void *addr, size_t offset, siz
     if (!dev || !dev->detected || !addr || !size) return 0;
 
     spin_lock(&sb16_lock);
-
     size_t chunk = (size > dev->dma_buffer_size) ? dev->dma_buffer_size : size;
-
     if (card->format.bits == 16) {
         if (sb16_capture_16bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
             plogk("sb16: Capture start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
@@ -543,6 +549,7 @@ static int sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
     return EOK;
 }
 
+/* audio callback: report the hardware position (no register available). */
 static int sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
 {
     (void)card;
@@ -554,6 +561,8 @@ static int sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
 }
 
 /* Detection and initialization */
+
+/* Probe the legacy ports and detect the DSP. */
 int sb16_detect(sb16_device_t *dev)
 {
     for (size_t i = 0; i < sizeof(sb16_ports) / sizeof(sb16_ports[0]); i++) {
@@ -588,13 +597,13 @@ void sb16_beep(uint16_t freq, uint32_t ms)
     for (uint32_t i = 0; i < samples; i++) buf[i] = (i % period) < (period / 2) ? 200 : 55;
 
     sb16_play_8bit(&sb16_dev, buf, buf_size);
-
     msleep(ms);
 
     sb16_stop(&sb16_dev);
     free(buf);
 }
 
+/* Initialize the card and register it with the audio subsystem. */
 void sb16_init(void)
 {
     memset(&sb16_dev, 0, sizeof(sb16_device_t));
@@ -605,9 +614,15 @@ void sb16_init(void)
         sb16_dev.irq   = SB16_IRQ_5;
         sb16_dev.dma8  = SB16_DMA8;
         sb16_dev.dma16 = SB16_DMA16;
-        if (sb16_dsp_reset(&sb16_dev)) return;
+        if (sb16_dsp_reset(&sb16_dev)) {
+            plogk("sb16: DSP reset failed at port 0x%x\n", sb16_dev.base);
+            return;
+        }
         uint8_t major = 0, minor = 0;
-        if (sb16_dsp_version(&sb16_dev, &major, &minor)) return;
+        if (sb16_dsp_version(&sb16_dev, &major, &minor)) {
+            plogk("sb16: DSP version query failed at port 0x%x\n", sb16_dev.base);
+            return;
+        }
         plogk("sb16: DSP version %u.%u at port 0x%x\n", major, minor, sb16_dev.base);
         sb16_dev.detected = 1;
     }
@@ -642,6 +657,7 @@ void sb16_init(void)
 }
 
 #else
+/* Disabled build: no-op. */
 void sb16_init(void)
 {
 }

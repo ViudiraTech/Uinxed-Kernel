@@ -116,6 +116,7 @@ static module_signature_verifier_t signature_verifier;
 
 /* Overflow-checked helpers used throughout module metadata parsing */
 
+/* Add two sizes, checking for overflow */
 static int size_add(size_t left, size_t right, size_t *result)
 {
     if (right > SIZE_MAX - left) return -EOVERFLOW;
@@ -123,6 +124,7 @@ static int size_add(size_t left, size_t right, size_t *result)
     return EOK;
 }
 
+/* Align a size upward, checking for overflow */
 static int align_size(size_t value, size_t alignment, size_t *result)
 {
     if (!alignment) alignment = 1;
@@ -132,11 +134,13 @@ static int align_size(size_t value, size_t alignment, size_t *result)
     return EOK;
 }
 
+/* Whether a range lies within the module image bounds */
 static int image_range_valid(size_t offset, size_t length, size_t total)
 {
     return offset <= total && length <= total - offset;
 }
 
+/* Whether a string is NUL-terminated within the given length */
 static int string_bounded(const char *string, size_t available)
 {
     if (!string) return 0;
@@ -145,6 +149,7 @@ static int string_bounded(const char *string, size_t available)
     return 0;
 }
 
+/* Copy a length-bounded string into a NUL-terminated allocation */
 static char *duplicate_range(const char *value, size_t length)
 {
     char *copy = malloc(length + 1);
@@ -154,6 +159,7 @@ static char *duplicate_range(const char *value, size_t length)
     return copy;
 }
 
+/* Return the name of a section, or NULL when invalid */
 static const char *section_name(const module_elf_view_t *view, size_t index)
 {
     if (!view || index >= view->section_count || view->section_name_index == SHN_UNDEF) return NULL;
@@ -164,6 +170,7 @@ static const char *section_name(const module_elf_view_t *view, size_t index)
     return string_bounded(name, strings->sh_size - offset) ? name : NULL;
 }
 
+/* Locate a section by name */
 static const Elf64_Shdr *find_section(const module_elf_view_t *view, const char *wanted, size_t *index_out)
 {
     for (size_t index = 0; index < view->section_count; index++) {
@@ -176,6 +183,7 @@ static const Elf64_Shdr *find_section(const module_elf_view_t *view, const char 
     return NULL;
 }
 
+/* Find the occurrence-th value of a .modinfo key */
 static const char *modinfo_find(const module_elf_view_t *view, const char *key, size_t occurrence, size_t *length_out)
 {
     const Elf64_Shdr *section = find_section(view, ".modinfo", NULL);
@@ -200,6 +208,7 @@ static const char *modinfo_find(const module_elf_view_t *view, const char *key, 
     return NULL;
 }
 
+/* Copy a .modinfo value into a fresh allocation */
 static char *copy_modinfo(const module_elf_view_t *view, const char *key)
 {
     size_t      length = 0;
@@ -207,6 +216,7 @@ static char *copy_modinfo(const module_elf_view_t *view, const char *key)
     return value ? duplicate_range(value, length) : NULL;
 }
 
+/* Validate a module name against the allowed charset and length */
 static int module_name_valid(const char *name)
 {
     if (!name || !name[0]) return 0;
@@ -218,6 +228,7 @@ static int module_name_valid(const char *name)
     return length != 0;
 }
 
+/* Return the human-readable name of a module state */
 const char *module_state_name(enum module_state state)
 {
     switch (state) {
@@ -362,6 +373,7 @@ struct kobject *module_sysfs_object(const struct module *module)
     return internal ? module_sysfs_kobj(internal->sysfs) : NULL;
 }
 
+/* Whether a module license permits GPL-only symbols */
 static int license_gpl_compatible(const char *license)
 {
     static const char *compatible[] = {
@@ -373,6 +385,7 @@ static int license_gpl_compatible(const char *license)
     return 0;
 }
 
+/* Find a loaded module by name, with module_lock held */
 static module_internal_t *module_find_locked(const char *name)
 {
     for (module_internal_t *item = module_list; item; item = item->next)
@@ -380,12 +393,14 @@ static module_internal_t *module_find_locked(const char *name)
     return NULL;
 }
 
+/* Acquire the module operation lock for a load/unload */
 static int operation_begin(void)
 {
     uint32_t expected = 0;
     return __atomic_compare_exchange_n(&module_operation, &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE) ? EOK : -EBUSY;
 }
 
+/* Release the module operation lock */
 static void operation_end(void)
 {
     __atomic_store_n(&module_operation, 0, __ATOMIC_RELEASE);
@@ -397,6 +412,7 @@ static void operation_end(void)
  * the count drops to zero so an unloader can proceed safely.
  */
 
+/* Return a module's current refcount */
 uint32_t module_refcount(const struct module *module)
 {
     return module ? __atomic_load_n(&module->refcount, __ATOMIC_ACQUIRE) : 0;
@@ -417,6 +433,7 @@ int try_module_get(struct module *module)
     return 0;
 }
 
+/* Unconditionally bump a module's refcount */
 void __module_get(struct module *module)
 {
     if (!module) return;
@@ -440,6 +457,7 @@ void module_put(struct module *module)
     }
 }
 
+/* Find a live module and take a reference on it */
 struct module *module_find_get(const char *name)
 {
     if (!name) return NULL;
@@ -451,12 +469,14 @@ struct module *module_find_get(const char *name)
     return result;
 }
 
+/* Whether an address range lies within a module's mapping */
 static int address_in_module(const module_internal_t *internal, uintptr_t address, size_t size)
 {
     if (!internal || address < internal->base || size > internal->mapped_size) return 0;
     return address - internal->base <= internal->mapped_size - size;
 }
 
+/* Whether a module imports a given symbol namespace */
 static int module_imports_namespace(const module_internal_t *internal, const char *namespace_name)
 {
     if (!namespace_name || !namespace_name[0]) return 1;
@@ -473,6 +493,7 @@ static int module_imports_namespace(const module_internal_t *internal, const cha
     return 0;
 }
 
+/* Record a dependency between two modules, taking a reference */
 static int dependency_add(module_internal_t *consumer, struct module *owner)
 {
     if (!owner || owner == consumer->module) return EOK;
@@ -493,6 +514,7 @@ static int dependency_add(module_internal_t *consumer, struct module *owner)
     return EOK;
 }
 
+/* Whether a symbol is usable by a module (license and namespace) */
 static int symbol_usable(module_internal_t *consumer, const struct kernel_symbol *symbol)
 {
     if (!symbol || !symbol->name || !symbol->value) return 0;
@@ -501,6 +523,7 @@ static int symbol_usable(module_internal_t *consumer, const struct kernel_symbol
     return 1;
 }
 
+/* Resolve an exported symbol against the kernel and loaded modules */
 static int resolve_export(module_internal_t *consumer, const char *name, uint64_t *value, struct module **owner_out)
 {
     for (const struct kernel_symbol *symbol = __start___ksymtab; symbol < __stop___ksymtab; symbol++) {
@@ -536,6 +559,7 @@ static int resolve_export(module_internal_t *consumer, const char *name, uint64_
     return -ENOENT;
 }
 
+/* Look up an exported symbol and take a reference on its owner */
 void *module_symbol_get(const char *name, struct module **owner)
 {
     if (!name) return NULL;
@@ -559,11 +583,13 @@ void *module_symbol_get(const char *name, struct module **owner)
     return NULL;
 }
 
+/* Release a reference obtained via module_symbol_get */
 void module_symbol_put(struct module *owner)
 {
     module_put(owner);
 }
 
+/* Append a namespace to the module's import list */
 static int append_import(module_internal_t *internal, const char *value, size_t length)
 {
     size_t old_length = internal->imports ? strlen(internal->imports) : 0;
@@ -578,6 +604,7 @@ static int append_import(module_internal_t *internal, const char *value, size_t 
     return EOK;
 }
 
+/* Parse .modinfo and validate name, license and signature */
 static int prepare_metadata(module_internal_t *internal, const module_elf_view_t *view, unsigned int flags, const char *name_hint)
 {
     size_t      length     = 0;
@@ -639,6 +666,7 @@ static int prepare_metadata(module_internal_t *internal, const module_elf_view_t
     return EOK;
 }
 
+/* Load the modules declared in .modinfo depends */
 static int load_declared_dependencies(module_internal_t *internal, const module_elf_view_t *view)
 {
     size_t      length  = 0;
@@ -669,6 +697,7 @@ static int load_declared_dependencies(module_internal_t *internal, const module_
     return result;
 }
 
+/* Drop every dependency reference held by a module */
 static void release_dependencies(module_internal_t *internal)
 {
     module_dependency_t *dependency = internal->dependencies;
@@ -688,6 +717,7 @@ static void release_dependencies(module_internal_t *internal)
  * their pages can be freed after module init runs.
  */
 
+/* Lay out allocatable sections into a contiguous virtual region */
 static int layout_sections(module_internal_t *internal, const module_elf_view_t *view)
 {
     internal->sections = calloc(view->section_count, sizeof(*internal->sections));
@@ -792,6 +822,7 @@ static int map_sections(module_internal_t *internal, const module_elf_view_t *vi
  * the kernel's export table and the module's own definitions.
  */
 
+/* Return the operand width of a relocation type */
 static size_t relocation_width(uint32_t type)
 {
     switch (type) {
@@ -818,6 +849,7 @@ static size_t relocation_width(uint32_t type)
     }
 }
 
+/* Read a symbol's name from its symbol table's string table */
 static int symbol_name_at(const module_elf_view_t *view, const Elf64_Shdr *symbols, const Elf64_Sym *symbol, const char **name_out)
 {
     if (symbols->sh_link >= view->section_count) return -ENOEXEC;
@@ -829,6 +861,7 @@ static int symbol_name_at(const module_elf_view_t *view, const Elf64_Shdr *symbo
     return EOK;
 }
 
+/* Resolve an ELF symbol to its runtime value */
 static int resolve_elf_symbol(module_internal_t *internal, const module_elf_view_t *view, const Elf64_Shdr *symbols, const Elf64_Sym *symbol, uint64_t *value_out)
 {
     const char *name = NULL;
@@ -858,6 +891,7 @@ static int resolve_elf_symbol(module_internal_t *internal, const module_elf_view
     return EOK;
 }
 
+/* Apply every RELA relocation in the module */
 static int relocate_module(module_internal_t *internal, const module_elf_view_t *view)
 {
     for (size_t section_index = 0; section_index < view->section_count; section_index++) {
@@ -892,6 +926,7 @@ static int relocate_module(module_internal_t *internal, const module_elf_view_t 
     return EOK;
 }
 
+/* Whether a page is mapped into the module's region */
 static int module_page_mapped(const module_internal_t *internal, uintptr_t address)
 {
     if (address < internal->base || address - internal->base >= internal->mapped_size) return 0;
@@ -899,6 +934,7 @@ static int module_page_mapped(const module_internal_t *internal, uintptr_t addre
     return index < internal->page_count && internal->frames[index] != 0;
 }
 
+/* Whether an address range is fully mapped into the module */
 static int module_range_mapped(const module_internal_t *internal, uintptr_t address, size_t size)
 {
     if (!address_in_module(internal, address, size)) return 0;
@@ -911,6 +947,7 @@ static int module_range_mapped(const module_internal_t *internal, uintptr_t addr
     return 1;
 }
 
+/* Whether a pointer names a valid, bounded module string */
 static int module_string_valid(const module_internal_t *internal, const char *string)
 {
     uintptr_t address = (uintptr_t)string;
@@ -924,6 +961,7 @@ static int module_string_valid(const module_internal_t *internal, const char *st
     return 0;
 }
 
+/* Locate the module's init_module/cleanup_module entry points */
 static int find_lifecycle(module_internal_t *internal, const module_elf_view_t *view)
 {
     const Elf64_Shdr *symbols = NULL;
@@ -951,6 +989,7 @@ static int find_lifecycle(module_internal_t *internal, const module_elf_view_t *
     return EOK;
 }
 
+/* Validate the module's __ksymtab exports for collisions */
 static int validate_exports(module_internal_t *internal, const module_elf_view_t *view)
 {
     size_t            section_index = 0;
@@ -987,6 +1026,7 @@ static int validate_exports(module_internal_t *internal, const module_elf_view_t
     return EOK;
 }
 
+/* Parse an unsigned parameter value in decimal/hex/octal */
 static int parse_unsigned_value(const char *value, uint64_t *result)
 {
     if (!value || !value[0] || value[0] == '-') return -EINVAL;
@@ -1020,6 +1060,7 @@ static int parse_unsigned_value(const char *value, uint64_t *result)
     return EOK;
 }
 
+/* Parse a signed parameter value */
 static int parse_signed_value(const char *value, int64_t *result)
 {
     if (!value || !value[0]) return -EINVAL;
@@ -1032,6 +1073,7 @@ static int parse_signed_value(const char *value, int64_t *result)
     return EOK;
 }
 
+/* Assign a parsed value to a kernel parameter slot */
 static int set_parameter(module_internal_t *internal, const struct kernel_param *parameter, const char *value)
 {
     if (!module_string_valid(internal, parameter->name) || !module_range_mapped(internal, (uintptr_t)parameter->arg, 1)) return -ENOEXEC;
@@ -1099,6 +1141,7 @@ static int set_parameter(module_internal_t *internal, const struct kernel_param 
     }
 }
 
+/* Parse the next name=value parameter token */
 static int tokenize_parameter(char **cursor_ptr, char **name_out, char **value_out)
 {
     char *cursor = *cursor_ptr;
@@ -1143,6 +1186,7 @@ static int tokenize_parameter(char **cursor_ptr, char **name_out, char **value_o
     return 1;
 }
 
+/* Parse and apply the module's __param section */
 static int apply_parameters(module_internal_t *internal, const module_elf_view_t *view, const char *arguments)
 {
     size_t            section_index = 0;
@@ -1202,6 +1246,7 @@ static int apply_parameters(module_internal_t *internal, const module_elf_view_t
     return result;
 }
 
+/* Apply final page permissions to a module's sections */
 static int protect_module(module_internal_t *internal, int after_init)
 {
     for (size_t section = 0; section < internal->section_count; section++) {
@@ -1222,6 +1267,7 @@ static int protect_module(module_internal_t *internal, int after_init)
     return EOK;
 }
 
+/* Destroy a module's sysfs object */
 static void module_sysfs_teardown(module_internal_t *internal)
 {
     module_sysfs_t *entry = internal->sysfs;
@@ -1230,6 +1276,7 @@ static void module_sysfs_teardown(module_internal_t *internal)
     module_sysfs_destroy(entry);
 }
 
+/* Unlink a module from the loaded-module registry */
 static void remove_registry(module_internal_t *internal)
 {
     uint64_t            irq  = spin_lock_irqsave(&module_lock);
@@ -1245,6 +1292,7 @@ static void remove_registry(module_internal_t *internal)
     spin_unlock_irqrestore(&module_lock, irq);
 }
 
+/* Free every resource owned by a module's internal state */
 static void destroy_internal(module_internal_t *internal)
 {
     if (!internal) return;

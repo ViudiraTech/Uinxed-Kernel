@@ -8,8 +8,10 @@
  *
  */
 
+#include <drivers/base/device.h>
 #include <drivers/sound/core/audio.h>
 #include <fs/core/vfs.h>
+#include <fs/devtmpfs/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
@@ -26,7 +28,7 @@ static char                audio_node_names[MAX_NODES][24];
 static size_t              audio_cards_count;
 static size_t              audio_nodes_count;
 
-/* Node name helpers */
+/* Return the tmpfs node name suffix for a node type. */
 static const char *audio_node_suffix(audio_node_type_t type)
 {
     switch (type) {
@@ -67,6 +69,16 @@ static int audio_add_node(audio_card_t *card, audio_node_type_t type)
     node->tmpfs_ops.ioctl      = audio_device_ioctl;
     node->tmpfs_ops.ctx        = node;
 
+    /* Publish the /dev/snd node dynamically. */
+    char     dev_path[64];
+    uint64_t devt = MKDEV(SND_DEV_MAJOR, (uint32_t)audio_nodes_count);
+    (void)snprintf(dev_path, sizeof(dev_path), "/dev/snd/%s", node->name);
+    int status = devtmpfs_register_char_device(dev_path, devt, devt, file_audio | file_stream, &node->tmpfs_ops);
+    if (status != EOK) {
+        plogk("audio: Failed to register %s: %d\n", dev_path, status);
+        return status;
+    }
+
     audio_nodes_count++;
     return EOK;
 }
@@ -82,7 +94,7 @@ static void audio_fill_info(audio_card_t *card, audio_card_info_t *info)
     info->name[sizeof(info->name) - 1] = '\0';
 }
 
-/* Registration */
+/* Register an audio card and create its device nodes. */
 int audio_register_card(const char *name, const audio_pcm_format_t *format, const audio_card_ops_t *ops, void *driver_data)
 {
     audio_card_t *card;
@@ -122,22 +134,26 @@ rollback:
     return status;
 }
 
+/* Return the card at the given index, or NULL. */
 audio_card_t *audio_get_card(uint32_t card)
 {
     if (card >= audio_cards_count) return 0;
     return &audio_cards[card];
 }
 
+/* Return the number of registered cards. */
 size_t audio_card_count(void)
 {
     return audio_cards_count;
 }
 
+/* Return the number of device nodes. */
 size_t audio_device_node_count(void)
 {
     return audio_nodes_count;
 }
 
+/* Return the device node at the given index, or NULL. */
 audio_device_node_t *audio_get_device_node(size_t index)
 {
     if (index >= audio_nodes_count) return 0;
@@ -145,6 +161,7 @@ audio_device_node_t *audio_get_device_node(size_t index)
 }
 
 /* PCM Ring Buffer */
+/* Allocate and initialize the ring buffer for the given frame count. */
 int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames)
 {
     size_t fb    = (size_t)(pf->fmt.bits / 8) * pf->fmt.channels;
@@ -172,6 +189,7 @@ int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames)
     return EOK;
 }
 
+/* Free the ring buffer backing memory. */
 void pcm_ring_buffer_destroy(audio_pcm_file_t *pf)
 {
     if (pf->ring_buf) free(pf->ring_buf);
@@ -179,6 +197,7 @@ void pcm_ring_buffer_destroy(audio_pcm_file_t *pf)
     pf->ring_buf_size = 0;
 }
 
+/* Return the byte count of one interleaved frame. */
 static size_t frame_bytes(const audio_pcm_format_t *fmt)
 {
     return (size_t)(fmt->bits / 8) * fmt->channels;
@@ -199,6 +218,7 @@ snd_pcm_sframes_t pcm_ring_buffer_space(audio_pcm_file_t *pf)
     return (snd_pcm_sframes_t)(pf->boundary - pcm_ring_buffer_avail(pf) - 1);
 }
 
+/* Advance the hardware pointer by the given frame count. */
 void pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_uframes_t frames)
 {
     pf->hw_ptr = (pf->hw_ptr + frames) % pf->boundary;
@@ -252,7 +272,7 @@ size_t pcm_ring_buffer_read_frames(audio_pcm_file_t *pf, void *data, size_t fram
     return to_copy;
 }
 
-/* Software additive mixer */
+/* Add src into dst with s16 clamping. */
 size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames, unsigned int channels)
 {
     size_t total = frames * channels;
@@ -301,6 +321,7 @@ static void audio_pcm_destroy(audio_pcm_file_t *pf)
 }
 
 /* file_open / file_release */
+/* Create a per-open PCM file state for a device node. */
 int audio_file_open(vfs_node_t vnode, uint64_t flags, void **private_data)
 {
     (void)flags;
@@ -317,6 +338,7 @@ int audio_file_open(vfs_node_t vnode, uint64_t flags, void **private_data)
     return EOK;
 }
 
+/* Destroy the per-open PCM file state. */
 void audio_file_release(vfs_node_t node, void *private_data)
 {
     (void)node;
@@ -324,6 +346,7 @@ void audio_file_release(vfs_node_t node, void *private_data)
 }
 
 /* Per-open PCM read/write (file_*) */
+/* Read from the control/mixer node or drain the capture ring. */
 int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -387,6 +410,7 @@ int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags, void *add
     return (int64_t)(ret * fb);
 }
 
+/* Write PCM data into the playback ring. */
 int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -455,7 +479,7 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
     return (int64_t)(ret * fb);
 }
 
-/* file_poll */
+/* Poll the PCM file for ready events. */
 int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
 {
     (void)ctx;
@@ -811,6 +835,8 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
 }
 
 /* Legacy device callbacks (backward compat) */
+
+/* Read device-node data through a transient PCM file. */
 size_t audio_device_read(void *ctx, void *addr, size_t offset, size_t size)
 {
     audio_device_node_t *node = ctx;

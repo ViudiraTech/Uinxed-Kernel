@@ -64,16 +64,19 @@ typedef uint64_t sigset_t;
 
 #define _SIGSET_NWORDS 1
 
+/* Clear every signal in the set. */
 static inline void sigemptyset(sigset_t *set)
 {
     *set = 0;
 }
 
+/* Set every signal in the set. */
 static inline void sigfillset(sigset_t *set)
 {
     *set = ~(uint64_t)0;
 }
 
+/* Add a signal to the set. */
 static inline int sigaddset(sigset_t *set, int signo)
 {
     if (signo <= 0 || signo >= NSIG) return -1;
@@ -81,6 +84,7 @@ static inline int sigaddset(sigset_t *set, int signo)
     return 0;
 }
 
+/* Remove a signal from the set. */
 static inline int sigdelset(sigset_t *set, int signo)
 {
     if (signo <= 0 || signo >= NSIG) return -1;
@@ -88,27 +92,32 @@ static inline int sigdelset(sigset_t *set, int signo)
     return 0;
 }
 
+/* Test whether a signal is present in the set. */
 static inline int sigismember(const sigset_t *set, int signo)
 {
     if (signo <= 0 || signo >= NSIG) return 0;
     return !!(*set & (1ULL << (signo - 1)));
 }
 
+/* Test whether the set is empty. */
 static inline int sigisemptyset(const sigset_t *set)
 {
     return *set == 0;
 }
 
+/* Compute the union of two signal sets. */
 static inline void sigorset(sigset_t *dst, const sigset_t *a, const sigset_t *b)
 {
     *dst = *a | *b;
 }
 
+/* Compute the intersection of two signal sets. */
 static inline void sigandset(sigset_t *dst, const sigset_t *a, const sigset_t *b)
 {
     *dst = *a & *b;
 }
 
+/* Test whether a signal set is valid. */
 static inline int sigset_valid(const sigset_t *set)
 {
     (void)set;
@@ -325,12 +334,12 @@ typedef struct {
         uint8_t  fpstate[4096];
 } __attribute__((packed)) signal_user_frame_t;
 
-#define SIGNAL_FPSTATE_MAGIC 0x46505331U // "FPS1"
+#define SIGNAL_FPSTATE_MAGIC 0x46505331U
 
 /* Return values for signal_deliver_one */
-#define SIG_DELIV_HANDLED 0 // Default/ignore action, no frame change, continue
-#define SIG_DELIV_TERM    1 // Process terminated by default action
-#define SIG_DELIV_HANDLER 2 // User handler set up, frame modified
+#define SIG_DELIV_HANDLED 0
+#define SIG_DELIV_TERM    1
+#define SIG_DELIV_HANDLER 2
 
 /* Signal queue / real-time */
 

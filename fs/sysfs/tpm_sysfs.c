@@ -17,11 +17,13 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 
+/* Return the TPM device bound to a device-model device. */
 static tpm_device_t *tpm_dev_from(struct device *dev)
 {
     return dev ? dev->driver_data : NULL;
 }
 
+/* Show the TPM specification major version. */
 static ssize_t tpm_version_major_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     tpm_device_t *tpm = tpm_dev_from(dev);
@@ -29,6 +31,7 @@ static ssize_t tpm_version_major_show(struct device *dev, struct device_attribut
     return sysfs_emit(buf, "%d\n", tpm ? tpm->version : 0);
 }
 
+/* Show the TPM specification minor version. */
 static ssize_t tpm_version_minor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -36,6 +39,7 @@ static ssize_t tpm_version_minor_show(struct device *dev, struct device_attribut
     return sysfs_emit(buf, "0\n");
 }
 
+/* Show the TPM firmware version. */
 static ssize_t tpm_fwver_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     tpm_device_t *tpm = tpm_dev_from(dev);
@@ -46,6 +50,7 @@ static ssize_t tpm_fwver_show(struct device *dev, struct device_attribute *attr,
     return sysfs_emit(buf, "0x%08x\n", fw);
 }
 
+/* Show a human-readable TPM description. */
 static ssize_t description_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     tpm_device_t *tpm = tpm_dev_from(dev);
@@ -54,6 +59,7 @@ static ssize_t description_show(struct device *dev, struct device_attribute *att
     return sysfs_emit(buf, "%s\n", tpm->version == TPM_VERSION_20 ? "TPM 2.0 Device" : "TPM 1.2 Device");
 }
 
+/* Show the TPM manufacturer, PCR count, and revision. */
 static ssize_t caps_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     tpm_device_t *tpm          = tpm_dev_from(dev);
@@ -71,6 +77,7 @@ static ssize_t caps_show(struct device *dev, struct device_attribute *attr, char
     return sysfs_emit(buf, "Manufacturer: 0x%08x\nPCR count: %u\nRevision: 0x%08x\n", manufacturer, pcr_count, revision);
 }
 
+/* Dump the first 24 PCR register values. */
 static ssize_t pcrs_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     tpm_device_t *tpm = tpm_dev_from(dev);
@@ -90,6 +97,7 @@ static ssize_t pcrs_show(struct device *dev, struct device_attribute *attr, char
     return at;
 }
 
+/* Show the TPM timeout values. */
 static ssize_t timeouts_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     tpm_device_t *tpm = tpm_dev_from(dev);
@@ -131,6 +139,6 @@ void tpm_sysfs_init(void)
 
     if (class_register(&tpm_class) == EOK) (void)device_create(&tpm_class, NULL, MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), tpm, "tpm0");
     if (class_register(&tpmrm_class) == EOK) (void)device_create(&tpmrm_class, NULL, MKDEV(TPM_DEV_MAJOR, TPMRM0_MINOR), tpm, "tpmrm0");
-    plogk("tpm_sysfs: /sys/class/tpm/tpm0 and /sys/class/tpmrm/tpmrm0 registered.\n");
+    plogk("tpm_sysfs: registered /sys/class/tpm/tpm0 and /sys/class/tpmrm/tpmrm0\n");
 #endif
 }
