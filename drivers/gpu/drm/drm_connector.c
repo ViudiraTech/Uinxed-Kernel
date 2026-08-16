@@ -333,18 +333,7 @@ void drm_connector_cleanup(struct drm_connector *connector)
     }
 }
 
-/*
- * drm_connector_property_set_ioctl - Handle DRM_IOCTL_MODE_SETPROPERTY (legacy).
- * @dev: DRM device
- * @data: pointer to struct drm_mode_connector_set_property (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Legacy connector-specific property setter (the driver-facing variant of
- * OBJ_SETPROPERTY used by libdrm's drmModeConnectorSetProperty).  Setting
- * the "DPMS" property is handled by the DPMS core; every other property is
- * routed through the generic OBJ_SETPROPERTY path, which performs all the
- * locking and checks.
- */
+/* Legacy connector property setter (libdrm drmModeConnectorSetProperty); DPMS goes through the DPMS core, everything else through OBJ_SETPROPERTY. */
 int drm_connector_property_set_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_connector_set_property *set_prop = (struct drm_mode_connector_set_property *)data;

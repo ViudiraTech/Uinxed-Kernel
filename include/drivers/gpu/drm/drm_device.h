@@ -280,13 +280,7 @@ struct drm_connector_helper_funcs {
         enum drm_connector_status (*detect)(struct drm_connector *connector, bool force);
         int (*get_modes)(struct drm_connector *connector);
         int (*mode_valid)(struct drm_connector *connector, struct drm_display_mode *mode);
-        /*
-         * Legacy (non-atomic) per-connector DPMS entry point. Called by the
-         * DRM core with one of the DRM_MODE_DPMS_* levels when userspace sets
-         * the "DPMS" property through the legacy SETPROPERTY ioctls. Atomic
-         * drivers must not implement this hook; the core remaps the request
-         * onto an atomic commit that deactivates the CRTC instead.
-         */
+        /* Legacy (non-atomic) connector power control hook, invoked with a DRM_MODE_DPMS_* level. */
         void (*dpms)(struct drm_connector *connector, int mode);
 };
 
@@ -438,14 +432,7 @@ struct drm_connector {
         enum drm_connector_force    force;
         bool                        override_edid_set;
         struct drm_connector_state *state;
-        /*
-         * @dpms: Current DPMS state (one of DRM_MODE_DPMS_*). For legacy
-         * drivers the &drm_connector_helper_funcs.dpms callback must update
-         * this field. For atomic drivers the core updates it as part of the
-         * DPMS atomic commit, before the commit itself is validated, so the
-         * sysfs "dpms" attribute and property reads always observe the
-         * pending level of a running transition.
-         */
+        /* @dpms: current DPMS state (DRM_MODE_DPMS_*), published optimistically before atomic commits. */
         int                         dpms;
         void                       *helper_private;
         uint32_t                    possible_encoders_count;

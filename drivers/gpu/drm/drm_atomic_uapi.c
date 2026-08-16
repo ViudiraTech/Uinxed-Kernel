@@ -293,12 +293,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         struct drm_connector_state *s         = drm_atomic_get_connector_state(state, connector);
         if (!s) return -ENOMEM;
         if (prop == config->prop_dpms) {
-            /*
-             * "DPMS" is a legacy property: it can only be set through the
-             * legacy SETPROPERTY / OBJ_SETPROPERTY ioctls, which remap it
-             * onto a full atomic commit of the CRTC active state.  Atomic
-             * writes are rejected like Linux does.
-             */
+            /* "DPMS" is legacy-only; atomic writes are rejected like Linux. */
             plogk("drm_atomic: Legacy DPMS property %u can only be set via legacy uAPI.\n", prop->base.id);
             return -EINVAL;
         }

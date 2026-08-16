@@ -30,28 +30,14 @@ static const struct drm_mode_property_enum drm_dpms_enum_list[] = {
     {DRM_MODE_DPMS_OFF,     "Off"    },
 };
 
-/*
- * drm_get_dpms_name - return the userspace-visible name of a DPMS level
- * @val: one of DRM_MODE_DPMS_*
- *
- * Returns: the matching string, or "Unknown" for out-of-range values.
- */
+/* Return the userspace-visible name of a DPMS level ("Unknown" if out of range). */
 const char *drm_get_dpms_name(int val)
 {
     if (val < DRM_MODE_DPMS_ON || val > DRM_MODE_DPMS_OFF) return "Unknown";
     return drm_dpms_enum_list[val].name;
 }
 
-/*
- * drm_mode_create_dpms_property - create the standard "DPMS" connector property
- * @dev: DRM device
- *
- * Creates the legacy enum property "DPMS" with the four standard levels and
- * stores it in dev->mode_config.prop_dpms. Does not fail if the property was
- * already created by a previous invocation.
- *
- * Returns: 0 on success or -ENOMEM on allocation failure.
- */
+/* Create the standard legacy enum property "DPMS" and store it in mode_config.prop_dpms. */
 int drm_mode_create_dpms_property(struct drm_device *dev)
 {
     struct drm_property *prop;
@@ -71,16 +57,7 @@ int drm_mode_create_dpms_property(struct drm_device *dev)
     return 0;
 }
 
-/*
- * drm_connector_attach_dpms_property - attach the standard DPMS property
- * @connector: connector to attach to
- *
- * Attaches mode_config.prop_dpms with an initial value of DPMS_ON.
- * Must be called during connector construction, before the object is
- * published to userspace.
- *
- * Returns: 0 on success or a negative errno.
- */
+/* Attach the standard DPMS property with an initial value of ON (connector construction time). */
 int drm_connector_attach_dpms_property(struct drm_connector *connector)
 {
     if (!connector || !connector->dev) return -EINVAL;
@@ -88,16 +65,7 @@ int drm_connector_attach_dpms_property(struct drm_connector *connector)
     return drm_object_attach_property(&connector->base, connector->dev->mode_config.prop_dpms, DRM_MODE_DPMS_ON);
 }
 
-/*
- * drm_connector_dpms_get - read the effective DPMS level of a connector
- * @connector: connector to query
- *
- * Follows drm_atomic_connector_get_property(): while the CRTC driving the
- * connector is in self-refresh, the output is still scanning out a stale
- * frame, so the reported level is forced back to ON.
- *
- * Returns: one of DRM_MODE_DPMS_*.
- */
+/* Read the effective DPMS level; self-refresh forces ON (drm_atomic_connector_get_property). */
 int drm_connector_dpms_get(struct drm_connector *connector)
 {
     if (!connector) return DRM_MODE_DPMS_OFF;
@@ -107,21 +75,7 @@ int drm_connector_dpms_get(struct drm_connector *connector)
     return connector->dpms;
 }
 
-/*
- * drm_connector_dpms_commit - atomically apply a DPMS level to a connector
- * @connector: connector to power-manage
- * @mode: one of DRM_MODE_DPMS_* (STANDBY/SUSPEND fold into OFF)
- *
- * Implements the atomic-driver DPMS path (drm_atomic_connector_commit_dpms):
- *   1. Clamp STANDBY/SUSPEND to OFF; a no-op ON/OFF change returns 0.
- *   2. Publish the new level in connector->dpms before committing so that
- *      concurrent legacy readers observe the pending transition.
- *   3. Deactivate the connector's CRTC unless another connector on the
- *      same CRTC is still ON.
- *   4. Roll connector->dpms back if the commit fails.
- *
- * Returns: 0 on success or a negative errno from the atomic commit.
- */
+/* Atomically commit a DPMS level: clamp to ON/OFF, publish connector->dpms, recompute CRTC active, roll back on failure. */
 int drm_connector_dpms_commit(struct drm_connector *connector, int mode)
 {
     struct drm_atomic_state *state;
@@ -144,11 +98,7 @@ int drm_connector_dpms_commit(struct drm_connector *connector, int mode)
     state = drm_atomic_state_alloc(connector->dev);
     if (!state) return -ENOMEM;
 
-    /*
-     * Deactivating the CRTC is an active-state change, which the check
-     * phase rejects unless ALLOW_MODESET semantics are granted.  Legacy
-     * DPMS in Linux implies a modeset-capable commit.
-     */
+    /* Deactivating the CRTC is an active-state change rejected without ALLOW_MODESET semantics. */
     state->allow_modeset = true;
 
     /* Publish the pending level before the commit, like Linux. */
@@ -187,22 +137,7 @@ out:
     return ret;
 }
 
-/*
- * drm_connector_set_dpms - change the DPMS level of a connector
- * @connector: connector to power-manage
- * @mode: one of DRM_MODE_DPMS_*
- *
- * Entry point for the legacy SETPROPERTY / OBJ_SETPROPERTY ioctls, mirroring
- * Linux drm_connector_set_obj_prop(): the "DPMS" property is handled by the
- * core (never passed to generic property handlers):
- *   - atomic drivers go through drm_connector_dpms_commit();
- *   - legacy drivers get drm_connector_helper_funcs.dpms invoked with the
- *     raw 4-state value.
- * The "DPMS" property value in the per-object store is updated by the caller
- * on success, exactly like the legacy Linux path.
- *
- * Returns: 0 on success or a negative errno.
- */
+/* Legacy SETPROPERTY/OBJ_SETPROPERTY entry: atomic drivers commit, legacy drivers get the connector dpms hook. */
 int drm_connector_set_dpms(struct drm_connector *connector, int mode)
 {
     struct drm_connector_helper_funcs *funcs;

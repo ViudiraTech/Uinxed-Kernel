@@ -113,11 +113,7 @@ static bool drm_sysfs_match(const char *buf, size_t count, const char *token)
     return count == token_len && memcmp(buf, token, token_len) == 0;
 }
 
-/*
- * Force the connector state from sysfs, mirroring the Linux status_store
- * contract: writing "detect" clears the override, "on"/"digital"/"off"
- * force the status.  Invalid input yields -EINVAL.
- */
+/* Force the connector state from sysfs: "detect" clears the override, "on"/"digital"/"off" force the status, else -EINVAL. */
 static ssize_t connector_status_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
     struct drm_connector      *connector = dev->driver_data;
