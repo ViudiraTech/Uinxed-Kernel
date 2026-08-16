@@ -189,11 +189,13 @@ double fmod(double x, double y)
     if (y == 0.0 || __builtin_isnan(x) || __builtin_isnan(y) || __builtin_isinf(x))
         r = __builtin_nanf("");
     else if (__builtin_isinf(y) || ax < ay)
-        r = x; /* fmod(x, +-Inf) == x, and |x| < |y| gives x */
+        r = x; // fmod(x, +-Inf) == x, and |x| < |y| gives x
     else {
-        /* Scale |y| up to the magnitude of |x|, then subtract it back down
+        /*
+         * Scale |y| up to the magnitude of |x|, then subtract it back down
          * in a binary long division.  This never truncates x/y through an
-         * integer, so the quotient cannot overflow. */
+         * integer, so the quotient cannot overflow.
+         */
         double m = ay;
         while (m <= ax * 0.5) m *= 2.0;
 
@@ -221,9 +223,11 @@ double cos(double x)
         return __builtin_nanf("");
     }
 
-    /* Reduce x into [-pi, pi] so the Taylor series converges quickly.
+    /*
+     * Reduce x into [-pi, pi] so the Taylor series converges quickly.
      * fmod() performs the reduction without truncating x / 2pi through an
-     * integer, so it stays correct for large arguments. */
+     * integer, so it stays correct for large arguments.
+     */
     const double pi     = 3.14159265358979323846;
     const double two_pi = 2.0 * pi;
     x                   = fmod(x, two_pi);
@@ -275,8 +279,10 @@ double acos(double x)
     if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
 
-    /* acos is only defined on [-1, 1]; the exact endpoints are handled
-     * explicitly because acos is ill-conditioned there. */
+    /*
+     * acos is only defined on [-1, 1]; the exact endpoints are handled
+     * explicitly because acos is ill-conditioned there.
+     */
     const double pi = 3.14159265358979323846;
     if (__builtin_isnan(x) || x > 1.0 || x < -1.0) {
         kernel_fpu_end();

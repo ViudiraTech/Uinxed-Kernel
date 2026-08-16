@@ -43,8 +43,10 @@ int block_register_disk(const char *name, uint32_t major, uint32_t minor, const 
     disk->use_p_separator = use_p_separator;
     blockdev_retain(device);
 
-    /* Publish the /dev node and its partitions before exposing the disk.
-     * A failed publication must fail the whole registration. */
+    /*
+     * Publish the /dev node and its partitions before exposing the disk.
+     * A failed publication must fail the whole registration.
+     */
     char     dev_path[96];
     uint64_t devt = MKDEV(major, minor);
     (void)snprintf(dev_path, sizeof(dev_path), "/dev/%s", name);
@@ -76,8 +78,10 @@ int block_unregister_disk(const char *name)
             *link             = victim->next;
             spin_unlock(&gendisk_lock);
 
-            /* Remove the /dev nodes and release the extra backend reference
-             * devtmpfs holds before dropping the registry's own reference. */
+            /*
+             * Remove the /dev nodes and release the extra backend reference
+             * devtmpfs holds before dropping the registry's own reference.
+             */
             devtmpfs_unregister_block_device(victim->devtmpfs);
             blockdev_release(&victim->device);
             free(victim);

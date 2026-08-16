@@ -36,7 +36,8 @@ void devtmpfs_init(void);
  * @rdev:      raw device number (for stat)
  * @node_type: VFS type flags (file_stream, file_keyboard, etc.)
  * @ops:       device operations (copied into the tmpfs handle)
- * @ctx:       opaque context pointer stored in ops.ctx
+ * Boot-time devices (populated during devtmpfs_init()) log "Registered ...";
+ * devices registered afterwards stay silent.
  *
  * Returns 0 on success, negative errno on failure.
  */

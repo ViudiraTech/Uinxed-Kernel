@@ -747,8 +747,8 @@ void sched_init(void)
         cpu_rqs[i].idle = idle_task_alloc(i);
         if (!cpu_rqs[i].idle) panic("sched: Cannot create idle task.");
     }
-    plogk("task: Created task 0 (swapper/0) on CPU 0\n");
-    for (unsigned int i = 1; i < cpu_scheduler_count; i++) plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
+    plogk("sched: Created task 0 (swapper/0) on CPU 0\n");
+    for (unsigned int i = 1; i < cpu_scheduler_count; i++) plogk("sched: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
     plogk("sched: %u CPU(s) registered, using EEVDF scheduler.\n", cpu_scheduler_count);
 
     scheduler.next_pid = 1;

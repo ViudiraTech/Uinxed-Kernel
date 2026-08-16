@@ -49,7 +49,7 @@ static int rr_fetch_continuation(isofs_rr_state_t *state)
     if (!state->cont_extent) return 1;
     if ((unsigned)state->cont_offset > (unsigned)(state->block_size - entry_head) || (unsigned)state->cont_size > state->block_size
         || (unsigned)(state->cont_offset + state->cont_size) > state->block_size) {
-        plogk("rock: CE entry out of bounds (extent=%d offset=%d size=%d)\n", state->cont_extent, state->cont_offset, state->cont_size);
+        plogk("isofs-rock: CE entry out of bounds (extent=%d offset=%d size=%d)\n", state->cont_extent, state->cont_offset, state->cont_size);
         return -EIO;
     }
     if (++state->cont_loops >= ISOFS_RR_MAX_CE) return -EIO;
@@ -57,7 +57,7 @@ static int rr_fetch_continuation(isofs_rr_state_t *state)
     state->buffer = malloc(state->cont_size);
     if (!state->buffer) return -ENOMEM;
     if (state->read_block(state->io_ctx, (uint32_t)state->cont_extent, state->buffer, (uint32_t)state->cont_size) != 0) {
-        plogk("rock: Cannot read CE block %d\n", state->cont_extent);
+        plogk("isofs-rock: Cannot read CE block %d\n", state->cont_extent);
         free(state->buffer);
         state->buffer = NULL;
         return -EIO;

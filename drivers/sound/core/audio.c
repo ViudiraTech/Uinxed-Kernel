@@ -161,6 +161,7 @@ audio_device_node_t *audio_get_device_node(size_t index)
 }
 
 /* PCM Ring Buffer */
+
 /* Allocate and initialize the ring buffer for the given frame count. */
 int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames)
 {
@@ -286,6 +287,7 @@ size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames
 }
 
 /* Per-open instance helpers */
+
 /* Allocate and initialize the per-open PCM file state. */
 static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
 {
@@ -321,6 +323,7 @@ static void audio_pcm_destroy(audio_pcm_file_t *pf)
 }
 
 /* file_open / file_release */
+
 /* Create a per-open PCM file state for a device node. */
 int audio_file_open(vfs_node_t vnode, uint64_t flags, void **private_data)
 {
@@ -346,6 +349,7 @@ void audio_file_release(vfs_node_t node, void *private_data)
 }
 
 /* Per-open PCM read/write (file_*) */
+
 /* Read from the control/mixer node or drain the capture ring. */
 int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
@@ -424,9 +428,7 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
     card = pf->card;
 
     if (pf->type == audio_node_control || pf->type == audio_node_mixer) return 0;
-
     if (pf->type != audio_node_pcm_playback) return 0;
-
     if (pf->state == SNDRV_PCM_STATE_OPEN) return -EBADFD;
 
     size_t fb     = frame_bytes(&pf->fmt);
@@ -510,6 +512,7 @@ int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events
 }
 
 /* ALSA-compatible ioctl handler */
+
 /* SNDRV_PCM_IOCTL_HW_PARAMS: validate and apply the hardware format. */
 static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params *uarg)
 {
@@ -534,12 +537,10 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
 
     fmt.sample_rate = params.rate;
     if (fmt.sample_rate < 8000 || fmt.sample_rate > 192000) return -EINVAL;
-
     if (pf->card->ops->set_format) {
         int r = pf->card->ops->set_format(pf->card, &fmt);
         if (r != EOK) return r;
     }
-
     pf->fmt = fmt;
 
     if (pf->ring_buf) pcm_ring_buffer_destroy(pf);
@@ -556,7 +557,6 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
 
     int r = pcm_ring_buffer_init(pf, buf_frames);
     if (r != EOK) return r;
-
     if (pf->card->ops->set_params) pf->card->ops->set_params(pf->card, &fmt, buf_frames * fb, pf->period_bytes);
 
     params.buffer_size  = (unsigned int)pf->boundary;

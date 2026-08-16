@@ -164,10 +164,12 @@ static int ipc_id_alloc(void **table, uint16_t *seq_table, int max, spinlock_t *
     return -ENOSPC;
 }
 
-/* Look up an IPC object by id while holding the table lock. Returns NULL with
+/*
+ * Look up an IPC object by id while holding the table lock. Returns NULL with
  * the lock released if the id is stale; otherwise returns the object with
  * *lock still held (the caller must spin_unlock it) so the object cannot be
- * freed concurrently while the caller operates on it. */
+ * freed concurrently while the caller operates on it.
+ */
 static void *ipc_id_lookup_held(void **table, uint16_t *seq_table, int max, spinlock_t *lock, int id)
 {
     int idx = id & IPC_ID_MASK;
@@ -240,8 +242,10 @@ void sysv_sem_undo_release(process_t *proc)
         if (u->proc == proc) {
             *prev = u->next;
 
-            /* Apply the undo while holding the set's table lock so the set
-             * cannot be freed concurrently. */
+            /*
+             * Apply the undo while holding the set's table lock so the set
+             * cannot be freed concurrently.
+             */
             sem_array_t *sem = (sem_array_t *)ipc_id_lookup_held((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, u->semid);
             if (sem != NULL) {
                 uint32_t n = sem_undo_apply(u, sem);

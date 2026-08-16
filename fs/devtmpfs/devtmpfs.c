@@ -55,6 +55,7 @@ typedef struct devtmpfs_entry {
 static devtmpfs_entry_t devtmpfs_table[DEVTMPFS_MAX_DEVICES];
 static spinlock_t       devtmpfs_lock = {.lock = 0, .rflags = 0};
 static bool             devtmpfs_table_inited;
+static bool             devtmpfs_populated; // true once devtmpfs_init() finishes its one-time population
 
 /* Initialize the device registration table once. */
 static void devtmpfs_table_init(void)
@@ -140,6 +141,7 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
         vfs_close(node);
         return -ENOSPC;
     }
+    if (!devtmpfs_populated) plogk("devtmpfs: Registered %s as %s device (dev=%llu, rdev=%llu)\n", path, node_type & file_block ? "block" : "char", dev, rdev);
 
     /* The registry owns the reference returned by vfs_open(). */
     return 0;
@@ -595,6 +597,7 @@ void devtmpfs_init(void)
     total_devices += devtmpfs_create_ptmx_node();
 #endif
     total_devices += devtmpfs_create_rtc_node();
+    devtmpfs_populated = true; // Boot-time population done; later devices stay silent.
 
     /* Conventional process-fd aliases expected by libc and service scripts. */
     status = vfs_symlink("/dev/fd", "/proc/self/fd");

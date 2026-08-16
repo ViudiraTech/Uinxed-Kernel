@@ -177,16 +177,16 @@ void ps2_mouse_init(void)
     ps2_mouse_evdev = evdev_create(&ps2_mouse_dev);
     if (!ps2_mouse_evdev) {
         (void)ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT);
-        plogk("evdev: Unable to allocate PS/2 mouse device.\n");
+        plogk("ps2: Unable to allocate PS/2 mouse device.\n");
         return;
     }
     if (evdev_register(ps2_mouse_evdev) != EOK) {
         evdev_destroy(ps2_mouse_evdev);
         ps2_mouse_evdev = NULL;
         (void)ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT);
-        plogk("evdev: Unable to register PS/2 mouse device.\n");
+        plogk("ps2: Unable to register PS/2 mouse device.\n");
         return;
     }
     ps2_mouse_ready = true;
-    plogk("evdev: PS/2 mouse protocol %d registered as event%d\n", ps2_mouse_protocol, ps2_mouse_evdev->minor);
+    plogk("ps2: PS/2 mouse protocol %d registered as event%d\n", ps2_mouse_protocol, ps2_mouse_evdev->minor);
 }
