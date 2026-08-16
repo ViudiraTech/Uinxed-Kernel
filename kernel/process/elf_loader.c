@@ -773,7 +773,7 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
 
     /* A bounded read-ahead window keeps large node-backed images streaming
      * while avoiding one VFS/page-cache lookup for every mapped 4 KiB page. */
-    source.window_capacity = 1024 * 1024;
+    source.window_capacity = (size_t)1024 * 1024;
     source.window          = malloc(source.window_capacity);
     if (!source.window) source.window_capacity = 0;
 

@@ -1101,8 +1101,9 @@ static FRESULT sync_fs(FATFS *fs)
                 disk_write(fs->pdrv, fs->win, fs->winsect = fs->volbase + 1, 1); // Write it into the FSInfo sector (Next to VBR)
             }
 #    if FF_FS_EXFAT
-            else if (fs->fs_type == FS_EXFAT) {                                             // exFAT: Update PercInUse field in BPB
-                if (disk_read(fs->pdrv, fs->win, fs->winsect = fs->volbase, 1) == RES_OK) { // Load VBR
+            else if (fs->fs_type == FS_EXFAT) { // exFAT: Update PercInUse field in BPB
+                fs->winsect = fs->volbase;
+                if (disk_read(fs->pdrv, fs->win, fs->winsect, 1) == RES_OK) { // Load VBR
                     BYTE perc_inuse
                         = (fs->free_clst <= fs->n_fatent - 2) ? (BYTE)((QWORD)(fs->n_fatent - 2 - fs->free_clst) * 100 / (fs->n_fatent - 2)) : 0xFF; // Precent in use 0-100 or 0xFF(unknown)
                     if (fs->win[BPB_PercInUseEx] != perc_inuse) {                                                                                    // Write it back into VBR if needed
@@ -1164,9 +1165,9 @@ static DWORD get_fat(FFOBJID *obj, DWORD clst)
                 val = ld_32(fs->win + clst * 4 % SS(fs)) & 0x0FFFFFFF; // Simple DWORD array but mask out upper 4 bits
                 break;
 #if FF_FS_EXFAT
-            case FS_EXFAT :
-                if ((obj->objsize != 0 && obj->sclust != 0) || obj->stat == 0) {            // Object except root dir must have valid data length
-                    DWORD cofs = clst - obj->sclust;                                        // Offset from start cluster
+            case FS_EXFAT :                                                      // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult): analyzer cannot prove obj fields are initialised
+                if ((obj->objsize != 0 && obj->sclust != 0) || obj->stat == 0) { // Object except root dir must have valid data length
+                    DWORD cofs = clst - obj->sclust;                             // Offset from start cluster
                     DWORD clen = (DWORD)((LBA_t)((obj->objsize - 1) / SS(fs)) / fs->csize); // Number of clusters - 1
 
                     if (obj->stat == 2 && cofs <= clen) {             // Is it a contiguous chain?
@@ -1939,7 +1940,7 @@ static FRESULT load_xdir(DIR *dp)
     res = move_window(dp->obj.fs, dp->sect);
     if (res != FR_OK) return res;
     if (dp->dir[XDIR_Type] != ET_FILEDIR) return FR_INT_ERR; // Invalid order?
-    memcpy(dirb + 0 * SZDIRE, dp->dir, SZDIRE);
+    memcpy(dirb + (size_t)0 * SZDIRE, dp->dir, SZDIRE);
     sz_ent = ((UINT)dirb[XDIR_NumSec] + 1) * SZDIRE;                    // Size of this entry block
     if (sz_ent < 3 * SZDIRE || sz_ent > 19 * SZDIRE) return FR_INT_ERR; // Invalid block size?
 
@@ -1950,7 +1951,7 @@ static FRESULT load_xdir(DIR *dp)
     res = move_window(dp->obj.fs, dp->sect);
     if (res != FR_OK) return res;
     if (dp->dir[XDIR_Type] != ET_STREAM) return FR_INT_ERR; // Invalid order?
-    memcpy(dirb + 1 * SZDIRE, dp->dir, SZDIRE);
+    memcpy(dirb + (size_t)1 * SZDIRE, dp->dir, SZDIRE);
     if (MAXDIRB(dirb[XDIR_NumName]) > sz_ent) return FR_INT_ERR; // Invalid block size for the name?
 
     /* Load file name entries */
@@ -2046,20 +2047,23 @@ static void create_xdir(BYTE *dirb, const WCHAR *lfn)
     WCHAR chr;
 
     /* Create file-directory and stream-extension entry (1st and 2nd entry) */
-    memset(dirb, 0, 2 * SZDIRE);
+    memset(dirb, 0, (size_t)2 * SZDIRE);
     dirb[0 * SZDIRE + XDIR_Type] = ET_FILEDIR;
     dirb[1 * SZDIRE + XDIR_Type] = ET_STREAM;
 
     /* Create file name entries (3rd enrty and follows) */
-    i    = SZDIRE * 2; // Top of file name entries
+    i    = (size_t)SZDIRE * 2; // Top of file name entries
     nlen = n_c1 = 0;
     chr         = 1;
     do {
         dirb[i++] = ET_FILENAME;
         dirb[i++] = 0;
-        do {                                                // Fill name field
-            if (chr != 0 && (chr = lfn[nlen]) != 0) nlen++; // Get a character if exist
-            st_16(dirb + i, chr);                           // Store it
+        do { // Fill name field
+            if (chr != 0) {
+                chr = lfn[nlen];
+                if (chr != 0) nlen++; // Get a character if exist
+            }
+            st_16(dirb + i, chr); // Store it
             i += 2;
         } while (i % SZDIRE != 0);
         n_c1++;
@@ -2171,8 +2175,8 @@ static FRESULT dir_find(DIR *dp)
 #    if FF_MAX_LFN < 255
             if (fs->dirbuf[XDIR_NumName] > FF_MAX_LFN) continue; // Skip comparison if inaccessible object name
 #    endif
-            if (ld_16(fs->dirbuf + XDIR_NameHash) != hash) continue;                                // Skip comparison if hash mismatched
-            for (nc = fs->dirbuf[XDIR_NumName], di = SZDIRE * 2, ni = 0; nc; nc--, di += 2, ni++) { // Compare the name
+            if (ld_16(fs->dirbuf + XDIR_NameHash) != hash) continue;                                        // Skip comparison if hash mismatched
+            for (nc = fs->dirbuf[XDIR_NumName], di = (size_t)SZDIRE * 2, ni = 0; nc; nc--, di += 2, ni++) { // Compare the name
                 if ((di % SZDIRE) == 0) di += 2;
                 if (ff_wtoupper(ld_16(fs->dirbuf + di)) != ff_wtoupper(fs->lfnbuf[ni])) break;
             }
@@ -2260,7 +2264,7 @@ static FRESULT dir_register(DIR *dp)
 
                 res = load_obj_xdir(&dj, &dp->obj); // Load the object status
                 if (res != FR_OK) return res;
-                dp->obj.objsize += (DWORD)fs->csize * SS(fs); // Increase the directory size by cluster size
+                dp->obj.objsize += (FSIZE_t)fs->csize * SS(fs); // Increase the directory size by cluster size
                 st_64(fs->dirbuf + XDIR_FileSize, dp->obj.objsize);
                 st_64(fs->dirbuf + XDIR_ValidFileSize, dp->obj.objsize);
                 fs->dirbuf[XDIR_GenFlags] = dp->obj.stat | 1; // Update the allocation status
@@ -2395,7 +2399,7 @@ static void get_fileinfo(DIR *dp, FILINFO *fno)
     if (fs->fs_type == FS_EXFAT) { // exFAT volume
         UINT nc = 0;
 
-        si = SZDIRE * 2;
+        si = (size_t)SZDIRE * 2;
         di = 0; // 1st C1 entry in the entry block
         hs = 0;
         while (nc < fs->dirbuf[XDIR_NumName]) {
@@ -2433,7 +2437,7 @@ static void get_fileinfo(DIR *dp, FILINFO *fno)
         fno->crdate = ld_16(fs->dirbuf + XDIR_CrtTime + 2); // Created date
 #            endif
         return;
-    } else
+    } else // NOLINT(llvm-else-after-return): else spans an #endif boundary
 #        endif
     {                                    // FAT/FAT32 volume
         if (dp->blk_ofs != 0xFFFFFFFF) { // Get LFN if available
@@ -3022,7 +3026,8 @@ static int test_gpt_header(const BYTE *gpth)
     if (memcmp(gpth + GPTH_Sign,
                "EFI PART"
                "\0\0\1",
-               12))
+               12)
+        != 0)
         return 0;                   // Check signature and version (1.0)
     hlen = ld_32(gpth + GPTH_Size); // Check header size
     if (hlen < 92 || hlen > FF_MIN_SS) return 0;
@@ -3234,7 +3239,7 @@ static FRESULT mount_volume(const TCHAR **path, FATFS **rfs, BYTE mode)
         fs->volbase  = bsect;
         fs->database = bsect + ld_32(fs->win + BPB_DataOfsEx);
         fs->fatbase  = bsect + ld_32(fs->win + BPB_FatOfsEx);
-        if (maxlba < (QWORD)fs->database + ncl * fs->csize) return FR_NO_FILESYSTEM; // (Volume size must not be smaller than the size required)
+        if (maxlba < (QWORD)fs->database + (QWORD)ncl * fs->csize) return FR_NO_FILESYSTEM; // (Volume size must not be smaller than the size required)
         fs->dirbase = ld_32(fs->win + BPB_RootClusEx);
 
         /* Get bitmap location and check if it is contiguous (implementation assumption) */
@@ -3250,10 +3255,10 @@ static FRESULT mount_volume(const TCHAR **path, FATFS **rfs, BYTE mode)
         }
         bcl = ld_32(fs->win + i + 20);                               // Bitmap cluster
         if (bcl < 2 || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM; // (Wrong cluster#)
-        fs->bitbase = fs->database + fs->csize * (bcl - 2);          // Bitmap sector
+        fs->bitbase = fs->database + (LBA_t)fs->csize * (bcl - 2);   // Bitmap sector
         for (;;) {                                                   // Check if bitmap is contiguous
             if (move_window(fs, fs->fatbase + bcl / (SS(fs) / 4)) != FR_OK) return FR_DISK_ERR;
-            cv = ld_32(fs->win + bcl % (SS(fs) / 4) * 4);
+            cv = ld_32(fs->win + (size_t)(bcl % (SS(fs) / 4)) * 4);
             if (cv == 0xFFFFFFFF) break;              // Last link?
             if (cv != ++bcl) return FR_NO_FILESYSTEM; // Fragmented bitmap?
         }
@@ -4722,7 +4727,7 @@ FRESULT f_rename(const TCHAR *path_old, const TCHAR *path_new)
     FRESULT res;
     FATFS  *fs;
     DIR     djo, djn;
-    BYTE    buf[FF_FS_EXFAT ? SZDIRE * 2 : SZDIRE], *dir;
+    BYTE    buf[FF_FS_EXFAT ? (size_t)SZDIRE * 2 : SZDIRE], *dir;
     DEF_NAMEBUFF
 
     get_ldnumber(&path_new);                      // Snip the drive number of new name off
@@ -4753,7 +4758,7 @@ FRESULT f_rename(const TCHAR *path_old, const TCHAR *path_new)
                 } else
 #                    endif
                 {
-                    memcpy(buf, fs->dirbuf, SZDIRE * 2); // Save 85+C0 entry of old object
+                    memcpy(buf, fs->dirbuf, (size_t)SZDIRE * 2); // Save 85+C0 entry of old object
                     memcpy(&djn, &djo, sizeof djn);
                     res = follow_path(&djn, path_new); // Check if new object name collides with an existing one
                 }
@@ -4769,7 +4774,7 @@ FRESULT f_rename(const TCHAR *path_old, const TCHAR *path_new)
                         nf = fs->dirbuf[XDIR_NumSec];
                         nn = fs->dirbuf[XDIR_NumName]; // Save name length and hash
                         nh = ld_16(fs->dirbuf + XDIR_NameHash);
-                        memcpy(fs->dirbuf, buf, SZDIRE * 2); // Restore 85+C0 entry
+                        memcpy(fs->dirbuf, buf, (size_t)SZDIRE * 2); // Restore 85+C0 entry
                         fs->dirbuf[XDIR_NumSec]  = nf;
                         fs->dirbuf[XDIR_NumName] = nn; // Restore name length and hash
                         st_16(fs->dirbuf + XDIR_NameHash, nh);
@@ -4803,7 +4808,7 @@ FRESULT f_rename(const TCHAR *path_old, const TCHAR *path_new)
                             } else {
                                 /* Start of critical section where an interruption can cause a cross-link */
                                 res = move_window(fs, sect);
-                                dir = fs->win + (size_t)SZDIRE * 1; // Pointer to .. entry
+                                dir = fs->win + (size_t)(size_t)SZDIRE * 1; // Pointer to .. entry
                                 if (res == FR_OK && dir[1] == '.') {
                                     st_clust(fs, dir, djn.obj.sclust);
                                     fs->wflag = 1;
@@ -5368,7 +5373,7 @@ static FRESULT create_partition(BYTE drv, const LBA_t plst[], BYTE sys, BYTE *bu
         st_32(buf + GPTH_PteSize, SZ_GPTE);                                // Size of a table entry
         st_32(buf + GPTH_PtNum, GPT_ITEMS);                                // Number of table entries
         st_32(buf + GPTH_PtOfs, 2);                                        // LBA of this table
-        rnd = make_rand(rnd, buf + GPTH_DskGuid, 16);                      // Disk GUID
+        (void)make_rand(rnd, buf + GPTH_DskGuid, 16);                      // Disk GUID
         for (i = 0, bcc = 0xFFFFFFFF; i < 92; bcc = crc32(bcc, buf[i++])); // Calculate header check sum
         st_32(buf + GPTH_Bcc, ~bcc);                                       // Header check sum
         if (disk_write(drv, buf, 1, 1) != RES_OK) return FR_DISK_ERR;
@@ -5484,7 +5489,7 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
     if (sz_buf == 0) return FR_NOT_ENOUGH_CORE;
     buf = (BYTE *)work; // Working buffer
 #    if FF_USE_LFN == 3
-    if (!buf) buf = ff_memalloc(sz_buf * ss); // Use heap memory for working buffer
+    if (!buf) buf = ff_memalloc((size_t)sz_buf * ss); // Use heap memory for working buffer
 #    endif
     if (!buf) return FR_NOT_ENOUGH_CORE;
 
@@ -5601,8 +5606,8 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
         clen[0] = (szb_bit + sz_au * ss - 1) / (sz_au * ss); // Number of allocation bitmap clusters
 
         /* Create a compressed up-case table */
-        sect     = b_data + sz_au * clen[0]; // Table start sector
-        sum      = 0;                        // Table checksum to be stored in the 82 entry
+        sect     = b_data + (LBA_t)sz_au * clen[0]; // Table start sector
+        sum      = 0;                               // Table checksum to be stored in the 82 entry
         st       = 0;
         si       = 0;
         i        = 0;
@@ -5637,7 +5642,7 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
             sum = xsum32(buf[i + 1] = (BYTE)(ch >> 8), sum);
             i += 2;
             szb_case += 2;
-            if (si == 0 || i == sz_buf * ss) { // Write buffered data when buffer full or end of process
+            if (si == 0 || i == (size_t)sz_buf * ss) { // Write buffered data when buffer full or end of process
                 n = (i + ss - 1) / ss;
                 if (disk_write(pdrv, buf, sect, n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
                 sect += n;
@@ -5652,9 +5657,9 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
         nsect = (szb_bit + ss - 1) / ss;     // Start of bitmap and number of bitmap sectors
         nbit  = clen[0] + clen[1] + clen[2]; // Number of clusters in-use by system (bitmap, up-case and root-dir)
         do {
-            memset(buf, 0, sz_buf * ss);                                                            // Initialize bitmap buffer
-            for (i = 0; nbit != 0 && i / 8 < sz_buf * ss; buf[i / 8] |= 1 << (i % 8), i++, nbit--); // Mark used clusters
-            n = (nsect > sz_buf) ? sz_buf : nsect;                                                  // Write the buffered data
+            memset(buf, 0, (size_t)sz_buf * ss);                                                            // Initialize bitmap buffer
+            for (i = 0; nbit != 0 && i / 8 < (size_t)sz_buf * ss; buf[i / 8] |= 1 << (i % 8), i++, nbit--); // Mark used clusters
+            n = (nsect > sz_buf) ? sz_buf : nsect;                                                          // Write the buffered data
             if (disk_write(pdrv, buf, sect, n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
             sect += n;
             nsect -= n;
@@ -5665,7 +5670,7 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
         nsect = sz_fat; // Start of FAT and number of FAT sectors
         j = nbit = clu = 0;
         do {
-            memset(buf, 0, sz_buf * ss);
+            memset(buf, 0, (size_t)sz_buf * ss);
             i = 0;          // Clear work area and reset write offset
             if (clu == 0) { // Initialize FAT [0] and FAT[1]
                 st_32(buf + i, 0xFFFFFFF8);
@@ -5675,15 +5680,15 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
                 i += 4;
                 clu++;
             }
-            do {                                       // Create chains of bitmap, up-case and root directory
-                while (nbit != 0 && i < sz_buf * ss) { // Create a chain
+            do {                                               // Create chains of bitmap, up-case and root directory
+                while (nbit != 0 && i < (size_t)sz_buf * ss) { // Create a chain
                     st_32(buf + i, (nbit > 1) ? clu + 1 : 0xFFFFFFFF);
                     i += 4;
                     clu++;
                     nbit--;
                 }
                 if (nbit == 0 && j < 3) nbit = clen[j++]; // Get next chain length
-            } while (nbit != 0 && i < sz_buf * ss);
+            } while (nbit != 0 && i < (size_t)sz_buf * ss);
             n = (nsect > sz_buf) ? sz_buf : nsect; // Write the buffered data
             if (disk_write(pdrv, buf, sect, n) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
             sect += n;
@@ -5691,16 +5696,16 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
         } while (nsect);
 
         /* Initialize the root directory */
-        memset(buf, 0, sz_buf * ss);
-        buf[SZDIRE * 0 + 0] = ET_VLABEL;           // Volume label entry (no label)
-        buf[SZDIRE * 1 + 0] = ET_BITMAP;           // Bitmap entry
-        st_32(buf + SZDIRE * 1 + 20, 2);           // cluster
-        st_32(buf + SZDIRE * 1 + 24, szb_bit);     // size
-        buf[SZDIRE * 2 + 0] = ET_UPCASE;           // Up-case table entry
-        st_32(buf + SZDIRE * 2 + 4, sum);          // sum
-        st_32(buf + SZDIRE * 2 + 20, 2 + clen[0]); // cluster
-        st_32(buf + SZDIRE * 2 + 24, szb_case);    // size
-        sect  = b_data + sz_au * (clen[0] + clen[1]);
+        memset(buf, 0, (size_t)sz_buf * ss);
+        buf[SZDIRE * 0 + 0]         = ET_VLABEL;           // Volume label entry (no label)
+        buf[(size_t)SZDIRE * 1 + 0] = ET_BITMAP;           // Bitmap entry
+        st_32(buf + (size_t)SZDIRE * 1 + 20, 2);           // cluster
+        st_32(buf + (size_t)SZDIRE * 1 + 24, szb_bit);     // size
+        buf[(size_t)SZDIRE * 2 + 0] = ET_UPCASE;           // Up-case table entry
+        st_32(buf + (size_t)SZDIRE * 2 + 4, sum);          // sum
+        st_32(buf + (size_t)SZDIRE * 2 + 20, 2 + clen[0]); // cluster
+        st_32(buf + (size_t)SZDIRE * 2 + 24, szb_case);    // size
+        sect  = b_data + (LBA_t)sz_au * (clen[0] + clen[1]);
         nsect = sz_au; // Start of the root directory and number of sectors
         do {           // Fill root directory sectors
             n = (nsect > sz_buf) ? sz_buf : nsect;
@@ -5788,8 +5793,8 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
                 sz_rsv = 1;                           // Number of reserved sectors
                 sz_dir = (DWORD)n_root * SZDIRE / ss; // Root directory size [sector]
             }
-            b_fat  = b_vol + sz_rsv;                  // FAT base
-            b_data = b_fat + sz_fat * n_fat + sz_dir; // Data base
+            b_fat  = b_vol + sz_rsv;                         // FAT base
+            b_data = b_fat + (LBA_t)sz_fat * n_fat + sz_dir; // Data base
 
             /* Align data area to erase block boundary (for flash memory media) */
             n = (DWORD)(((b_data + sz_blk - 1) & ~(sz_blk - 1)) - b_data); // Sectors to next nearest from current data base
@@ -5806,11 +5811,14 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
             }
 
             /* Determine number of clusters and final check of validity of the FAT sub-type */
-            if (sz_vol < b_data + pau * 16 - b_vol) LEAVE_MKFS(FR_MKFS_ABORTED); // Too small volume?
+            if (sz_vol < b_data + (LBA_t)pau * 16 - b_vol) LEAVE_MKFS(FR_MKFS_ABORTED); // Too small volume?
             n_clst = ((DWORD)sz_vol - sz_rsv - sz_fat * n_fat - sz_dir) / pau;
             if (fsty == FS_FAT32) {
-                if (n_clst <= MAX_FAT16) {                              // Too few clusters for FAT32?
-                    if (sz_au == 0 && (sz_au = pau / 2) != 0) continue; // Adjust cluster size and retry
+                if (n_clst <= MAX_FAT16) { // Too few clusters for FAT32?
+                    if (sz_au == 0) {
+                        sz_au = pau / 2;
+                        if (sz_au != 0) continue; // Adjust cluster size and retry
+                    }
                     LEAVE_MKFS(FR_MKFS_ABORTED);
                 }
             }
@@ -5824,11 +5832,17 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
                         fsty = FS_FAT32;
                         continue; // Switch type to FAT32 and retry
                     }
-                    if (sz_au == 0 && (sz_au = pau * 2) <= 128) continue; // Adjust cluster size and retry
+                    if (sz_au == 0) {
+                        sz_au = pau * 2;
+                        if (sz_au <= 128) continue; // Adjust cluster size and retry
+                    }
                     LEAVE_MKFS(FR_MKFS_ABORTED);
                 }
-                if (n_clst <= MAX_FAT12) {                                // Too few clusters for FAT16
-                    if (sz_au == 0 && (sz_au = pau * 2) <= 128) continue; // Adjust cluster size and retry
+                if (n_clst <= MAX_FAT12) { // Too few clusters for FAT16
+                    if (sz_au == 0) {
+                        sz_au = pau * 2;
+                        if (sz_au <= 128) continue; // Adjust cluster size and retry
+                    }
                     LEAVE_MKFS(FR_MKFS_ABORTED);
                 }
             }
@@ -5893,7 +5907,7 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
         }
 
         /* Initialize FAT area */
-        memset(buf, 0, sz_buf * ss);
+        memset(buf, 0, (size_t)sz_buf * ss);
         sect = b_fat;                 // FAT start sector
         for (i = 0; i < n_fat; i++) { // Initialize FATs each
             if (fsty == FS_FAT32) {

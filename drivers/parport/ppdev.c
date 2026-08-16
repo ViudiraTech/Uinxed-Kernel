@@ -173,8 +173,6 @@ static int ppdev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req
             parport_write_data(p, value);
             return 0;
         case PPNEGOT :
-            if (copy_from_user(&int_value, arg, sizeof(int_value))) return -EFAULT;
-            return int_value == PP_MODE_SPP ? 0 : -ENXIO;
         case PPSETMODE :
             if (copy_from_user(&int_value, arg, sizeof(int_value))) return -EFAULT;
             return int_value == PP_MODE_SPP ? 0 : -ENXIO;

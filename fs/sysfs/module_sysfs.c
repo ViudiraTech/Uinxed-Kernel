@@ -196,7 +196,7 @@ static module_group_t *module_group_create(module_sysfs_t *entry, struct module 
         return NULL;
     }
 
-    group->attrs = calloc(count, sizeof(*group->attrs));
+    group->attrs = calloc(count, sizeof(struct attribute *));
     if (!group->attrs) {
         kobject_put(&group->kobj);
         return NULL;

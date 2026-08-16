@@ -98,12 +98,8 @@ int register_console(console_t *c)
         }
     }
 
-    if (console_matches_cmdline(c)) {
-        enabled = true;
-    } else if (console_cmdline_count == 0 && streq(c->name, "tty") && c->index == 0) {
-        /* No console= given: the vt console is the default boot console. */
-        enabled = true;
-    }
+    /* No console= given: the vt console is the default boot console. */
+    if (console_matches_cmdline(c) || (console_cmdline_count == 0 && streq(c->name, "tty") && c->index == 0)) { enabled = true; }
     if (enabled) c->flags |= CON_ENABLED;
 
     /*

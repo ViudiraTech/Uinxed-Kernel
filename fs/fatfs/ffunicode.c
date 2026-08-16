@@ -10261,7 +10261,7 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
                     hi = i;
                 }
             }
-            if (n != 0) c = p[i * 2 + 1];
+            if (n != 0) c = p[(QWORD)i * 2 + 1];
         }
     }
     return c;
@@ -10290,7 +10290,7 @@ WCHAR ff_oem2uni(WCHAR oem, WORD cp)
                     hi = i;
                 }
             }
-            if (n != 0) c = p[i * 2 + 1];
+            if (n != 0) c = p[(QWORD)i * 2 + 1];
         }
     }
     return c;
@@ -10343,19 +10343,21 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
                         p  = uni2oem950;
                         hi = sizeof uni2oem950 / 4 - 1;
                         break;
+                    default :
+                        break;
                 }
                 if (p) { // Is it valid code page?
                     li = 0;
                     for (n = 16; n; n--) { // Find OEM code
                         i = li + (hi - li) / 2;
-                        if (uc == p[i * 2]) break;
-                        if (uc > p[i * 2]) {
+                        if (uc == p[(QWORD)i * 2]) break;
+                        if (uc > p[(QWORD)i * 2]) {
                             li = i;
                         } else {
                             hi = i;
                         }
                     }
-                    if (n != 0) c = p[i * 2 + 1];
+                    if (n != 0) c = p[(QWORD)i * 2 + 1];
                 }
             }
         }
@@ -10398,19 +10400,21 @@ WCHAR ff_oem2uni(WCHAR oem, WORD cp)
                     p  = oem2uni950;
                     hi = sizeof oem2uni950 / 4 - 1;
                     break;
+                default :
+                    break;
             }
             if (p) {
                 li = 0;
                 for (n = 16; n; n--) {
                     i = li + (hi - li) / 2;
-                    if (oem == p[i * 2]) break;
-                    if (oem > p[i * 2]) {
+                    if (oem == p[(QWORD)i * 2]) break;
+                    if (oem > p[(QWORD)i * 2]) {
                         li = i;
                     } else {
                         hi = i;
                     }
                 }
-                if (n != 0) c = p[i * 2 + 1];
+                if (n != 0) c = p[(QWORD)i * 2 + 1];
             }
         }
     }

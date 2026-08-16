@@ -45,8 +45,8 @@ static inline uint16_t le16_to_cpu(uint16_t v)
  * DRM_MODE - Convenience macro for defining display modes in the static
  * mode tables.  Field names match struct drm_display_mode.
  */
-#define DRM_MODE(nm, t, c, hd, hss, hse, ht, hsk, vd, vss, vse, vt, vs, fl)                                                                                                                       \
-    .name = nm, .status = MODE_OK, .type = (t), .clock = (c), .hdisplay = (hd), .hsync_start = (hss), .hsync_end = (hse), .htotal = (ht), .hskew = (hsk), .vdisplay = (vd), .vsync_start = (vss), \
+#define DRM_MODE(nm, t, c, hd, hss, hse, ht, hsk, vd, vss, vse, vt, vs, fl)                                                                                                                         \
+    .name = (nm), .status = MODE_OK, .type = (t), .clock = (c), .hdisplay = (hd), .hsync_start = (hss), .hsync_end = (hse), .htotal = (ht), .hskew = (hsk), .vdisplay = (vd), .vsync_start = (vss), \
     .vsync_end = (vse), .vtotal = (vt), .vscan = (vs), .flags = (fl)
 
 #define EDID_EST_TIMINGS      16
@@ -1358,9 +1358,7 @@ static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdispl
         vsync = 5;
     } else if (!(vdisplay % 10) && ((vdisplay * 16 / 10) == hdisplay)) {
         vsync = 6;
-    } else if (!(vdisplay % 4) && ((vdisplay * 5 / 4) == hdisplay)) {
-        vsync = 7;
-    } else if (!(vdisplay % 9) && ((vdisplay * 15 / 9) == hdisplay)) {
+    } else if ((!(vdisplay % 4) && ((vdisplay * 5 / 4) == hdisplay)) || (!(vdisplay % 9) && ((vdisplay * 15 / 9) == hdisplay))) {
         vsync = 7;
     } else {
         vsync = 10;
@@ -1422,7 +1420,7 @@ static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdispl
     }
 
     tmp = (uint64_t)drm_mode->htotal;
-    tmp *= HV_FACTOR * 1000;
+    tmp *= (uint64_t)HV_FACTOR * 1000;
     tmp /= hperiod;
     tmp -= tmp % CVT_CLOCK_STEP;
     drm_mode->clock = (int)tmp;
@@ -1734,13 +1732,13 @@ static struct drm_display_mode *mode_from_std_timing(struct drm_connector *conne
         case 0 : // DMT
             break;
         case 1 : // GTF
-            mode = edid_gtf_mode(dev, hsize, vsize, vrefresh_rate, 0, 0);
-            break;
         case 2 : // GTF2 - use standard GTF params
             mode = edid_gtf_mode(dev, hsize, vsize, vrefresh_rate, 0, 0);
             break;
         case 3 : // CVT
             mode = edid_cvt_mode(dev, hsize, vsize, vrefresh_rate, 0, 0, false);
+            break;
+        default :
             break;
     }
     return mode;
@@ -2023,7 +2021,7 @@ static int collect_cta_modes(struct drm_connector *connector, const struct edid 
     int modes = 0, i;
 
     for (i = 1; i <= edid->extensions; i++) {
-        const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
+        const uint8_t *ext = (const uint8_t *)edid + (size_t)i * EDID_LENGTH;
         int            d, idx, end;
 
         if (ext[0] != CEA_EXT) continue;
@@ -2061,7 +2059,7 @@ static bool scan_cta_for_hdmi(const struct edid *edid)
     if (!edid) return false;
 
     for (i = 1; i <= edid->extensions; i++) {
-        const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
+        const uint8_t *ext = (const uint8_t *)edid + (size_t)i * EDID_LENGTH;
         int            d, idx;
 
         if (ext[0] != CEA_EXT || cta_revision(ext) < 3) continue;
@@ -2092,7 +2090,7 @@ static bool scan_cta_for_audio(const struct edid *edid)
     if (!edid) return false;
 
     for (i = 1; i <= edid->extensions; i++) {
-        const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
+        const uint8_t *ext = (const uint8_t *)edid + (size_t)i * EDID_LENGTH;
         int            d, idx;
 
         if (ext[0] != CEA_EXT) continue;
@@ -2243,7 +2241,7 @@ bool drm_edid_is_valid(struct edid *edid)
     if (!edid) return false;
 
     for (i = 0; i < edid->extensions + 1; i++) {
-        void *block = (uint8_t *)edid + i * EDID_LENGTH;
+        void *block = (uint8_t *)edid + (size_t)i * EDID_LENGTH;
 
         if (!validate_edid_block(block, i)) return false;
     }
