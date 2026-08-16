@@ -61,6 +61,7 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
     connector->connector_type_id       = 0;
     connector->status                  = connector_status_unknown;
     connector->force                   = DRM_FORCE_UNSPECIFIED;
+    connector->dpms                    = DRM_MODE_DPMS_ON;
     connector->helper_private          = funcs;
     connector->state                   = NULL;
     connector->edid_blob               = NULL;
@@ -86,6 +87,14 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
     ret = drm_object_attach_property(&connector->base, dev->mode_config.prop_crtc_id, 0);
     if (ret) {
         plogk("drm_connector: Failed to attach crtc_id property (ret=%d)\n", ret);
+        drm_connector_cleanup(connector);
+        return ret;
+    }
+
+    connector->dpms = DRM_MODE_DPMS_ON;
+    ret             = drm_connector_attach_dpms_property(connector);
+    if (ret) {
+        plogk("drm_connector: Failed to attach dpms property (ret=%d)\n", ret);
         drm_connector_cleanup(connector);
         return ret;
     }
@@ -322,6 +331,37 @@ void drm_connector_cleanup(struct drm_connector *connector)
         free(connector->base.properties);
         connector->base.properties = NULL;
     }
+}
+
+/*
+ * drm_connector_property_set_ioctl - Handle DRM_IOCTL_MODE_SETPROPERTY (legacy).
+ * @dev: DRM device
+ * @data: pointer to struct drm_mode_connector_set_property (userspace buffer)
+ * @file_priv: DRM file handle
+ *
+ * Legacy connector-specific property setter (the driver-facing variant of
+ * OBJ_SETPROPERTY used by libdrm's drmModeConnectorSetProperty).  Setting
+ * the "DPMS" property is handled by the DPMS core; every other property is
+ * routed through the generic OBJ_SETPROPERTY path, which performs all the
+ * locking and checks.
+ */
+int drm_connector_property_set_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_connector_set_property *set_prop = (struct drm_mode_connector_set_property *)data;
+    struct drm_mode_obj_set_property         obj_set_prop;
+
+    if (!dev || !set_prop) {
+        plogk("drm_connector: SETPROPERTY with invalid args (dev=%p, set_prop=%p)\n", dev, set_prop);
+        return -EINVAL;
+    }
+
+    obj_set_prop.value      = set_prop->value;
+    obj_set_prop.prop_id    = set_prop->prop_id;
+    obj_set_prop.obj_id     = set_prop->connector_id;
+    obj_set_prop.obj_type   = DRM_MODE_OBJECT_CONNECTOR;
+
+    /* It does all the locking and checking we need. */
+    return drm_mode_obj_setproperty_ioctl(dev, &obj_set_prop, file_priv);
 }
 
 /*

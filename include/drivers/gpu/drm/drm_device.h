@@ -280,6 +280,14 @@ struct drm_connector_helper_funcs {
         enum drm_connector_status (*detect)(struct drm_connector *connector, bool force);
         int (*get_modes)(struct drm_connector *connector);
         int (*mode_valid)(struct drm_connector *connector, struct drm_display_mode *mode);
+        /*
+         * Legacy (non-atomic) per-connector DPMS entry point. Called by the
+         * DRM core with one of the DRM_MODE_DPMS_* levels when userspace sets
+         * the "DPMS" property through the legacy SETPROPERTY ioctls. Atomic
+         * drivers must not implement this hook; the core remaps the request
+         * onto an atomic commit that deactivates the CRTC instead.
+         */
+        void (*dpms)(struct drm_connector *connector, int mode);
 };
 
 struct drm_crtc_state {
@@ -430,6 +438,15 @@ struct drm_connector {
         enum drm_connector_force    force;
         bool                        override_edid_set;
         struct drm_connector_state *state;
+        /*
+         * @dpms: Current DPMS state (one of DRM_MODE_DPMS_*). For legacy
+         * drivers the &drm_connector_helper_funcs.dpms callback must update
+         * this field. For atomic drivers the core updates it as part of the
+         * DPMS atomic commit, before the commit itself is validated, so the
+         * sysfs "dpms" attribute and property reads always observe the
+         * pending level of a running transition.
+         */
+        int                         dpms;
         void                       *helper_private;
         uint32_t                    possible_encoders_count;
         uint32_t                   *possible_encoders_ids;
@@ -927,6 +944,7 @@ int                       drm_mode_createblob_ioctl(struct drm_device *dev, void
 int                       drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                       drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                       drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int                       drm_connector_property_set_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 struct drm_property      *drm_property_create(struct drm_device *dev, uint32_t flags, const char *name, int num_values);
 struct drm_property      *drm_property_create_range(struct drm_device *dev, uint32_t flags, const char *name, uint64_t min, uint64_t max);
 struct drm_property      *drm_property_create_enum(struct drm_device *dev, uint32_t flags, const char *name, const struct drm_mode_property_enum *enums, int num_enums);
@@ -960,6 +978,14 @@ int  drm_connector_init(struct drm_device *dev, struct drm_connector *connector,
 int  drm_connector_attach_encoder(struct drm_connector *connector, struct drm_encoder *encoder);
 int  drm_connector_register(struct drm_connector *connector);
 int  drm_connector_update_edid_property(struct drm_connector *connector, const unsigned char *edid, size_t size);
+
+/* DPMS (Display Power Management Signaling) subsystem. */
+int         drm_mode_create_dpms_property(struct drm_device *dev);
+int         drm_connector_attach_dpms_property(struct drm_connector *connector);
+int         drm_connector_set_dpms(struct drm_connector *connector, int mode);
+int         drm_connector_dpms_get(struct drm_connector *connector);
+int         drm_connector_dpms_commit(struct drm_connector *connector, int mode);
+const char *drm_get_dpms_name(int val);
 
 /* drm_setversion handler. */
 int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_priv);

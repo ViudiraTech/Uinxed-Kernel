@@ -102,6 +102,68 @@ static ssize_t connector_status_show(struct device *dev, struct device_attribute
     return sysfs_emit(buf, "%s\n", status);
 }
 
+/* Match a write buffer against an expected token (newline / NUL terminated). */
+static bool drm_sysfs_match(const char *buf, size_t count, const char *token)
+{
+    size_t token_len;
+
+    if (!buf || !token) return false;
+    if (count && buf[count - 1] == '\n') count--;
+    token_len = strlen(token);
+    return count == token_len && memcmp(buf, token, token_len) == 0;
+}
+
+/*
+ * Force the connector state from sysfs, mirroring the Linux status_store
+ * contract: writing "detect" clears the override, "on"/"digital"/"off"
+ * force the status.  Invalid input yields -EINVAL.
+ */
+static ssize_t connector_status_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    struct drm_connector      *connector = dev->driver_data;
+    enum drm_connector_force   old_force;
+    int                        ret = 0;
+    (void)attr;
+
+    if (!connector) return -EINVAL;
+
+    old_force = connector->force;
+
+    if (drm_sysfs_match(buf, count, "detect"))
+        connector->force = DRM_FORCE_UNSPECIFIED;
+    else if (drm_sysfs_match(buf, count, "on"))
+        connector->force = DRM_FORCE_ON;
+    else if (drm_sysfs_match(buf, count, "digital"))
+        connector->force = DRM_FORCE_ON_DIGITAL;
+    else if (drm_sysfs_match(buf, count, "off"))
+        connector->force = DRM_FORCE_OFF;
+    else
+        ret = -EINVAL;
+
+    if (ret == 0 && (old_force != connector->force || connector->force == DRM_FORCE_UNSPECIFIED))
+        plogk("drm_sysfs: [CONNECTOR:%d:%s] force updated from %d to %d\n", connector->base.id, connector->name, old_force, connector->force);
+
+    return ret ? ret : (ssize_t)count;
+}
+
+/* Read the connector's current DPMS level ("On"/"Standby"/"Suspend"/"Off"). */
+static ssize_t connector_dpms_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct drm_connector *connector = dev->driver_data;
+    (void)attr;
+    if (!connector) return sysfs_emit(buf, "Unknown\n");
+    return sysfs_emit(buf, "%s\n", drm_get_dpms_name(connector->dpms));
+}
+
+/* Read the connector's stable mode-object ID. */
+static ssize_t connector_id_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct drm_connector *connector = dev->driver_data;
+    (void)attr;
+    if (!connector) return sysfs_emit(buf, "0\n");
+    return sysfs_emit(buf, "%d\n", connector->base.id);
+}
+
 /* List the connector's probed modes. */
 static ssize_t connector_modes_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -141,9 +203,11 @@ static ssize_t connector_edid_read(struct kobject *kobj, struct bin_attribute *a
     return (ssize_t)count;
 }
 
-static DEVICE_ATTR(status, 0444, connector_status_show, NULL);
+static DEVICE_ATTR(status, 0644, connector_status_show, connector_status_store);
 static DEVICE_ATTR(modes, 0444, connector_modes_show, NULL);
 static DEVICE_ATTR(enabled, 0444, connector_enabled_show, NULL);
+static DEVICE_ATTR(dpms, 0444, connector_dpms_show, NULL);
+static DEVICE_ATTR(connector_id, 0444, connector_id_show, NULL);
 
 static struct bin_attribute connector_edid_attr = {
     .attr = __ATTR(edid, 0444),
@@ -190,7 +254,9 @@ void drm_sysfs_connector_add(struct drm_connector *connector)
 
     (void)device_create_file(cdev, &dev_attr_status);
     (void)device_create_file(cdev, &dev_attr_enabled);
+    (void)device_create_file(cdev, &dev_attr_dpms);
     (void)device_create_file(cdev, &dev_attr_modes);
+    (void)device_create_file(cdev, &dev_attr_connector_id);
     (void)sysfs_create_bin_file(&cdev->kobj, &connector_edid_attr);
 #endif
 }

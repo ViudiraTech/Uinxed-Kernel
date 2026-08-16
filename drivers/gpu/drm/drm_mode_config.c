@@ -184,6 +184,13 @@ int drm_mode_config_init(struct drm_device *dev)
         return -ENOMEM;
     }
 
+    /* Standard connector property: "DPMS" (legacy enum, attached per connector). */
+    if (drm_mode_create_dpms_property(dev)) {
+        plogk("drm: Mode_config_init: DPMS property creation failed, returning -ENOMEM.\n");
+        drm_mode_config_cleanup(dev);
+        return -ENOMEM;
+    }
+
     return 0;
 }
 
