@@ -359,6 +359,10 @@ void drm_plane_cleanup(struct drm_plane *plane)
 
     free(plane->name);
     plane->name = NULL;
+
+    free(plane->state);
+    plane->state = NULL;
+
     if (plane->base.properties) {
         drm_property_set_destroy(plane->base.properties);
         free(plane->base.properties);

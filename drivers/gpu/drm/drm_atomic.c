@@ -312,18 +312,30 @@ int drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_cr
 
 int drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct drm_crtc *crtc)
 {
-    struct drm_device      *dev    = state->dev;
-    struct drm_mode_config *config = &dev->mode_config;
+    struct drm_device      *dev;
+    struct drm_mode_config *config;
     ilist_node_t           *node;
 
-    (void)crtc;
+    if (!state || !crtc) {
+        plogk("drm_atomic: add_affected_connectors with invalid args.\n");
+        return -EINVAL;
+    }
+
+    dev    = state->dev;
+    config = &dev->mode_config;
 
     for (node = config->connector_list.next; node != &config->connector_list; node = node->next) {
         struct drm_connector       *connector = container_of(node, struct drm_connector, head);
         struct drm_connector_state *conn_state;
 
+        /* Only connectors currently routed to @crtc are affected by its state change. */
+        if (!connector->state || connector->state->crtc != crtc) continue;
+
         conn_state = drm_atomic_get_connector_state(state, connector);
-        if (!conn_state) return -ENOMEM;
+        if (!conn_state) {
+            plogk("drm_atomic: Failed to get connector state for connector %p\n", (void *)connector);
+            return -ENOMEM;
+        }
     }
 
     return 0;

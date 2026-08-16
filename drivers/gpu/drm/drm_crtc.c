@@ -381,6 +381,10 @@ void drm_crtc_cleanup(struct drm_crtc *crtc)
 
     free(crtc->gamma_store);
     crtc->gamma_store = NULL;
+
+    free(crtc->state);
+    crtc->state = NULL;
+
     if (crtc->cursor_obj) {
         drm_gem_object_put(crtc->cursor_obj);
         crtc->cursor_obj = NULL;

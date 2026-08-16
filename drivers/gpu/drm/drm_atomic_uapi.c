@@ -290,13 +290,16 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         if (prop == config->prop_plane_type) return 0;
     } else if (obj->type == DRM_MODE_OBJECT_CONNECTOR) {
         struct drm_connector       *connector = container_of(obj, struct drm_connector, base);
-        struct drm_connector_state *s         = drm_atomic_get_connector_state(state, connector);
-        if (!s) return -ENOMEM;
+        struct drm_connector_state *s;
+
+        /* "DPMS" is legacy-only; reject it before touching any connector state (Linux semantics). */
         if (prop == config->prop_dpms) {
-            /* "DPMS" is legacy-only; atomic writes are rejected like Linux. */
             plogk("drm_atomic: Legacy DPMS property %u can only be set via legacy uAPI.\n", prop->base.id);
             return -EINVAL;
         }
+
+        s = drm_atomic_get_connector_state(state, connector);
+        if (!s) return -ENOMEM;
         if (prop == config->prop_crtc_id) {
             struct drm_crtc        *old_crtc = s->crtc;
             struct drm_mode_object *target   = value ? drm_mode_object_find(state->dev, file_priv, (uint32_t)value, DRM_MODE_OBJECT_CRTC) : NULL;

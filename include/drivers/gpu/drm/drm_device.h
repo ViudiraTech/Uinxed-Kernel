@@ -256,14 +256,18 @@ struct drm_display_mode {
 struct drm_crtc_helper_funcs {
         /* Called after a mode has been set on the CRTC */
         void (*mode_set)(struct drm_crtc *crtc, struct drm_framebuffer *fb);
+
         /* Called on page-flip ioctl */
         int (*page_flip)(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags);
         int (*cursor_set)(struct drm_crtc *crtc, struct drm_gem_object *obj, uint32_t width, uint32_t height, int32_t hot_x, int32_t hot_y);
         int (*cursor_move)(struct drm_crtc *crtc, int32_t x, int32_t y);
+
         /* Called when CRTC is being enabled after modeset */
         void (*atomic_enable)(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+
         /* Called when CRTC is being disabled */
         void (*atomic_disable)(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+
         /* Called by the software-vblank timer before completion events. */
         void (*vblank)(struct drm_crtc *crtc);
 };
@@ -280,6 +284,7 @@ struct drm_connector_helper_funcs {
         enum drm_connector_status (*detect)(struct drm_connector *connector, bool force);
         int (*get_modes)(struct drm_connector *connector);
         int (*mode_valid)(struct drm_connector *connector, struct drm_display_mode *mode);
+
         /* Legacy (non-atomic) connector power control hook, invoked with a DRM_MODE_DPMS_* level. */
         void (*dpms)(struct drm_connector *connector, int mode);
 };
@@ -432,11 +437,12 @@ struct drm_connector {
         enum drm_connector_force    force;
         bool                        override_edid_set;
         struct drm_connector_state *state;
+
         /* @dpms: current DPMS state (DRM_MODE_DPMS_*), published optimistically before atomic commits. */
-        int                         dpms;
-        void                       *helper_private;
-        uint32_t                    possible_encoders_count;
-        uint32_t                   *possible_encoders_ids;
+        int       dpms;
+        void     *helper_private;
+        uint32_t  possible_encoders_count;
+        uint32_t *possible_encoders_ids;
 };
 
 struct drm_framebuffer_funcs {

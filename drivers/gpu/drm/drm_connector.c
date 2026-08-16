@@ -91,8 +91,7 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
         return ret;
     }
 
-    connector->dpms = DRM_MODE_DPMS_ON;
-    ret             = drm_connector_attach_dpms_property(connector);
+    ret = drm_connector_attach_dpms_property(connector);
     if (ret) {
         plogk("drm_connector: Failed to attach dpms property (ret=%d)\n", ret);
         drm_connector_cleanup(connector);
@@ -326,6 +325,10 @@ void drm_connector_cleanup(struct drm_connector *connector)
 
     free(connector->eld);
     connector->eld = NULL;
+
+    free(connector->state);
+    connector->state = NULL;
+
     if (connector->base.properties) {
         drm_property_set_destroy(connector->base.properties);
         free(connector->base.properties);
@@ -337,17 +340,17 @@ void drm_connector_cleanup(struct drm_connector *connector)
 int drm_connector_property_set_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_connector_set_property *set_prop = (struct drm_mode_connector_set_property *)data;
-    struct drm_mode_obj_set_property         obj_set_prop;
+    struct drm_mode_obj_set_property        obj_set_prop;
 
     if (!dev || !set_prop) {
         plogk("drm_connector: SETPROPERTY with invalid args (dev=%p, set_prop=%p)\n", dev, set_prop);
         return -EINVAL;
     }
 
-    obj_set_prop.value      = set_prop->value;
-    obj_set_prop.prop_id    = set_prop->prop_id;
-    obj_set_prop.obj_id     = set_prop->connector_id;
-    obj_set_prop.obj_type   = DRM_MODE_OBJECT_CONNECTOR;
+    obj_set_prop.value    = set_prop->value;
+    obj_set_prop.prop_id  = set_prop->prop_id;
+    obj_set_prop.obj_id   = set_prop->connector_id;
+    obj_set_prop.obj_type = DRM_MODE_OBJECT_CONNECTOR;
 
     /* It does all the locking and checking we need. */
     return drm_mode_obj_setproperty_ioctl(dev, &obj_set_prop, file_priv);

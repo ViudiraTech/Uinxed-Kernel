@@ -317,6 +317,7 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
             plogk("drm: OBJ_GETPROPERTIES: copy buffer allocation failed (count=%u), returning -ENOMEM.\n", copy_count);
             return -ENOMEM;
         }
+
         /* Report DPMS state-aware: self-refresh forces ON (Linux drm_atomic_connector_get_property). */
         if (obj->type == DRM_MODE_OBJECT_CONNECTOR && dev->mode_config.prop_dpms && copy_count) {
             uint32_t dpms_id = dev->mode_config.prop_dpms->base.id;
@@ -407,6 +408,7 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
         plogk("drm: OBJ_SETPROPERTY: value %llu out of range for property %u, returning -EINVAL.\n", (unsigned long long)req->value, req->prop_id);
         return -EINVAL;
     }
+
     /* DPMS is handled by the DPMS core (atomic commit or legacy dpms hook), never stored blindly. */
     if (obj->type == DRM_MODE_OBJECT_CONNECTOR && prop == dev->mode_config.prop_dpms) {
         struct drm_connector *connector = container_of(obj, struct drm_connector, base);

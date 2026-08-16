@@ -108,7 +108,10 @@ static bool drm_sysfs_match(const char *buf, size_t count, const char *token)
     size_t token_len;
 
     if (!buf || !token) return false;
-    if (count && buf[count - 1] == '\n') count--;
+
+    /* Strip a trailing newline (optionally preceded by CR) and stray whitespace. */
+    while (count && (buf[count - 1] == '\n' || buf[count - 1] == '\r' || buf[count - 1] == ' ' || buf[count - 1] == '\t')) count--;
+
     token_len = strlen(token);
     return count == token_len && memcmp(buf, token, token_len) == 0;
 }
@@ -116,30 +119,48 @@ static bool drm_sysfs_match(const char *buf, size_t count, const char *token)
 /* Force the connector state from sysfs: "detect" clears the override, "on"/"digital"/"off" force the status, else -EINVAL. */
 static ssize_t connector_status_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
-    struct drm_connector      *connector = dev->driver_data;
-    enum drm_connector_force   old_force;
-    int                        ret = 0;
+    struct drm_connector    *connector = dev->driver_data;
+    enum drm_connector_force new_force;
     (void)attr;
 
-    if (!connector) return -EINVAL;
-
-    old_force = connector->force;
+    if (!connector) {
+        plogk("drm_sysfs: status_store with NULL connector.\n");
+        return -EINVAL;
+    }
 
     if (drm_sysfs_match(buf, count, "detect"))
-        connector->force = DRM_FORCE_UNSPECIFIED;
+        new_force = DRM_FORCE_UNSPECIFIED;
     else if (drm_sysfs_match(buf, count, "on"))
-        connector->force = DRM_FORCE_ON;
+        new_force = DRM_FORCE_ON;
     else if (drm_sysfs_match(buf, count, "digital"))
-        connector->force = DRM_FORCE_ON_DIGITAL;
+        new_force = DRM_FORCE_ON_DIGITAL;
     else if (drm_sysfs_match(buf, count, "off"))
-        connector->force = DRM_FORCE_OFF;
-    else
-        ret = -EINVAL;
+        new_force = DRM_FORCE_OFF;
+    else {
+        plogk("drm_sysfs: invalid status value written.\n");
+        return -EINVAL;
+    }
 
-    if (ret == 0 && (old_force != connector->force || connector->force == DRM_FORCE_UNSPECIFIED))
-        plogk("drm_sysfs: [CONNECTOR:%d:%s] force updated from %d to %d\n", connector->base.id, connector->name, old_force, connector->force);
+    connector->force = new_force;
 
-    return ret ? ret : (ssize_t)count;
+    /*
+     * Apply the force contract immediately so a subsequent read of "status"
+     * reflects the request: forced on/off pins the reported status, while
+     * "detect" re-probes through the connector helper when one exists
+     * (mirrors Linux drm_sysfs.c status_store).
+     */
+    if (new_force == DRM_FORCE_ON || new_force == DRM_FORCE_ON_DIGITAL) {
+        connector->status = connector_status_connected;
+    } else if (new_force == DRM_FORCE_OFF) {
+        connector->status = connector_status_disconnected;
+    } else {
+        struct drm_connector_helper_funcs *funcs = (struct drm_connector_helper_funcs *)connector->helper_private;
+        if (funcs && funcs->detect) connector->status = funcs->detect(connector, true);
+    }
+
+    plogk("drm_sysfs: [CONNECTOR:%d:%s] force=%d status=%d\n", connector->base.id, connector->name, connector->force, connector->status);
+
+    return (ssize_t)count;
 }
 
 /* Read the connector's current DPMS level ("On"/"Standby"/"Suspend"/"Off"). */
@@ -148,7 +169,7 @@ static ssize_t connector_dpms_show(struct device *dev, struct device_attribute *
     struct drm_connector *connector = dev->driver_data;
     (void)attr;
     if (!connector) return sysfs_emit(buf, "Unknown\n");
-    return sysfs_emit(buf, "%s\n", drm_get_dpms_name(connector->dpms));
+    return sysfs_emit(buf, "%s\n", drm_get_dpms_name(drm_connector_dpms_get(connector)));
 }
 
 /* Read the connector's stable mode-object ID. */

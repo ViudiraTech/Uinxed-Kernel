@@ -47,15 +47,28 @@ int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
         uint64_t cmd_phys  = alloc_frames(1);
         uint64_t resp_phys = alloc_frames(1);
         if (cmd_phys && resp_phys) {
-            vgdev->ctrlq_dma_cmd_phys[i]  = cmd_phys;
-            vgdev->ctrlq_dma_resp_phys[i] = resp_phys;
-            vgdev->ctrlq_dma_cmd[i]       = phys_to_virt(cmd_phys);
-            vgdev->ctrlq_dma_resp[i]      = phys_to_virt(resp_phys);
+            void *cmd  = phys_to_virt(cmd_phys);
+            void *resp = phys_to_virt(resp_phys);
+            if (cmd && resp) {
+                vgdev->ctrlq_dma_cmd_phys[i]  = cmd_phys;
+                vgdev->ctrlq_dma_resp_phys[i] = resp_phys;
+                vgdev->ctrlq_dma_cmd[i]       = cmd;
+                vgdev->ctrlq_dma_resp[i]      = resp;
+            } else {
+                free_frames(cmd_phys, 1);
+                free_frames(resp_phys, 1);
+                vgdev->ctrlq_dma_cmd_phys[i]  = 0;
+                vgdev->ctrlq_dma_resp_phys[i] = 0;
+                vgdev->ctrlq_dma_cmd[i]       = NULL;
+                vgdev->ctrlq_dma_resp[i]      = NULL;
+            }
         } else {
             if (cmd_phys) free_frames(cmd_phys, 1);
             if (resp_phys) free_frames(resp_phys, 1);
-            vgdev->ctrlq_dma_cmd[i]  = NULL;
-            vgdev->ctrlq_dma_resp[i] = NULL;
+            vgdev->ctrlq_dma_cmd_phys[i]  = 0;
+            vgdev->ctrlq_dma_resp_phys[i] = 0;
+            vgdev->ctrlq_dma_cmd[i]       = NULL;
+            vgdev->ctrlq_dma_resp[i]      = NULL;
         }
     }
 
@@ -66,8 +79,10 @@ int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
 /* Tear down the control and cursor virtqueues. */
 void virtgpu_vq_fini(struct virtio_gpu_device *vgdev)
 {
+    if (!vgdev) return;
+
     /* Stop device DMA before returning queue pages to the frame allocator. */
-    if (vgdev && vgdev->vp_dev) vp_reset_device(vgdev->vp_dev);
+    if (vgdev->vp_dev) vp_reset_device(vgdev->vp_dev);
     vp_del_vq(&vgdev->cursorq);
     vp_del_vq(&vgdev->ctrlq);
 
