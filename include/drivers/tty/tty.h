@@ -49,7 +49,7 @@ uint8_t tty_writer_handler(writer *writer, char c);
 /* Obtain the tty device provided at startup (derived from the console table) */
 tty_device_t *get_boot_tty(void);
 
-/* Update the TTY device type (e.g., switch to DRM after virtio-gpu init) */
+/* Update the TTY device type (e.g., switch to DRM once a GPU driver attaches) */
 void tty_set_device_type(tty_device_kind_t type);
 
 /* Print characters to tty */

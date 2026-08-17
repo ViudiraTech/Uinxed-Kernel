@@ -133,7 +133,7 @@ tty_device_t *get_boot_tty(void)
     return boot_tty_ptr;
 }
 
-/* Update the TTY device type (e.g., switch to DRM after virtio-gpu init) */
+/* Update the TTY device type (e.g., switch to DRM once a GPU driver attaches) */
 void tty_set_device_type(tty_device_kind_t type)
 {
     /* A requested serial console remains the diagnostic console. */

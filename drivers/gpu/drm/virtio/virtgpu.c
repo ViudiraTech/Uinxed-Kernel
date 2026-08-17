@@ -33,6 +33,9 @@
 
 /* Ioctl implementation prototypes */
 
+/* Probed device singleton, kept driver-private so the DRM core stays generic. */
+static struct virtio_gpu_device *virtio_gpu_probed_device;
+
 static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file *file_priv);
 static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct drm_file *file_priv);
 static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file_priv);
@@ -212,6 +215,7 @@ static void virtgpu_release(struct drm_device *dev)
         }
         virtgpu_vq_fini(vgdev);
 
+        if (virtio_gpu_probed_device == vgdev) virtio_gpu_probed_device = NULL;
         vp_release_device(vgdev->vp_dev);
         free(vgdev->vp_dev);
         free(vgdev);
@@ -1060,6 +1064,7 @@ int virtio_gpu_driver_init(void)
 
     /* Reserve card0/renderD128 for this real GPU before KMS setup. */
     drm_device_list_add(vgdev->drm_dev);
+    virtio_gpu_probed_device = vgdev;
 
     /* Initialise the KMS display pipeline */
     ret = virtgpu_kms_init(vgdev);
@@ -1079,11 +1084,10 @@ int virtio_gpu_driver_init(void)
 /* Initialisation hook - called from kernel init */
 
 /*
- * Called after drm_init() to register the virtio-gpu driver.
- * In a full implementation this would be a proper module_init or
- * driver-registration callback.  For now, it's called explicitly.
+ * GPU probe callback, registered as "virtio-gpu" in drivers/gpu/gpu_drivers.c
+ * and driven by drm_gpu_probe_all().  Returns 0 if a device was attached.
  */
-int virtio_gpu_init(void)
+int virtio_gpu_probe(void)
 {
 #if CONFIG_VIRTIO_GPU
     int ret = virtio_gpu_driver_init();
@@ -1101,19 +1105,12 @@ int virtio_gpu_init(void)
 }
 
 /*
- * Return the singleton virtio-gpu device for the kernel to query.
- * Returns NULL if no device was probed.
+ * Return the probed virtio-gpu device, or NULL if no device was found.
+ * This is driver-private state; the DRM core itself never needs it.
  */
 void *virtio_gpu_get_device(void)
 {
-    /*
-     * The singleton is stashed in the global registered DRM device.
-     */
-    extern struct drm_device *drm_get_singleton(void);
-    struct drm_device        *dev = drm_get_singleton();
-
-    if (!dev || !dev->dev_private) return NULL;
-    return dev->dev_private;
+    return virtio_gpu_probed_device;
 }
 
 /* Module exit hook. */

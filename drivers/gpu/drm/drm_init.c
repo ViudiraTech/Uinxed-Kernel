@@ -20,14 +20,13 @@
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>
 #include <syscall/fcntl.h>
 
 /* Global DRM device list (replaces singleton) */
-
-#define DRM_MAX_DEVICES 16
 
 static struct drm_device *drm_device_list[DRM_MAX_DEVICES];
 static spinlock_t         drm_device_list_lock = {.lock = 0, .rflags = 0};
@@ -58,26 +57,12 @@ void drm_device_list_remove(struct drm_device *dev)
     spin_unlock(&drm_device_list_lock);
 }
 
-/* Return the first registered DRM device, or NULL. */
-struct drm_device *drm_get_singleton(void)
-{
-    /*
-     * Return the first registered primary device for backward
-     * compatibility. New code should use drm_get_device_by_minor.
-     */
-    spin_lock(&drm_device_list_lock);
-    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
-        if (drm_device_list[i]) {
-            struct drm_device *dev = drm_device_list[i];
-            spin_unlock(&drm_device_list_lock);
-            return dev;
-        }
-    }
-    spin_unlock(&drm_device_list_lock);
-    return NULL;
-}
-
-/* Look up a registered device by its minor type and index. */
+/*
+ * Look up a registered device by its minor type and index.  The returned
+ * device holds a caller reference which must be dropped with drm_dev_put().
+ * Taking the reference under the list lock keeps the device alive even if
+ * a concurrent final drm_dev_put is tearing it down.
+ */
 struct drm_device *drm_get_device_by_minor(int type, int index)
 {
     spin_lock(&drm_device_list_lock);
@@ -85,16 +70,132 @@ struct drm_device *drm_get_device_by_minor(int type, int index)
         struct drm_device *dev = drm_device_list[i];
         if (!dev) continue;
         if (type == DRM_MINOR_PRIMARY && dev->primary && dev->primary->index == index) {
-            spin_unlock(&drm_device_list_lock);
-            return dev;
+            if (drm_dev_get(dev)) {
+                spin_unlock(&drm_device_list_lock);
+                return dev;
+            }
+            break; // Minor indices are unique; a dying device is the only match.
         }
         if (type == DRM_MINOR_RENDER && dev->render && dev->render->index == index) {
-            spin_unlock(&drm_device_list_lock);
-            return dev;
+            if (drm_dev_get(dev)) {
+                spin_unlock(&drm_device_list_lock);
+                return dev;
+            }
+            break;
         }
     }
     spin_unlock(&drm_device_list_lock);
     return NULL;
+}
+
+/*
+ * Iterate the registered device list.  @idx starts at 0.  The returned
+ * device holds a caller reference which must be dropped with drm_dev_put().
+ */
+struct drm_device *drm_device_list_iter(int *idx)
+{
+    struct drm_device *dev = NULL;
+    int                i;
+
+    if (!idx || *idx < 0) return NULL;
+
+    spin_lock(&drm_device_list_lock);
+    for (i = *idx; i < DRM_MAX_DEVICES; i++) {
+        if (!drm_device_list[i]) continue;
+        dev = drm_dev_get(drm_device_list[i]);
+        if (!dev) continue;
+        *idx = i + 1;
+        break;
+    }
+    spin_unlock(&drm_device_list_lock);
+    return dev;
+}
+
+/*
+ * Collect up to @max registered devices into @out, each holding a caller
+ * reference which must be dropped with drm_dev_put().  Returns the number
+ * collected.  Takes the device list lock once instead of once per device,
+ * which matters for per-tick callers like the vblank emulation timer.
+ */
+int drm_device_list_collect(struct drm_device **out, int max)
+{
+    int n = 0;
+
+    if (!out || max <= 0) return 0;
+
+    spin_lock(&drm_device_list_lock);
+    for (int i = 0; i < DRM_MAX_DEVICES && n < max; i++) {
+        struct drm_device *dev = drm_device_list[i];
+        if (!dev) continue;
+        dev = drm_dev_get(dev);
+        if (!dev) continue;
+        out[n++] = dev;
+    }
+    spin_unlock(&drm_device_list_lock);
+    return n;
+}
+
+/* GPU driver registry: built-in drivers register a probe with the core. */
+
+static struct drm_gpu_driver drm_gpu_drivers[DRM_MAX_GPU_DRIVERS];
+static int                   drm_gpu_driver_count;
+static spinlock_t            drm_gpu_driver_lock = {.lock = 0, .rflags = 0};
+
+/* Register a built-in GPU driver probe callback. */
+int drm_gpu_driver_register(const char *name, int (*probe)(void))
+{
+    if (!name || !probe) return -EINVAL;
+
+    spin_lock(&drm_gpu_driver_lock);
+    if (drm_gpu_driver_count >= DRM_MAX_GPU_DRIVERS) {
+        spin_unlock(&drm_gpu_driver_lock);
+        plogk("drm: GPU driver registry full, ignoring \"%s\"\n", name);
+        return -ENOSPC;
+    }
+    drm_gpu_drivers[drm_gpu_driver_count].name  = name;
+    drm_gpu_drivers[drm_gpu_driver_count].probe = probe;
+    drm_gpu_driver_count++;
+    spin_unlock(&drm_gpu_driver_lock);
+    plogk("drm: Registered GPU driver \"%s\"\n", name);
+    return 0;
+}
+
+/*
+ * Probe every registered GPU driver in registration order and attach any
+ * that find hardware, so a machine with several GPUs gets one /dev/dri node
+ * per driver rather than a single election.  Returns 0 if at least one GPU
+ * attached, otherwise the last probe error (a real failure such as -ENOMEM
+ * is thus distinguishable from "no device found"); the boot path is then
+ * expected to call drm_init_fallback() for the software framebuffer device.
+ *
+ * This runs once from the single-threaded boot path after gpu_drivers_init(),
+ * so no lock is needed to walk the registry.  A probe callback may block
+ * (device setup), which also precludes holding the registry spinlock here.
+ */
+int drm_gpu_probe_all(void)
+{
+#if CONFIG_DRM
+    int attached   = 0;
+    int last_error = -ENODEV;
+
+    for (int i = 0; i < drm_gpu_driver_count; i++) {
+        const char *name   = drm_gpu_drivers[i].name;
+        int (*probe)(void) = drm_gpu_drivers[i].probe;
+
+        if (!probe) continue;
+        int ret = probe();
+        if (ret == 0) {
+            attached++;
+            plogk("drm: GPU driver \"%s\" attached.\n", name ? name : "?");
+        } else {
+            plogk("drm: GPU driver \"%s\" did not attach (err=%d)\n", name ? name : "?", ret);
+            last_error = ret;
+        }
+    }
+    return attached > 0 ? 0 : last_error;
+#else
+    return -ENODEV;
+#endif
 }
 
 /* Dummy driver for the built-in DRM node */
@@ -324,7 +425,7 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
     /* Allocate and initialise the primary plane state */
     pipeline_primary_plane.state = malloc(sizeof(*pipeline_primary_plane.state));
     if (!pipeline_primary_plane.state) {
-        DRM_ERROR("Failed to alloc primary plane state\n");
+        DRM_ERROR("Failed to alloc primary plane state.\n");
         return -ENOMEM;
     }
     memset(pipeline_primary_plane.state, 0, sizeof(*pipeline_primary_plane.state));
@@ -345,7 +446,7 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
     /* Allocate and initialise the CRTC state */
     pipeline_crtc.state = malloc(sizeof(*pipeline_crtc.state));
     if (!pipeline_crtc.state) {
-        DRM_ERROR("Failed to alloc CRTC state\n");
+        DRM_ERROR("Failed to alloc CRTC state.\n");
         return -ENOMEM;
     }
     memset(pipeline_crtc.state, 0, sizeof(*pipeline_crtc.state));
@@ -375,7 +476,7 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
     /* Allocate and initialise the connector state */
     pipeline_connector.state = malloc(sizeof(*pipeline_connector.state));
     if (!pipeline_connector.state) {
-        DRM_ERROR("Failed to alloc connector state\n");
+        DRM_ERROR("Failed to alloc connector state.\n");
         return -ENOMEM;
     }
     memset(pipeline_connector.state, 0, sizeof(*pipeline_connector.state));
@@ -405,7 +506,6 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
     }
 
     drm_connector_register(&pipeline_connector);
-
     DRM_INFO("KMS pipeline: CRTC-%u + primary plane-%u + encoder-%u + connector-%u (%u modes)\n", pipeline_crtc.base.id, pipeline_primary_plane.base.id, pipeline_encoder.base.id,
              pipeline_connector.base.id, sizeof(dummy_modes) / sizeof(dummy_modes[0]));
 
@@ -443,10 +543,53 @@ int drm_dev_ioctl(void *file, size_t req, void *arg)
 
     if (!file_priv) return -ENODEV;
 
-    dev = drm_get_singleton();
+    /* Route to the device bound to this open file, not a global singleton. */
+    dev = (struct drm_device *)file_priv->minor_unused;
     if (!dev) return -ENODEV;
 
     return drm_ioctl(dev, (unsigned int)req, arg, file_priv);
+}
+
+/* Parse a strictly numeric node suffix.  Returns -1 for an empty,
+ * non-numeric, or overflowing suffix instead of atoi()'s silent 0. */
+static int drm_parse_minor(const char *s)
+{
+    int minor = 0;
+
+    if (!s || !*s) return -1;
+    for (; *s; s++) {
+        if (*s < '0' || *s > '9') return -1;
+        minor = minor * 10 + (*s - '0');
+        if (minor < 0) return -1; /* signed overflow */
+    }
+    return minor;
+}
+
+/*
+ * Resolve the DRM device that owns a /dev/dri node from its name.  Nodes
+ * are named "cardN" (primary minor N) or "renderD128+N" (render minor N)
+ * by drm_dev_register(); no single-device assumption is made here.  The
+ * returned device holds a caller reference which must be dropped with
+ * drm_dev_put().
+ */
+static struct drm_device *drm_device_from_node(void *node_ptr)
+{
+    vfs_node_t node = (vfs_node_t)node_ptr;
+    int        minor;
+
+    if (!node || !node->name || !node->name[0]) return NULL;
+
+    if (!strncmp(node->name, "card", 4)) {
+        minor = drm_parse_minor(node->name + 4);
+        if (minor < 0) return NULL;
+        return drm_get_device_by_minor(DRM_MINOR_PRIMARY, minor);
+    }
+    if (!strncmp(node->name, "renderD", 7)) {
+        minor = drm_parse_minor(node->name + 7);
+        if (minor < 128) return NULL;
+        return drm_get_device_by_minor(DRM_MINOR_RENDER, minor - 128);
+    }
+    return NULL;
 }
 
 /*
@@ -460,17 +603,23 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
     struct drm_file   *file;
     int                ret;
 
-    (void)node_ptr;
     (void)flags;
     if (!private_data) return -EINVAL;
     *private_data = NULL;
 
-    dev = drm_get_singleton();
+    /* Bind the open to whichever GPU registered this node. */
+    dev = drm_device_from_node(node_ptr);
     if (!dev) return -ENODEV;
     file = malloc(sizeof(*file));
-    if (!file) return -ENOMEM;
+    if (!file) {
+        drm_dev_put(dev);
+        return -ENOMEM;
+    }
     memset(file, 0, sizeof(*file));
     ret = drm_open(dev, file);
+
+    /* Drop the lookup reference; the file holds its own via drm_open(). */
+    drm_dev_put(dev);
     if (ret) {
         free(file);
         return ret;
@@ -555,7 +704,8 @@ void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
 
     if (!file_priv) return NULL;
 
-    dev = drm_get_singleton();
+    /* Route to the device bound to this open file, not a global singleton. */
+    dev = (struct drm_device *)file_priv->minor_unused;
     if (!dev) return NULL;
 
     /*
@@ -582,7 +732,8 @@ void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t siz
     (void)size;
     (void)flags;
 
-    if (!dev) dev = drm_get_singleton();
+    /* ctx carries the owning device; fall back to the file's bound device. */
+    if (!dev) dev = file_priv ? (struct drm_device *)file_priv->minor_unused : NULL;
     if (!dev || !file_priv || !vma) return NULL;
 
     /* Look up the GEM object by its mmap offset. */
@@ -603,52 +754,6 @@ void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t siz
     return obj->backing;
 }
 
-/* DRM open / release callbacks for devtmpfs */
-
-/*
- * When userspace opens /dev/dri/card0, tmpfs calls this open callback.
- * We allocate a drm_file and bind it to the VFS node's handle.
- */
-void drm_vfs_open_cb(void *parent, const char *name, void *node_ptr)
-{
-    struct drm_device *dev;
-
-    (void)parent;
-    (void)name;
-
-    dev = drm_get_singleton();
-    if (!dev) return;
-
-    vfs_node_t node = (vfs_node_t)node_ptr;
-    if (!node) return;
-
-    struct drm_file *file = malloc(sizeof(*file));
-    if (!file) return;
-
-    memset(file, 0, sizeof(*file));
-    int ret = drm_open(dev, file);
-    if (ret != 0) {
-        free(file);
-        return;
-    }
-
-    /* Store the drm_file as the node's file-private handle */
-    node->handle = file;
-}
-
-/* Release the per-open drm_file bound to the node's handle. */
-void drm_vfs_close_cb(void *current)
-{
-    vfs_node_t node = (vfs_node_t)current;
-
-    if (!node || !node->handle) return;
-
-    struct drm_file *file = (struct drm_file *)node->handle;
-
-    drm_release(file);
-    node->handle = NULL;
-}
-
 /* Public init */
 
 /* Allocate and register the software fallback DRM device. */
@@ -659,7 +764,7 @@ int drm_init_fallback(void)
 
     dev = drm_dev_alloc(&drm_dummy_driver);
     if (!dev) {
-        DRM_ERROR("Failed to allocate DRM device\n");
+        DRM_ERROR("Failed to allocate DRM device.\n");
         return -ENOMEM;
     }
 

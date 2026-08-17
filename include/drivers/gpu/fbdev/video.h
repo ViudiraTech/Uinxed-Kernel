@@ -11,9 +11,9 @@
 #ifndef INCLUDE_VIDEO_H_
 #define INCLUDE_VIDEO_H_
 
+#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <libs/std/stdbool.h>
 
 struct vm_area;
 
@@ -92,7 +92,7 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg);
 /* Map the live framebuffer into a userspace VMA. */
 void *video_fb_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
 
-/* Start periodic virtio-gpu refreshes after PID 1 has been allocated. */
+/* Start periodic framebuffer refreshes after PID 1 has been allocated. */
 void video_start_refresh_worker(void);
 
 /* Initialize Video */

@@ -73,7 +73,7 @@ int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t pos
         spin_lock(&dev->mode_config.idr_mutex);
         drm_idr_remove(&dev->mode_config.object_idr, plane->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
-        plogk("drm: Plane %u format_types allocation failed (count=%u), returning -ENOMEM.\n", plane->base.id, format_count);
+        plogk("drm: Plane %u format_types allocation failed (count=%u), returning -ENOMEM\n", plane->base.id, format_count);
         return -ENOMEM;
     }
     memcpy(plane->format_types, formats, (size_t)format_count * sizeof(uint32_t));
@@ -90,7 +90,7 @@ int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t pos
         spin_lock(&dev->mode_config.idr_mutex);
         drm_idr_remove(&dev->mode_config.object_idr, plane->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
-        plogk("drm: Plane %u name allocation failed, returning -ENOMEM.\n", plane->base.id);
+        plogk("drm: Plane %u name allocation failed, returning -ENOMEM\n", plane->base.id);
         return -ENOMEM;
     }
 
@@ -117,6 +117,17 @@ int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t pos
     }
 
     return 0;
+}
+
+/* drm_plane_format_supported - can this plane scan out the given fourcc? */
+bool drm_plane_format_supported(const struct drm_plane *plane, uint32_t format)
+{
+    if (!plane || !plane->format_types || plane->format_count == 0) return false;
+
+    for (unsigned int j = 0; j < plane->format_count; j++) {
+        if (plane->format_types[j] == format) return true;
+    }
+    return false;
 }
 
 /*
@@ -148,13 +159,13 @@ int drm_mode_getplane_res(struct drm_device *dev, void *data, struct drm_file *f
     if (copy_count) {
         ids = malloc((size_t)count * sizeof(*ids));
         if (!ids) {
-            plogk("drm: GETPLANERESOURCES allocation failed (count=%u), returning -ENOMEM.\n", count);
+            plogk("drm: GETPLANERESOURCES allocation failed (count=%u), returning -ENOMEM\n", count);
             return -ENOMEM;
         }
         for (ilist_node_t *node = dev->mode_config.plane_list.next; node != &dev->mode_config.plane_list; node = node->next) ids[n++] = container_of(node, struct drm_plane, head)->base.id;
         if (!plane_res->plane_id_ptr || copy_to_user((void *)(uintptr_t)plane_res->plane_id_ptr, ids, (size_t)copy_count * sizeof(*ids))) {
             free(ids);
-            plogk("drm: GETPLANERESOURCES copy_to_user failed (count=%u), returning -EFAULT.\n", copy_count);
+            plogk("drm: GETPLANERESOURCES copy_to_user failed (count=%u), returning -EFAULT\n", copy_count);
             return -EFAULT;
         }
         free(ids);
@@ -189,7 +200,7 @@ int drm_mode_getplane(struct drm_device *dev, void *data, struct drm_file *file_
     user_format_count = plane_req->count_format_types;
     obj               = drm_mode_object_find(dev, file_priv, plane_req->plane_id, DRM_MODE_OBJECT_PLANE);
     if (!obj) {
-        plogk("drm: GETPLANE: plane %u not found, returning -ENOENT.\n", plane_req->plane_id);
+        plogk("drm: GETPLANE: plane %u not found, returning -ENOENT\n", plane_req->plane_id);
         return -ENOENT;
     }
     plane = container_of(obj, struct drm_plane, base);
@@ -203,7 +214,7 @@ int drm_mode_getplane(struct drm_device *dev, void *data, struct drm_file *file_
         uint32_t count = user_format_count < plane->format_count ? user_format_count : plane->format_count;
         if (!plane_req->format_type_ptr || copy_to_user((void *)(uintptr_t)plane_req->format_type_ptr, plane->format_types, (size_t)count * sizeof(*plane->format_types))) {
             drm_mode_object_put(obj);
-            plogk("drm: GETPLANE: copy_to_user failed for plane %u, returning -EFAULT.\n", plane_req->plane_id);
+            plogk("drm: GETPLANE: copy_to_user failed for plane %u, returning -EFAULT\n", plane_req->plane_id);
             return -EFAULT;
         }
     }
@@ -242,20 +253,20 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
 
     obj = drm_mode_object_find(dev, file_priv, plane_req->plane_id, DRM_MODE_OBJECT_PLANE);
     if (!obj) {
-        plogk("drm: SETPLANE: plane %u not found, returning -ENOENT.\n", plane_req->plane_id);
+        plogk("drm: SETPLANE: plane %u not found, returning -ENOENT\n", plane_req->plane_id);
         return -ENOENT;
     }
     plane = container_of(obj, struct drm_plane, base);
     if (!!plane_req->crtc_id != !!plane_req->fb_id) {
         ret = -EINVAL;
-        plogk("drm: SETPLANE: crtc_id and fb_id must be both set or both clear (plane %u, crtc_id=%u fb_id=%u), returning -EINVAL.\n", plane_req->plane_id, plane_req->crtc_id, plane_req->fb_id);
+        plogk("drm: SETPLANE: crtc_id and fb_id must be both set or both clear (plane %u, crtc_id=%u fb_id=%u), returning -EINVAL\n", plane_req->plane_id, plane_req->crtc_id, plane_req->fb_id);
         goto out;
     }
     if (plane_req->fb_id) {
         struct drm_mode_object *crtc_obj = drm_mode_object_find(dev, file_priv, plane_req->crtc_id, DRM_MODE_OBJECT_CRTC);
         if (!crtc_obj) {
             ret = -ENOENT;
-            plogk("drm: SETPLANE: crtc %u not found, returning -ENOENT.\n", plane_req->crtc_id);
+            plogk("drm: SETPLANE: crtc %u not found, returning -ENOENT\n", plane_req->crtc_id);
             goto out;
         }
         crtc = container_of(crtc_obj, struct drm_crtc, base);
@@ -263,14 +274,14 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
         fb = drm_framebuffer_lookup(dev, file_priv, plane_req->fb_id);
         if (!fb) {
             ret = -ENOENT;
-            plogk("drm: SETPLANE: framebuffer %u not found, returning -ENOENT.\n", plane_req->fb_id);
+            plogk("drm: SETPLANE: framebuffer %u not found, returning -ENOENT\n", plane_req->fb_id);
             goto out;
         }
         if (plane_req->src_w > DRM_S32_MAX || plane_req->src_h > DRM_S32_MAX || plane_req->crtc_w > DRM_S32_MAX || plane_req->crtc_h > DRM_S32_MAX
             || (int64_t)(int32_t)plane_req->src_x + plane_req->src_w > DRM_S32_MAX || (int64_t)(int32_t)plane_req->src_y + plane_req->src_h > DRM_S32_MAX
             || (int64_t)plane_req->crtc_x + plane_req->crtc_w > DRM_S32_MAX || (int64_t)plane_req->crtc_y + plane_req->crtc_h > DRM_S32_MAX) {
             ret = -EINVAL;
-            plogk("drm: SETPLANE: coordinates out of range (src_x=%u src_y=%u src_w=%u src_h=%u crtc_x=%d crtc_y=%d crtc_w=%u crtc_h=%u), returning -EINVAL.\n", plane_req->src_x, plane_req->src_y,
+            plogk("drm: SETPLANE: coordinates out of range (src_x=%u src_y=%u src_w=%u src_h=%u crtc_x=%d crtc_y=%d crtc_w=%u crtc_h=%u), returning -EINVAL\n", plane_req->src_x, plane_req->src_y,
                   plane_req->src_w, plane_req->src_h, plane_req->crtc_x, plane_req->crtc_y, plane_req->crtc_w, plane_req->crtc_h);
             goto out;
         }
@@ -278,7 +289,7 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
     state = drm_atomic_state_alloc(dev);
     if (!state) {
         ret = -ENOMEM;
-        plogk("drm: SETPLANE: atomic state allocation failed, returning -ENOMEM.\n");
+        plogk("drm: SETPLANE: atomic state allocation failed, returning -ENOMEM\n");
         goto out;
     }
     state->file_priv = file_priv;
@@ -286,7 +297,7 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
     if (!plane_state) {
         drm_atomic_state_free(state);
         ret = -ENOMEM;
-        plogk("drm: SETPLANE: plane state allocation failed, returning -ENOMEM.\n");
+        plogk("drm: SETPLANE: plane state allocation failed, returning -ENOMEM\n");
         goto out;
     }
     plane_state->crtc = crtc;
@@ -298,7 +309,7 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
         if (!crtc_state) {
             drm_atomic_state_free(state);
             ret = -ENOMEM;
-            plogk("drm: SETPLANE: crtc state allocation failed for crtc %u, returning -ENOMEM.\n", crtc->base.id);
+            plogk("drm: SETPLANE: crtc state allocation failed for crtc %u, returning -ENOMEM\n", crtc->base.id);
             goto out;
         }
         crtc_state->planes_changed = true;
@@ -307,7 +318,7 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
         if (!crtc_state) {
             drm_atomic_state_free(state);
             ret = -ENOMEM;
-            plogk("drm: SETPLANE: crtc state allocation failed for crtc %u, returning -ENOMEM.\n", plane->state->crtc->base.id);
+            plogk("drm: SETPLANE: crtc state allocation failed for crtc %u, returning -ENOMEM\n", plane->state->crtc->base.id);
             goto out;
         }
         crtc_state->planes_changed = true;

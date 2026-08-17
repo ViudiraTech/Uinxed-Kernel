@@ -59,7 +59,8 @@ static void test_gem_free(test_gem_object_t *obj)
 
 void drm_run_test(void)
 {
-    struct drm_device *dev = drm_get_singleton();
+    int                idx = 0;
+    struct drm_device *dev = drm_device_list_iter(&idx);
     if (!dev) {
         DRM_ERROR("Test: no DRM device, skipping.\n");
         return;
@@ -76,6 +77,7 @@ void drm_run_test(void)
     test_gem_object_t *gem = test_gem_alloc(dev, (size_t)create.width * create.height * 4);
     if (!gem) {
         DRM_ERROR("Test: GEM buffer allocation failed.\n");
+        drm_dev_put(dev);
         return;
     }
 
@@ -89,6 +91,7 @@ void drm_run_test(void)
     if (ret != 0) {
         DRM_ERROR("Test: drm_open failed: %d\n", ret);
         test_gem_free(gem);
+        drm_dev_put(dev);
         return;
     }
 
@@ -98,6 +101,7 @@ void drm_run_test(void)
         DRM_ERROR("Test: handle_create failed: %d\n", ret);
         drm_release(&test_file);
         test_gem_free(gem);
+        drm_dev_put(dev);
         return;
     }
 
@@ -143,7 +147,7 @@ void drm_run_test(void)
     uniq.unique     = (__u64)(uintptr_t)busid;
     uniq.unique_len = sizeof(busid);
     ret             = drm_ioctl(dev, DRM_IOCTL_GET_UNIQUE, &uniq, &test_file);
-    if (ret == 0) plogk("drm_test: DRM_IOCTL_GET_UNIQUE OK\n");
+    if (ret == 0) plogk("drm_test: DRM_IOCTL_GET_UNIQUE OK.\n");
 
     /* 7. Clean up */
     ret = drm_gem_handle_delete(&test_file, handle);
@@ -152,5 +156,6 @@ void drm_run_test(void)
     drm_release(&test_file);
     test_gem_free(gem);
 
+    drm_dev_put(dev);
     DRM_INFO("=== DRM self-test PASSED ===\n");
 }

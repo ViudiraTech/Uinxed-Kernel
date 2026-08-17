@@ -43,7 +43,7 @@ static int drm_property_add_enum(struct drm_property *prop, int index, uint64_t 
 
     e = malloc(sizeof(*e));
     if (!e) {
-        plogk("drm_property: Enum entry allocation failed, returning -ENOMEM.\n");
+        plogk("drm_property: Enum entry allocation failed, returning -ENOMEM\n");
         return -ENOMEM;
     }
     memset(e, 0, sizeof(*e));
@@ -355,13 +355,13 @@ int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *
 
     blob = drm_property_lookup_blob(dev, req->blob_id);
     if (!blob) {
-        plogk("drm_property: GETBLOB: blob %u not found, returning -ENOENT.\n", req->blob_id);
+        plogk("drm_property: GETBLOB: blob %u not found, returning -ENOENT\n", req->blob_id);
         return -ENOENT;
     }
     if (blob->length > UINT32_MAX) {
         size_t blob_length = blob->length;
         drm_property_blob_put(blob);
-        plogk("drm_property: GETBLOB: blob %u too large (%zu bytes), returning -E2BIG.\n", req->blob_id, blob_length);
+        plogk("drm_property: GETBLOB: blob %u too large (%zu bytes), returning -E2BIG\n", req->blob_id, blob_length);
         return -E2BIG;
     }
 
@@ -372,7 +372,7 @@ int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *
             plogk("drm_property: GETBLOB: buffer too small for blob %u (capacity=%u, length=%zu), returning -EINVAL.\n", req->blob_id, capacity, blob->length);
             ret = -EINVAL;
         } else if (!req->data || copy_to_user((void *)(uintptr_t)req->data, blob->data, blob->length)) {
-            plogk("drm_property: GETBLOB: copy_to_user failed for blob %u, returning -EFAULT.\n", req->blob_id);
+            plogk("drm_property: GETBLOB: copy_to_user failed for blob %u, returning -EFAULT\n", req->blob_id);
             ret = -EFAULT;
         }
     }
@@ -392,22 +392,22 @@ int drm_mode_createblob_ioctl(struct drm_device *dev, void *data, struct drm_fil
     void                        *payload;
 
     if (!dev || !req || !file_priv) {
-        plogk("drm_property: CREATEBLOB with invalid args (dev=%p, req=%p, file_priv=%p), returning -EINVAL.\n", dev, req, file_priv);
+        plogk("drm_property: CREATEBLOB with invalid args (dev=%p, req=%p, file_priv=%p), returning -EINVAL\n", dev, req, file_priv);
         return -EINVAL;
     }
     if (!req->length || !req->data || req->length > DRM_PROPERTY_BLOB_MAX_SIZE) {
-        plogk("drm_property: CREATEBLOB: invalid length/data (length=%u, data=%p), returning -EINVAL.\n", req->length, req->data);
+        plogk("drm_property: CREATEBLOB: invalid length/data (length=%u, data=%p), returning -EINVAL\n", req->length, req->data);
         return -EINVAL;
     }
 
     payload = malloc(req->length);
     if (!payload) {
-        plogk("drm_property: CREATEBLOB: payload allocation failed (length=%u), returning -ENOMEM.\n", req->length);
+        plogk("drm_property: CREATEBLOB: payload allocation failed (length=%u), returning -ENOMEM\n", req->length);
         return -ENOMEM;
     }
     if (copy_from_user(payload, (const void *)(uintptr_t)req->data, req->length)) {
         free(payload);
-        plogk("drm_property: CREATEBLOB: copy_from_user failed, returning -EFAULT.\n");
+        plogk("drm_property: CREATEBLOB: copy_from_user failed, returning -EFAULT\n");
         return -EFAULT;
     }
 
@@ -447,7 +447,7 @@ int drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_fi
     spin_unlock(&file_priv->table_lock);
 
     if (!blob) {
-        plogk("drm_property: DESTROYBLOB: blob %u not owned by this file, returning -ENOENT.\n", req->blob_id);
+        plogk("drm_property: DESTROYBLOB: blob %u not owned by this file, returning -ENOENT\n", req->blob_id);
         return -ENOENT;
     }
     drm_property_blob_put(blob);
@@ -508,7 +508,7 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
 
     prop = drm_property_find(dev, NULL, prop_req->prop_id);
     if (!prop) {
-        plogk("drm_property: GETPROPERTY: property %u not found, returning -ENOENT.\n", prop_req->prop_id);
+        plogk("drm_property: GETPROPERTY: property %u not found, returning -ENOENT\n", prop_req->prop_id);
         return -ENOENT;
     }
 
@@ -536,7 +536,7 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
         uint32_t count = user_values < prop->num_values ? user_values : prop->num_values;
         if (!prop_req->values_ptr || copy_to_user((void *)(uintptr_t)prop_req->values_ptr, prop->values, (size_t)count * sizeof(*prop->values))) {
             drm_mode_object_put(&prop->base);
-            plogk("drm_property: GETPROPERTY: values copy_to_user failed for property %u, returning -EFAULT.\n", prop_req->prop_id);
+            plogk("drm_property: GETPROPERTY: values copy_to_user failed for property %u, returning -EFAULT\n", prop_req->prop_id);
             return -EFAULT;
         }
     }
@@ -546,7 +546,7 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
         ilist_node_t                  *node    = prop->enum_list.next;
         if (!entries) {
             drm_mode_object_put(&prop->base);
-            plogk("drm_property: GETPROPERTY: enum entries allocation failed (count=%u), returning -ENOMEM.\n", count);
+            plogk("drm_property: GETPROPERTY: enum entries allocation failed (count=%u), returning -ENOMEM\n", count);
             return -ENOMEM;
         }
         for (uint32_t i = 0; i < count; i++, node = node->next) {
@@ -557,7 +557,7 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
         if (!prop_req->enum_blob_ptr || copy_to_user((void *)(uintptr_t)prop_req->enum_blob_ptr, entries, (size_t)count * sizeof(*entries))) {
             free(entries);
             drm_mode_object_put(&prop->base);
-            plogk("drm_property: GETPROPERTY: enum copy_to_user failed for property %u, returning -EFAULT.\n", prop_req->prop_id);
+            plogk("drm_property: GETPROPERTY: enum copy_to_user failed for property %u, returning -EFAULT\n", prop_req->prop_id);
             return -EFAULT;
         }
         free(entries);

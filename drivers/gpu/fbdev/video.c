@@ -177,7 +177,7 @@ static fbdev_var_screeninfo_t video_fb_var(const video_info_t *info)
     var.width          = UINT32_MAX;
     var.height         = UINT32_MAX;
 
-    /* Stable 60 Hz timing metadata for the fixed virtio scanout mode. */
+    /* Stable 60 Hz timing metadata for the fixed scanout mode. */
     var.right_margin = 80;
     var.hsync_len    = 80;
     var.left_margin  = 160;
@@ -241,7 +241,7 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             if (!fb_size || fb_size > UINT32_MAX) return -EOVERFLOW;
             fbdev_fix_screeninfo_t fix;
             memset(&fix, 0, sizeof(fix));
-            memcpy(fix.id, "Uinxed virtiofb", sizeof("Uinxed virtiofb"));
+            memcpy(fix.id, "Uinxed drmfb", sizeof("Uinxed drmfb"));
             fix.smem_len    = (uint32_t)fb_size;
             fix.type        = FB_TYPE_PACKED_PIXELS;
             fix.visual      = FB_VISUAL_TRUECOLOR;
@@ -286,7 +286,7 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             return EOK;
         }
         case FBIOBLANK :
-            /* The current virtio KMS path has no DPMS primitive. */
+            /* The current DRM KMS path has no DPMS primitive. */
             (void)arg;
             return -EINVAL;
         default :

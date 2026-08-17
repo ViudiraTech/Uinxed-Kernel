@@ -136,12 +136,12 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
     uint32_t                 i;
 
     if (!obj || !property) {
-        plogk("drm: Property set value with invalid args (obj=%p, property=%p), returning -EINVAL.\n", obj, property);
+        plogk("drm: Property set value with invalid args (obj=%p, property=%p), returning -EINVAL\n", obj, property);
         return -EINVAL;
     }
     set = obj->properties;
     if (!set) {
-        plogk("drm: Object %p has no property set; cannot set value, returning -EINVAL.\n", obj);
+        plogk("drm: Object %p has no property set; cannot set value, returning -EINVAL\n", obj);
         return -EINVAL;
     }
 
@@ -161,7 +161,7 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
 
         if (!new_ids) {
             spin_unlock(&set->lock);
-            plogk("drm: Property set grow failed (realloc ids) for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set grow failed (realloc ids) for object %p, returning -ENOMEM\n", obj);
             return -ENOMEM;
         }
         set->ids = new_ids; // realloc() may have freed the old buffer
@@ -173,7 +173,7 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
              * headroom is harmless and will be reused on the next grow.
              */
             spin_unlock(&set->lock);
-            plogk("drm: Property set grow failed (realloc values) for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set grow failed (realloc values) for object %p, returning -ENOMEM\n", obj);
             return -ENOMEM;
         }
         set->values   = new_vals;
@@ -197,12 +197,12 @@ int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_proper
     uint32_t                 i;
 
     if (!obj || !property || !val_out) {
-        plogk("drm: Property get value with invalid args (obj=%p, property=%p, val_out=%p), returning -EINVAL.\n", obj, property, val_out);
+        plogk("drm: Property get value with invalid args (obj=%p, property=%p, val_out=%p), returning -EINVAL\n", obj, property, val_out);
         return -EINVAL;
     }
     set = obj->properties;
     if (!set) {
-        plogk("drm: Object %p has no property set; cannot get value, returning -EINVAL.\n", obj);
+        plogk("drm: Object %p has no property set; cannot get value, returning -EINVAL\n", obj);
         return -EINVAL;
     }
 
@@ -215,7 +215,7 @@ int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_proper
         }
     }
     spin_unlock(&set->lock);
-    plogk("drm: Property %p not attached to object %p, returning -EINVAL.\n", property, obj);
+    plogk("drm: Property %p not attached to object %p, returning -EINVAL\n", property, obj);
     return -EINVAL;
 }
 
@@ -229,7 +229,7 @@ int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_proper
 int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property *property, uint64_t init_val)
 {
     if (!obj || !property) {
-        plogk("drm: Attach property with invalid args (obj=%p, property=%p), returning -EINVAL.\n", obj, property);
+        plogk("drm: Attach property with invalid args (obj=%p, property=%p), returning -EINVAL\n", obj, property);
         return -EINVAL;
     }
 
@@ -240,20 +240,20 @@ int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property 
 
         set = malloc(sizeof(*set));
         if (!set) {
-            plogk("drm: Property set allocation failed for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set allocation failed for object %p, returning -ENOMEM\n", obj);
             return -ENOMEM;
         }
         ids = malloc((size_t)DRM_OBJECT_PROP_INITIAL_CAPACITY * sizeof(*ids));
         if (!ids) {
             free(set);
-            plogk("drm: Property set ids allocation failed for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set ids allocation failed for object %p, returning -ENOMEM\n", obj);
             return -ENOMEM;
         }
         vals = malloc((size_t)DRM_OBJECT_PROP_INITIAL_CAPACITY * sizeof(*vals));
         if (!vals) {
             free(ids);
             free(set);
-            plogk("drm: Property set values allocation failed for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set values allocation failed for object %p, returning -ENOMEM\n", obj);
             return -ENOMEM;
         }
         memset(set, 0, sizeof(*set));
@@ -287,7 +287,7 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
 
     obj = drm_mode_object_find(dev, file_priv, req->obj_id, req->obj_type);
     if (!obj) {
-        plogk("drm: OBJ_GETPROPERTIES: object %u (type %u) not found, returning -ENOENT.\n", req->obj_id, req->obj_type);
+        plogk("drm: OBJ_GETPROPERTIES: object %u (type %u) not found, returning -ENOENT\n", req->obj_id, req->obj_type);
         return -ENOENT;
     }
 
@@ -314,7 +314,7 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
             free(ids);
             free(values);
             drm_mode_object_put(obj);
-            plogk("drm: OBJ_GETPROPERTIES: copy buffer allocation failed (count=%u), returning -ENOMEM.\n", copy_count);
+            plogk("drm: OBJ_GETPROPERTIES: copy buffer allocation failed (count=%u), returning -ENOMEM\n", copy_count);
             return -ENOMEM;
         }
 
@@ -334,7 +334,7 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
             free(ids);
             free(values);
             drm_mode_object_put(obj);
-            plogk("drm: OBJ_GETPROPERTIES: copy_to_user failed (count=%u), returning -EFAULT.\n", copy_count);
+            plogk("drm: OBJ_GETPROPERTIES: copy_to_user failed (count=%u), returning -EFAULT\n", copy_count);
             return -EFAULT;
         }
         free(ids);
@@ -370,14 +370,14 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
 
     obj = drm_mode_object_find(dev, NULL, req->obj_id, req->obj_type);
     if (!obj) {
-        plogk("drm: OBJ_SETPROPERTY: object %u (type %u) not found, returning -ENOENT.\n", req->obj_id, req->obj_type);
+        plogk("drm: OBJ_SETPROPERTY: object %u (type %u) not found, returning -ENOENT\n", req->obj_id, req->obj_type);
         return -ENOENT;
     }
 
     prop = drm_property_find(dev, NULL, req->prop_id);
     if (!prop) {
         drm_mode_object_put(obj);
-        plogk("drm: OBJ_SETPROPERTY: property %u not found, returning -ENOENT.\n", req->prop_id);
+        plogk("drm: OBJ_SETPROPERTY: property %u not found, returning -ENOENT\n", req->prop_id);
         return -ENOENT;
     }
 
@@ -385,7 +385,7 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
     if ((prop->flags & DRM_MODE_PROP_ATOMIC) || !obj->properties) {
         drm_mode_object_put(&prop->base);
         drm_mode_object_put(obj);
-        plogk("drm: OBJ_SETPROPERTY: object %u is atomic or has no properties, returning -EINVAL.\n", req->obj_id);
+        plogk("drm: OBJ_SETPROPERTY: object %u is atomic or has no properties, returning -EINVAL\n", req->obj_id);
         return -EINVAL;
     }
     {
@@ -399,13 +399,13 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
     if (prop->flags & DRM_MODE_PROP_IMMUTABLE) {
         drm_mode_object_put(&prop->base);
         drm_mode_object_put(obj);
-        plogk("drm: OBJ_SETPROPERTY: property %u is immutable, returning -EINVAL.\n", req->prop_id);
+        plogk("drm: OBJ_SETPROPERTY: property %u is immutable, returning -EINVAL\n", req->prop_id);
         return -EINVAL;
     }
     if ((prop->flags & DRM_MODE_PROP_RANGE) && (req->value < prop->values[0] || req->value > prop->values[1])) {
         drm_mode_object_put(&prop->base);
         drm_mode_object_put(obj);
-        plogk("drm: OBJ_SETPROPERTY: value %llu out of range for property %u, returning -EINVAL.\n", (unsigned long long)req->value, req->prop_id);
+        plogk("drm: OBJ_SETPROPERTY: value %llu out of range for property %u, returning -EINVAL\n", (unsigned long long)req->value, req->prop_id);
         return -EINVAL;
     }
 

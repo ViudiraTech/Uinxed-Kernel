@@ -11,6 +11,7 @@
 #include <drivers/firmware/acpi.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_idr.h>
+#include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
@@ -32,13 +33,13 @@ int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
     unsigned int            i;
 
     if (!dev || num_crtcs == 0) {
-        plogk("drm: Vblank_init with invalid args (dev=%p, num_crtcs=%u), returning -EINVAL.\n", dev, num_crtcs);
+        plogk("drm: Vblank_init with invalid args (dev=%p, num_crtcs=%u), returning -EINVAL\n", dev, num_crtcs);
         return -EINVAL;
     }
 
     vblank = malloc(sizeof(*vblank) * num_crtcs);
     if (!vblank) {
-        plogk("drm: Vblank_init: array allocation failed (num_crtcs=%u), returning -ENOMEM.\n", num_crtcs);
+        plogk("drm: Vblank_init: array allocation failed (num_crtcs=%u), returning -ENOMEM\n", num_crtcs);
         return -ENOMEM;
     }
     memset(vblank, 0, sizeof(*vblank) * num_crtcs);
@@ -100,14 +101,14 @@ int drm_crtc_vblank_get(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        plogk("drm: Vblank_get with invalid crtc (crtc=%p), returning -EINVAL.\n", crtc);
+        plogk("drm: Vblank_get with invalid crtc (crtc=%p), returning -EINVAL\n", crtc);
         return -EINVAL;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        plogk("drm: Vblank_get: crtc index %d out of range (num_crtc=%d), returning -EINVAL.\n", crtc->index, dev->num_crtc);
+        plogk("drm: Vblank_get: crtc index %d out of range (num_crtc=%d), returning -EINVAL\n", crtc->index, dev->num_crtc);
         return -EINVAL;
     }
 
@@ -360,29 +361,41 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 /* Timer-driven vblank tick used to emulate vblank interrupts. */
 void drm_vblank_tick(void)
 {
-    extern struct drm_device *drm_get_singleton(void);
-    struct drm_device        *dev = drm_get_singleton();
-    uint64_t                  now = nano_time();
+    uint64_t           now = nano_time();
+    struct drm_device *devs[DRM_MAX_DEVICES];
+    int                ndev = drm_device_list_collect(devs, DRM_MAX_DEVICES);
 
-    if (!dev || !dev->vblank_unused_array) return;
-    for (int i = 0; i < dev->num_crtc; i++) {
-        struct drm_vblank_crtc *vblank = &dev->vblank_unused_array[i];
-        bool                    due;
+    /*
+     * Service every registered device, not just the first: each GPU owns a
+     * separate set of CRTCs and its own vblank bookkeeping.  The references
+     * taken by the collect keep each device alive for the whole tick; the
+     * global list lock is acquired once rather than once per device.
+     */
+    for (int d = 0; d < ndev; d++) {
+        struct drm_device *dev = devs[d];
 
-        spin_lock(&vblank->lock);
-        if (!vblank->enabled) {
-            spin_unlock(&vblank->lock);
-            continue;
+        if (dev->vblank_unused_array) {
+            for (int i = 0; i < dev->num_crtc; i++) {
+                struct drm_vblank_crtc *vblank = &dev->vblank_unused_array[i];
+                bool                    due;
+
+                spin_lock(&vblank->lock);
+                if (!vblank->enabled) {
+                    spin_unlock(&vblank->lock);
+                    continue;
+                }
+                if (!vblank->next_vblank_ns) vblank->next_vblank_ns = now + vblank->period_ns;
+                due = now >= vblank->next_vblank_ns;
+                if (due) {
+                    do {
+                        vblank->next_vblank_ns += vblank->period_ns;
+                    } while (now >= vblank->next_vblank_ns);
+                }
+                spin_unlock(&vblank->lock);
+                if (due) drm_handle_vblank(dev, (unsigned int)i);
+            }
         }
-        if (!vblank->next_vblank_ns) vblank->next_vblank_ns = now + vblank->period_ns;
-        due = now >= vblank->next_vblank_ns;
-        if (due) {
-            do {
-                vblank->next_vblank_ns += vblank->period_ns;
-            } while (now >= vblank->next_vblank_ns);
-        }
-        spin_unlock(&vblank->lock);
-        if (due) drm_handle_vblank(dev, (unsigned int)i);
+        drm_dev_put(dev);
     }
 }
 
@@ -399,17 +412,17 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     uint32_t                allowed;
 
     if (!dev || !vblwait) {
-        plogk("drm: WAIT_VBLANK with invalid args (dev=%p, vblwait=%p), returning -EINVAL.\n", dev, vblwait);
+        plogk("drm: WAIT_VBLANK with invalid args (dev=%p, vblwait=%p), returning -EINVAL\n", dev, vblwait);
         return -EINVAL;
     }
     flags   = vblwait->request.type;
     allowed = _DRM_VBLANK_TYPES_MASK | _DRM_VBLANK_FLAGS_MASK | _DRM_VBLANK_HIGH_CRTC_MASK;
     if (flags & ~allowed) {
-        plogk("drm: WAIT_VBLANK: unsupported flags 0x%x, returning -EINVAL.\n", flags);
+        plogk("drm: WAIT_VBLANK: unsupported flags 0x%x, returning -EINVAL\n", flags);
         return -EINVAL;
     }
     if (flags & (_DRM_VBLANK_SIGNAL | _DRM_VBLANK_FLIP)) {
-        plogk("drm: WAIT_VBLANK: SIGNAL/FLIP not supported (flags=0x%x), returning -EINVAL.\n", flags);
+        plogk("drm: WAIT_VBLANK: SIGNAL/FLIP not supported (flags=0x%x), returning -EINVAL\n", flags);
         return -EINVAL;
     }
 
@@ -417,13 +430,13 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     if ((flags & _DRM_VBLANK_SECONDARY) && !pipe) pipe = 1;
 
     if (pipe >= (unsigned int)dev->num_crtc) {
-        plogk("drm: WAIT_VBLANK: pipe %u out of range (num_crtc=%d), returning -EINVAL.\n", pipe, dev->num_crtc);
+        plogk("drm: WAIT_VBLANK: pipe %u out of range (num_crtc=%d), returning -EINVAL\n", pipe, dev->num_crtc);
         return -EINVAL;
     }
 
     vblank = &dev->vblank_unused_array[pipe];
     if (!vblank->crtc) {
-        plogk("drm: WAIT_VBLANK: no CRTC bound to pipe %u, returning -EINVAL.\n", pipe);
+        plogk("drm: WAIT_VBLANK: no CRTC bound to pipe %u, returning -EINVAL\n", pipe);
         return -EINVAL;
     }
 
@@ -439,7 +452,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 
         e = malloc(sizeof(*e));
         if (!e) {
-            plogk("drm: WAIT_VBLANK: event allocation failed, returning -ENOMEM.\n");
+            plogk("drm: WAIT_VBLANK: event allocation failed, returning -ENOMEM\n");
             return -ENOMEM;
         }
         memset(e, 0, sizeof(*e));
@@ -457,7 +470,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         if (drm_crtc_vblank_get(e->crtc)) {
             uint32_t crtc_id = e->crtc->base.id;
             free(e);
-            plogk("drm: WAIT_VBLANK: vblank get failed for crtc %u, returning -EINVAL.\n", crtc_id);
+            plogk("drm: WAIT_VBLANK: vblank get failed for crtc %u, returning -EINVAL\n", crtc_id);
             return -EINVAL;
         }
         e->vblank_ref = true;
@@ -479,7 +492,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     }
 
     if (drm_crtc_vblank_get(vblank->crtc)) {
-        plogk("drm: WAIT_VBLANK: vblank get failed for pipe %u, returning -EINVAL.\n", pipe);
+        plogk("drm: WAIT_VBLANK: vblank get failed for pipe %u, returning -EINVAL\n", pipe);
         return -EINVAL;
     }
     for (;;) {

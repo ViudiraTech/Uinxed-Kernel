@@ -77,7 +77,7 @@ int drm_modeset_lock(struct drm_modeset_lock *lock, struct drm_modeset_acquire_c
     spin_lock(&ctx->ctx_lock);
     ctx->contended_lock = lock;
     spin_unlock(&ctx->ctx_lock);
-    plogk("drm: Modeset lock %p contended (owner ctx %p, requester ctx %p); returning -EDEADLK.\n", lock, lock->ctx, ctx);
+    plogk("drm: Modeset lock %p contended (owner ctx %p, requester ctx %p); returning -EDEADLK\n", lock, lock->ctx, ctx);
     return -EDEADLK;
 }
 
@@ -133,7 +133,7 @@ int drm_modeset_lock_single_interruptible(struct drm_modeset_lock *lock)
     if (desired != 0) {
         /* Already held: nothing was claimed, just restore interrupt state. */
         __asm__ volatile("push %0; popfq" ::"r"(rflags));
-        plogk("drm: Modeset lock %p already held; returning -EBUSY.\n", lock);
+        plogk("drm: Modeset lock %p already held; returning -EBUSY\n", lock);
         return -EBUSY;
     }
 

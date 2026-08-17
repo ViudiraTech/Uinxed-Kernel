@@ -966,6 +966,9 @@ int  drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void 
 int  drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t possible_crtcs, void *funcs, const uint32_t *formats, unsigned int format_count, const uint64_t *modifiers,
                     enum drm_plane_type type, const char *name);
 void drm_plane_cleanup(struct drm_plane *plane);
+
+/* Can this plane scan out the given fourcc format? */
+bool drm_plane_format_supported(const struct drm_plane *plane, uint32_t format);
 void drm_connector_cleanup(struct drm_connector *connector);
 int  drm_connector_init(struct drm_device *dev, struct drm_connector *connector, void *funcs, int connector_type);
 int  drm_connector_attach_encoder(struct drm_connector *connector, struct drm_encoder *encoder);

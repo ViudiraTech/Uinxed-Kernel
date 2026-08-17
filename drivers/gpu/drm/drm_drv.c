@@ -300,7 +300,13 @@ struct drm_device *drm_dev_get(struct drm_device *dev)
     if (!dev) return NULL;
 
     spin_lock(&dev->ref_lock);
-    if (dev->unplugged) {
+    if (dev->unplugged || dev->refcount == 0) {
+        /*
+         * Refuse to resurrect a device whose count already hit zero: a
+         * concurrent drm_dev_put has decided to tear it down, and taking a
+         * fresh reference now would hand out a device that is about to be
+         * freed.
+         */
         spin_unlock(&dev->ref_lock);
         return NULL;
     }

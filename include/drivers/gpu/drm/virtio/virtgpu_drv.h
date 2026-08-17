@@ -725,8 +725,8 @@ int                       virtgpu_gem_dumb_map_offset(struct drm_file *file_priv
 int                       virtgpu_gem_prime_export(struct drm_device *dev, struct drm_gem_object *obj, int *prime_fd);
 struct drm_gem_object    *virtgpu_gem_prime_import(struct drm_device *dev, void *dma_buf);
 
-/* Module initialisation - called from kernel init after drm_init() */
-int   virtio_gpu_init(void);
+/* GPU probe callback - registered by drivers/gpu/gpu_drivers.c */
+int   virtio_gpu_probe(void);
 void  virtio_gpu_module_exit(void);
 void *virtio_gpu_get_device(void);
 

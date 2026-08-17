@@ -61,7 +61,7 @@ The project aims to build a practical, self-contained kernel with modern design 
 - **Input:** PS/2 keyboard and mouse, Linux-compatible `evdev`, USB HID (keyboard, mouse, consumer control)
 - **Storage:** IDE/ATA, AHCI (SATA), NVMe, and USB Mass Storage (Bulk-Only Transport / SCSI)
 - **Audio:** Sound Blaster 16, Intel HD Audio, and an ALSA-compatible PCM/control ABI
-- **Display:** DRM/KMS core, GOP framebuffer console with bitmap fonts, and an optional VirtIO-GPU driver
+- **Display:** DRM/KMS core with a generic GPU driver registry (VirtIO-GPU ships as the built-in driver), GOP framebuffer console with bitmap fonts, and a software framebuffer fallback
 - **Bus:** PCI/PCIe (ECAM + legacy), USB host controllers (UHCI/OHCI/EHCI/xHCI), and I2C
 - **Platform:** ACPI, HPET, RTC, serial, IEEE 1284 parallel port, and TPM (TIS/CRB, TPM 1.2/2.0)
 
@@ -209,7 +209,7 @@ No. The syscall table follows Linux 6.12 x86-64 numbering (syscalls 0-462), but 
 
 **Why isn't a driver I expected working (e.g. VirtIO-GPU, SB16)?**
 
-Some subsystems are disabled by default in Kconfig. For example, `VIRTIO` and `VIRTIO_GPU` default to `n`, and `SOUND_SB16` defaults to `n`. Enable them with `make menuconfig` (requires kconfig-frontends and libncurses-dev), then make sure the corresponding device is present in your VM or on your hardware. The build reads `.config` if present, otherwise `.config-default`; the generated `.config` takes precedence.
+Some subsystems are disabled by default in Kconfig. For example, `VIRTIO` and `VIRTIO_GPU` default to `n`, and `SOUND_SB16` defaults to `n`. Enable them with `make menuconfig` (requires kconfig-frontends and libncurses-dev), then make sure the corresponding device is present in your VM or on your hardware. GPU drivers are discovered through the registry in `drivers/gpu/gpu_drivers.c`; adding a new GPU driver means one entry there. The build reads `.config` if present, otherwise `.config-default`; the generated `.config` takes precedence.
 
 **Can I run this on real hardware?**
 

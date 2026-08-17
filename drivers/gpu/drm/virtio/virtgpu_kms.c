@@ -220,7 +220,7 @@ static void virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_st
 
     (void)old_state;
 
-    DRM_DEBUG_KMS("CRTC-%d enabled\n", crtc->base.id);
+    DRM_DEBUG_KMS("CRTC-%d enabled.\n", crtc->base.id);
 
     if (plane && plane->state && plane->state->fb && plane->state->fb != vgdev->current_fb) virtgpu_page_flip(vgdev, plane->state->fb, NULL);
 
@@ -238,7 +238,7 @@ static void virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_s
 
     (void)old_state;
 
-    DRM_DEBUG_KMS("CRTC-%d disabled\n", crtc->base.id);
+    DRM_DEBUG_KMS("CRTC-%d disabled.\n", crtc->base.id);
 
     virtgpu_cmd_set_scanout(vgdev, 0, NULL);
     vgdev->current_fb          = NULL;

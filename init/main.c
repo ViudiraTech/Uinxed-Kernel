@@ -26,10 +26,10 @@
 #include <drivers/char/tpm/tpm.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/gpu/drm/drm_init.h>
-#include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
+#include <drivers/gpu/gpu_drivers.h>
 #include <drivers/input/ps2/ps2.h>
 #include <drivers/net/ethernet/intel/e1000.h>
 #include <drivers/net/ethernet/realtek/rtl8139.h>
@@ -85,6 +85,7 @@
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
+#include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
@@ -394,8 +395,11 @@ void kernel_entry(void)
     module_sysfs_init();           // /sys/module/<name>/
                                    //
     /* Graphics Stack */           // Initialise before /dev/fb0 snapshots its size
-    if (virtio_gpu_init() != 0)    // Prefer VirtIO-GPU for card0/renderD128
-        drm_init_fallback();       // Software fallback only without VirtIO-GPU
+    gpu_drivers_init();            /* Register every built-in GPU driver */
+    if (drm_gpu_probe_all() != 0) {
+        plogk("drm: No GPU driver attached, using software framebuffer.\n");
+        drm_init_fallback();
+    }
 
     /*
      * kthreadd must be live before any subsystem creates a kernel worker,

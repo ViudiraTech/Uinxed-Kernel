@@ -16,25 +16,60 @@
 
 struct vm_area;
 
+/*
+ * GPU driver registry.  A GPU driver registers a probe callback with the
+ * DRM framework; the core then drives discovery generically instead of a
+ * specific accelerator being called directly from the boot path.
+ */
+#define DRM_MAX_GPU_DRIVERS 16
+#define DRM_MAX_DEVICES     16
+
+struct drm_gpu_driver {
+        const char *name;
+        int (*probe)(void);
+};
+
+/* Register a built-in GPU driver probe with the DRM framework. */
+int drm_gpu_driver_register(const char *name, int (*probe)(void));
+
+/*
+ * Probe every registered GPU driver and attach any that find hardware
+ * (multi-GPU machines get a node per driver).  Returns 0 if at least one
+ * GPU attached, otherwise the last probe error code; the boot path is then
+ * expected to call drm_init_fallback() for the software framebuffer device.
+ */
+int drm_gpu_probe_all(void);
+
 /* Fallback DRM initialization when no GPU driver can be probed. */
 int drm_init_fallback(void);
 
 /* Run the DRM subsystem functional self-test. */
 void drm_run_test(void);
 
-/* Return the singleton DRM device, or NULL before init. */
-struct drm_device *drm_get_singleton(void);
-
-/* Look up a registered device by minor type and index. */
+/*
+ * Look up a registered device by minor type and index; returns with a
+ * reference held that the caller must drop with drm_dev_put().
+ */
 struct drm_device *drm_get_device_by_minor(int type, int index);
+
+/*
+ * Iterate the registered device list.  @idx starts at 0; returns the next
+ * device (with a reference held) or NULL when the list is exhausted.  The
+ * caller must release the reference with drm_dev_put().
+ */
+struct drm_device *drm_device_list_iter(int *idx);
+
+/*
+ * Collect up to @max registered devices into @out, each holding a caller
+ * reference (drm_dev_put() to release).  Returns the number collected.
+ * Takes the device list lock once; prefer over repeated drm_device_list_iter()
+ * in per-tick paths.
+ */
+int drm_device_list_collect(struct drm_device **out, int max);
 
 /* Add or remove a device from the global device list. */
 void drm_device_list_add(struct drm_device *dev);
 void drm_device_list_remove(struct drm_device *dev);
-
-/* VFS callback wrappers used by devtmpfs to bind /dev/dri/card0. */
-void drm_vfs_open_cb(void *parent, const char *name, void *node);
-void drm_vfs_close_cb(void *current);
 
 /*
  * Per-open callbacks used by tmpfs/devtmpfs. DRM state is attached to each

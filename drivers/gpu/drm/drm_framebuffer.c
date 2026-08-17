@@ -195,6 +195,67 @@ int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_pri
 }
 
 /*
+ * drm_format_bpp - bits per pixel for supported packed fourcc formats.
+ * Returns 0 for unknown/pixel-depth formats this core does not model yet,
+ * so callers can reject them with -EINVAL.
+ */
+static unsigned int drm_format_bpp(uint32_t format)
+{
+    switch (format) {
+        case DRM_FORMAT_C8 :
+        case DRM_FORMAT_RGB332 :
+        case DRM_FORMAT_BGR233 :
+            return 8;
+        case DRM_FORMAT_XRGB4444 :
+        case DRM_FORMAT_XBGR4444 :
+        case DRM_FORMAT_RGBX4444 :
+        case DRM_FORMAT_BGRX4444 :
+        case DRM_FORMAT_ARGB4444 :
+        case DRM_FORMAT_ABGR4444 :
+        case DRM_FORMAT_RGBA4444 :
+        case DRM_FORMAT_BGRA4444 :
+        case DRM_FORMAT_XRGB1555 :
+        case DRM_FORMAT_XBGR1555 :
+        case DRM_FORMAT_RGBX5551 :
+        case DRM_FORMAT_BGRX5551 :
+        case DRM_FORMAT_ARGB1555 :
+        case DRM_FORMAT_ABGR1555 :
+        case DRM_FORMAT_RGBA5551 :
+        case DRM_FORMAT_BGRA5551 :
+        case DRM_FORMAT_RGB565 :
+        case DRM_FORMAT_BGR565 :
+            return 16;
+        case DRM_FORMAT_RGB888 :
+        case DRM_FORMAT_BGR888 :
+            return 24;
+        case DRM_FORMAT_XRGB8888 :
+        case DRM_FORMAT_XBGR8888 :
+        case DRM_FORMAT_RGBX8888 :
+        case DRM_FORMAT_BGRX8888 :
+        case DRM_FORMAT_ARGB8888 :
+        case DRM_FORMAT_ABGR8888 :
+        case DRM_FORMAT_RGBA8888 :
+        case DRM_FORMAT_BGRA8888 :
+        case DRM_FORMAT_XRGB2101010 :
+        case DRM_FORMAT_XBGR2101010 :
+        case DRM_FORMAT_RGBX1010102 :
+        case DRM_FORMAT_BGRX1010102 :
+        case DRM_FORMAT_ARGB2101010 :
+        case DRM_FORMAT_ABGR2101010 :
+        case DRM_FORMAT_RGBA1010102 :
+        case DRM_FORMAT_BGRA1010102 :
+            return 32;
+        case DRM_FORMAT_XRGB16161616 :
+        case DRM_FORMAT_XBGR16161616 :
+        case DRM_FORMAT_ARGB16161616 :
+        case DRM_FORMAT_ABGR16161616 :
+            return 64;
+        default :
+            return 0;
+    }
+}
+
+/*
  * drm_mode_addfb2 - Handle DRM_IOCTL_MODE_ADDFB2.
  * @dev: DRM device
  * @data: pointer to struct drm_mode_fb_cmd2 (userspace buffer)
@@ -228,14 +289,10 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
     }
 
     /*
-     * This driver exposes only the supported 2D scanout formats.  Rejecting
-     * unsupported layouts is safer than creating a framebuffer that the host
-     * will later misinterpret.
+     * The DRM core accepts any valid fourcc here.  A format a given GPU
+     * cannot scan out is rejected later, when the framebuffer is attached
+     * to a plane, against that plane's format list.
      */
-    if (r->pixel_format != DRM_FORMAT_XRGB8888 && r->pixel_format != DRM_FORMAT_ARGB8888) {
-        plogk("drm: Addfb2: unsupported pixel format 0x%x\n", r->pixel_format);
-        return -EINVAL;
-    }
 
     /* Validate dimensions against mode_config limits */
     if (r->width == 0 || r->height == 0) {
@@ -247,8 +304,16 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
         return -EINVAL;
     }
 
+    unsigned int bpp = drm_format_bpp(r->pixel_format);
+
     num_planes = 1;
-    min_pitch  = r->width * 4;
+    if (!bpp) {
+        plogk("drm: Addfb2: unsupported pixel format 0x%x\n", r->pixel_format);
+        return -EINVAL;
+    }
+
+    min_pitch = r->width * bpp / 8;
+
     if (r->pitches[0] < min_pitch) {
         plogk("drm: Addfb2: pitch %u too small (min %u)\n", r->pitches[0], min_pitch);
         return -EINVAL;
@@ -303,8 +368,12 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
             goto err_cleanup;
         }
 
-        /* Include the plane offset and protect the arithmetic from wrap. */
-        if (r->offsets[i] > obj->size || (r->height > 0 && ((uint64_t)r->pitches[i] * (r->height - 1) + min_pitch > obj->size - r->offsets[i]))) {
+        /*
+         * Include the plane offset and protect the arithmetic from wrap.
+         * Size the whole footprint from the user's real pitch (not the
+         * minimum pitch): a padded last row must still fit in the object.
+         */
+        if (r->offsets[i] > obj->size || ((uint64_t)r->pitches[i] * r->height > obj->size - r->offsets[i])) {
             plogk("drm: Addfb2: GEM object %u too small for pitch %u height %u offset %u\n", handle, r->pitches[i], r->height, r->offsets[i]);
             drm_gem_object_put(obj);
             ret = -EINVAL;
@@ -422,35 +491,29 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     r->height = fb->height;
     r->pitch  = fb->pitches[0];
 
-    /* Derive bpp/depth from fourcc (legacy compatibility) */
+    /*
+     * Derive bpp/depth from fourcc (legacy compatibility).  bpp comes from
+     * the single drm_format_bpp() table shared with ADDFB2 so the two ioctls
+     * cannot drift; only the colour depth (excluding padding/alpha) needs a
+     * separate, inherently format-specific mapping.
+     */
+    unsigned int bpp = drm_format_bpp(fb->format);
+    r->bpp           = bpp ? bpp : 32;
+    r->depth         = 24;
     switch (fb->format) {
-        case DRM_FORMAT_XRGB8888 :
-            r->bpp   = 32;
-            r->depth = 24;
-            break;
         case DRM_FORMAT_ARGB8888 :
-            r->bpp   = 32;
             r->depth = 32;
             break;
-        case DRM_FORMAT_RGB888 :
-            r->bpp   = 24;
-            r->depth = 24;
-            break;
         case DRM_FORMAT_RGB565 :
-            r->bpp   = 16;
             r->depth = 16;
             break;
         case DRM_FORMAT_XRGB1555 :
-            r->bpp   = 16;
             r->depth = 15;
             break;
         case DRM_FORMAT_C8 :
-            r->bpp   = 8;
             r->depth = 8;
             break;
         default :
-            r->bpp   = 32;
-            r->depth = 24;
             break;
     }
 

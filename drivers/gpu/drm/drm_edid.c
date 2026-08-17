@@ -53,7 +53,7 @@ static inline uint16_t le16_to_cpu(uint16_t v)
 #define EDID_STD_TIMINGS      8
 #define EDID_DETAILED_TIMINGS 4
 
-/* The virtio-gpu EDID response is capped at 1 KiB (8 x 128-byte blocks). */
+/* Cap the parser at 1 KiB (8 x 128-byte blocks) of EDID data. */
 #define EDID_MAX_SIZE   1024
 #define EDID_MAX_BLOCKS (EDID_MAX_SIZE / EDID_LENGTH)
 

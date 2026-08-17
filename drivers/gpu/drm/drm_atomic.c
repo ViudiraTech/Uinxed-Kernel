@@ -364,7 +364,7 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
         /* If active, a mode must be set */
         if (crtc_state->active) {
             if (crtc_state->mode.clock == 0 && crtc_state->mode.hdisplay == 0) {
-                DRM_ERROR("CRTC %d: active but no mode set\n", i);
+                DRM_ERROR("CRTC %d: active but no mode set.\n", i);
                 return -EINVAL;
             }
         }
@@ -380,23 +380,12 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
 
             /* If plane has a framebuffer, validate format */
             if (plane_state->fb) {
-                unsigned int j;
-                bool         format_ok = false;
-
                 if (!plane_state->plane->format_types || plane_state->plane->format_count == 0) {
-                    DRM_ERROR("Plane %d: fb set but no format list\n", i);
+                    DRM_ERROR("Plane %d: fb set but no format list.\n", i);
                     return -EINVAL;
                 }
-
-                for (j = 0; j < plane_state->plane->format_count; j++) {
-                    if (plane_state->plane->format_types[j] == plane_state->fb->format) {
-                        format_ok = true;
-                        break;
-                    }
-                }
-
-                if (!format_ok) {
-                    DRM_ERROR("Plane %d: incompatible fb format\n", i);
+                if (!drm_plane_format_supported(plane_state->plane, plane_state->fb->format)) {
+                    DRM_ERROR("Plane %d: incompatible fb format.\n", i);
                     return -EINVAL;
                 }
             }
@@ -423,7 +412,7 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
             /* If plane has a CRTC, it must be valid */
             if (plane_state->crtc) {
                 if (plane_state->crtc->index >= config->num_crtc) {
-                    DRM_ERROR("Plane %d: invalid CRTC index\n", i);
+                    DRM_ERROR("Plane %d: invalid CRTC index.\n", i);
                     return -EINVAL;
                 }
             }
@@ -439,7 +428,7 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
         /* If connector has a CRTC, it must be valid */
         if (conn_state->crtc) {
             if (conn_state->crtc->index >= config->num_crtc) {
-                DRM_ERROR("Connector %d: invalid CRTC\n", i);
+                DRM_ERROR("Connector %d: invalid CRTC.\n", i);
                 return -EINVAL;
             }
         }
@@ -614,8 +603,8 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
         }
         if (s->event) {
             /*
-             * virtio-gpu waits for TRANSFER/SET_SCANOUT/FLUSH responses in
-             * its page-flip callback.  For such a synchronous driver the
+             * A DRIVER_SYNCHRONOUS_FLIP driver waits for scanout to be
+             * updated inside its page-flip callback.  For such a driver the
              * commit is already complete here; delaying the event until a
              * synthetic vblank leaves compositors stuck on their first
              * pending flip if no timer-driven vblank arrives.
@@ -727,13 +716,13 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
     }
 
     /*
-     * virtio-gpu's command path is synchronous already: it waits for every
-     * TRANSFER/SET_SCANOUT/FLUSH response before page_flip returns.  Running
-     * that work in another task adds no hardware concurrency and creates a
-     * lost-wakeup window between the compositor's NONBLOCK ioctl and its
-     * subsequent epoll_wait.  Complete it here so the flip event is queued
-     * before the ioctl returns; epoll's initial level scan then observes it
-     * even without depending on notification timing.
+     * A DRIVER_SYNCHRONOUS_FLIP driver's command path is synchronous already:
+     * it waits for every scanout update before its page-flip callback
+     * returns.  Running that work in another task adds no hardware
+     * concurrency and creates a lost-wakeup window between the compositor's
+     * NONBLOCK ioctl and its subsequent epoll_wait.  Complete it here so the
+     * flip event is queued before the ioctl returns; epoll's initial level
+     * scan then observes it even without depending on notification timing.
      */
     if (state->dev->driver && (state->dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) return drm_atomic_commit(state);
 

@@ -523,14 +523,14 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
 
     crtc_obj = drm_mode_object_find(dev, file_priv, page_flip->crtc_id, DRM_MODE_OBJECT_CRTC);
     if (!crtc_obj) {
-        DRM_ERROR("Page flip: CRTC %u not found\n", page_flip->crtc_id);
+        DRM_ERROR("Page flip: CRTC %u not found.\n", page_flip->crtc_id);
         return -ENOENT;
     }
 
     fb = drm_framebuffer_lookup(dev, file_priv, page_flip->fb_id);
     if (!fb) {
         drm_mode_object_put(crtc_obj);
-        DRM_ERROR("Page flip: FB %u not found\n", page_flip->fb_id);
+        DRM_ERROR("Page flip: FB %u not found.\n", page_flip->fb_id);
         return -ENOENT;
     }
     crtc = container_of(crtc_obj, struct drm_crtc, base);
@@ -553,6 +553,13 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
             drm_mode_object_put(&crtc->base);
             return -EINVAL;
         }
+    }
+
+    /* Validate the framebuffer format against the primary plane's list. */
+    if (crtc->primary && !drm_plane_format_supported(crtc->primary, fb->format)) {
+        DRM_ERROR("Page flip: FB format 0x%x not supported by primary plane.\n", fb->format);
+        drm_mode_object_put(&crtc->base);
+        return -EINVAL;
     }
 
     spin_lock(&crtc->commit_lock);
