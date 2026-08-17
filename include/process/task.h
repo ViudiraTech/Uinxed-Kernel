@@ -116,6 +116,10 @@ struct task {
         wait_queue_t      *wait_queue;
         task_wake_reason_t wake_reason;
         uint32_t           cpu_id;
+        uint32_t           last_cpu;          // previous CPU before migration
+        uint64_t           last_wake_tick;    // scheduler tick of last wakeup
+        uint64_t           last_migrate_tick; // anti-ping-pong migration stamp
+        uint32_t           migration_count;   // scheduler migration statistic
         char               name[TASK_NAME_LEN];
         process_t         *process;
         uint64_t           clear_child_tid;

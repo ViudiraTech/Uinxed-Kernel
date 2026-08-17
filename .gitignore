@@ -73,3 +73,5 @@ make.log
 *.bak
 *.img
 *.log
+initramfs.cpio
+scripts/1.sh

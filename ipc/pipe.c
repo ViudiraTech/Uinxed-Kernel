@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/smp.h>
 #include <fs/core/vfs.h>
 #include <ipc/pipe.h>
 #include <kernel/errno.h>
@@ -35,6 +36,9 @@
 #endif
 #define PIPE_ATOMIC_SIZE  4096
 #define PIPE_DEFAULT_MODE 0644
+#ifndef PIPE_ADAPTIVE_SPIN_ITERS
+#    define PIPE_ADAPTIVE_SPIN_ITERS 192U
+#endif
 
 /* Pipe ring buffer structure */
 
@@ -50,6 +54,8 @@ typedef struct pipe_ring {
         uint32_t     read_waiters;
         uint32_t     write_waiters;
         uint32_t     write_wake_threshold;
+        uint32_t     last_reader_cpu;
+        uint32_t     last_writer_cpu;
         int          closed;
         spinlock_t   lock;
         wait_queue_t read_wq;
@@ -115,6 +121,50 @@ static uint32_t pipe_ring_readable(const pipe_ring_t *ring)
 static uint32_t pipe_ring_writable(const pipe_ring_t *ring)
 {
     return ring->capacity - ring->size;
+}
+
+/*
+ * A short adaptive spin avoids paying a full block/wakeup/context-switch when
+ * the peer is actively running on another CPU and is expected to satisfy the
+ * condition within a few hundred pause instructions.  Never spin for a peer
+ * on the same CPU: that would prevent the producer/consumer from running.
+ */
+static bool pipe_peer_is_remote(uint32_t peer_cpu)
+{
+    uint32_t this_cpu = get_current_cpu_id();
+    uint32_t nr_cpus  = sched_cpu_count();
+    return peer_cpu < nr_cpus && peer_cpu != this_cpu;
+}
+
+/* Wait briefly for a remote writer to publish data. Called without ring->lock. */
+static void pipe_spin_for_reader(pipe_ring_t *ring)
+{
+    uint32_t peer = __atomic_load_n(&ring->last_writer_cpu, __ATOMIC_RELAXED);
+    if (!pipe_peer_is_remote(peer)) return;
+
+    for (uint32_t i = 0; i < PIPE_ADAPTIVE_SPIN_ITERS; i++) {
+        if (__atomic_load_n(&ring->size, __ATOMIC_ACQUIRE) != 0 ||
+            __atomic_load_n(&ring->writers, __ATOMIC_RELAXED) == 0 ||
+            __atomic_load_n(&ring->closed, __ATOMIC_RELAXED))
+            break;
+        __asm__ volatile("pause");
+    }
+}
+
+/* Wait briefly for a remote reader to free at least @needed bytes. */
+static void pipe_spin_for_writer(pipe_ring_t *ring, uint32_t needed)
+{
+    uint32_t peer = __atomic_load_n(&ring->last_reader_cpu, __ATOMIC_RELAXED);
+    if (!pipe_peer_is_remote(peer)) return;
+
+    for (uint32_t i = 0; i < PIPE_ADAPTIVE_SPIN_ITERS; i++) {
+        uint32_t used = __atomic_load_n(&ring->size, __ATOMIC_ACQUIRE);
+        if (ring->capacity - used >= needed ||
+            __atomic_load_n(&ring->readers, __ATOMIC_RELAXED) == 0 ||
+            __atomic_load_n(&ring->closed, __ATOMIC_RELAXED))
+            break;
+        __asm__ volatile("pause");
+    }
 }
 
 /* Advance a ring index by count, wrapping at the ring capacity. */
@@ -210,8 +260,10 @@ static pipe_ring_t *pipe_ring_alloc(void)
     ring->tail       = 0;
     ring->size       = 0;
     ring->readers    = 0;
-    ring->writers    = 0;
-    ring->closed     = 0;
+    ring->writers         = 0;
+    ring->last_reader_cpu = UINT32_MAX;
+    ring->last_writer_cpu = UINT32_MAX;
+    ring->closed          = 0;
     wait_queue_init(&ring->read_wq);
     wait_queue_init(&ring->write_wq);
 
@@ -403,10 +455,11 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
     if (!ring || (!addr && size)) return -EINVAL;
     if (!size) return 0;
 
+    bool spun = false;
     spin_lock(&ring->lock);
 
     /*
-     * Spin until data is available, the pipe is closed, or all
+     * Wait until data is available, the pipe is closed, or all
      * writers have gone away.  On each wakeup we re-check the
      * condition under the lock.
      */
@@ -427,6 +480,13 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
             spin_unlock(&ring->lock);
             return -EINTR;
         }
+        if (!spun) {
+            spun = true;
+            spin_unlock(&ring->lock);
+            pipe_spin_for_reader(ring);
+            spin_lock(&ring->lock);
+            continue;
+        }
         /* prepare wait under lock, then block, re-acquire on wakeup */
         ring->read_waiters++;
         wait_queue_prepare(&ring->read_wq);
@@ -441,6 +501,7 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
 
     pipe_ring_copy_out(ring, (uint8_t *)addr, chunk);
     pipe_ring_consume(ring, chunk);
+    __atomic_store_n(&ring->last_reader_cpu, get_current_cpu_id(), __ATOMIC_RELAXED);
     bool wake_writers = ring->write_waiters != 0 && pipe_ring_writable(ring) >= ring->write_wake_threshold;
 
     spin_unlock(&ring->lock);
@@ -480,6 +541,7 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
     if (!size) return 0;
 
     pipe_ring_t *ring = endpoint->ring;
+    bool         spun = false;
     for (;;) {
         spin_lock(&ring->lock);
         while (pipe_ring_readable(ring) == 0) {
@@ -494,6 +556,13 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
             if (pipe_signal_pending()) {
                 spin_unlock(&ring->lock);
                 return -EINTR;
+            }
+            if (!spun) {
+                spun = true;
+                spin_unlock(&ring->lock);
+                pipe_spin_for_reader(ring);
+                spin_lock(&ring->lock);
+                continue;
             }
             ring->read_waiters++;
             wait_queue_prepare(&ring->read_wq);
@@ -516,6 +585,7 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
         }
 
         pipe_ring_consume(ring, chunk);
+        __atomic_store_n(&ring->last_reader_cpu, get_current_cpu_id(), __ATOMIC_RELAXED);
         bool wake_writers = ring->write_waiters != 0 && pipe_ring_writable(ring) >= ring->write_wake_threshold;
         spin_unlock(&ring->lock);
 
@@ -534,6 +604,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
 
     size_t         total_written = 0;
     const uint8_t *src           = (const uint8_t *)addr;
+    bool           spun          = false;
 
     while (total_written < size) {
         spin_lock(&ring->lock);
@@ -568,6 +639,14 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
                 spin_unlock(&ring->lock);
                 return total_written ? (int64_t)total_written : -EINTR;
             }
+            if (!spun) {
+                spun = true;
+                uint32_t spin_need = atomic ? (uint32_t)remaining : 1U;
+                spin_unlock(&ring->lock);
+                pipe_spin_for_writer(ring, spin_need);
+                spin_lock(&ring->lock);
+                continue;
+            }
             if (!ring->write_waiters || wake_threshold < ring->write_wake_threshold) ring->write_wake_threshold = wake_threshold;
             ring->write_waiters++;
             wait_queue_prepare(&ring->write_wq);
@@ -581,10 +660,13 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
         uint32_t writable = pipe_ring_writable(ring);
         uint32_t chunk    = (uint32_t)(remaining < writable ? remaining : writable);
 
+        bool was_empty = pipe_ring_readable(ring) == 0;
         pipe_ring_copy_in(ring, src + total_written, chunk);
         pipe_ring_produce(ring, chunk);
+        __atomic_store_n(&ring->last_writer_cpu, get_current_cpu_id(), __ATOMIC_RELAXED);
         total_written += chunk;
-        bool wake_readers = ring->read_waiters != 0;
+        spun = false;
+        bool wake_readers = was_empty && ring->read_waiters != 0;
 
         spin_unlock(&ring->lock);
 
@@ -620,6 +702,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
 
     pipe_ring_t *ring          = endpoint->ring;
     size_t       total_written = 0;
+    bool         spun          = false;
 
     while (total_written < size) {
         spin_lock(&ring->lock);
@@ -647,6 +730,14 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
                 spin_unlock(&ring->lock);
                 return total_written ? (int64_t)total_written : -EINTR;
             }
+            if (!spun) {
+                spun = true;
+                uint32_t spin_need = atomic ? (uint32_t)remaining : 1U;
+                spin_unlock(&ring->lock);
+                pipe_spin_for_writer(ring, spin_need);
+                spin_lock(&ring->lock);
+                continue;
+            }
             if (!ring->write_waiters || wake_threshold < ring->write_wake_threshold) ring->write_wake_threshold = wake_threshold;
             ring->write_waiters++;
             wait_queue_prepare(&ring->write_wq);
@@ -666,9 +757,12 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
             continue;
         }
 
+        bool was_empty = pipe_ring_readable(ring) == 0;
         pipe_ring_produce(ring, chunk);
+        __atomic_store_n(&ring->last_writer_cpu, get_current_cpu_id(), __ATOMIC_RELAXED);
         total_written += chunk;
-        bool wake_readers = ring->read_waiters != 0;
+        spun = false;
+        bool wake_readers = was_empty && ring->read_waiters != 0;
         spin_unlock(&ring->lock);
 
         if (wake_readers) wait_queue_wake_one_sync(&ring->read_wq);

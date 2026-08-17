@@ -33,6 +33,11 @@ typedef struct {
         task_t   *curr;            // currently running task
         task_t   *idle;            // idle task for this CPU
         uint64_t  reschedule_ipis; // IPI reschedule counter
+        uint64_t  nr_migrations;   // tasks migrated into/out of this rq
+        uint64_t  nr_steals;       // tasks pulled while this CPU was idle
+        uint64_t  nr_wakeups;      // wakeups targeted at this rq
+        uint64_t  last_balance;    // last global tick this rq balanced
+        volatile uint8_t resched_pending; // coalesce remote reschedule IPIs
         uint8_t   online;          // CPU is online
 } eevdf_rq_t;
 

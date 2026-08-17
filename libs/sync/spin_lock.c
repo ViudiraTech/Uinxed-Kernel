@@ -15,11 +15,15 @@ uint64_t spin_lock_irqsave(spinlock_t *lock)
 {
     uint64_t rflags;
     __asm__ volatile("pushfq; pop %0; cli" : "=r"(rflags)::"memory");
-    while (1) {
-        uint64_t desired = 1;
-        __asm__ volatile("lock xchg %[desired], %[lock];" : [lock] "+m"(lock->lock), [desired] "+r"(desired)::"memory");
-        if (!desired) break;
-        __asm__ volatile("pause");
+    /*
+     * Test-and-test-and-set: spin on shared reads and issue the expensive
+     * locked exchange only when the cacheline appears free.  This avoids
+     * turning scheduler/wait-queue contention into a stream of cacheline
+     * invalidations across every CPU.
+     */
+    for (;;) {
+        while (__atomic_load_n(&lock->lock, __ATOMIC_RELAXED)) __asm__ volatile("pause");
+        if (!__atomic_exchange_n(&lock->lock, 1, __ATOMIC_ACQUIRE)) break;
     }
     return rflags;
 }
@@ -27,7 +31,7 @@ uint64_t spin_lock_irqsave(spinlock_t *lock)
 /* Unlock and restore caller-owned interrupt state. */
 void spin_unlock_irqrestore(spinlock_t *lock, uint64_t rflags)
 {
-    __asm__ volatile("movq $0, %0" : "=m"(lock->lock)::"memory");
+    __atomic_store_n(&lock->lock, 0, __ATOMIC_RELEASE);
     __asm__ volatile("push %0; popfq" : : "r"(rflags) : "memory", "cc");
 }
 

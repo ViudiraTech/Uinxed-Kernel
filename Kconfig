@@ -109,7 +109,25 @@ menu "Scheduler"
     default 8
     range 1 256
     help
-      Number of scheduler ticks between per-CPU load-balancing passes.
+      Number of scheduler ticks between periodic load-balancing passes.
+      Newly-idle CPUs can still pull one task immediately between passes.
+
+  config SCHED_BALANCE_BATCH
+    int "Maximum tasks moved per periodic balance"
+    default 4
+    range 1 16
+    help
+      Bounds periodic load-balancing work so one scheduler tick cannot spend
+      unbounded time migrating tasks. Newly-idle stealing always pulls at most
+      one task.
+
+  config SCHED_MIGRATION_COOLDOWN
+    int "Task migration cooldown (ticks)"
+    default 4
+    range 0 64
+    help
+      Hysteresis against repeatedly bouncing a hot task between CPUs. Idle-CPU
+      stealing may override this when leaving a CPU idle would be worse.
 
 endmenu
 
@@ -170,8 +188,17 @@ menu "IPC (Inter-Process Communication)"
     default 65536
     range 4096 1048576
     help
-      Size of the ring buffer used by each pipe (POSIX guarantees
-      atomic writes up to PIPE_BUF_SIZE bytes).
+      Size of the ring buffer used by each pipe. Uinxed keeps POSIX PIPE_BUF
+      atomicity independently of the total ring capacity.
+
+  config PIPE_ADAPTIVE_SPIN_ITERS
+    int "Pipe remote-peer adaptive spin iterations"
+    default 192
+    range 0 4096
+    help
+      Before sleeping on an empty/full pipe, briefly spin only when the peer
+      last ran on another CPU. This targets very short producer/consumer gaps
+      without starving a peer that shares the current CPU. Set 0 to disable.
 
   config SOCKET_BUF_SIZE
     int "Socket send/receive buffer size (bytes)"

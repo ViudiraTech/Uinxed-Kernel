@@ -2138,6 +2138,14 @@ void process_fork_publish(process_t *child)
 {
     if (!child || !child->task || child->task->state != TASK_READY) return;
     spin_lock(&scheduler.lock);
+    uint32_t old_cpu = child->task->cpu_id;
+    uint32_t new_cpu = choose_task_cpu_locked();
+    child->task->last_cpu = old_cpu;
+    child->task->cpu_id   = new_cpu;
+    if (new_cpu != old_cpu) {
+        child->task->last_migrate_tick = scheduler.ticks;
+        child->task->migration_count++;
+    }
     enqueue_task_initial(child->task);
     spin_unlock(&scheduler.lock);
     request_task_cpu(child->task);
@@ -2276,7 +2284,17 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     proc->thread_count++;
     spin_unlock(&process_table_lock);
     bool ptrace_stopped = ptrace_fork_child(current, child, PTRACE_EVENT_CLONE);
-    if (!ptrace_stopped) enqueue_task(child);
+    if (!ptrace_stopped) {
+        uint32_t old_cpu = child->cpu_id;
+        uint32_t new_cpu = choose_task_cpu_locked();
+        child->last_cpu = old_cpu;
+        child->cpu_id   = new_cpu;
+        if (new_cpu != old_cpu) {
+            child->last_migrate_tick = scheduler.ticks;
+            child->migration_count++;
+        }
+        enqueue_task(child);
+    }
     spin_unlock(&scheduler.lock);
     request_task_cpu(child);
     return child;

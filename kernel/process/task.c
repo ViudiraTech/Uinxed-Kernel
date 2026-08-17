@@ -158,9 +158,13 @@ task_t *task_alloc_status(const char *name, int *error)
     }
 
     task->page_directory = get_kernel_pagedir();
-    task->time_slice     = TASK_DEFAULT_SLICE;
-    task->cpu_id         = 0;
-    task->process        = NULL;
+    task->time_slice       = TASK_DEFAULT_SLICE;
+    task->cpu_id           = 0;
+    task->last_cpu         = UINT32_MAX;
+    task->last_wake_tick   = 0;
+    task->last_migrate_tick = 0;
+    task->migration_count  = 0;
+    task->process          = NULL;
     task->weight         = SCHED_NICE_0_LOAD;
     task->base_weight    = SCHED_NICE_0_LOAD;
     task->pi_weight      = SCHED_NICE_0_LOAD;
