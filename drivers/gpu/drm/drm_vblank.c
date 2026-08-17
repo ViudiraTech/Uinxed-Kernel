@@ -8,7 +8,6 @@
  *
  */
 
-#include <drivers/firmware/acpi.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_idr.h>
 #include <drivers/gpu/drm/drm_init.h>
@@ -17,6 +16,7 @@
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -236,7 +236,7 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
     }
 
     vblank            = &e->dev->vblank_unused_array[crtc->index];
-    timestamp         = vblank->timestamp_ns ? vblank->timestamp_ns : nano_time();
+    timestamp         = vblank->timestamp_ns ? vblank->timestamp_ns : timer_monotonic_ns();
     e->event.sequence = (uint32_t)e->sequence;
     e->event.crtc_id  = crtc->base.id;
     e->event.tv_sec   = (uint32_t)(timestamp / 1000000000ULL);
@@ -296,7 +296,7 @@ void drm_crtc_vblank_on(struct drm_crtc *crtc)
     spin_lock(&vblank->lock);
     vblank->crtc    = crtc;
     vblank->enabled = true;
-    if (!vblank->next_vblank_ns) vblank->next_vblank_ns = nano_time() + vblank->period_ns;
+    if (!vblank->next_vblank_ns) vblank->next_vblank_ns = timer_monotonic_ns() + vblank->period_ns;
     spin_unlock(&vblank->lock);
 }
 
@@ -320,7 +320,7 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 
     vblank->count++;
     vblank->last         = vblank->count;
-    vblank->timestamp_ns = nano_time();
+    vblank->timestamp_ns = timer_monotonic_ns();
 
     while (vblank->event_queue && vblank->event_queue->sequence <= vblank->count) {
         struct drm_pending_vblank_event *e = vblank->event_queue;
@@ -361,7 +361,7 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 /* Timer-driven vblank tick used to emulate vblank interrupts. */
 void drm_vblank_tick(void)
 {
-    uint64_t           now = nano_time();
+    uint64_t           now = timer_monotonic_ns();
     struct drm_device *devs[DRM_MAX_DEVICES];
     int                ndev = drm_device_list_collect(devs, DRM_MAX_DEVICES);
 

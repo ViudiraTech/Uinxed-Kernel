@@ -20,10 +20,16 @@ int tsc_check_invariant(void);
 /* Use HPET to calibrate TSC frequency */
 uint64_t tsc_calibrate_with_hpet(hpet_info_t *hpet_addr);
 
-/* Get CPU frequency (Hz) */
+/* Get TSC frequency (Hz) */
 uint64_t tsc_get_cpu_frequency(void);
 
-/* Returns the TSC nanosecond value of the current time */
+/* Whether TSC is safe and calibrated for monotonic clocksource use */
+int tsc_clocksource_available(void);
+
+/* TSC clocksource resolution in nanoseconds */
+uint64_t tsc_resolution_ns(void);
+
+/* Returns TSC time aligned to the boot-relative monotonic epoch */
 uint64_t tsc_nano_time(void);
 
 /* Initialize TSC */

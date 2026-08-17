@@ -185,6 +185,10 @@ void acpi_init(void);
 /* Returns the nanosecond value of the current time */
 uint64_t nano_time(void);
 
+/* HPET clocksource availability and resolution */
+int      hpet_available(void);
+uint64_t hpet_resolution_ns(void);
+
 /* Get the HPET structure */
 hpet_info_t *get_acpi_hpet(void);
 

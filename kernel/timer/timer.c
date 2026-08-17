@@ -28,11 +28,46 @@
 
 static int64_t  timer_realtime_base_ns;
 static uint64_t net_timer_last_tick;
+static uint64_t timer_monotonic_floor_ns;
 
-/* Return the current monotonic time in nanoseconds */
+/*
+ * Return one unified boot-relative monotonic timeline.  Prefer a calibrated
+ * invariant TSC because it is cheap to read; fall back to HPET, and only use
+ * scheduler ticks when no high-resolution clocksource is available.
+ *
+ * The atomic floor also prevents a tiny cross-CPU TSC skew from making time
+ * move backwards when a task migrates between CPUs.
+ */
 uint64_t timer_monotonic_ns(void)
 {
-    return timer_ticks_to_ns(sched_ticks());
+    uint64_t now;
+
+    if (tsc_clocksource_available())
+        now = tsc_nano_time();
+    else if (hpet_available())
+        now = nano_time();
+    else
+        now = timer_ticks_to_ns(sched_ticks());
+
+    uint64_t floor = __atomic_load_n(&timer_monotonic_floor_ns, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if (now <= floor) return floor;
+        if (__atomic_compare_exchange_n(&timer_monotonic_floor_ns, &floor, now, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return now;
+    }
+}
+
+/* Resolution of the clocksource currently backing CLOCK_MONOTONIC. */
+uint64_t timer_monotonic_resolution_ns(void)
+{
+    if (tsc_clocksource_available()) {
+        uint64_t resolution = tsc_resolution_ns();
+        if (resolution) return resolution;
+    }
+    if (hpet_available()) {
+        uint64_t resolution = hpet_resolution_ns();
+        if (resolution) return resolution;
+    }
+    return TIMER_TICK_NS;
 }
 
 /* Return the realtime clock in nanoseconds, saturating at INT64_MAX */
@@ -94,20 +129,8 @@ INTERRUPT_END
 /* Nanosecond-based delay function */
 void nsleep(uint64_t ns)
 {
-    uint64_t (*nano)(void) = tsc_check_invariant() ? tsc_nano_time : nano_time;
-
-    uint64_t start_time = nano();
-    uint64_t elapsed    = 0;
-
-    while (elapsed < ns) {
-        uint64_t current_time = nano();
-
-        if (current_time < start_time) {
-            elapsed = UINT64_MAX - start_time + current_time;
-        } else {
-            elapsed = current_time - start_time;
-        }
-    }
+    uint64_t start_time = timer_monotonic_ns();
+    while (timer_monotonic_ns() - start_time < ns) __asm__ volatile("pause");
 }
 
 /* Millisecond-based delay functions */

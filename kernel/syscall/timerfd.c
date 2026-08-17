@@ -39,27 +39,34 @@ static int          timerfd_fsid = -1;
 static ilist_node_t timerfd_list;
 static spinlock_t   timerfd_list_lock;
 
-#define TIMERFD_TICK_NS TIMER_TICK_NS
-
-/* Convert a timespec to timer ticks, validating the input */
-static int timerfd_timespec_to_ticks(const timerfd_timespec_t *ts, uint64_t *ticks)
+/* Convert a timespec to nanoseconds, validating the input. */
+static int timerfd_timespec_to_ns(const timerfd_timespec_t *ts, uint64_t *ns)
 {
-    if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000LL) return -EINVAL;
-    if ((uint64_t)ts->tv_sec > UINT64_MAX / TIMER_HZ) return -EINVAL;
+    if (!ts || !ns || ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= (int64_t)TIMER_NSEC_PER_SEC) return -EINVAL;
+    if ((uint64_t)ts->tv_sec > (UINT64_MAX - (uint64_t)ts->tv_nsec) / TIMER_NSEC_PER_SEC) return -EINVAL;
 
-    *ticks = (uint64_t)ts->tv_sec * TIMER_HZ + ((uint64_t)ts->tv_nsec + TIMERFD_TICK_NS - 1) / TIMERFD_TICK_NS;
-    if (!*ticks && (ts->tv_sec || ts->tv_nsec)) *ticks = 1;
+    *ns = (uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC + (uint64_t)ts->tv_nsec;
     return EOK;
 }
 
-/* Convert timer ticks back to a timespec */
-static timerfd_timespec_t timerfd_ticks_to_timespec(uint64_t ticks)
+/* Convert nanoseconds back to a timespec. */
+static timerfd_timespec_t timerfd_ns_to_timespec(uint64_t ns)
 {
     timerfd_timespec_t ts = {
-        .tv_sec  = (int64_t)(ticks / TIMER_HZ),
-        .tv_nsec = (int64_t)((ticks % TIMER_HZ) * TIMERFD_TICK_NS),
+        .tv_sec  = (int64_t)(ns / TIMER_NSEC_PER_SEC),
+        .tv_nsec = (int64_t)(ns % TIMER_NSEC_PER_SEC),
     };
     return ts;
+}
+
+/* Current timeline for this timerfd. BOOTTIME currently aliases MONOTONIC. */
+static uint64_t timerfd_now_ns(const timerfd_ctx_t *ctx)
+{
+    if (ctx && ctx->clockid == CLOCK_REALTIME) {
+        int64_t realtime = timer_realtime_ns();
+        return realtime > 0 ? (uint64_t)realtime : 0;
+    }
+    return timer_monotonic_ns();
 }
 
 /* VFS callback implementations */
@@ -250,7 +257,7 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
     ctx->flags         = (uint64_t)(flags & (TFD_NONBLOCK | TFD_CLOEXEC));
     ctx->expire_count  = 0;
     ctx->interval_ns   = 0;
-    ctx->deadline_tick = 0;
+    ctx->deadline_ns   = 0;
     ctx->armed         = 0;
     wait_queue_init(&ctx->wq);
     ilist_init(&ctx->timers);
@@ -338,9 +345,9 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         return -EFAULT;
     }
 
-    uint64_t interval_ticks;
-    uint64_t value_ticks;
-    if (timerfd_timespec_to_ticks(&new_its.it_interval, &interval_ticks) || timerfd_timespec_to_ticks(&new_its.it_value, &value_ticks)) {
+    uint64_t interval_ns;
+    uint64_t value_ns;
+    if (timerfd_timespec_to_ns(&new_its.it_interval, &interval_ns) || timerfd_timespec_to_ns(&new_its.it_value, &value_ns)) {
         process_file_put(file);
         return -EINVAL;
     }
@@ -348,9 +355,10 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
     spin_lock(&ctx->lock);
 
     if (old_value) {
+        uint64_t now_ns = timerfd_now_ns(ctx);
         timerfd_itimerspec_t old_its = {
-            .it_interval = timerfd_ticks_to_timespec(ctx->interval_ns),
-            .it_value    = timerfd_ticks_to_timespec(ctx->armed && ctx->deadline_tick > sched_ticks() ? ctx->deadline_tick - sched_ticks() : 0),
+            .it_interval = timerfd_ns_to_timespec(ctx->interval_ns),
+            .it_value    = timerfd_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
         };
         spin_unlock(&ctx->lock);
         if (copy_to_user(old_value, &old_its, sizeof(old_its))) {
@@ -362,14 +370,17 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
 
     /* Reprogramming discards expirations from the previous timer. */
     ctx->expire_count = 0;
-    ctx->interval_ns  = interval_ticks;
-    if (!value_ticks) {
-        ctx->deadline_tick = 0;
-        ctx->armed         = 0;
+    ctx->interval_ns  = interval_ns;
+    if (!value_ns) {
+        ctx->deadline_ns = 0;
+        ctx->armed       = 0;
     } else {
-        uint64_t now       = sched_ticks();
-        ctx->deadline_tick = (flags & TFD_TIMER_ABSTIME) ? value_ticks : now + value_ticks;
-        if (ctx->deadline_tick <= now) ctx->deadline_tick = now + 1;
+        uint64_t now_ns = timerfd_now_ns(ctx);
+        if (flags & TFD_TIMER_ABSTIME) {
+            ctx->deadline_ns = value_ns;
+        } else {
+            ctx->deadline_ns = value_ns > UINT64_MAX - now_ns ? UINT64_MAX : now_ns + value_ns;
+        }
         ctx->armed = 1;
     }
 
@@ -405,9 +416,10 @@ int sys_timerfd_gettime(int fd, void *curr_value)
     timerfd_ctx_t *ctx = (timerfd_ctx_t *)file->node->handle;
 
     spin_lock(&ctx->lock);
+    uint64_t now_ns = timerfd_now_ns(ctx);
     timerfd_itimerspec_t its = {
-        .it_interval = timerfd_ticks_to_timespec(ctx->interval_ns),
-        .it_value    = timerfd_ticks_to_timespec(ctx->armed && ctx->deadline_tick > sched_ticks() ? ctx->deadline_tick - sched_ticks() : 0),
+        .it_interval = timerfd_ns_to_timespec(ctx->interval_ns),
+        .it_value    = timerfd_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
     };
     spin_unlock(&ctx->lock);
 
@@ -422,16 +434,17 @@ void timerfd_tick(void)
 {
     if (get_current_cpu_id() != 0) return;
 
-    uint64_t now = sched_ticks();
     spin_lock(&timerfd_list_lock);
     for (ilist_node_t *node = timerfd_list.next; node != &timerfd_list; node = node->next) {
         timerfd_ctx_t *ctx = (timerfd_ctx_t *)((char *)node - offsetof(timerfd_ctx_t, timers));
         spin_lock(&ctx->lock);
-        if (ctx->armed && now >= ctx->deadline_tick) {
+        uint64_t now_ns = timerfd_now_ns(ctx);
+        if (ctx->armed && now_ns >= ctx->deadline_ns) {
             uint64_t expirations = 1;
             if (ctx->interval_ns) {
-                expirations += (now - ctx->deadline_tick) / ctx->interval_ns;
-                ctx->deadline_tick += expirations * ctx->interval_ns;
+                expirations += (now_ns - ctx->deadline_ns) / ctx->interval_ns;
+                __uint128_t next = (__uint128_t)ctx->deadline_ns + (__uint128_t)expirations * ctx->interval_ns;
+                ctx->deadline_ns = next > UINT64_MAX ? UINT64_MAX : (uint64_t)next;
             } else {
                 ctx->armed = 0;
             }

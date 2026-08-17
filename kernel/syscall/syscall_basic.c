@@ -1336,13 +1336,17 @@ int64_t sys_clock_getres_impl(uint64_t clockid, uint64_t res, uint64_t arg2, uin
     if (!res) return 0;
     linux_timespec64_t ts;
     switch (clockid) {
-        case 0 :
-        case 1 :
-        case 4 :
-        case 5 :
-        case 6 :
-        case 2 :
-        case 3 :
+        case CLOCK_REALTIME :
+        case CLOCK_MONOTONIC :
+        case CLOCK_MONOTONIC_RAW :
+        case CLOCK_REALTIME_COARSE :
+        case CLOCK_MONOTONIC_COARSE :
+        case CLOCK_BOOTTIME :
+            ts.tv_sec  = 0;
+            ts.tv_nsec = (int64_t)timer_monotonic_resolution_ns();
+            break;
+        case CLOCK_PROCESS_CPUTIME_ID :
+        case CLOCK_THREAD_CPUTIME_ID :
             ts.tv_sec  = 0;
             ts.tv_nsec = TIMER_TICK_NS;
             break;

@@ -29,7 +29,7 @@ typedef struct timerfd_ctx {
         uint64_t     flags;
         uint64_t     expire_count;
         uint64_t     interval_ns;
-        uint64_t     deadline_tick;
+        uint64_t     deadline_ns;
         int          armed;
         spinlock_t   lock;
         wait_queue_t wq;
@@ -48,7 +48,7 @@ int sys_timerfd_gettime(int fd, void *curr_value);
 /* Initialize the timerfd subsystem */
 void timerfd_init(void);
 
-/* Account armed timerfds from the scheduler's global tick. */
+/* Account armed timerfds from the unified monotonic clock. */
 void timerfd_tick(void);
 
 #endif // INCLUDE_TIMERFD_H_
