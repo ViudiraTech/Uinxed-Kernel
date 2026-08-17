@@ -56,8 +56,8 @@ void dump_stack(void)
         if ((uintptr_t)(rbp + 1) <= 0x1000) break;
 
         rip = *(uintptr_t *)(rbp + 1);
-        if (!rip) break;
 
+        if (!rip) break;
         if (rip >= KERNEL_BASE_ADDRESS) {
             sym_info_t sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, rip);
             if (sym_info.name) {
@@ -106,9 +106,8 @@ void panic(const char *format, ...)
     dump_stack();
     plogk("Kernel Offset: 0x%08x from %p\n", current_address - KERNEL_BASE_ADDRESS, KERNEL_BASE_ADDRESS);
     plogk("---[ end Kernel panic - not syncing: %s ]---", buff);
-    tty_buff_flush();
 
-    /* The refresh worker isn't up yet - flush synchronously. */
+    tty_buff_flush();
     video_flush_now();
     krn_halt();
 }
@@ -117,6 +116,7 @@ void panic(const char *format, ...)
 void assertion_failure(const char *exp, const char *file, int line)
 {
     printk("assert(%s) failed!\nfile: %s\nline: %d\n\n", exp, file, line);
+
     tty_buff_flush();
     video_flush_now();
     krn_halt();

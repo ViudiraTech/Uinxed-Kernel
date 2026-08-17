@@ -653,7 +653,7 @@ struct virtio_gpu_device {
         /* Display info from host */
         int                            num_scanouts;
         struct virtio_gpu_display_mode scanouts[16];
-        bool                           modes_probed; /* EDID/scanout probed once */
+        bool                           modes_probed; // EDID/scanout probed once
 
         /* Resource ID allocator (monotonic) */
         spinlock_t resource_idr_lock;

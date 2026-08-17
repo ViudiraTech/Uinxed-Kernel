@@ -13,6 +13,7 @@
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/std/stdbool.h>
 
 struct vm_area;
 
