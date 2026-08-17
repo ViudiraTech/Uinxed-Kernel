@@ -34,7 +34,7 @@ uint64_t nano_time(void)
     uint64_t rem   = counter % 1000000ULL;
     if (whole && hpet_period_fs > UINT64_MAX / whole) return UINT64_MAX;
 
-    uint64_t ns = whole * hpet_period_fs;
+    uint64_t ns   = whole * hpet_period_fs;
     uint64_t tail = (rem * hpet_period_fs) / 1000000ULL;
     if (tail > UINT64_MAX - ns) return UINT64_MAX;
     return ns + tail;
@@ -67,7 +67,7 @@ void hpet_init(hpet_t *hpet)
     hpet_addr = phys_to_virt(hpet->base_address.address);
     plogk("hpet: HPET base mapped to virtual address %p\n", hpet_addr);
 
-    hpet_period_fs               = hpet_addr->general_capabilities >> 32;
+    hpet_period_fs = hpet_addr->general_capabilities >> 32;
     hpet_addr->general_configuration &= ~1ULL;
     hpet_addr->main_counter_value = 0;
 

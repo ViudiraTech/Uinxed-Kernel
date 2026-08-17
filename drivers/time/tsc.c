@@ -13,12 +13,12 @@
 #include <drivers/time/tsc.h>
 #include <kernel/printk.h>
 
-static uint64_t tsc_frequency       = 0;
-static uint64_t tsc_epoch_value     = 0;
-static uint64_t tsc_epoch_ns        = 0;
-static uint64_t tsc_ns_ratio        = 0;
-static int      tsc_invariant       = 0;
-static int      tsc_clocksource_ok  = 0;
+static uint64_t tsc_frequency      = 0;
+static uint64_t tsc_epoch_value    = 0;
+static uint64_t tsc_epoch_ns       = 0;
+static uint64_t tsc_ns_ratio       = 0;
+static int      tsc_invariant      = 0;
+static int      tsc_clocksource_ok = 0;
 
 /* Check whether the architectural invariant-TSC capability is advertised. */
 int tsc_check_invariant(void)
@@ -40,9 +40,9 @@ uint64_t tsc_calibrate_with_hpet(hpet_info_t *hpet_addr)
         return 0;
     }
 
-    const uint64_t calibration_time = 10000000ULL; /* 10 ms */
-    uint64_t       total_frequency  = 0;
-    unsigned int   valid_runs       = 0;
+    const uint64_t     calibration_time = 10000000ULL; /* 10 ms */
+    uint64_t           total_frequency  = 0;
+    unsigned int       valid_runs       = 0;
     const unsigned int calibration_runs = 5;
 
     for (unsigned int i = 0; i < calibration_runs; i++) {
@@ -80,7 +80,7 @@ uint64_t tsc_calibrate_with_hpet(hpet_info_t *hpet_addr)
     return tsc_frequency;
 }
 
-/* Get TSC frequency (Hz). */
+/* Get TSC frequency (Hz) */
 uint64_t tsc_get_cpu_frequency(void)
 {
     return tsc_frequency;
@@ -154,5 +154,5 @@ void tsc_init(void)
     }
 
     __atomic_store_n(&tsc_clocksource_ok, 1, __ATOMIC_RELEASE);
-    plogk("tsc: selected as CLOCK_MONOTONIC clocksource (epoch=%lu ns, resolution=%lu ns).\n", tsc_epoch_ns, tsc_resolution_ns());
+    plogk("tsc: selected as CLOCK_MONOTONIC clocksource (epoch=%lu ns, resolution=%lu ns)\n", tsc_epoch_ns, tsc_resolution_ns());
 }

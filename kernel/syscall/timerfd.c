@@ -253,12 +253,12 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
         return NULL;
     }
 
-    ctx->clockid       = (uint64_t)clockid;
-    ctx->flags         = (uint64_t)(flags & (TFD_NONBLOCK | TFD_CLOEXEC));
-    ctx->expire_count  = 0;
-    ctx->interval_ns   = 0;
-    ctx->deadline_ns   = 0;
-    ctx->armed         = 0;
+    ctx->clockid      = (uint64_t)clockid;
+    ctx->flags        = (uint64_t)(flags & (TFD_NONBLOCK | TFD_CLOEXEC));
+    ctx->expire_count = 0;
+    ctx->interval_ns  = 0;
+    ctx->deadline_ns  = 0;
+    ctx->armed        = 0;
     wait_queue_init(&ctx->wq);
     ilist_init(&ctx->timers);
 
@@ -355,7 +355,7 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
     spin_lock(&ctx->lock);
 
     if (old_value) {
-        uint64_t now_ns = timerfd_now_ns(ctx);
+        uint64_t             now_ns  = timerfd_now_ns(ctx);
         timerfd_itimerspec_t old_its = {
             .it_interval = timerfd_ns_to_timespec(ctx->interval_ns),
             .it_value    = timerfd_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
@@ -416,10 +416,10 @@ int sys_timerfd_gettime(int fd, void *curr_value)
     timerfd_ctx_t *ctx = (timerfd_ctx_t *)file->node->handle;
 
     spin_lock(&ctx->lock);
-    uint64_t now_ns = timerfd_now_ns(ctx);
-    timerfd_itimerspec_t its = {
-        .it_interval = timerfd_ns_to_timespec(ctx->interval_ns),
-        .it_value    = timerfd_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
+    uint64_t             now_ns = timerfd_now_ns(ctx);
+    timerfd_itimerspec_t its    = {
+           .it_interval = timerfd_ns_to_timespec(ctx->interval_ns),
+           .it_value    = timerfd_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
     };
     spin_unlock(&ctx->lock);
 

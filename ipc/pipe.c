@@ -143,10 +143,7 @@ static void pipe_spin_for_reader(pipe_ring_t *ring)
     if (!pipe_peer_is_remote(peer)) return;
 
     for (uint32_t i = 0; i < PIPE_ADAPTIVE_SPIN_ITERS; i++) {
-        if (__atomic_load_n(&ring->size, __ATOMIC_ACQUIRE) != 0 ||
-            __atomic_load_n(&ring->writers, __ATOMIC_RELAXED) == 0 ||
-            __atomic_load_n(&ring->closed, __ATOMIC_RELAXED))
-            break;
+        if (__atomic_load_n(&ring->size, __ATOMIC_ACQUIRE) != 0 || __atomic_load_n(&ring->writers, __ATOMIC_RELAXED) == 0 || __atomic_load_n(&ring->closed, __ATOMIC_RELAXED)) break;
         __asm__ volatile("pause");
     }
 }
@@ -159,10 +156,7 @@ static void pipe_spin_for_writer(pipe_ring_t *ring, uint32_t needed)
 
     for (uint32_t i = 0; i < PIPE_ADAPTIVE_SPIN_ITERS; i++) {
         uint32_t used = __atomic_load_n(&ring->size, __ATOMIC_ACQUIRE);
-        if (ring->capacity - used >= needed ||
-            __atomic_load_n(&ring->readers, __ATOMIC_RELAXED) == 0 ||
-            __atomic_load_n(&ring->closed, __ATOMIC_RELAXED))
-            break;
+        if (ring->capacity - used >= needed || __atomic_load_n(&ring->readers, __ATOMIC_RELAXED) == 0 || __atomic_load_n(&ring->closed, __ATOMIC_RELAXED)) break;
         __asm__ volatile("pause");
     }
 }
@@ -255,11 +249,11 @@ static pipe_ring_t *pipe_ring_alloc(void)
 
     /* The configured ring size is power-of-two by default.  Keep a safe
      * modulo-free path for custom non-power-of-two configurations too. */
-    ring->index_mask = (ring->capacity && !(ring->capacity & (ring->capacity - 1))) ? ring->capacity - 1 : 0;
-    ring->head       = 0;
-    ring->tail       = 0;
-    ring->size       = 0;
-    ring->readers    = 0;
+    ring->index_mask      = (ring->capacity && !(ring->capacity & (ring->capacity - 1))) ? ring->capacity - 1 : 0;
+    ring->head            = 0;
+    ring->tail            = 0;
+    ring->size            = 0;
+    ring->readers         = 0;
     ring->writers         = 0;
     ring->last_reader_cpu = UINT32_MAX;
     ring->last_writer_cpu = UINT32_MAX;
@@ -640,7 +634,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
                 return total_written ? (int64_t)total_written : -EINTR;
             }
             if (!spun) {
-                spun = true;
+                spun               = true;
                 uint32_t spin_need = atomic ? (uint32_t)remaining : 1U;
                 spin_unlock(&ring->lock);
                 pipe_spin_for_writer(ring, spin_need);
@@ -665,7 +659,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
         pipe_ring_produce(ring, chunk);
         __atomic_store_n(&ring->last_writer_cpu, get_current_cpu_id(), __ATOMIC_RELAXED);
         total_written += chunk;
-        spun = false;
+        spun              = false;
         bool wake_readers = was_empty && ring->read_waiters != 0;
 
         spin_unlock(&ring->lock);
@@ -731,7 +725,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
                 return total_written ? (int64_t)total_written : -EINTR;
             }
             if (!spun) {
-                spun = true;
+                spun               = true;
                 uint32_t spin_need = atomic ? (uint32_t)remaining : 1U;
                 spin_unlock(&ring->lock);
                 pipe_spin_for_writer(ring, spin_need);
@@ -761,7 +755,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
         pipe_ring_produce(ring, chunk);
         __atomic_store_n(&ring->last_writer_cpu, get_current_cpu_id(), __ATOMIC_RELAXED);
         total_written += chunk;
-        spun = false;
+        spun              = false;
         bool wake_readers = was_empty && ring->read_waiters != 0;
         spin_unlock(&ring->lock);
 

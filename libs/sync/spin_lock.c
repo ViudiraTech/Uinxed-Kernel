@@ -15,6 +15,7 @@ uint64_t spin_lock_irqsave(spinlock_t *lock)
 {
     uint64_t rflags;
     __asm__ volatile("pushfq; pop %0; cli" : "=r"(rflags)::"memory");
+
     /*
      * Test-and-test-and-set: spin on shared reads and issue the expensive
      * locked exchange only when the cacheline appears free.  This avoids

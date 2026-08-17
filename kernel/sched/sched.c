@@ -563,8 +563,7 @@ void request_task_cpu(task_t *task)
     if (target >= cpu_scheduler_count || target == local || !cpu_rqs[target].online) return;
 
     /* Coalesce wake storms: one outstanding reschedule IPI per target CPU. */
-    if (!__atomic_exchange_n(&cpu_rqs[target].resched_pending, 1, __ATOMIC_ACQ_REL))
-        send_ipi_cpu(target, IPI_RESCHEDULE);
+    if (!__atomic_exchange_n(&cpu_rqs[target].resched_pending, 1, __ATOMIC_ACQ_REL)) send_ipi_cpu(target, IPI_RESCHEDULE);
 }
 
 /* Put a task to sleep until a wake tick */
@@ -614,15 +613,12 @@ static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev
 
     /* Queue depth matters even when weights happen to be small. */
     score += cpu_rqs[cpu].nr_running * (SCHED_NICE_0_LOAD / 8ULL);
-
     if (cpu == prev_cpu && score >= SCHED_AFFINITY_BONUS) score -= SCHED_AFFINITY_BONUS;
 
     /* WF_SYNC-like hint: the waker may block/yield soon, so stacking is a bit cheaper. */
     uint32_t this_cpu = get_current_cpu_id();
     if (sync && cpu == this_cpu && score >= SCHED_SYNC_WAKE_BONUS) score -= SCHED_SYNC_WAKE_BONUS;
-
-    if (task && cpu != prev_cpu && scheduler.ticks - task->last_migrate_tick < SCHED_MIGRATION_COOLDOWN)
-        score += SCHED_NICE_0_LOAD / 2ULL;
+    if (task && cpu != prev_cpu && scheduler.ticks - task->last_migrate_tick < SCHED_MIGRATION_COOLDOWN) score += SCHED_NICE_0_LOAD / 2ULL;
 
     return score;
 }
@@ -644,7 +640,6 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
 
     uint32_t prev_cpu = task && task->cpu_id < cpu_scheduler_count ? task->cpu_id : this_cpu;
     if (!cpu_rqs[prev_cpu].online) prev_cpu = this_cpu;
-
     if (rq_is_idle_cpu(prev_cpu)) return prev_cpu;
 
     /* Rotate the idle scan so CPU 0 is not a permanent magnet for wakeups. */
@@ -674,8 +669,8 @@ uint32_t choose_task_cpu_locked(void)
 {
     if (!cpu_rqs || !cpu_scheduler_count) return 0;
 
-    uint32_t start = (next_task_cpu++) % cpu_scheduler_count;
-    uint32_t best  = UINT32_MAX;
+    uint32_t start      = (next_task_cpu++) % cpu_scheduler_count;
+    uint32_t best       = UINT32_MAX;
     uint64_t best_score = UINT64_MAX;
 
     for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
@@ -727,7 +722,7 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     unsigned int scanned = 0;
     while (node && scanned++ < 8) {
         task_t *task = rb_entry(node, task_t, run_node);
-        bool hot = scheduler.ticks - task->last_migrate_tick < SCHED_MIGRATION_COOLDOWN;
+        bool    hot  = scheduler.ticks - task->last_migrate_tick < SCHED_MIGRATION_COOLDOWN;
         if (!hot || newly_idle || src->nr_running > 2) return task;
         node = rb_prev_local(node);
     }
@@ -737,7 +732,7 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
 /* Find the most overloaded source runqueue relative to dst. */
 static uint32_t find_busiest_cpu_locked(uint32_t dst)
 {
-    uint32_t busiest = UINT32_MAX;
+    uint32_t busiest  = UINT32_MAX;
     uint64_t max_load = 0;
 
     for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
@@ -745,7 +740,7 @@ static uint32_t find_busiest_cpu_locked(uint32_t dst)
         uint64_t load = rq_weighted_load(&cpu_rqs[cpu]);
         if (load > max_load) {
             max_load = load;
-            busiest = cpu;
+            busiest  = cpu;
         }
     }
     return busiest;
@@ -801,8 +796,8 @@ static task_t *balance_ready_queues_locked(void)
 {
     if (cpu_scheduler_count < 2) return NULL;
 
-    uint32_t busiest = UINT32_MAX;
-    uint32_t idlest  = UINT32_MAX;
+    uint32_t busiest  = UINT32_MAX;
+    uint32_t idlest   = UINT32_MAX;
     uint64_t max_load = 0;
     uint64_t min_load = UINT64_MAX;
 
@@ -811,18 +806,18 @@ static task_t *balance_ready_queues_locked(void)
         uint64_t load = rq_weighted_load(&cpu_rqs[cpu]);
         if (load > max_load) {
             max_load = load;
-            busiest = cpu;
+            busiest  = cpu;
         }
         if (load < min_load) {
             min_load = load;
-            idlest = cpu;
+            idlest   = cpu;
         }
     }
 
     if (busiest == UINT32_MAX || idlest == UINT32_MAX || busiest == idlest) return NULL;
     if (max_load <= min_load + SCHED_NICE_0_LOAD) return NULL;
 
-    task_t *first = NULL;
+    task_t      *first  = NULL;
     unsigned int budget = SCHED_BALANCE_BATCH;
     while (budget-- && cpu_rqs[busiest].nr_running) {
         uint64_t src_load = rq_weighted_load(&cpu_rqs[busiest]);
@@ -1045,7 +1040,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
     uint32_t old_cpu = task->cpu_id;
     if (task->state == TASK_READY) {
         eevdf_rq_t *src = &cpu_rqs[old_cpu];
-        task->vlag = (int64_t)(avg_vruntime(src) - task->vruntime);
+        task->vlag      = (int64_t)(avg_vruntime(src) - task->vruntime);
         dequeue_entity(src, task);
         enqueue_task_on_cpu(task, cpu_id, 0);
     } else {
@@ -1082,8 +1077,7 @@ static void sched_switch(bool account_runtime)
     }
 
     /* Pull one task immediately before entering idle; do not wait for CPU 0's periodic pass. */
-    if (rq->nr_running == 0 && (!prev || prev == rq->idle || prev->state != TASK_RUNNING))
-        (void)newidle_balance_locked(get_current_cpu_id());
+    if (rq->nr_running == 0 && (!prev || prev == rq->idle || prev->state != TASK_RUNNING)) (void)newidle_balance_locked(get_current_cpu_id());
 
     next = pick_eevdf(rq);
 
@@ -1230,8 +1224,7 @@ int task_wakeup(task_t *task)
     if (!task) return 1;
 
     spin_lock(&scheduler.lock);
-    if ((task->state == TASK_BLOCKED || task->state == TASK_SLEEPING) &&
-        !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
+    if ((task->state == TASK_BLOCKED || task->state == TASK_SLEEPING) && !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
         uint32_t old_cpu = task->cpu_id;
         uint32_t new_cpu = select_wakeup_cpu_locked(task, false);
         if (new_cpu != old_cpu) {
@@ -1239,7 +1232,7 @@ int task_wakeup(task_t *task)
             task->last_migrate_tick = scheduler.ticks;
             task->migration_count++;
         }
-        task->cpu_id = new_cpu;
+        task->cpu_id         = new_cpu;
         task->last_wake_tick = scheduler.ticks;
         cpu_rqs[new_cpu].nr_wakeups++;
     }
@@ -1405,7 +1398,7 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
             task->last_migrate_tick = scheduler.ticks;
             task->migration_count++;
         }
-        task->cpu_id = new_cpu;
+        task->cpu_id         = new_cpu;
         task->last_wake_tick = scheduler.ticks;
         cpu_rqs[new_cpu].nr_wakeups++;
     }
@@ -1443,7 +1436,7 @@ task_t *wait_queue_wake_one_sync(wait_queue_t *queue)
             task->last_migrate_tick = scheduler.ticks;
             task->migration_count++;
         }
-        task->cpu_id = new_cpu;
+        task->cpu_id         = new_cpu;
         task->last_wake_tick = scheduler.ticks;
         cpu_rqs[new_cpu].nr_wakeups++;
     }

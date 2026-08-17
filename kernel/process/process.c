@@ -2138,8 +2138,8 @@ void process_fork_publish(process_t *child)
 {
     if (!child || !child->task || child->task->state != TASK_READY) return;
     spin_lock(&scheduler.lock);
-    uint32_t old_cpu = child->task->cpu_id;
-    uint32_t new_cpu = choose_task_cpu_locked();
+    uint32_t old_cpu      = child->task->cpu_id;
+    uint32_t new_cpu      = choose_task_cpu_locked();
     child->task->last_cpu = old_cpu;
     child->task->cpu_id   = new_cpu;
     if (new_cpu != old_cpu) {
@@ -2287,8 +2287,8 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     if (!ptrace_stopped) {
         uint32_t old_cpu = child->cpu_id;
         uint32_t new_cpu = choose_task_cpu_locked();
-        child->last_cpu = old_cpu;
-        child->cpu_id   = new_cpu;
+        child->last_cpu  = old_cpu;
+        child->cpu_id    = new_cpu;
         if (new_cpu != old_cpu) {
             child->last_migrate_tick = scheduler.ticks;
             child->migration_count++;
