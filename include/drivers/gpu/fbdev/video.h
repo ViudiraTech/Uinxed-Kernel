@@ -110,6 +110,12 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
 /* Publish a damaged rectangle after a batch of framebuffer draws. */
 void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 
+/* Synchronously push any pending frame damage to the host (boot/panic paths). */
+void video_flush_now(void);
+
+/* Install the panic-safety guard consulted by video_flush_now(). */
+void video_set_flush_guard(bool (*guard)(void));
+
 /* Clear screen */
 void video_clear(void);
 

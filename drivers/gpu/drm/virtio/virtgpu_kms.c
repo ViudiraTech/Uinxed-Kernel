@@ -27,6 +27,15 @@ static struct virtio_gpu_device *vgdev_flush_ctx;
 static struct virtio_gpu_object *vgdev_flush_obj;
 static volatile uint64_t         vgdev_flush_active;
 
+/* Panic-time flush guard: skip if the current CPU already holds ctrlq_cmd_lock. */
+static bool virtgpu_display_flush_guard(void)
+{
+    struct virtio_gpu_device *vgdev = vgdev_flush_ctx;
+
+    if (!vgdev) return true;
+    return vgdev->ctrlq_cmd_lock.lock == 0;
+}
+
 /* Connector helper functions */
 
 /* Report connection status: a VM GPU is present whenever scanouts exist. */
@@ -67,6 +76,13 @@ static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
         return 0;
     }
 
+    /* Reject a truncated EDID whose header overstates its size. */
+    if ((size_t)((unsigned)edid->extensions + 1) * EDID_LENGTH > (size_t)edid_size) {
+        plogk("virtgpu: Connector: EDID size mismatch (declared %u blocks, received %d bytes)\n", (unsigned)edid->extensions + 1, edid_size);
+        free(edid);
+        return 0;
+    }
+
     if (!drm_edid_is_valid(edid)) {
         plogk("virtgpu: Connector: EDID invalid (%d bytes)\n", edid_size);
         free(edid);
@@ -100,13 +116,25 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
 {
     struct drm_device        *dev   = connector->dev;
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
+    ilist_node_t             *node;
     int                       i;
+
+    /* virtio-gpu has no hotplug: probe the EDID/scanout modes once. */
+    if (vgdev->modes_probed) return 0;
 
     /* Query display info from host if not already done */
     if (vgdev->num_scanouts == 0) virtgpu_cmd_get_display_info(vgdev);
 
-    /* Prefer the real EDID modes when the host provides a valid EDID. */
-    if (virtgpu_connector_get_edid_modes(connector) > 0) return 0;
+    /* Drop modes from an earlier failed probe, if any. */
+    for (node = connector->modes.next; node != &connector->modes;) {
+        struct drm_display_mode *m = container_of(node, struct drm_display_mode, head);
+
+        node = node->next;
+        drm_mode_destroy(dev, m);
+    }
+
+    /* Publish EDID modes (preferred first) plus the host scanout modes. */
+    (void)virtgpu_connector_get_edid_modes(connector);
 
     for (i = 0; i < vgdev->num_scanouts && i < VIRTGPU_MAX_SCANOUTS; i++) {
         struct virtio_gpu_display_mode *dm = &vgdev->scanouts[i];
@@ -138,35 +166,17 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
         drm_mode_probed_add(connector, mode);
     }
 
-    /* Fallback: add a default mode if host returned no display info */
+    /* Fallback: DRM default mode if the host reported no display info. */
     if (vgdev->num_scanouts == 0) {
-        struct drm_display_mode *mode = drm_mode_create(dev);
-
-        if (!mode) return -ENOMEM;
-
-        (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", VIRTGPU_DEFAULT_WIDTH, VIRTGPU_DEFAULT_HEIGHT);
-        mode->clock       = VIRTGPU_DEFAULT_WIDTH * VIRTGPU_DEFAULT_HEIGHT * 60 / 1000;
-        mode->hdisplay    = VIRTGPU_DEFAULT_WIDTH;
-        mode->hsync_start = VIRTGPU_DEFAULT_WIDTH + 80;
-        mode->hsync_end   = VIRTGPU_DEFAULT_WIDTH + 160;
-        mode->htotal      = VIRTGPU_DEFAULT_WIDTH + 320;
-        mode->vdisplay    = VIRTGPU_DEFAULT_HEIGHT;
-        mode->vsync_start = VIRTGPU_DEFAULT_HEIGHT + 3;
-        mode->vsync_end   = VIRTGPU_DEFAULT_HEIGHT + 6;
-        mode->vtotal      = VIRTGPU_DEFAULT_HEIGHT + 32;
-        mode->vrefresh    = 60;
-        mode->flags       = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
-        mode->type        = DRM_MODE_TYPE_PREFERRED | DRM_MODE_TYPE_DRIVER;
-        mode->status      = MODE_OK;
-
-        drm_mode_probed_add(connector, mode);
+        if (drm_connector_add_fallback_mode(connector)) return -ENOMEM;
         vgdev->num_scanouts         = 1;
         vgdev->scanouts[0].enabled  = true;
-        vgdev->scanouts[0].width    = VIRTGPU_DEFAULT_WIDTH;
-        vgdev->scanouts[0].height   = VIRTGPU_DEFAULT_HEIGHT;
+        vgdev->scanouts[0].width    = DRM_DEFAULT_WIDTH;
+        vgdev->scanouts[0].height   = DRM_DEFAULT_HEIGHT;
         vgdev->scanouts[0].vrefresh = 60;
     }
 
+    vgdev->modes_probed = true;
     return 0;
 }
 
@@ -290,7 +300,18 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
 
     damage = (struct virtio_gpu_rect) {x, y, width, height};
     offset = (uint64_t)y * vgdev_flush_obj->stride + (uint64_t)x * sizeof(uint32_t);
-    (void)virtgpu_cmd_update_2d(vgdev_flush_ctx, vgdev_flush_obj, &damage, offset);
+    {
+        int flush_ret = virtgpu_cmd_update_2d(vgdev_flush_ctx, vgdev_flush_obj, &damage, offset);
+
+        if (flush_ret) {
+            static bool flush_fail_logged;
+
+            if (!flush_fail_logged) {
+                flush_fail_logged = true;
+                plogk("virtgpu: Console flush failed: %d (rect %ux%u+%u+%u)\n", flush_ret, width, height, x, y);
+            }
+        }
+    }
     __atomic_store_n(&vgdev_flush_active, 0, __ATOMIC_RELEASE);
 }
 
@@ -325,60 +346,24 @@ static int virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y)
     return virtgpu_cmd_move_cursor(vgdev, (uint32_t)crtc->index, x, y);
 }
 
-/*
- * Perform an initial modeset on the first connected connector so the
- * display is active as soon as the driver loads.  Without this the CRTC
- * defaults to inactive and the screen stays blank until userspace opens
- * the DRM device and commits a mode.
- *
- * Returns 0 on success; negative errno on failure (non-fatal - the KMS
- * pipeline stays registered and usable from userspace).
- */
-static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
+/* Try one mode for the initial console; release everything on failure. */
+static int virtgpu_kms_initial_try_mode(struct virtio_gpu_device *vgdev, struct drm_display_mode *mode, struct virtio_gpu_object **out_obj, struct drm_framebuffer **out_fb)
 {
-    struct drm_device        *dev      = vgdev->drm_dev;
-    struct drm_mode_config   *config   = &dev->mode_config;
-    struct drm_connector     *conn     = NULL;
-    struct drm_display_mode  *pref     = NULL;
-    struct drm_display_mode  *fallback = NULL;
-    struct drm_crtc          *crtc;
-    struct drm_plane         *primary;
+    struct drm_device        *dev = vgdev->drm_dev;
     struct virtio_gpu_object *obj;
     struct drm_framebuffer   *fb;
-    ilist_node_t             *node;
     uint32_t                  w, h, pitch, size;
     int                       ret;
 
-    /* 1. Find the first connected connector */
-    for (node = config->connector_list.next; node != &config->connector_list; node = node->next) {
-        conn = container_of(node, struct drm_connector, head);
-        if (conn->status == connector_status_connected) break;
-    }
-    if (!conn) {
-        DRM_INFO("No connected connector - skipping initial modeset\n");
-        return -ENODEV;
-    }
+    *out_obj = NULL;
+    *out_fb  = NULL;
 
-    /* 2. Pick a mode - PREFERRED wins, otherwise first probed */
-    for (node = conn->modes.next; node != &conn->modes; node = node->next) {
-        struct drm_display_mode *m = container_of(node, struct drm_display_mode, head);
-        if (!fallback) fallback = m;
-        if (m->type & DRM_MODE_TYPE_PREFERRED) {
-            pref = m;
-            break;
-        }
-    }
-    if (!pref) pref = fallback;
-    if (!pref) {
-        DRM_INFO("No modes on connector - skipping initial modeset\n");
-        return -ENODEV;
-    }
+    w = (uint32_t)mode->hdisplay;
+    h = (uint32_t)mode->vdisplay;
 
-    w = (uint32_t)pref->hdisplay;
-    h = (uint32_t)pref->vdisplay;
-    if (!w || !h) return -EINVAL;
+    /* Reject zero or oversized modes before allocating the backing. */
+    if (!w || !h || w > 8192 || h > 8192) return -EINVAL;
 
-    /* 3. Create a GEM object with host-side 2D resource + backing */
     pitch = ALIGN_UP(w * 4, VIRTGPU_STRIDE_ALIGN);
     size  = pitch * h;
 
@@ -403,7 +388,6 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     if (ret) goto err_free_obj;
     obj->backing_attached = true;
 
-    /* 4. Create and register the DRM framebuffer */
     fb = malloc(sizeof(*fb));
     if (!fb) {
         ret = -ENOMEM;
@@ -425,25 +409,39 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
         goto err_free_obj;
     }
 
-    /* 5. Push the framebuffer to the scanout */
+    /* A mode the device rejects (bad size, etc.) fails here -> next mode. */
     ret = virtgpu_page_flip(vgdev, fb, NULL);
-    if (ret) {
-        DRM_ERROR("Initial modeset page_flip failed: %d\n", ret);
-        /* Don't bail - FB is registered and usable; just not shown */
-    }
+    if (ret) goto err_free_fb;
 
-    /* 6. Update in-kernel CRTC and primary-plane state */
-    crtc    = conn->state ? conn->state->crtc : NULL;
-    primary = crtc ? crtc->primary : NULL;
+    *out_obj = obj;
+    *out_fb  = fb;
+    return 0;
+err_free_fb:
+    /* cleanup's drm_gem_object_put() frees obj when its refcount drops. */
+    drm_framebuffer_cleanup(fb);
+    free(fb);
+    return ret;
+err_free_obj:
+    virtgpu_gem_free_object(&obj->base);
+    return ret;
+}
+
+/* Publish CRTC/plane state and switch the console onto the framebuffer. */
+static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct drm_connector *conn, struct drm_display_mode *mode, struct virtio_gpu_object *obj, struct drm_framebuffer *fb)
+{
+    struct drm_crtc  *crtc    = conn->state ? conn->state->crtc : NULL;
+    struct drm_plane *primary = crtc ? crtc->primary : NULL;
+    uint32_t          w       = (uint32_t)mode->hdisplay;
+    uint32_t          h       = (uint32_t)mode->vdisplay;
 
     if (crtc) {
         crtc->enabled = true;
         drm_crtc_vblank_on(crtc);
-        memcpy(&crtc->mode, pref, sizeof(*pref));
+        memcpy(&crtc->mode, mode, sizeof(*mode));
         if (crtc->state) {
             crtc->state->active = true;
             crtc->state->enable = true;
-            memcpy(&crtc->state->mode, pref, sizeof(*pref));
+            memcpy(&crtc->state->mode, mode, sizeof(*mode));
         }
     }
 
@@ -465,21 +463,51 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
         primary->crtc_id = crtc ? crtc->base.id : 0;
     }
 
-    /*
-     * Switch the kernel console to the DRM framebuffer so all printk
-     * and TTY output appears on the virtio-gpu display.
-     */
+    /* Switch the kernel console to the DRM framebuffer. */
     vgdev_flush_ctx = vgdev;
     vgdev_flush_obj = obj;
-    video_switch_framebuffer(obj->base.backing, w, h, pitch, virtgpu_kms_flush_fb);
+    video_switch_framebuffer(obj->base.backing, w, h, obj->stride, virtgpu_kms_flush_fb);
 
     /* Update TTY to DRM mode now that the DRM framebuffer is live */
     tty_set_device_type(TTY_DEVICE_DRM);
 
     DRM_INFO("Initial modeset: %ux%u fb=%u crtc=%u\n", w, h, fb->base.id, crtc ? crtc->base.id : 0);
     return 0;
-err_free_obj:
-    virtgpu_gem_free_object(&obj->base);
+}
+
+/* Initial modeset: try modes preferred-first (Linux-style), else keep the
+ * bootloader framebuffer.  Non-fatal on failure. */
+static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
+{
+    struct drm_device        *dev    = vgdev->drm_dev;
+    struct drm_mode_config   *config = &dev->mode_config;
+    struct drm_connector     *conn   = NULL;
+    struct drm_display_mode  *mode;
+    struct virtio_gpu_object *obj;
+    struct drm_framebuffer   *fb;
+    ilist_node_t             *node;
+    int                       ret = -ENODEV;
+
+    /* Find the first connected connector */
+    for (node = config->connector_list.next; node != &config->connector_list; node = node->next) {
+        conn = container_of(node, struct drm_connector, head);
+        if (conn->status == connector_status_connected) break;
+    }
+    if (!conn) {
+        DRM_INFO("No connected connector - skipping initial modeset.\n");
+        return -ENODEV;
+    }
+
+    /* Try EDID preferred, then remaining EDID/driver modes, in list order. */
+    for (node = conn->modes.next; node != &conn->modes; node = node->next) {
+        mode = container_of(node, struct drm_display_mode, head);
+        ret  = virtgpu_kms_initial_try_mode(vgdev, mode, &obj, &fb);
+        if (!ret) return virtgpu_kms_initial_commit(vgdev, conn, mode, obj, fb);
+    }
+
+    /* No usable mode: keep the bootloader console and clear any partial scanout. */
+    virtgpu_cmd_set_scanout(vgdev, 0, NULL);
+    DRM_INFO("Initial modeset: no usable mode - keeping bootloader framebuffer console (%d)\n", ret);
     return ret;
 }
 
@@ -494,6 +522,9 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     struct drm_encoder   *encoder;
     struct drm_connector *connector;
     int                   ret;
+
+    /* Guard panic-time console flushes against the synchronous ctrlq lock. */
+    video_set_flush_guard(virtgpu_display_flush_guard);
 
     /* Query display info from host */
     ret = virtgpu_cmd_get_display_info(vgdev);

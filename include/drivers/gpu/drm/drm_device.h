@@ -994,6 +994,7 @@ void                      drm_file_free(struct drm_file *file);
 struct drm_display_mode  *drm_mode_create(struct drm_device *dev);
 void                      drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode);
 void                      drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
+int                       drm_connector_add_fallback_mode(struct drm_connector *connector);
 struct drm_display_mode  *drm_convert_umode(const struct drm_mode_modeinfo *umode);
 void                      drm_convert_to_umode(struct drm_mode_modeinfo *out, const struct drm_display_mode *in);
 void                      drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *src);

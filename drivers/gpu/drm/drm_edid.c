@@ -53,6 +53,19 @@ static inline uint16_t le16_to_cpu(uint16_t v)
 #define EDID_STD_TIMINGS      8
 #define EDID_DETAILED_TIMINGS 4
 
+/* The virtio-gpu EDID response is capped at 1 KiB (8 x 128-byte blocks). */
+#define EDID_MAX_SIZE   1024
+#define EDID_MAX_BLOCKS (EDID_MAX_SIZE / EDID_LENGTH)
+
+/* Clamp the extension count to the 1 KiB buffer the parser can address. */
+static inline int edid_extension_count(const struct edid *edid)
+{
+    int ext = (int)edid->extensions;
+
+    if (ext > EDID_MAX_BLOCKS - 1) ext = EDID_MAX_BLOCKS - 1;
+    return ext;
+}
+
 /* Forward declarations */
 
 static size_t                         edid_size(const struct edid *edid);
@@ -2020,7 +2033,7 @@ static int collect_cta_modes(struct drm_connector *connector, const struct edid 
 {
     int modes = 0, i;
 
-    for (i = 1; i <= edid->extensions; i++) {
+    for (i = 1; i <= edid_extension_count(edid); i++) {
         const uint8_t *ext = (const uint8_t *)edid + (size_t)i * EDID_LENGTH;
         int            d, idx, end;
 
@@ -2058,7 +2071,7 @@ static bool scan_cta_for_hdmi(const struct edid *edid)
 
     if (!edid) return false;
 
-    for (i = 1; i <= edid->extensions; i++) {
+    for (i = 1; i <= edid_extension_count(edid); i++) {
         const uint8_t *ext = (const uint8_t *)edid + (size_t)i * EDID_LENGTH;
         int            d, idx;
 
@@ -2089,7 +2102,7 @@ static bool scan_cta_for_audio(const struct edid *edid)
 
     if (!edid) return false;
 
-    for (i = 1; i <= edid->extensions; i++) {
+    for (i = 1; i <= edid_extension_count(edid); i++) {
         const uint8_t *ext = (const uint8_t *)edid + (size_t)i * EDID_LENGTH;
         int            d, idx;
 
@@ -2240,7 +2253,7 @@ bool drm_edid_is_valid(struct edid *edid)
 
     if (!edid) return false;
 
-    for (i = 0; i < edid->extensions + 1; i++) {
+    for (i = 0; i < edid_extension_count(edid) + 1; i++) {
         void *block = (uint8_t *)edid + (size_t)i * EDID_LENGTH;
 
         if (!validate_edid_block(block, i)) return false;

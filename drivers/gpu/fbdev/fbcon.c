@@ -633,6 +633,11 @@ void fbcon_resize(void)
 
     spin_lock(&fbcon_lock);
     if (dim_changed) {
+        uint32_t old_cw    = c_width;
+        uint32_t old_ch    = c_height;
+        uint32_t old_cur_x = vt_ansi_state.x;
+        uint32_t old_cur_y = vt_ansi_state.y;
+
         rebuilt         = true;
         old_text        = text_grid;
         old_color       = color_grid;
@@ -652,6 +657,30 @@ void fbcon_resize(void)
 
         vt_ansi_init(&vt_ansi_state, c_width, c_height);
         vt_ansi_set_default_colors(&vt_ansi_state, 0xaaaaaa, 0x000000);
+
+        /* Carry the previous console content into the new grid (under lock); the full redraw below repaints it. */
+        if (old_text && old_color && text_grid && color_grid) {
+            uint32_t copy_rows = old_ch < c_height ? old_ch : c_height;
+            uint32_t copy_cols = old_cw < c_width ? old_cw : c_width;
+
+            for (uint32_t row = 0; row < copy_rows; row++) {
+                memcpy(text_grid + (size_t)row * c_width, old_text + (size_t)row * old_cw, (size_t)copy_cols);
+                memcpy(color_grid + (size_t)row * c_width, old_color + (size_t)row * old_cw, (size_t)copy_cols * sizeof(uint32_t));
+                if (bg_grid && old_bg) memcpy(bg_grid + (size_t)row * c_width, old_bg + (size_t)row * old_cw, (size_t)copy_cols * sizeof(uint32_t));
+            }
+        }
+
+        /* Restore the cursor (clamped) so new output appends, not overlaps. */
+        if (c_width) {
+            if (old_cur_x >= c_width) old_cur_x = c_width - 1;
+            vt_ansi_state.x = old_cur_x;
+            cx              = old_cur_x;
+        }
+        if (c_height) {
+            if (old_cur_y >= c_height) old_cur_y = c_height - 1;
+            vt_ansi_state.y = old_cur_y;
+            cy              = old_cur_y;
+        }
     }
 
 #if BOOT_LOGO

@@ -518,6 +518,22 @@ menu "Device Drivers"
         Displays CPU logos at the top of the screen during kernel
         startup. The number of logos adjusts to the detected CPU count.
 
+    config DRM_DEFAULT_WIDTH
+      int "Default console width"
+      depends on DRM
+      default 1024
+      help
+        Resolution used for the kernel console when a GPU driver reports
+        neither a usable EDID nor display-info scanout modes.
+
+    config DRM_DEFAULT_HEIGHT
+      int "Default console height"
+      depends on DRM
+      default 768
+      help
+        Resolution used for the kernel console when a GPU driver reports
+        neither a usable EDID nor display-info scanout modes.
+
   endmenu
 
   menu "VirtIO drivers"

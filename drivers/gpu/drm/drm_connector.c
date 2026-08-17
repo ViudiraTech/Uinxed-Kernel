@@ -393,3 +393,35 @@ int drm_connector_update_edid_property(struct drm_connector *connector, const un
     connector->edid_blob = new_blob;
     return 0;
 }
+
+/* Add the Kconfig-driven fallback mode so a connector is never mode-less
+ * when EDID/display-info probing yields nothing.  Returns 0 on success. */
+int drm_connector_add_fallback_mode(struct drm_connector *connector)
+{
+    struct drm_display_mode *mode;
+    uint32_t                 w = DRM_DEFAULT_WIDTH, h = DRM_DEFAULT_HEIGHT;
+
+    if (!connector || !connector->dev || !w || !h) return -EINVAL;
+
+    mode = drm_mode_create(connector->dev);
+    if (!mode) return -ENOMEM;
+
+    (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", w, h);
+    mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
+    mode->clock                          = (int)((uint64_t)w * h * 60 / 1000);
+    mode->hdisplay                       = w;
+    mode->hsync_start                    = w + 80;
+    mode->hsync_end                      = w + 160;
+    mode->htotal                         = w + 320;
+    mode->vdisplay                       = h;
+    mode->vsync_start                    = h + 3;
+    mode->vsync_end                      = h + 6;
+    mode->vtotal                         = h + 32;
+    mode->vrefresh                       = 60;
+    mode->flags                          = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
+    mode->type                           = DRM_MODE_TYPE_PREFERRED | DRM_MODE_TYPE_DRIVER;
+    mode->status                         = MODE_OK;
+
+    drm_mode_probed_add(connector, mode);
+    return 0;
+}

@@ -210,6 +210,14 @@
 #    define CONFIG_VIRTIO_GPU 0
 #endif
 
+#ifndef CONFIG_DRM_DEFAULT_WIDTH
+#    define CONFIG_DRM_DEFAULT_WIDTH 1024
+#endif
+
+#ifndef CONFIG_DRM_DEFAULT_HEIGHT
+#    define CONFIG_DRM_DEFAULT_HEIGHT 768
+#endif
+
 #ifndef CONFIG_VT
 #    define CONFIG_VT 1
 #endif

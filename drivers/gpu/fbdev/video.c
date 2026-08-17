@@ -512,11 +512,22 @@ void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
     spin_unlock(&video_state_lock);
 }
 
-/* Push the accumulated damage synchronously for framebuffer handoff paths. */
-static void video_flush_pending_now(void)
+/* Optional panic-safety guard; NULL means "always safe". */
+static bool (*video_flush_guard)(void);
+
+/* Install the flush-safety guard used by video_flush_now(). */
+void video_set_flush_guard(bool (*guard)(void))
+{
+    video_flush_guard = guard;
+}
+
+/* Synchronously push pending frame damage to the host (boot/panic paths). */
+void video_flush_now(void)
 {
     video_flush_fn_t flush;
     uint32_t         x1, y1, x2, y2;
+
+    if (video_flush_guard && !video_flush_guard()) return;
 
     spin_lock(&video_state_lock);
     flush = video_flush_cb;
@@ -617,7 +628,7 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
 
     /* Push the carried-over frame (or the rebuilt one) to the host. */
     video_flush_rect(0, 0, w, h);
-    video_flush_pending_now();
+    video_flush_now();
 
     plogk("video: Switched to framebuffer %ux%u stride=%u\n", w, h, (uint32_t)stride);
 }

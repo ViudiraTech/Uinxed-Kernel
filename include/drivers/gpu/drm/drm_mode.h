@@ -20,6 +20,10 @@
 #define DRM_DISPLAY_MODE_LEN   32
 #define DRM_PROP_NAME_LEN      32
 
+/* Fallback console mode for drivers with no EDID/display-info (from Kconfig). */
+#define DRM_DEFAULT_WIDTH  CONFIG_DRM_DEFAULT_WIDTH
+#define DRM_DEFAULT_HEIGHT CONFIG_DRM_DEFAULT_HEIGHT
+
 #define DRM_MODE_TYPE_BUILTIN   (1 << 0) // deprecated
 #define DRM_MODE_TYPE_CLOCK_C   ((1 << 1) | DRM_MODE_TYPE_BUILTIN)
 #define DRM_MODE_TYPE_CRTC_C    ((1 << 2) | DRM_MODE_TYPE_BUILTIN)

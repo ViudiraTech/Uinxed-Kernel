@@ -22,8 +22,4 @@
  */
 #define VIRTGPU_STRIDE_ALIGN 4
 
-/* Default modes (used when host has no display info) */
-#define VIRTGPU_DEFAULT_WIDTH  1024
-#define VIRTGPU_DEFAULT_HEIGHT 768
-
 #endif // INCLUDE_VIRTGPU_KMS_H_
