@@ -24,6 +24,18 @@
 #    error "Unknown compiler"
 #endif
 
+/* An interrupt from user mode runs with the user's GS; swap to the per-CPU base on entry and back before returning (frame->cs tells which case). */
+static inline void irq_enter_gs(interrupt_frame_t *frame)
+{
+    if ((frame->cs & 3) == 3) __asm__ volatile("swapgs" ::: "memory");
+}
+
+/* Leave: cli closes the swapgs->iretq window; iretq restores the saved IF. */
+static inline void irq_leave_gs(interrupt_frame_t *frame)
+{
+    if ((frame->cs & 3) == 3) __asm__ volatile("cli; swapgs" ::: "memory");
+}
+
 /* Empty function handling */
 extern void (*empty_handle[256])(interrupt_frame_t *frame);
 

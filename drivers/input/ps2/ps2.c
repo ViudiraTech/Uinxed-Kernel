@@ -132,6 +132,7 @@ INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
     uint8_t status;
     uint8_t data;
 
+    irq_enter_gs(frame);
     (void)frame;
     status = ps2_read_status();
     if (status & (0x40 | 0x80)) plogk("ps2: %s receive error (status=0x%02x)\n", (status & PS2_STATUS_AUX_DATA) ? "mouse" : "keyboard", status);
@@ -143,6 +144,7 @@ INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
             ps2_keyboard_handle_byte(data);
     }
     send_eoi();
+    irq_leave_gs(frame);
 }
 INTERRUPT_END
 

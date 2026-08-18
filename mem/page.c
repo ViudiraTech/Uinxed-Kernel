@@ -73,6 +73,10 @@ __asm__(".text\n"
         ".type page_fault_entry, @function\n"
         "page_fault_entry:\n"
         "cld\n"
+        "testb $3, 16(%rsp)\n" // frame->cs & 3 (error_code, rip, cs at 0/8/16)
+        "jz 1f\n"
+        "swapgs\n" // user #PF: switch %gs to the per-CPU base
+        "1:\n"
         "pushq %rax\n"
         "pushq %rbx\n"
         "pushq %rcx\n"
@@ -109,6 +113,11 @@ __asm__(".text\n"
         "popq %rbx\n"
         "popq %rax\n"
         "addq $8, %rsp\n"
+        "testb $3, 8(%rsp)\n" // frame->cs & 3 (rip, cs at 0/8)
+        "jz 2f\n"
+        "cli\n"
+        "swapgs\n" // restore the user GS before returning
+        "2:\n"
         "iretq\n"
         ".size page_fault_entry, .-page_fault_entry\n");
 

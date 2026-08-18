@@ -25,6 +25,7 @@
 /* Per-CPU EEVDF runqueue */
 
 typedef struct {
+        spinlock_t       lock;            // protects this runqueue's state below
         rb_root_t        timeline;        // RB-tree sorted by deadline
         uint64_t         nr_running;      // runnable task count
         uint64_t         min_vruntime;    // minimum vruntime (numerical stability)
@@ -94,7 +95,7 @@ void sched_tick(void);
 uint64_t sched_ticks(void);
 
 /* Finish the current task. This function does not return */
-void task_exit(void);
+__attribute__((noreturn)) void task_exit(void);
 
 /* Return the task running on the current CPU */
 task_t *current_task(void);
@@ -106,7 +107,7 @@ void sched_init(void);
 void sched_ap_online(uint32_t cpu_id);
 
 /* Start scheduling on an application processor. This function does not return */
-void sched_ap_start(uint32_t cpu_id);
+__attribute__((noreturn)) void sched_ap_start(uint32_t cpu_id);
 
 /* Handle a reschedule request delivered by the local APIC */
 void sched_ipi_reschedule(void);
@@ -115,7 +116,7 @@ void sched_ipi_reschedule(void);
 uint32_t sched_cpu_count(void);
 
 /* Start the scheduler. This function does not return */
-void sched_start(void);
+__attribute__((noreturn)) void sched_start(void);
 
 /* Choose the best CPU for a new task (used by task subsystem) */
 uint32_t choose_task_cpu_locked(void);

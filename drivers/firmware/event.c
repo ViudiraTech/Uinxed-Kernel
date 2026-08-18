@@ -11,6 +11,7 @@
 #include <arch/common.h>
 #include <arch/idt.h>
 #include <drivers/firmware/acpi.h>
+#include <drivers/firmware/apic.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/stdint.h>
@@ -235,14 +236,17 @@ static void dispatch_gpes(void)
 }
 
 /* Top-level SCI handler called from the IDT */
-static void sci_handler(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void sci_handler(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     (void)frame;
 
     uint16_t sts = acpi_pm1_status();
     if (!sts) {
         /* Spurious or GPE-only interrupt */
         dispatch_gpes();
+        send_eoi();
+        irq_leave_gs(frame);
         return;
     }
 
@@ -251,7 +255,10 @@ static void sci_handler(interrupt_frame_t *frame)
 
     dispatch_fixed_events(sts);
     dispatch_gpes();
+    send_eoi();
+    irq_leave_gs(frame);
 }
+INTERRUPT_END
 
 /* Initialize the SCI interrupt and register the fixed-event callbacks. */
 int acpi_sci_init(void)

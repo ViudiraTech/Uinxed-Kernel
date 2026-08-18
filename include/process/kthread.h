@@ -71,7 +71,7 @@ int kthread_stop(task_t *task);
 bool kthread_should_stop(void);
 
 /* Exit the current kernel thread with the given exit code.  Does not return. */
-void kthread_exit(int exit_code);
+__attribute__((noreturn)) void kthread_exit(int exit_code);
 
 /* Return the argument passed to the current kernel thread. */
 void *kthread_data(void);

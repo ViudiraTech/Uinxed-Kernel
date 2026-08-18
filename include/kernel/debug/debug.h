@@ -20,10 +20,10 @@ extern int carry_error_code;
 /* Dump stack */
 void dump_stack(void);
 
-/* Kernel panic */
-void panic(const char *format, ...);
+/* Kernel panic (never returns) */
+__attribute__((noreturn)) void panic(const char *format, ...);
 
-/* Assertion failure */
-void assertion_failure(const char *exp, const char *file, int line);
+/* Assertion failure (never returns) */
+__attribute__((noreturn)) void assertion_failure(const char *exp, const char *file, int line);
 
 #endif // INCLUDE_DEBUG_H_

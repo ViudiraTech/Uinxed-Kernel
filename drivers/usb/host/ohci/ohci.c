@@ -694,8 +694,9 @@ static int ohci_worker(void *argument)
 }
 
 /* ISR: acknowledge status bits and flag port-change work. */
-static void ohci_interrupt_handler(void *frame)
+INTERRUPT_BEGIN static void ohci_interrupt_handler(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     (void)frame;
     for (size_t i = 0; i < ohci_controller_count; i++) {
         ohci_controller_t *ctrl = ohci_controllers[i];
@@ -720,7 +721,9 @@ static void ohci_interrupt_handler(void *frame)
         }
     }
     send_eoi();
+    irq_leave_gs(frame);
 }
+INTERRUPT_END
 
 /* host_ops: reset the controller and disable its interrupts. */
 static void ohci_host_stop(usb_host_t *host)

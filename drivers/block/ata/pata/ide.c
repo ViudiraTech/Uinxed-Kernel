@@ -44,11 +44,13 @@ volatile uint8_t ide_irq_invoked = 0;
 /* IDE interrupt handling function */
 INTERRUPT_BEGIN static void ide_irq(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     (void)frame;
     disable_intr();
     ide_irq_invoked = 1;
     send_eoi();
     enable_intr();
+    irq_leave_gs(frame);
 }
 INTERRUPT_END
 

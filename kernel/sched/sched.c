@@ -276,7 +276,8 @@ static void avg_vruntime_add(eevdf_rq_t *rq, task_t *task)
     int64_t delta = (int64_t)(task->vruntime - rq->min_vruntime) * (int64_t)task->weight;
 
     rq->avg_vruntime += delta;
-    rq->avg_load += task->weight;
+    /* avg_load is read locklessly by the cross-CPU balancer. */
+    __atomic_add_fetch(&rq->avg_load, task->weight, __ATOMIC_RELAXED);
 }
 
 /* Subtract a task's vruntime contribution from the runqueue */
@@ -285,7 +286,7 @@ static void avg_vruntime_sub(eevdf_rq_t *rq, task_t *task)
     int64_t delta = (int64_t)(task->vruntime - rq->min_vruntime) * (int64_t)task->weight;
 
     rq->avg_vruntime -= delta;
-    rq->avg_load -= task->weight;
+    __atomic_sub_fetch(&rq->avg_load, task->weight, __ATOMIC_RELAXED);
 }
 
 /* EEVDF core: update_curr - advance vruntime of the running task */
@@ -367,7 +368,7 @@ static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
 
     avg_vruntime_add(rq, task);
     rb_insert_augmented(&rq->timeline, &task->run_node, entity_less, update_min_vruntime, NULL);
-    rq->nr_running++;
+    __atomic_add_fetch(&rq->nr_running, 1, __ATOMIC_RELAXED);
 }
 
 /* Remove a task from the EEVDF timeline */
@@ -375,7 +376,7 @@ static void dequeue_entity(eevdf_rq_t *rq, task_t *task)
 {
     rb_erase_augmented(&rq->timeline, &task->run_node, update_min_vruntime, NULL);
     avg_vruntime_sub(rq, task);
-    if (rq->nr_running) rq->nr_running--;
+    if (__atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED)) __atomic_sub_fetch(&rq->nr_running, 1, __ATOMIC_RELAXED);
 }
 
 /*
@@ -453,7 +454,7 @@ static eevdf_rq_t *local_rq(void)
 /* Return the task currently running on this CPU */
 static task_t *local_current(void)
 {
-    return local_rq()->curr;
+    return __atomic_load_n(&local_rq()->curr, __ATOMIC_RELAXED);
 }
 
 /* Point the TSS stack at the given task's kernel stack */
@@ -468,7 +469,7 @@ static void update_tss_stack(task_t *task)
     }
 }
 
-/* Place a task on the given CPU's runqueue */
+/* Place a task on the given CPU's runqueue.  Takes the target rq lock (the caller holds scheduler.lock, or none). */
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 {
     if (!task || task->state == TASK_ZOMBIE || task->state == TASK_IDLE) return;
@@ -476,6 +477,7 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 
     eevdf_rq_t *rq = &cpu_rqs[cpu_id];
 
+    spin_lock(&rq->lock);
     place_entity(rq, task, initial);
     task->state      = TASK_READY;
     task->wake_tick  = 0;
@@ -483,6 +485,7 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
     task->cpu_id     = cpu_id;
 
     enqueue_entity(rq, task);
+    spin_unlock(&rq->lock);
 }
 
 /* Enqueue a task on its assigned CPU */
@@ -561,19 +564,24 @@ static void sleep_task(task_t *task, uint64_t wake_tick)
 
 /* Load balancing */
 
-/* Number of runnable entities including the currently executing non-idle task. */
+/*
+ * Number of runnable entities including the currently executing non-idle task.
+ * Read locklessly (relaxed atomics) for the cross-CPU balancer.
+ */
 static uint64_t rq_task_count(const eevdf_rq_t *rq)
 {
-    uint64_t count = rq->nr_running;
-    if (rq->curr && rq->curr != rq->idle && rq->curr->state == TASK_RUNNING) count++;
+    uint64_t count = __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED);
+    task_t  *curr  = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
+    if (curr && curr != rq->idle && __atomic_load_n(&curr->state, __ATOMIC_RELAXED) == TASK_RUNNING) count++;
     return count;
 }
 
 /* Weighted runnable load.  avg_load covers queued tasks; curr lives outside the tree. */
 static uint64_t rq_weighted_load(const eevdf_rq_t *rq)
 {
-    uint64_t load = rq->avg_load;
-    if (rq->curr && rq->curr != rq->idle && rq->curr->state == TASK_RUNNING) load += rq->curr->weight;
+    uint64_t load = __atomic_load_n(&rq->avg_load, __ATOMIC_RELAXED);
+    task_t  *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
+    if (curr && curr != rq->idle && __atomic_load_n(&curr->state, __ATOMIC_RELAXED) == TASK_RUNNING) load += __atomic_load_n(&curr->weight, __ATOMIC_RELAXED);
     return load;
 }
 
@@ -581,8 +589,9 @@ static uint64_t rq_weighted_load(const eevdf_rq_t *rq)
 static bool rq_is_idle_cpu(uint32_t cpu)
 {
     if (cpu >= cpu_scheduler_count || !cpu_rqs[cpu].online) return false;
-    eevdf_rq_t *rq = &cpu_rqs[cpu];
-    return rq->nr_running == 0 && (!rq->curr || rq->curr == rq->idle || rq->curr->state != TASK_RUNNING);
+    eevdf_rq_t *rq   = &cpu_rqs[cpu];
+    task_t     *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
+    return __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) == 0 && (!curr || curr == rq->idle || __atomic_load_n(&curr->state, __ATOMIC_RELAXED) != TASK_RUNNING);
 }
 
 /*
@@ -596,7 +605,7 @@ static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev
     uint64_t score = rq_weighted_load(&cpu_rqs[cpu]);
 
     /* Queue depth matters even when weights happen to be small. */
-    score += cpu_rqs[cpu].nr_running * (SCHED_NICE_0_LOAD / 8ULL);
+    score += __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) * (SCHED_NICE_0_LOAD / 8ULL);
     if (cpu == prev_cpu && score >= SCHED_AFFINITY_BONUS) score -= SCHED_AFFINITY_BONUS;
 
     /* WF_SYNC-like hint: the waker may block/yield soon, so stacking is a bit cheaper. */
@@ -662,7 +671,7 @@ uint32_t choose_task_cpu_locked(void)
         if (!cpu_rqs[cpu].online) continue;
 
         uint64_t score = rq_weighted_load(&cpu_rqs[cpu]);
-        score += cpu_rqs[cpu].nr_running * (SCHED_NICE_0_LOAD / 8ULL);
+        score += __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) * (SCHED_NICE_0_LOAD / 8ULL);
         if (score < best_score) {
             best       = cpu;
             best_score = score;
@@ -676,7 +685,7 @@ uint32_t choose_task_cpu_locked(void)
 /* Whether the current runqueue has a runnable task. */
 static int has_ready_task(void)
 {
-    return local_rq()->nr_running > 0;
+    return __atomic_load_n(&local_rq()->nr_running, __ATOMIC_RELAXED) > 0;
 }
 
 /* In-order predecessor helper used to scan low-urgency EEVDF candidates. */
@@ -707,7 +716,7 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     while (node && scanned++ < 8) {
         task_t *task = rb_entry(node, task_t, run_node);
         bool    hot  = scheduler.ticks - task->last_migrate_tick < SCHED_MIGRATION_COOLDOWN;
-        if (!hot || newly_idle || src->nr_running > 2) return task;
+        if (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2) return task;
         node = rb_prev_local(node);
     }
     return NULL;
@@ -720,7 +729,7 @@ static uint32_t find_busiest_cpu_locked(uint32_t dst)
     uint64_t max_load = 0;
 
     for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
-        if (cpu == dst || !cpu_rqs[cpu].online || cpu_rqs[cpu].nr_running == 0) continue;
+        if (cpu == dst || !cpu_rqs[cpu].online || __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) == 0) continue;
         uint64_t load = rq_weighted_load(&cpu_rqs[cpu]);
         if (load > max_load) {
             max_load = load;
@@ -730,16 +739,24 @@ static uint32_t find_busiest_cpu_locked(uint32_t dst)
     return busiest;
 }
 
-/* Move one queued entity, preserving EEVDF lag across the runqueue boundary. */
+/*
+ * Move one queued entity, preserving EEVDF lag across the runqueue boundary.
+ * Caller holds scheduler.lock.  Dequeues from src under src->lock, then
+ * enqueues on dst (enqueue_task_on_cpu takes dst->lock) - never two rq locks at once.
+ */
 static task_t *migrate_one_locked(uint32_t src_cpu, uint32_t dst_cpu, bool newly_idle)
 {
     if (src_cpu >= cpu_scheduler_count || dst_cpu >= cpu_scheduler_count || src_cpu == dst_cpu) return NULL;
     eevdf_rq_t *src = &cpu_rqs[src_cpu];
     eevdf_rq_t *dst = &cpu_rqs[dst_cpu];
-    if (!src->nr_running || !dst->online) return NULL;
+    if (!__atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) || !dst->online) return NULL;
 
+    spin_lock(&src->lock);
     task_t *task = pick_steal_candidate_locked(src, newly_idle);
-    if (!task || task->state != TASK_READY || __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) return NULL;
+    if (!task || task->state != TASK_READY || __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
+        spin_unlock(&src->lock);
+        return NULL;
+    }
 
     task->vlag = (int64_t)(avg_vruntime(src) - task->vruntime);
     dequeue_entity(src, task);
@@ -747,9 +764,10 @@ static task_t *migrate_one_locked(uint32_t src_cpu, uint32_t dst_cpu, bool newly
     task->last_cpu          = src_cpu;
     task->last_migrate_tick = scheduler.ticks;
     task->migration_count++;
-    src->nr_migrations++;
-    dst->nr_migrations++;
-    if (newly_idle) dst->nr_steals++;
+    __atomic_add_fetch(&src->nr_migrations, 1, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&dst->nr_migrations, 1, __ATOMIC_RELAXED);
+    if (newly_idle) __atomic_add_fetch(&dst->nr_steals, 1, __ATOMIC_RELAXED);
+    spin_unlock(&src->lock);
 
     enqueue_task_on_cpu(task, dst_cpu, 0);
     return task;
@@ -763,7 +781,7 @@ static task_t *migrate_one_locked(uint32_t src_cpu, uint32_t dst_cpu, bool newly
 static task_t *newidle_balance_locked(uint32_t dst_cpu)
 {
     if (cpu_scheduler_count < 2 || dst_cpu >= cpu_scheduler_count) return NULL;
-    if (cpu_rqs[dst_cpu].nr_running) return NULL;
+    if (__atomic_load_n(&cpu_rqs[dst_cpu].nr_running, __ATOMIC_RELAXED)) return NULL;
 
     uint32_t src_cpu = find_busiest_cpu_locked(dst_cpu);
     if (src_cpu == UINT32_MAX) return NULL;
@@ -773,6 +791,18 @@ static task_t *newidle_balance_locked(uint32_t dst_cpu)
     if (src_load <= dst_load + SCHED_NICE_0_LOAD / 2ULL) return NULL;
 
     return migrate_one_locked(src_cpu, dst_cpu, true);
+}
+
+/*
+ * Self-locking wrapper used when the caller does not hold scheduler.lock
+ * (sched_switch's going-idle path).  Returns the task stolen onto dst, if any.
+ */
+static task_t *newidle_balance(uint32_t dst_cpu)
+{
+    spin_lock(&scheduler.lock);
+    task_t *stolen = newidle_balance_locked(dst_cpu);
+    spin_unlock(&scheduler.lock);
+    return stolen;
 }
 
 /* Periodic bounded balancing for sustained asymmetric load. */
@@ -803,7 +833,7 @@ static task_t *balance_ready_queues_locked(void)
 
     task_t      *first  = NULL;
     unsigned int budget = SCHED_BALANCE_BATCH;
-    while (budget-- && cpu_rqs[busiest].nr_running) {
+    while (budget-- && __atomic_load_n(&cpu_rqs[busiest].nr_running, __ATOMIC_RELAXED)) {
         uint64_t src_load = rq_weighted_load(&cpu_rqs[busiest]);
         uint64_t dst_load = rq_weighted_load(&cpu_rqs[idlest]);
         if (src_load <= dst_load + SCHED_NICE_0_LOAD) break;
@@ -815,7 +845,7 @@ static task_t *balance_ready_queues_locked(void)
         /* Stop near the midpoint instead of overshooting and bouncing back. */
         if (rq_task_count(&cpu_rqs[busiest]) <= rq_task_count(&cpu_rqs[idlest]) + 1) break;
     }
-    cpu_rqs[idlest].last_balance = scheduler.ticks;
+    __atomic_store_n(&cpu_rqs[idlest].last_balance, scheduler.ticks, __ATOMIC_RELAXED);
     return first;
 }
 
@@ -922,8 +952,8 @@ void sched_init(void)
         cpu_rqs[i].online = 1;
     }
 
-    next_task_cpu         = 0;
-    cpu_rqs[0].curr       = &boot_task;
+    next_task_cpu = 0;
+    __atomic_store_n(&cpu_rqs[0].curr, &boot_task, __ATOMIC_RELAXED);
     cpu_rqs[0].nr_running = 0;
 
     memset(&boot_task, 0, sizeof(boot_task));
@@ -939,6 +969,7 @@ void sched_init(void)
 
     /* boot_task is the swapper/0 idle task for CPU 0 */
     cpu_rqs[0].idle = &boot_task;
+    percpu_gs_set_current(&boot_task);
 
     for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
         cpu_rqs[i].idle = idle_task_alloc(i);
@@ -958,7 +989,7 @@ void sched_init(void)
         ap_boot_tasks[i].weight         = SCHED_NICE_0_LOAD;
         ilist_init(&ap_boot_tasks[i].sched_node);
         ilist_init(&ap_boot_tasks[i].timer_node);
-        cpu_rqs[i].curr = &ap_boot_tasks[i];
+        __atomic_store_n(&cpu_rqs[i].curr, &ap_boot_tasks[i], __ATOMIC_RELAXED);
     }
 }
 
@@ -977,7 +1008,8 @@ void sched_ap_start(uint32_t cpu_id)
     if (cpu_id == 0 || cpu_id >= cpu_scheduler_count) krn_halt();
 
     while (!scheduler.started) __asm__ volatile("pause");
-    cpu_rqs[cpu_id].curr = &ap_boot_tasks[cpu_id];
+    __atomic_store_n(&cpu_rqs[cpu_id].curr, &ap_boot_tasks[cpu_id], __ATOMIC_RELAXED);
+    percpu_gs_set_current(&ap_boot_tasks[cpu_id]);
     sched_yield();
     panic("sched: AP scheduler exited.");
 }
@@ -988,13 +1020,13 @@ void sched_ipi_reschedule(void)
     uint32_t cpu_id = get_current_cpu_id();
 
     if (!cpu_rqs || cpu_id >= cpu_scheduler_count) return;
-    cpu_rqs[cpu_id].reschedule_ipis++;
+    __atomic_add_fetch(&cpu_rqs[cpu_id].reschedule_ipis, 1, __ATOMIC_RELAXED);
     __atomic_store_n(&cpu_rqs[cpu_id].resched_pending, 0, __ATOMIC_RELEASE);
     if (!scheduler.started) return;
 
-    spin_lock(&scheduler.lock);
+    spin_lock(&cpu_rqs[cpu_id].lock);
     bool ready = has_ready_task();
-    spin_unlock(&scheduler.lock);
+    spin_unlock(&cpu_rqs[cpu_id].lock);
     if (ready) sched_yield();
 }
 
@@ -1018,9 +1050,11 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
     uint32_t old_cpu = task->cpu_id;
     if (task->state == TASK_READY) {
         eevdf_rq_t *src = &cpu_rqs[old_cpu];
-        task->vlag      = (int64_t)(avg_vruntime(src) - task->vruntime);
+        spin_lock(&src->lock);
+        task->vlag = (int64_t)(avg_vruntime(src) - task->vruntime);
         dequeue_entity(src, task);
-        enqueue_task_on_cpu(task, cpu_id, 0);
+        spin_unlock(&src->lock);
+        enqueue_task_on_cpu(task, cpu_id, 0); // locks dst internally
     } else {
         task->cpu_id = cpu_id;
     }
@@ -1028,8 +1062,8 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
         task->last_cpu          = old_cpu;
         task->last_migrate_tick = scheduler.ticks;
         task->migration_count++;
-        cpu_rqs[old_cpu].nr_migrations++;
-        cpu_rqs[cpu_id].nr_migrations++;
+        __atomic_add_fetch(&cpu_rqs[old_cpu].nr_migrations, 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&cpu_rqs[cpu_id].nr_migrations, 1, __ATOMIC_RELAXED);
     }
     spin_unlock(&scheduler.lock);
     request_task_cpu(task);
@@ -1039,11 +1073,11 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 /* Switch to the next runnable task on the current CPU */
 static void sched_switch(bool account_runtime)
 {
-    spin_lock(&scheduler.lock);
+    eevdf_rq_t *rq = local_rq();
+    spin_lock(&rq->lock);
 
-    eevdf_rq_t *rq   = local_rq();
-    task_t     *prev = rq->curr;
-    task_t     *next;
+    task_t *prev = rq->curr;
+    task_t *next;
 
     /* Advance vruntime and re-enqueue the current task if it was running */
     if (prev && prev->state == TASK_RUNNING && prev != rq->idle) {
@@ -1054,10 +1088,22 @@ static void sched_switch(bool account_runtime)
         enqueue_entity(rq, prev);
     }
 
-    /* Pull one task immediately before entering idle; do not wait for CPU 0's periodic pass. */
-    if (rq->nr_running == 0 && (!prev || prev == rq->idle || prev->state != TASK_RUNNING)) (void)newidle_balance_locked(get_current_cpu_id());
-
     next = pick_eevdf(rq);
+
+    /*
+     * Going idle: pull one task immediately instead of waiting for CPU 0's
+     * periodic pass.  Drop the rq lock first so scheduler.lock stays outer,
+     * steal, then re-lock.  Keep interrupts off across the gap so a tick
+     * cannot charge the just-blocked task's itimers while prev is no longer
+     * the running task.
+     */
+    if (next == rq->idle && rq->nr_running == 0) {
+        spin_unlock(&rq->lock);
+        disable_intr();
+        task_t *stolen = newidle_balance(get_current_cpu_id());
+        spin_lock(&rq->lock);
+        next = stolen ? stolen : pick_eevdf(rq);
+    }
 
     if (prev == next) {
         /*
@@ -1070,7 +1116,7 @@ static void sched_switch(bool account_runtime)
             next->time_slice = 0;
             advance_min_vruntime(rq);
         }
-        spin_unlock(&scheduler.lock);
+        spin_unlock(&rq->lock);
         return;
     }
 
@@ -1097,16 +1143,19 @@ static void sched_switch(bool account_runtime)
     }
 
     __atomic_store_n(&next->on_cpu, 1, __ATOMIC_RELEASE);
-    rq->curr = next;
+    __atomic_store_n(&rq->curr, next, __ATOMIC_RELAXED);
+
+    /* Keep the GS-relative current pointer in lockstep with rq->curr. */
+    percpu_gs_set_current(next);
     advance_min_vruntime(rq);
     update_tss_stack(next);
+
     /*
      * Retaining CR3 preserves the TLB when switching between threads in
      * the same address space (and for kernel threads).
      */
     if (!prev || prev->page_directory != next->page_directory) switch_page_directory(next->page_directory);
-
-    spin_unlock(&scheduler.lock);
+    spin_unlock(&rq->lock);
 
     /*
      * Re-disable interrupts: between the unlock and context_switch a timer
@@ -1119,9 +1168,12 @@ static void sched_switch(bool account_runtime)
     /*
      * arch_prctl keeps the software values authoritative, so avoid two
      * serializing RDMSRs and skip WRMSRs whose values do not change.
+     *
+     * In kernel mode IA32_GS_BASE is the per-CPU base, so the user GS base is
+     * parked in KERNEL_GS_BASE; the return-to-user swapgs restores it.
      */
     if (!prev || prev->thread.fs_base != next->thread.fs_base) wrmsr(0xC0000100, next->thread.fs_base);
-    if (!prev || prev->thread.gs_base != next->thread.gs_base) wrmsr(0xC0000101, next->thread.gs_base);
+    if (!prev || prev->thread.gs_base != next->thread.gs_base) set_user_gs_base(next->thread.gs_base);
     ptrace_arch_switch(prev, next);
 
     fpu_switch(prev, next);
@@ -1164,10 +1216,12 @@ void task_sleep_ticks(uint64_t ticks)
     spin_lock(&scheduler.lock);
 
     eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = rq->curr;
+    task_t     *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
 
-    /* Save lag before sleeping */
+    /* Save lag before sleeping (rq state under rq->lock). */
+    spin_lock(&rq->lock);
     curr->vlag = (int64_t)(avg_vruntime(rq) - curr->vruntime);
+    spin_unlock(&rq->lock);
     sleep_task(curr, scheduler.ticks + ticks);
 
     spin_unlock(&scheduler.lock);
@@ -1182,10 +1236,12 @@ void task_block(void)
     spin_lock(&scheduler.lock);
 
     eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = rq->curr;
+    task_t     *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
 
+    spin_lock(&rq->lock);
     curr->vlag  = (int64_t)(avg_vruntime(rq) - curr->vruntime);
     curr->state = TASK_BLOCKED;
+    spin_unlock(&rq->lock);
 
     spin_unlock(&scheduler.lock);
     sched_yield();
@@ -1208,7 +1264,7 @@ int task_wakeup(task_t *task)
         }
         task->cpu_id         = new_cpu;
         task->last_wake_tick = scheduler.ticks;
-        cpu_rqs[new_cpu].nr_wakeups++;
+        __atomic_add_fetch(&cpu_rqs[new_cpu].nr_wakeups, 1, __ATOMIC_RELAXED);
     }
     if (task->wait_queue) {
         finish_wait_locked(task, TASK_WAKE_NORMAL);
@@ -1274,9 +1330,11 @@ void wait_queue_prepare(wait_queue_t *queue)
     spin_lock(&scheduler.lock);
 
     eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = rq->curr;
+    task_t     *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
 
-    curr->vlag        = (int64_t)(avg_vruntime(rq) - curr->vruntime);
+    spin_lock(&rq->lock);
+    curr->vlag = (int64_t)(avg_vruntime(rq) - curr->vruntime);
+    spin_unlock(&rq->lock);
     curr->wake_tick   = 0;
     curr->wait_queue  = queue;
     curr->wake_reason = TASK_WAKE_NONE;
@@ -1374,7 +1432,7 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
         }
         task->cpu_id         = new_cpu;
         task->last_wake_tick = scheduler.ticks;
-        cpu_rqs[new_cpu].nr_wakeups++;
+        __atomic_add_fetch(&cpu_rqs[new_cpu].nr_wakeups, 1, __ATOMIC_RELAXED);
     }
     finish_wait_locked(task, TASK_WAKE_NORMAL);
     spin_unlock(&scheduler.lock);
@@ -1412,7 +1470,7 @@ task_t *wait_queue_wake_one_sync(wait_queue_t *queue)
         }
         task->cpu_id         = new_cpu;
         task->last_wake_tick = scheduler.ticks;
-        cpu_rqs[new_cpu].nr_wakeups++;
+        __atomic_add_fetch(&cpu_rqs[new_cpu].nr_wakeups, 1, __ATOMIC_RELAXED);
     }
     finish_wait_locked(task, TASK_WAKE_NORMAL);
     uint32_t target_cpu = task->cpu_id;
@@ -1475,34 +1533,35 @@ void sched_tick(void)
     bool        preempt  = false;
 
     /*
-     * Runqueue accounting and tree inspection must be serialized with remote
-     * wakeups and migrations.  At 1000 Hz the old unlocked tick path made RB
-     * tree corruption substantially more likely on SMP.
+     * Local runqueue accounting under this CPU's own rq lock.  Remote wakeups
+     * and migrations also take the target rq lock, so the RB tree stays
+     * consistent without a global lock on every tick.
      */
-    spin_lock(&scheduler.lock);
-
-    /* CPU 0 handles global tick, sleep queue, and load balancing. */
-    if (cpu_id == 0) {
-        scheduler.ticks++;
-        wake_sleeping_tasks();
-        if ((scheduler.ticks % SCHED_LOAD_BALANCE_INTERVAL) == 0) balanced = balance_ready_queues_locked();
-    }
-
+    spin_lock(&rq->lock);
     task_t *curr = rq->curr;
 
     /* Idle task: yield if there is real work */
     if (curr == rq->idle) {
-        preempt = has_ready_task();
+        preempt = __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0;
     } else if (curr->state == TASK_RUNNING) {
         /* Advance vruntime by one tick and test the next eligible deadline. */
         curr->time_slice++;
         update_curr(rq, 1);
         update_deadline(rq, curr);
-        if (curr->time_slice >= SCHED_MIN_GRANULARITY && has_ready_task()) preempt = pick_eevdf(rq) != curr;
+        if (curr->time_slice >= SCHED_MIN_GRANULARITY && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0) preempt = pick_eevdf(rq) != curr;
     }
+    spin_unlock(&rq->lock);
 
-    spin_unlock(&scheduler.lock);
+    /* CPU 0 handles global tick, sleep queue, and load balancing under the global lock. */
+    if (cpu_id == 0) {
+        spin_lock(&scheduler.lock);
+        scheduler.ticks++;
+        wake_sleeping_tasks();
+        if ((scheduler.ticks % SCHED_LOAD_BALANCE_INTERVAL) == 0) balanced = balance_ready_queues_locked();
+        spin_unlock(&scheduler.lock);
+    }
     request_task_cpu(balanced);
+
     /*
      * sched_tick() already charged this millisecond.  Reusing the ordinary
      * yield accounting here used to charge every timer preemption twice.
@@ -1547,6 +1606,7 @@ void task_exit(void)
 /* current_task - return the task running on this CPU */
 task_t *current_task(void)
 {
+    /* Pre-scheduler boot runs on swapper/0 with no per-CPU current yet. */
     if (!cpu_rqs) return &boot_task;
-    return cpu_rqs[get_current_cpu_id()].curr;
+    return percpu_gs_current();
 }

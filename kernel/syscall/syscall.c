@@ -842,7 +842,8 @@ static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint6
             return copy_to_user((void *)addr, &fs, sizeof(fs));
         }
         case 0x1004 : // ARCH_SET_GS
-            wrmsr(0xC0000101, addr);
+            /* In kernel mode IA32_GS_BASE is the per-CPU base; the user GS lives in KERNEL_GS_BASE. */
+            set_user_gs_base(addr);
             if (task) task->thread.gs_base = addr;
             return 0;
         case 0x1005 : { // ARCH_GET_GS
@@ -2800,7 +2801,7 @@ typedef struct clone3_args {
 } clone3_args_t;
 
 /* clone3 syscall: create a child process or thread */
-static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_t size, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
     (void)arg3;
@@ -2836,7 +2837,7 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
         if (!proc) return -ESRCH;
 
         int     error = EOK;
-        task_t *child = process_clone_thread(NULL, args.stack, args.parent_tid, args.child_tid, args.child_tid, args.tls, &error);
+        task_t *child = process_clone_thread(frame, args.stack, args.parent_tid, args.child_tid, args.child_tid, args.tls, &error);
         if (!child) return error;
         return (int64_t)child->pid;
     }
@@ -2845,16 +2846,29 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
     int        error = EOK;
     process_t *child = process_fork_status_event_mode(&error, is_vfork ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK, is_vfork);
     if (!child) return error;
-    if (args.stack && args.stack_size) {
-        /* Set up child stack */
-        task_t *ct = child->task;
-        if (ct) {
-            uint64_t  kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
-            uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
-            kstack -= 4; // Leave room
-            *(--kstack)     = (uint64_t)syscall_return;
-            ct->context.rsp = (uint64_t)kstack;
+
+    /*
+     * Seed the child's resume frame on its own kernel stack: it returns from
+     * the fork/clone3 syscall with rax=0, sharing the parent's user stack
+     * unless a caller-provided stack was given.
+     */
+    task_t *ct = child->task;
+    if (ct) {
+        syscall_frame_t child_frame = *frame;
+        child_frame.rax             = 0;
+        if (args.stack && args.stack_size) {
+            if (!user_access_ok((void *)args.stack, 1, 1)) {
+                process_fork_discard(child);
+                return -EINVAL;
+            }
+            child_frame.rsp = args.stack;
         }
+        uint64_t  kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
+        uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
+        kstack -= sizeof(syscall_frame_t) / sizeof(uint64_t);
+        memcpy(kstack, &child_frame, sizeof(child_frame));
+        *(--kstack)     = (uint64_t)syscall_return;
+        ct->context.rsp = (uint64_t)kstack;
     }
 
     process_fork_publish(child);
@@ -3931,7 +3945,9 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
     proc->task->thread.fs_base = 0;
     proc->task->thread.gs_base = 0;
     wrmsr(0xC0000100, 0);
-    wrmsr(0xC0000101, 0);
+
+    /* User GS is parked in KERNEL_GS_BASE while in kernel mode. */
+    set_user_gs_base(0);
 
     if (old_dir) {
         page_destroy_user_space(old_dir);
@@ -4831,7 +4847,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FSMOUNT]                = sys_stub,
     [SYS_FSPICK]                 = sys_stub,
     [SYS_PIDFD_OPEN]             = sys_pidfd_open_impl,
-    [SYS_CLONE3]                 = sys_clone3_impl,
+    [SYS_CLONE3]                 = NULL, // frame-aware: dispatched in syscall_dispatch
     [SYS_CLOSE_RANGE]            = sys_close_range,
     [SYS_OPENAT2]                = sys_openat2_impl,
     [SYS_PIDFD_GETFD]            = sys_pidfd_getfd_impl,
@@ -4931,6 +4947,17 @@ int syscall_dispatch(syscall_frame_t *frame)
             process_vfork_wait(child);
             ptrace_fork_event(frame, PTRACE_EVENT_VFORK_DONE, child->task->pid);
         }
+        goto check_signals;
+    }
+
+    /*
+     * clone3 seeds the child's resume frame (fork with a caller-provided stack)
+     * and clones threads with the parent's register context, so it needs frame
+     * access rather than the plain syscall-table ABI.
+     */
+    if (num == SYS_CLONE3) {
+        retval     = sys_clone3_impl(frame, frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9);
+        frame->rax = (uint64_t)retval;
         goto check_signals;
     }
 
@@ -5141,7 +5168,13 @@ check_signals:
     return 1;
 }
 
-/* Restore registers and return via IRETQ */
+/*
+ * Restore registers and return via IRETQ.  The whole kernel runs with
+ * %gs -> per-CPU, so swapgs restores the task's user GS before returning;
+ * cli keeps a timer interrupt from landing between swapgs and iretq (iretq
+ * restores the saved IF).  Also the resume path for fork/clone/thread, which
+ * context_switch() reaches with IF already enabled.
+ */
 __attribute__((naked)) void syscall_return(void)
 {
     __asm__ volatile("popq %r15\n\t"
@@ -5159,6 +5192,8 @@ __attribute__((naked)) void syscall_return(void)
                      "popq %rcx\n\t"
                      "popq %rbx\n\t"
                      "popq %rax\n\t"
+                     "cli\n\t"
+                     "swapgs\n\t"
                      "iretq\n\t");
 }
 
@@ -5182,14 +5217,17 @@ __attribute__((naked, used)) static void syscall_return_sysret(void)
                      "popq %rax\n\t"
                      "movq 0(%rsp), %rcx\n\t"
                      "movq 16(%rsp), %r11\n\t"
+                     "cli\n\t"
                      "movq 24(%rsp), %rsp\n\t"
+                     "swapgs\n\t"
                      "sysretq\n\t");
 }
 
-/* Interrupt-based syscall entry point */
+/* Interrupt-based syscall entry point (int 0x80, always from user mode) */
 __attribute__((naked)) void syscall_entry(void)
 {
-    __asm__ volatile("cld\n\t"
+    __asm__ volatile("swapgs\n\t"
+                     "cld\n\t"
                      "pushq %rax\n\t"
                      "pushq %rbx\n\t"
                      "pushq %rcx\n\t"
@@ -5239,7 +5277,6 @@ __attribute__((naked)) static void syscall_entry_syscall(void)
                                                                                                                                                                        "pushq %r13\n\t"
                                                                                                                                                                        "pushq %r14\n\t"
                                                                                                                                                                        "pushq %r15\n\t"
-                                                                                                                                                                       "swapgs\n\t"
                                                                                                                                                                        "movq %rsp, %rdi\n\t"
                                                                                                                                                                        "call syscall_dispatch\n\t"
                                                                                                                                                                        "testl %eax, %eax\n\t"
@@ -5247,8 +5284,11 @@ __attribute__((naked)) static void syscall_entry_syscall(void)
                                                                                                                                                                        "jmp syscall_return_sysret\n\t");
 }
 
-/* Program this CPU's SYSCALL MSRs */
-void syscall_init_cpu(uint64_t kernel_gs_base)
+/*
+ * Program this CPU's SYSCALL MSRs.  The kernel-mode GS base is established
+ * separately (cpu_gs_install in smp.c) so the BSP has it before sched_init().
+ */
+void syscall_init_cpu(void)
 {
     uint64_t star = rdmsr(0xC0000081);
     star &= 0x00000000FFFFFFFFULL;
@@ -5258,8 +5298,6 @@ void syscall_init_cpu(uint64_t kernel_gs_base)
     wrmsr(0xC0000082, (uint64_t)syscall_entry_syscall);
     wrmsr(0xC0000084, 0x200);
     wrmsr(0xC0000080, rdmsr(0xC0000080) | 1);
-    wrmsr(0xC0000101, 0);
-    wrmsr(0xC0000102, kernel_gs_base);
 }
 
 /* Install the syscall entry points */
@@ -5269,6 +5307,6 @@ void syscall_init(void)
 
     cpu_processor_t *cpu = get_current_cpu();
     if (!cpu) panic("syscall: BSP per-CPU state is unavailable.");
-    syscall_init_cpu((uint64_t)&cpu->syscall);
+    syscall_init_cpu();
     plogk("syscall: int 0x%02x interface initialized.\n", SYSCALL_VECTOR);
 }

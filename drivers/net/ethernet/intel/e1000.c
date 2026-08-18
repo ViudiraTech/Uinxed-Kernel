@@ -818,7 +818,9 @@ static void e1000_interrupt_slot(size_t slot, void *frame)
     }                                                                             \
     INTERRUPT_BEGIN static void e1000_idt_interrupt_##n(interrupt_frame_t *frame) \
     {                                                                             \
+        irq_enter_gs(frame);                                                      \
         e1000_interrupt_slot(n, frame);                                           \
+        irq_leave_gs(frame);                                                      \
     }                                                                             \
     INTERRUPT_END
 

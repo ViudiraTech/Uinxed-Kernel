@@ -682,8 +682,9 @@ static int ehci_worker(void *argument)
 }
 
 /* ISR: acknowledge status bits and flag port-change work. */
-static void ehci_interrupt_handler(void *frame)
+INTERRUPT_BEGIN static void ehci_interrupt_handler(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     (void)frame;
     for (size_t i = 0; i < ehci_controller_count; i++) {
         ehci_controller_t *ctrl = ehci_controllers[i];
@@ -709,7 +710,9 @@ static void ehci_interrupt_handler(void *frame)
         if (sts & EHCI_STS_IAA) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_IAA);
     }
     send_eoi();
+    irq_leave_gs(frame);
 }
+INTERRUPT_END
 
 /* host_ops: stop the controller and its interrupts. */
 static void ehci_host_stop(usb_host_t *host)

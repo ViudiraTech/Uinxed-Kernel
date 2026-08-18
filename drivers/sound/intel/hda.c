@@ -10,6 +10,7 @@
 
 #include <arch/common.h>
 #include <drivers/bus/pci.h>
+#include <drivers/firmware/apic.h>
 #include <drivers/sound/core/audio.h>
 #include <drivers/sound/intel/hda.h>
 #include <kernel/errno.h>
@@ -1164,11 +1165,16 @@ static const audio_card_ops_t hda_audio_ops = {
 };
 
 /* Handle HDA controller interrupts. */
-static void hda_interrupt_handler(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void hda_interrupt_handler(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     (void)frame;
     uint32_t intsts = hda_read32(INTSTS);
-    if (intsts == 0 || intsts == 0xffffffff) return;
+    if (intsts == 0 || intsts == 0xffffffff) {
+        send_eoi();
+        irq_leave_gs(frame);
+        return;
+    }
 
     /* Handle RIRB response interrupt */
     uint8_t rirb_sts = hda_read8(RIRBSTS);
@@ -1215,7 +1221,10 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
             sd_write8(s, SD_STS, SD_STS_DESC_ERROR);
         }
     }
+    send_eoi();
+    irq_leave_gs(frame);
 }
+INTERRUPT_END
 
 /* Probe the PCI controller and register an audio card. */
 void hda_init(void)

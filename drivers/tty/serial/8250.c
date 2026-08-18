@@ -169,18 +169,22 @@ static void uart8250_service(int line_irq)
 /* IRQ3 handler: service COM2/COM4. */
 INTERRUPT_BEGIN static void uart8250_irq3_handler(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     (void)frame;
     uart8250_service(3);
     send_eoi();
+    irq_leave_gs(frame);
 }
 INTERRUPT_END
 
 /* IRQ4 handler: service COM1/COM3. */
 INTERRUPT_BEGIN static void uart8250_irq4_handler(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     (void)frame;
     uart8250_service(4);
     send_eoi();
+    irq_leave_gs(frame);
 }
 INTERRUPT_END
 

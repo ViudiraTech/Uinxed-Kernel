@@ -264,7 +264,8 @@ static void gen_info_stat(procfs_file_t *pf)
         uint64_t uptime_seconds = timer_monotonic_ns() / TIMER_NSEC_PER_SEC;
         int64_t  realtime       = timer_realtime_ns();
         uint64_t boot_time      = realtime > 0 && (uint64_t)realtime / TIMER_NSEC_PER_SEC >= uptime_seconds ? (uint64_t)realtime / TIMER_NSEC_PER_SEC - uptime_seconds : 0;
-        n = snprintf(p, remaining, "intr %llu\nctxt %llu\nbtime %llu\nprocesses %llu\nprocs_running %u\nprocs_blocked %u\n", 0ULL, 0ULL, boot_time, scheduler.next_pid, cpu_rqs[0].nr_running + 1, 0U);
+        n                       = snprintf(p, remaining, "intr %llu\nctxt %llu\nbtime %llu\nprocesses %llu\nprocs_running %u\nprocs_blocked %u\n", 0ULL, 0ULL, boot_time, scheduler.next_pid,
+                                           (unsigned)__atomic_load_n(&cpu_rqs[0].nr_running, __ATOMIC_RELAXED) + 1, 0U);
         p += n;
     }
 
@@ -549,7 +550,7 @@ static void gen_info_loadavg(procfs_file_t *pf)
 
     uint64_t running   = 0;
     uint32_t cpu_count = sched_cpu_count();
-    for (uint32_t i = 0; i < cpu_count; i++) running += cpu_rqs[i].nr_running;
+    for (uint32_t i = 0; i < cpu_count; i++) running += __atomic_load_n(&cpu_rqs[i].nr_running, __ATOMIC_RELAXED);
     /* active threads = currently running (one per CPU) + on ready queues */
     uint64_t active  = cpu_count + running;
     uint64_t total   = scheduler.next_pid ? scheduler.next_pid - 1 : 0;

@@ -610,7 +610,11 @@ static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum
     return 0;
 }
 
-/* Trampoline that enters the user image with a clean register file via IRETQ */
+/*
+ * Trampoline that enters the user image with a clean register file via IRETQ.
+ * Reached from context_switch() with %gs -> per-CPU; swap back to the task's
+ * user GS (parked in KERNEL_GS_BASE by the scheduler) before iretq.
+ */
 __attribute__((naked)) static void user_process_enter(void)
 {
     __asm__ volatile("xorl %eax, %eax\n\t"
@@ -623,6 +627,8 @@ __attribute__((naked)) static void user_process_enter(void)
                      "xorl %r9d, %r9d\n\t"
                      "xorl %r10d, %r10d\n\t"
                      "xorl %r11d, %r11d\n\t"
+                     "cli\n\t"
+                     "swapgs\n\t"
                      "iretq\n\t");
 }
 

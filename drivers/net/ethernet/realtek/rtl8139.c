@@ -709,7 +709,9 @@ static void rtl8139_interrupt_slot(size_t slot, void *frame)
     }                                                                               \
     INTERRUPT_BEGIN static void rtl8139_idt_interrupt_##n(interrupt_frame_t *frame) \
     {                                                                               \
+        irq_enter_gs(frame);                                                        \
         rtl8139_interrupt_slot(n, frame);                                           \
+        irq_leave_gs(frame);                                                        \
     }                                                                               \
     INTERRUPT_END
 

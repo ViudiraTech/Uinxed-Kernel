@@ -98,6 +98,7 @@ uint32_t timer_realtime_seconds32(void)
 /* Timer interrupt */
 INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     disable_intr();
     uint32_t cpu_id      = get_current_cpu_id();
     task_t  *interrupted = current_task();
@@ -123,6 +124,7 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
         }
     }
     /* iretq restores IF; enabling it here would make the saved frame re-entrant. */
+    irq_leave_gs(frame);
 }
 INTERRUPT_END
 

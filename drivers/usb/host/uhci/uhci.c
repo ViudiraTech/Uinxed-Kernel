@@ -732,8 +732,9 @@ static int uhci_worker(void *argument)
 }
 
 /* ISR: acknowledge status bits and flag port-change work. */
-static void uhci_interrupt_handler(void *frame)
+INTERRUPT_BEGIN static void uhci_interrupt_handler(interrupt_frame_t *frame)
 {
+    irq_enter_gs(frame);
     (void)frame;
     for (size_t i = 0; i < uhci_controller_count; i++) {
         uhci_controller_t *ctrl = uhci_controllers[i];
@@ -760,7 +761,9 @@ static void uhci_interrupt_handler(void *frame)
         }
     }
     send_eoi();
+    irq_leave_gs(frame);
 }
+INTERRUPT_END
 
 /* host_ops: stop the controller and its interrupts. */
 static void uhci_host_stop(usb_host_t *host)

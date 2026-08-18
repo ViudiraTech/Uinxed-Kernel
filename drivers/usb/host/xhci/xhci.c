@@ -989,11 +989,14 @@ static void xhci_interrupt_slot(size_t index, void *frame)
     send_eoi();
 }
 
-#define XHCI_IRQ_WRAPPER(index)                     \
-    static void xhci_interrupt_##index(void *frame) \
-    {                                               \
-        xhci_interrupt_slot(index, frame);          \
-    }
+#define XHCI_IRQ_WRAPPER(index)                                                  \
+    INTERRUPT_BEGIN static void xhci_interrupt_##index(interrupt_frame_t *frame) \
+    {                                                                            \
+        irq_enter_gs(frame);                                                     \
+        xhci_interrupt_slot(index, frame);                                       \
+        irq_leave_gs(frame);                                                     \
+    }                                                                            \
+    INTERRUPT_END
 
 XHCI_IRQ_WRAPPER(0)
 XHCI_IRQ_WRAPPER(1)
@@ -1004,7 +1007,7 @@ XHCI_IRQ_WRAPPER(5)
 XHCI_IRQ_WRAPPER(6)
 XHCI_IRQ_WRAPPER(7)
 
-typedef void (*xhci_irq_handler_t)(void *frame);
+typedef void (*xhci_irq_handler_t)(interrupt_frame_t *frame);
 static const xhci_irq_handler_t xhci_irq_handlers[USB_MAX_CONTROLLERS] = {
     xhci_interrupt_0, xhci_interrupt_1, xhci_interrupt_2, xhci_interrupt_3, xhci_interrupt_4, xhci_interrupt_5, xhci_interrupt_6, xhci_interrupt_7,
 };

@@ -62,7 +62,7 @@ typedef int64_t (*syscall_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
 
 /* Syscall subsystem lifecycle and entry path. */
 void syscall_init(void);
-void syscall_init_cpu(uint64_t kernel_gs_base);
+void syscall_init_cpu(void);
 void syscall_entry(void);
 void syscall_return(void);
 int  syscall_dispatch(syscall_frame_t *frame);

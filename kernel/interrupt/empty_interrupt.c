@@ -17,11 +17,12 @@
 #define INTERRUPT_HANDLE(id)                                                 \
     INTERRUPT_BEGIN static void empty_handler_##id(interrupt_frame_t *frame) \
     {                                                                        \
-        (void)frame;                                                         \
+        irq_enter_gs(frame);                                                 \
         disable_intr();                                                      \
         plogk("Interrupt empty %u\n", id);                                   \
         send_eoi();                                                          \
         enable_intr();                                                       \
+        irq_leave_gs(frame);                                                 \
     }                                                                        \
     INTERRUPT_END
 

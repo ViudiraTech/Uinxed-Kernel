@@ -79,18 +79,19 @@ int smp_handle_nmi(void)
 /* Rescheduling Requests */
 INTERRUPT_BEGIN static void ipi_reschedule_handler(interrupt_frame_t *frame)
 {
-    (void)frame;
+    irq_enter_gs(frame);
     disable_intr();
     send_eoi();
     sched_ipi_reschedule();
     enable_intr();
+    irq_leave_gs(frame);
 }
 INTERRUPT_END
 
 /* Downtime Request */
 INTERRUPT_BEGIN static void ipi_halt_handler(interrupt_frame_t *frame)
 {
-    (void)frame;
+    irq_enter_gs(frame);
     disable_intr();
     lapic_timer_stop();
     send_eoi();
@@ -101,7 +102,7 @@ INTERRUPT_END
 /* TLB flush request */
 INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
 {
-    (void)frame;
+    irq_enter_gs(frame);
     disable_intr();
     flush_local_tlb_all();
     uint32_t cpu_id     = get_current_cpu_id();
@@ -109,13 +110,14 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
     if (tlb_shootdown_ack && cpu_id < cpu_count) __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
     send_eoi();
     enable_intr();
+    irq_leave_gs(frame);
 }
 INTERRUPT_END
 
 /* Emergency Error Broadcast */
 INTERRUPT_BEGIN static void ipi_panic_handler(interrupt_frame_t *frame)
 {
-    (void)frame;
+    irq_enter_gs(frame);
     disable_intr();
     send_eoi();
     while (1) __asm__ volatile("hlt");
@@ -248,6 +250,17 @@ static void ap_init_gdt(cpu_processor_t *cpu)
     ap_init_tss(cpu);
 }
 
+/*
+ * Point this CPU's GS base at its per-CPU window so kernel code runs with
+ * %gs -> per-CPU.  KernelGSBase holds the (initially absent) user GS, which
+ * swapgs exchanges back on return to user mode.
+ */
+static void cpu_gs_install(cpu_processor_t *cpu)
+{
+    wrmsr(0xC0000101, (uint64_t)&cpu->syscall); // GS base = per-CPU window
+    set_user_gs_base(0);                        // KernelGSBase: no user GS yet
+}
+
 /* Multi-core boot entry */
 void ap_entry(struct limine_smp_info *info)
 {
@@ -272,8 +285,11 @@ void ap_entry(struct limine_smp_info *info)
     /* Initializing the IDT */
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
 
-    /* SYSCALL MSRs and GS bases are core-local. */
-    syscall_init_cpu((uint64_t)&cpu->syscall);
+    /* SYSCALL MSRs are core-local. */
+    syscall_init_cpu();
+
+    /* Establish the kernel-mode GS base for this AP. */
+    cpu_gs_install(cpu);
 
     /* Initializing Local APIC */
     local_apic_init();
@@ -311,6 +327,7 @@ void smp_init(void)
         cpus[i].lapic_id            = cpu->lapic_id;
         cpus[i].syscall.user_rsp    = 0;
         cpus[i].syscall.kernel_rsp  = 0;
+        cpus[i].syscall.current     = NULL;
         cpus[i].fpu.fpu_live        = NULL;
         cpus[i].fpu.fpu_kernel_cnt  = 0;
         cpus[i].fpu.fpu_irq_saved   = 0;
@@ -327,6 +344,9 @@ void smp_init(void)
             cast.ptr = cpus[i].kernel_stack;
             set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16ULL));
             if (cpu_support_rdtscp()) wrmsr(0xC0000103, cpus[i].id); // IA32_TSC_AUX
+
+            /* Establish the kernel-mode GS base for the BSP before any scheduler or syscall code runs (sched_init() writes gs:16). */
+            cpu_gs_install(&cpus[i]);
             continue;
         }
         cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));

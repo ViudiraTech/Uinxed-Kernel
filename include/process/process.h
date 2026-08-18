@@ -246,7 +246,7 @@ int setup_process_page_dir(process_t *proc);
 process_t *process_create_kthread(task_t *task, const char *name);
 
 /* Terminate the current process and release its resources */
-void process_exit(int exit_code);
+__attribute__((noreturn)) void process_exit(int exit_code);
 
 /* Reap a zombie child process and collect its exit status */
 int process_wait(pid_t pid, int *exit_code);

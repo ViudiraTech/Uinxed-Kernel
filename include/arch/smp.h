@@ -11,6 +11,7 @@
 #ifndef INCLUDE_SMP_H_
 #define INCLUDE_SMP_H_
 
+#include <arch/common.h>
 #include <arch/gdt.h>
 #include <arch/tss.h>
 #include <boot/limine.h>
@@ -25,18 +26,50 @@
 
 typedef uint8_t kernel_stack_t[KERNEL_STACK_SIZE];
 
+struct task;
+
 #define SYSCALL_CPU_USER_RSP_OFFSET   0
 #define SYSCALL_CPU_KERNEL_RSP_OFFSET 8
+#define SYSCALL_CPU_CURRENT_OFFSET    16
 
+/*
+ * GS-relative per-CPU window.  In kernel mode %gs points here, so the fields
+ * are addressed as %gs:0, %gs:8 and %gs:16 (the syscall prologue uses the first
+ * two to switch stacks; current_task() is a single %gs:16 load).
+ */
 typedef struct {
-        uint64_t user_rsp;
-        uint64_t kernel_rsp;
+        uint64_t     user_rsp;   // 0x00 - user stack saved by syscall entry
+        uint64_t     kernel_rsp; // 0x08 - per-CPU kernel stack
+        struct task *current;    // 0x10 - task running on this CPU
 } syscall_cpu_state_t;
 
 _Static_assert(offsetof(syscall_cpu_state_t, user_rsp) == SYSCALL_CPU_USER_RSP_OFFSET, "syscall user RSP offset");
 _Static_assert(offsetof(syscall_cpu_state_t, kernel_rsp) == SYSCALL_CPU_KERNEL_RSP_OFFSET, "syscall kernel RSP offset");
+_Static_assert(offsetof(syscall_cpu_state_t, current) == SYSCALL_CPU_CURRENT_OFFSET, "syscall current offset");
 
-struct task;
+/* Read the current task from the GS-relative per-CPU window (one load) */
+static inline struct task *percpu_gs_current(void)
+{
+    struct task *t;
+    __asm__("movq %%gs:%c1, %0" : "=r"(t) : "i"(SYSCALL_CPU_CURRENT_OFFSET) : "memory");
+    return t;
+}
+
+/* Store the current task into the GS-relative per-CPU window */
+static inline void percpu_gs_set_current(struct task *t)
+{
+    __asm__("movq %0, %%gs:%c1" : : "r"(t), "i"(SYSCALL_CPU_CURRENT_OFFSET) : "memory");
+}
+
+/*
+ * Park the current task's user GS base in KERNEL_GS_BASE.  In kernel mode the
+ * hidden GS base is the per-CPU window, so the user GS lives in KERNEL_GS_BASE
+ * and the return-to-user swapgs restores it.
+ */
+static inline void set_user_gs_base(uint64_t user_gs_base)
+{
+    wrmsr(0xC0000102, user_gs_base);
+}
 
 /* Per-CPU floating-point state (see <arch/fpu.h>) */
 typedef struct {
