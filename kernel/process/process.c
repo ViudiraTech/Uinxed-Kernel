@@ -1612,7 +1612,6 @@ void process_exit(int exit_code)
     if (!current || !current->process) {
         plogk("process: process_exit called from non-process context.\n");
         task_exit();
-        return;
     }
 
     process_t *proc = current->process;
@@ -1648,7 +1647,6 @@ void process_exit(int exit_code)
         }
         if (!(current->flags & PF_KTHREAD)) ptrace_exit_notify(exit_code);
         task_exit();
-        return;
     }
 
     /* Process timers cease to exist when the final thread exits. */
