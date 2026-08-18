@@ -54,7 +54,7 @@ static struct drm_property *drm_signed_property(struct drm_device *dev, const ch
 int drm_mode_config_init(struct drm_device *dev)
 {
     if (!dev) {
-        plogk("drm: Mode_config_init called with NULL device.\n");
+        DRM_ERROR("Mode_config_init called with NULL device.\n");
         return -EINVAL;
     }
 
@@ -175,14 +175,14 @@ int drm_mode_config_init(struct drm_device *dev)
     if (!dev->mode_config.prop_fb_id || !dev->mode_config.prop_crtc_id || !dev->mode_config.prop_active || !dev->mode_config.prop_mode_id || !dev->mode_config.prop_src_x
         || !dev->mode_config.prop_src_y || !dev->mode_config.prop_src_w || !dev->mode_config.prop_src_h || !dev->mode_config.prop_crtc_x || !dev->mode_config.prop_crtc_y
         || !dev->mode_config.prop_crtc_w || !dev->mode_config.prop_crtc_h || !dev->mode_config.prop_zpos || !dev->mode_config.prop_alpha || !dev->mode_config.prop_plane_type) {
-        plogk("drm: Mode_config_init: core property creation failed, returning -ENOMEM\n");
+        DRM_ERROR("Mode_config_init: core property creation failed, returning -ENOMEM\n");
         drm_mode_config_cleanup(dev);
         return -ENOMEM;
     }
 
     /* Standard connector property: "DPMS" (legacy enum, attached per connector). */
     if (drm_mode_create_dpms_property(dev)) {
-        plogk("drm: Mode_config_init: DPMS property creation failed, returning -ENOMEM\n");
+        DRM_ERROR("Mode_config_init: DPMS property creation failed, returning -ENOMEM\n");
         drm_mode_config_cleanup(dev);
         return -ENOMEM;
     }
@@ -191,7 +191,7 @@ int drm_mode_config_init(struct drm_device *dev)
     dev->mode_config.prop_link_status = drm_property_create_range(dev, 0, "link-status", 0, DRM_MODE_LINK_STATUS_BAD);
     dev->mode_config.prop_non_desktop = drm_property_create_range(dev, DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ATOMIC, "non-desktop", 0, 1);
     if (!dev->mode_config.prop_link_status || !dev->mode_config.prop_non_desktop) {
-        plogk("drm: Mode_config_init: connector property creation failed, returning -ENOMEM\n");
+        DRM_ERROR("Mode_config_init: connector property creation failed, returning -ENOMEM\n");
         drm_mode_config_cleanup(dev);
         return -ENOMEM;
     }
@@ -350,7 +350,7 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
     (void)file_priv;
 
     if (!dev || !res) {
-        plogk("drm: GETRESOURCES with invalid args (dev=%p, res=%p)\n", dev, res);
+        DRM_ERROR("GETRESOURCES with invalid args (dev=%p, res=%p)\n", dev, res);
         return -EINVAL;
     }
 
@@ -364,8 +364,8 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
     if (dev->mode_config.num_connector) connectors = malloc((size_t)dev->mode_config.num_connector * sizeof(*connectors));
     if (dev->mode_config.num_encoder) encoders = malloc((size_t)dev->mode_config.num_encoder * sizeof(*encoders));
     if ((dev->mode_config.num_fb && !fbs) || (dev->mode_config.num_crtc && !crtcs) || (dev->mode_config.num_connector && !connectors) || (dev->mode_config.num_encoder && !encoders)) {
-        plogk("drm: GETRESOURCES allocation failed (num_fb=%d num_crtc=%d num_connector=%d num_encoder=%d), returning -ENOMEM\n", dev->mode_config.num_fb, dev->mode_config.num_crtc,
-              dev->mode_config.num_connector, dev->mode_config.num_encoder);
+        DRM_ERROR("GETRESOURCES allocation failed (num_fb=%d num_crtc=%d num_connector=%d num_encoder=%d), returning -ENOMEM\n", dev->mode_config.num_fb, dev->mode_config.num_crtc,
+                  dev->mode_config.num_connector, dev->mode_config.num_encoder);
         free(fbs);
         free(crtcs);
         free(connectors);
@@ -401,7 +401,7 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
             && (!res->encoder_id_ptr
                 || copy_to_user((void *)(uintptr_t)res->encoder_id_ptr, encoders,
                                 (size_t)(user_encoders < (uint32_t)dev->mode_config.num_encoder ? user_encoders : (uint32_t)dev->mode_config.num_encoder) * sizeof(*encoders))))) {
-        plogk("drm: GETRESOURCES copy_to_user failed (user_fbs=%u user_crtcs=%u user_connectors=%u user_encoders=%u), returning -EFAULT\n", user_fbs, user_crtcs, user_connectors, user_encoders);
+        DRM_ERROR("GETRESOURCES copy_to_user failed (user_fbs=%u user_crtcs=%u user_connectors=%u user_encoders=%u), returning -EFAULT\n", user_fbs, user_crtcs, user_connectors, user_encoders);
         free(fbs);
         free(crtcs);
         free(connectors);

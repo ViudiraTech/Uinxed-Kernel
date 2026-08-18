@@ -279,7 +279,7 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
 
     primary = malloc(sizeof(*primary));
     if (!primary) {
-        DRM_ERROR("simpledrm: out of memory allocating primary plane.\n");
+        DRM_ERROR("out of memory allocating primary plane.\n");
         return -ENOMEM;
     }
     memset(primary, 0, sizeof(*primary));
@@ -295,7 +295,7 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
 
     primary->state = malloc(sizeof(*primary->state));
     if (!primary->state) {
-        DRM_ERROR("simpledrm: out of memory allocating plane state.\n");
+        DRM_ERROR("out of memory allocating plane state.\n");
         return -ENOMEM;
     }
     memset(primary->state, 0, sizeof(*primary->state));
@@ -307,7 +307,7 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
 
     crtc = malloc(sizeof(*crtc));
     if (!crtc) {
-        DRM_ERROR("simpledrm: out of memory allocating CRTC.\n");
+        DRM_ERROR("out of memory allocating CRTC.\n");
         return -ENOMEM;
     }
     memset(crtc, 0, sizeof(*crtc));
@@ -334,7 +334,7 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
 
     crtc->state = malloc(sizeof(*crtc->state));
     if (!crtc->state) {
-        DRM_ERROR("simpledrm: out of memory allocating CRTC state.\n");
+        DRM_ERROR("out of memory allocating CRTC state.\n");
         return -ENOMEM;
     }
     memset(crtc->state, 0, sizeof(*crtc->state));
@@ -346,7 +346,7 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
 
     encoder = malloc(sizeof(*encoder));
     if (!encoder) {
-        DRM_ERROR("simpledrm: out of memory allocating encoder.\n");
+        DRM_ERROR("out of memory allocating encoder.\n");
         return -ENOMEM;
     }
     memset(encoder, 0, sizeof(*encoder));
@@ -372,7 +372,7 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
 
     connector = malloc(sizeof(*connector));
     if (!connector) {
-        DRM_ERROR("simpledrm: out of memory allocating connector.\n");
+        DRM_ERROR("out of memory allocating connector.\n");
         return -ENOMEM;
     }
     memset(connector, 0, sizeof(*connector));
@@ -398,7 +398,7 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
 
     connector->state = malloc(sizeof(*connector->state));
     if (!connector->state) {
-        DRM_ERROR("simpledrm: out of memory allocating connector state.\n");
+        DRM_ERROR("out of memory allocating connector state.\n");
         return -ENOMEM;
     }
     memset(connector->state, 0, sizeof(*connector->state));
@@ -455,17 +455,17 @@ int simpledrm_probe(void)
 
     framebuffer = get_framebuffer();
     if (!framebuffer || !framebuffer->address) {
-        DRM_INFO("simpledrm: no boot framebuffer, probe skipped.\n");
+        plogk("simpledrm: no boot framebuffer, probe skipped.\n");
         return -ENODEV;
     }
     if (framebuffer->bpp != 32) {
-        DRM_INFO("simpledrm: boot framebuffer is %u bpp (only 32bpp XRGB8888 is supported), probe skipped.\n", (unsigned)framebuffer->bpp);
+        plogk("simpledrm: boot framebuffer is %u bpp (only 32bpp XRGB8888 is supported), probe skipped.\n", (unsigned)framebuffer->bpp);
         return -ENODEV;
     }
 
     sdev = malloc(sizeof(*sdev));
     if (!sdev) {
-        DRM_ERROR("simpledrm: out of memory allocating device state.\n");
+        plogk("simpledrm: out of memory allocating device state.\n");
         return -ENOMEM;
     }
     memset(sdev, 0, sizeof(*sdev));
@@ -476,7 +476,7 @@ int simpledrm_probe(void)
     sdev->screen_pitch = (uint32_t)framebuffer->pitch;
 
     if (!sdev->width || !sdev->height || !sdev->screen_pitch || sdev->screen_pitch < sdev->width * sizeof(uint32_t)) {
-        DRM_ERROR("simpledrm: invalid framebuffer geometry (%ux%u, pitch=%u)\n", sdev->width, sdev->height, sdev->screen_pitch);
+        plogk("simpledrm: invalid framebuffer geometry (%ux%u, pitch=%u)\n", sdev->width, sdev->height, sdev->screen_pitch);
         free(sdev);
         return -ENODEV;
     }
@@ -485,7 +485,7 @@ int simpledrm_probe(void)
 
     sdev->drm = drm_dev_alloc(&simpledrm_drm_driver);
     if (!sdev->drm) {
-        DRM_ERROR("simpledrm: failed to allocate DRM device.\n");
+        DRM_ERROR("failed to allocate DRM device.\n");
         free(sdev);
         return -ENOMEM;
     }
@@ -500,7 +500,7 @@ int simpledrm_probe(void)
      */
     ret = simpledrm_kms_setup(sdev);
     if (ret) {
-        DRM_ERROR("simpledrm: KMS setup failed: %d\n", ret);
+        DRM_ERROR("KMS setup failed: %d\n", ret);
         /*
          * Drop the device: .release() tears down whatever KMS objects were
          * built so far and frees sdev.
@@ -515,7 +515,7 @@ int simpledrm_probe(void)
      */
     ret = drm_dev_register(sdev->drm, 0);
     if (ret) {
-        DRM_ERROR("simpledrm: failed to register DRM device: %d\n", ret);
+        DRM_ERROR("failed to register DRM device: %d\n", ret);
         drm_dev_unregister(sdev->drm);
         return ret;
     }

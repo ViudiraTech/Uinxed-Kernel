@@ -9,6 +9,7 @@
  */
 
 #include <drivers/gpu/drm/drm_hashtab.h>
+#include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -27,7 +28,7 @@ int drm_ht_create(struct drm_open_hash *ht, unsigned int order)
     size      = 1u << order;
     ht->table = malloc((size_t)size * sizeof(ilist_node_t));
     if (!ht->table) {
-        plogk("drm_hashtab: Create failed: out of memory (%u buckets)\n", size);
+        DRM_ERROR("Create failed: out of memory (%u buckets)\n", size);
         return -ENOMEM;
     }
     ht->size  = size;
@@ -59,7 +60,7 @@ int drm_ht_insert_item(struct drm_open_hash *ht, struct drm_hash_item *item)
     for (node = bucket->next; node && node != bucket; node = node->next) {
         struct drm_hash_item *hit = container_of(node, struct drm_hash_item, link);
         if (hit->key == item->key) {
-            plogk("drm_hashtab: Insert: duplicate key 0x%lx\n", item->key);
+            DRM_ERROR("Insert: duplicate key 0x%lx\n", item->key);
             return -EINVAL;
         }
     }
@@ -90,7 +91,7 @@ int drm_ht_find_item(struct drm_open_hash *ht, unsigned long key, struct drm_has
             return 0;
         }
     }
-    plogk("drm_hashtab: Find: key 0x%lx not found.\n", key);
+    DRM_ERROR("Find: key 0x%lx not found.\n", key);
     return -EINVAL;
 }
 
@@ -109,6 +110,6 @@ int drm_ht_remove_item(struct drm_open_hash *ht, struct drm_hash_item *item)
             return 0;
         }
     }
-    plogk("drm_hashtab: Remove: item is not linked in the table.\n");
+    DRM_ERROR("Remove: item is not linked in the table.\n");
     return -EINVAL;
 }

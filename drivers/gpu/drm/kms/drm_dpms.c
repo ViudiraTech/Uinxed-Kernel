@@ -43,15 +43,15 @@ int drm_mode_create_dpms_property(struct drm_device *dev)
     struct drm_property *prop;
 
     if (!dev) {
-        plogk("drm_dpms: create_dpms_property with NULL device.\n");
+        DRM_ERROR("create_dpms_property with NULL device.\n");
         return -EINVAL;
     }
     if (dev->mode_config.prop_dpms) return 0;
 
-    /* Matches Linux: plain enum property, no ATOMIC/IMMUTABLE bits. */
+    /* Plain enum property, no ATOMIC/IMMUTABLE bits. */
     prop = drm_property_create_enum(dev, 0, "DPMS", drm_dpms_enum_list, (int)(sizeof(drm_dpms_enum_list) / sizeof(drm_dpms_enum_list[0])));
     if (!prop) {
-        plogk("drm_dpms: Failed to create DPMS property.\n");
+        DRM_ERROR("Failed to create DPMS property.\n");
         return -ENOMEM;
     }
 
@@ -63,11 +63,11 @@ int drm_mode_create_dpms_property(struct drm_device *dev)
 int drm_connector_attach_dpms_property(struct drm_connector *connector)
 {
     if (!connector || !connector->dev) {
-        plogk("drm_dpms: attach_dpms_property with invalid connector.\n");
+        DRM_ERROR("attach_dpms_property with invalid connector.\n");
         return -EINVAL;
     }
     if (!connector->dev->mode_config.prop_dpms) {
-        plogk("drm_dpms: DPMS property not created yet.\n");
+        DRM_ERROR("DPMS property not created yet.\n");
         return -EINVAL;
     }
     return drm_object_attach_property(&connector->base, connector->dev->mode_config.prop_dpms, DRM_MODE_DPMS_ON);
@@ -101,11 +101,11 @@ int drm_connector_dpms_commit(struct drm_connector *connector, int mode)
     int                      i;
 
     if (!connector || !connector->dev || !connector->dev->driver) {
-        plogk("drm_dpms: dpms_commit with invalid args.\n");
+        DRM_ERROR("dpms_commit with invalid args.\n");
         return -EINVAL;
     }
     if (!(connector->dev->driver->driver_features & DRIVER_ATOMIC)) {
-        plogk("drm_dpms: dpms_commit on non-atomic driver.\n");
+        DRM_ERROR("dpms_commit on non-atomic driver.\n");
         return -EOPNOTSUPP;
     }
 
@@ -117,14 +117,14 @@ int drm_connector_dpms_commit(struct drm_connector *connector, int mode)
 
     state = drm_atomic_state_alloc(connector->dev);
     if (!state) {
-        plogk("drm_dpms: Failed to allocate atomic state.\n");
+        DRM_ERROR("Failed to allocate atomic state.\n");
         return -ENOMEM;
     }
 
     /* Deactivating the CRTC is an active-state change rejected without ALLOW_MODESET semantics. */
     state->allow_modeset = true;
 
-    /* Publish the pending level before the commit, like Linux. */
+    /* Publish the pending level before the commit. */
     connector->dpms = mode;
 
     crtc = connector->state ? connector->state->crtc : NULL;
@@ -136,13 +136,13 @@ int drm_connector_dpms_commit(struct drm_connector *connector, int mode)
 
     ret = drm_atomic_add_affected_connectors(state, crtc);
     if (ret) {
-        plogk("drm_dpms: add_affected_connectors failed (ret=%d)\n", ret);
+        DRM_ERROR("add_affected_connectors failed (ret=%d)\n", ret);
         goto out;
     }
 
     crtc_state = drm_atomic_get_crtc_state(state, crtc);
     if (!crtc_state) {
-        plogk("drm_dpms: Failed to get CRTC state.\n");
+        DRM_ERROR("Failed to get CRTC state.\n");
         ret = -ENOMEM;
         goto out;
     }
@@ -169,7 +169,7 @@ int drm_connector_dpms_commit(struct drm_connector *connector, int mode)
     if (!ret) state = NULL;
 out:
     if (ret != 0) {
-        plogk("drm_dpms: Connector %u DPMS commit failed (ret=%d), rolling back to %d\n", connector->base.id, ret, old_mode);
+        DRM_ERROR("Connector %u DPMS commit failed (ret=%d), rolling back to %d\n", connector->base.id, ret, old_mode);
         connector->dpms = old_mode;
     }
     drm_atomic_state_free(state);
@@ -182,15 +182,15 @@ int drm_connector_set_dpms(struct drm_connector *connector, int mode)
     struct drm_connector_helper_funcs *funcs;
 
     if (!connector || !connector->dev) {
-        plogk("drm_dpms: set_dpms with invalid connector.\n");
+        DRM_ERROR("set_dpms with invalid connector.\n");
         return -EINVAL;
     }
     if (mode != DRM_MODE_DPMS_ON && mode != DRM_MODE_DPMS_STANDBY && mode != DRM_MODE_DPMS_SUSPEND && mode != DRM_MODE_DPMS_OFF) {
-        plogk("drm_dpms: Connector %u invalid dpms value %d\n", connector->base.id, mode);
+        DRM_ERROR("Connector %u invalid dpms value %d\n", connector->base.id, mode);
         return -EINVAL;
     }
     if (!connector->dev->driver) {
-        plogk("drm_dpms: Connector %u has no driver.\n", connector->base.id);
+        DRM_ERROR("Connector %u has no driver.\n", connector->base.id);
         return -EINVAL;
     }
     if (connector->dev->driver->driver_features & DRIVER_ATOMIC) return drm_connector_dpms_commit(connector, mode);
@@ -198,7 +198,7 @@ int drm_connector_set_dpms(struct drm_connector *connector, int mode)
     /* Legacy driver: delegate the 4-state control to the connector. */
     funcs = (struct drm_connector_helper_funcs *)connector->helper_private;
     if (!funcs || !funcs->dpms) {
-        plogk("drm_dpms: Connector %u is legacy but has no dpms hook.\n", connector->base.id);
+        DRM_ERROR("Connector %u is legacy but has no dpms hook.\n", connector->base.id);
         return -EINVAL;
     }
     funcs->dpms(connector, mode);

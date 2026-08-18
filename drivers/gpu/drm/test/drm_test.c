@@ -80,7 +80,7 @@ void drm_run_test(void)
         return;
     }
 
-    plogk("drm_test: GEM buffer allocated (%ux%u, %u bytes)\n", create.width, create.height, gem->size);
+    DRM_INFO("GEM buffer allocated (%ux%u, %u bytes)\n", create.width, create.height, gem->size);
 
     /* 2. Create a GEM handle for the buffer */
     struct drm_file test_file;
@@ -104,7 +104,7 @@ void drm_run_test(void)
         return;
     }
 
-    plogk("drm_test: GEM handle %u created.\n", handle);
+    DRM_INFO("GEM handle %u created.\n", handle);
 
     /* 3. Fill the GEM buffer with a simple pattern (colored stripes) */
     uint32_t *pixels = (uint32_t *)gem->vaddr;
@@ -120,12 +120,12 @@ void drm_run_test(void)
         for (uint32_t x = 0; x < create.width; x++) pixels[y * create.width + x] = color;
     }
 
-    plogk("drm_test: Pattern written to GEM buffer.\n");
+    DRM_INFO("Pattern written to GEM buffer.\n");
 
     /* 4. Look up the GEM object by handle */
     struct drm_gem_object *lookup = drm_gem_object_lookup(&test_file, handle);
     if (lookup) {
-        plogk("drm_test: GEM object lookup by handle %u OK, size=%u\n", handle, lookup->size);
+        DRM_INFO("GEM object lookup by handle %u OK, size=%u\n", handle, lookup->size);
         drm_gem_object_put(lookup);
     } else {
         DRM_ERROR("Test: GEM object lookup failed.\n");
@@ -135,7 +135,7 @@ void drm_run_test(void)
     struct drm_version ver = {0};
     ret                    = drm_ioctl(dev, DRM_IOCTL_VERSION, &ver, &test_file);
     if (ret == 0) {
-        plogk("drm_test: DRM_IOCTL_VERSION OK (major=%d, minor=%d, patch=%d)\n", ver.version_major, ver.version_minor, ver.version_patchlevel);
+        DRM_INFO("DRM_IOCTL_VERSION OK (major=%d, minor=%d, patch=%d)\n", ver.version_major, ver.version_minor, ver.version_patchlevel);
     } else {
         DRM_ERROR("Test: DRM_IOCTL_VERSION failed: %d\n", ret);
     }
@@ -146,11 +146,11 @@ void drm_run_test(void)
     uniq.unique     = (__u64)(uintptr_t)busid;
     uniq.unique_len = sizeof(busid);
     ret             = drm_ioctl(dev, DRM_IOCTL_GET_UNIQUE, &uniq, &test_file);
-    if (ret == 0) plogk("drm_test: DRM_IOCTL_GET_UNIQUE OK.\n");
+    if (ret == 0) DRM_INFO("DRM_IOCTL_GET_UNIQUE OK.\n");
 
     /* 7. Clean up */
     ret = drm_gem_handle_delete(&test_file, handle);
-    if (ret == 0) plogk("drm_test: GEM handle %u deleted.\n", handle);
+    if (ret == 0) DRM_INFO("GEM handle %u deleted.\n", handle);
 
     drm_release(&test_file);
     test_gem_free(gem);

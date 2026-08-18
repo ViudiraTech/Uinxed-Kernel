@@ -1293,9 +1293,6 @@ static const struct drm_display_mode edid_4k_modes[] = {
      },
 };
 
-
-/* CVT / GTF modeline generation helpers */
-
 /* create a modeline based on the CVT algorithm */
 static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdisplay, int vdisplay, int vrefresh, bool reduced, bool interlaced, bool margins)
 {
@@ -2337,13 +2334,6 @@ static size_t edid_size(const struct edid *edid)
 {
     return (size_t)(edid->extensions + 1) * EDID_LENGTH;
 }
-
-
-/*
- * These more or less come from the DMT spec.  The 720x400 modes are
- * inferred from historical 80x25 practice.  The 640x480@67 and 832x624@75
- * modes are old-school Mac modes.
- */
 
 /* Add the modes from an EST_TIMINGS descriptor bitmask. */
 static int est3_modes_from_descriptor(struct drm_connector *connector, const struct detailed_timing *timing)

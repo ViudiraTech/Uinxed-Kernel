@@ -62,7 +62,7 @@ uint32_t font_width;  // Font width
 uint32_t font_height; // Font height
 
 /*
- * Build the Linux-style fbdev identifier into @buf.  With an active DRM
+ * Build the fbdev identifier into @buf.  With an active DRM
  * driver the id is "<driver>drmfb" (like "simpledrmdrmfb", "virtio_gpudrmfb"),
  * matching drm_fb_helper_fill_info() in Linux.  Without any DRM device the
  * console is a bootloader simple framebuffer, so use "simple" (the fix.id of
@@ -283,8 +283,7 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             if (copy_from_user(&var, arg, sizeof(var))) return -EFAULT;
             int status = video_fb_validate_mode(&info, &var);
             if (status) {
-                plogk("video: [warn] fb_set_var rejected %ux%u bpp=%u (fixed mode is %ux%u bpp=%u)\n", var.xres, var.yres, var.bits_per_pixel, (unsigned int)info.width, (unsigned int)info.height,
-                      info.bpp);
+                plogk("video: fb_set_var rejected %ux%u bpp=%u (fixed mode is %ux%u bpp=%u)\n", var.xres, var.yres, var.bits_per_pixel, (unsigned int)info.width, (unsigned int)info.height, info.bpp);
                 return status;
             }
             fbdev_var_screeninfo_t normalized = video_fb_var(&info);
@@ -388,7 +387,7 @@ void video_start_refresh_worker(void)
     if (should_start) video_refresh_worker_started = true;
     spin_unlock(&video_state_lock);
     if (should_start && kernel_worker_register("video-refresh", video_refresh_worker, NULL, NULL)) {
-        plogk("video: [error] Failed to register video-refresh kernel worker.\n");
+        plogk("video: Failed to register video-refresh kernel worker.\n");
         spin_lock(&video_state_lock);
         video_refresh_worker_started = false;
         spin_unlock(&video_state_lock);
@@ -435,7 +434,7 @@ void video_init(void)
     if (!framebuffer) {
         buffer = NULL;
         width = height = stride = 0;
-        plogk("video: [warn] No boot framebuffer, console output disabled.\n");
+        plogk("video: No boot framebuffer, console output disabled.\n");
         fbcon_init();
         return;
     }
@@ -627,12 +626,12 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
     uint64_t  old_stride;
 
     if (!backing || !flush) {
-        plogk("video: [error] Switch_framebuffer: NULL backing or flush callback.\n");
+        plogk("video: Switch_framebuffer: NULL backing or flush callback.\n");
         return;
     }
 
     if ((uintptr_t)backing & (PAGE_4K_SIZE - 1) || pitch < w * sizeof(uint32_t) || (pitch & (sizeof(uint32_t) - 1))) {
-        plogk("video: [error] Switch_framebuffer: invalid backing alignment/pitch (w=%u, h=%u, pitch=%u)\n", w, h, pitch);
+        plogk("video: Switch_framebuffer: invalid backing alignment/pitch (w=%u, h=%u, pitch=%u)\n", w, h, pitch);
         return;
     }
 

@@ -38,7 +38,7 @@ static struct class drm_class = {
 
 /* Class attribute: /sys/class/drm/version */
 
-/* : CLASS_ATTR_STRING(version, 0444, "drm 1.1.0 20060810"). */
+/* CLASS_ATTR_STRING(version, 0444, "drm 1.1.0 20060810"). */
 static ssize_t drm_version_show(struct class *cls, struct class_attribute *attr, char *buf)
 {
     (void)cls;

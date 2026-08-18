@@ -889,7 +889,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
                               || vgdev->current_fb->offsets[0] != fb->offsets[0];
         ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
         if (ret) {
-            plogk("virtgpu: Flip: batched update failed: %d\n", ret);
+            DRM_ERROR("Flip: batched update failed: %d\n", ret);
             return ret;
         }
 
@@ -923,7 +923,7 @@ int virtio_gpu_driver_init(void)
 
     vp = malloc(sizeof(*vp));
     if (!vp) {
-        DRM_ERROR("virtgpu: out of memory allocating virtio-pci device state.\n");
+        plogk("virtgpu: out of memory allocating virtio-pci device state.\n");
         return -ENOMEM;
     }
 
@@ -948,7 +948,7 @@ int virtio_gpu_driver_init(void)
     /* Allocate the virtio-gpu device */
     vgdev = malloc(sizeof(*vgdev));
     if (!vgdev) {
-        DRM_ERROR("virtgpu: out of memory allocating GPU device state.\n");
+        plogk("virtgpu: out of memory allocating GPU device state.\n");
         vp_release_device(vp);
         free(vp);
         return -ENOMEM;
@@ -1029,7 +1029,7 @@ int virtio_gpu_driver_init(void)
     /* Allocate the DRM device that carries driver-private state. */
     vgdev->drm_dev = drm_dev_alloc(&virtgpu_drm_driver);
     if (!vgdev->drm_dev) {
-        DRM_ERROR("virtgpu: failed to allocate DRM device.\n");
+        DRM_ERROR("failed to allocate DRM device.\n");
         virtgpu_vq_fini(vgdev);
         vp_release_device(vp);
         free(vgdev);

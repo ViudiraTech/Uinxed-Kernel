@@ -535,9 +535,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
             uint16_t snum = ksops[i].sem_num;
             if (ksops[i].sem_op > 0 || ksops[i].sem_op < 0) sem->values[snum] = (uint16_t)((int32_t)sem->values[snum] + ksops[i].sem_op);
             /* sem_op == 0: no change to value */
-
             if (ksops[i].sem_op != 0) sem->sempid[snum] = proc ? (uint32_t)proc->task->pid : 0;
-
             if (ksops[i].sem_flg & SEM_UNDO) undo_adj[snum] = (int16_t)(undo_adj[snum] - ksops[i].sem_op);
         }
 

@@ -60,23 +60,23 @@ static int drm_atomic_validate_property(struct drm_device *dev, struct drm_mode_
     uint64_t current;
 
     if (!drm_atomic_object_has_property(obj, prop->base.id, &current)) {
-        plogk("drm_atomic: Object has no property %u\n", prop->base.id);
+        DRM_ERROR("Object has no property %u\n", prop->base.id);
         return -ENOENT;
     }
     if ((prop->flags & DRM_MODE_PROP_IMMUTABLE) && current != value) {
-        plogk("drm_atomic: Immutable property %u value 0x%llx rejected.\n", prop->base.id, (unsigned long long)value);
+        DRM_ERROR("Immutable property %u value 0x%llx rejected.\n", prop->base.id, (unsigned long long)value);
         return -EINVAL;
     }
 
     if (prop->flags & DRM_MODE_PROP_RANGE) {
         if (prop->num_values != 2 || value < prop->values[0] || value > prop->values[1]) {
-            plogk("drm_atomic: Property %u value 0x%llx out of range.\n", prop->base.id, (unsigned long long)value);
+            DRM_ERROR("Property %u value 0x%llx out of range.\n", prop->base.id, (unsigned long long)value);
             return -EINVAL;
         }
     } else if (prop->flags & DRM_MODE_PROP_SIGNED_RANGE) {
         int64_t signed_value = (int64_t)value;
         if (prop->num_values != 2 || signed_value < (int64_t)prop->values[0] || signed_value > (int64_t)prop->values[1]) {
-            plogk("drm_atomic: Property %u signed value %lld out of range.\n", prop->base.id, (long long)signed_value);
+            DRM_ERROR("Property %u signed value %lld out of range.\n", prop->base.id, (long long)signed_value);
             return -EINVAL;
         }
     } else if (prop->flags & DRM_MODE_PROP_ENUM) {
@@ -90,30 +90,30 @@ static int drm_atomic_validate_property(struct drm_device *dev, struct drm_mode_
             }
         }
         if (!found) {
-            plogk("drm_atomic: Property %u invalid enum value 0x%llx\n", prop->base.id, (unsigned long long)value);
+            DRM_ERROR("Property %u invalid enum value 0x%llx\n", prop->base.id, (unsigned long long)value);
             return -EINVAL;
         }
     } else if ((prop->flags & DRM_MODE_PROP_OBJECT) && value) {
         struct drm_mode_object *target;
         if (!prop->num_values || value > UINT32_MAX) {
-            plogk("drm_atomic: Property %u invalid object value 0x%llx\n", prop->base.id, (unsigned long long)value);
+            DRM_ERROR("Property %u invalid object value 0x%llx\n", prop->base.id, (unsigned long long)value);
             return -EINVAL;
         }
         target = drm_mode_object_find(dev, NULL, (uint32_t)value, (uint32_t)prop->values[0]);
         if (!target) {
-            plogk("drm_atomic: Property %u object 0x%llx not found.\n", prop->base.id, (unsigned long long)value);
+            DRM_ERROR("Property %u object 0x%llx not found.\n", prop->base.id, (unsigned long long)value);
             return -ENOENT;
         }
         drm_mode_object_put(target);
     } else if ((prop->flags & DRM_MODE_PROP_BLOB) && value) {
         struct drm_property_blob *blob;
         if (value > UINT32_MAX) {
-            plogk("drm_atomic: Property %u blob id 0x%llx out of range.\n", prop->base.id, (unsigned long long)value);
+            DRM_ERROR("Property %u blob id 0x%llx out of range.\n", prop->base.id, (unsigned long long)value);
             return -EINVAL;
         }
         blob = drm_property_lookup_blob(dev, (uint32_t)value);
         if (!blob) {
-            plogk("drm_atomic: Property %u blob 0x%llx not found.\n", prop->base.id, (unsigned long long)value);
+            DRM_ERROR("Property %u blob 0x%llx not found.\n", prop->base.id, (unsigned long long)value);
             return -ENOENT;
         }
         drm_property_blob_put(blob);
@@ -144,18 +144,18 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
                 struct drm_property_blob *blob = drm_property_lookup_blob(state->dev, (uint32_t)value);
                 struct drm_display_mode  *mode;
                 if (!blob) {
-                    plogk("drm_atomic: Mode_id blob %u not found.\n", (uint32_t)value);
+                    DRM_ERROR("Mode_id blob %u not found.\n", (uint32_t)value);
                     return -ENOENT;
                 }
                 if (blob->length != sizeof(struct drm_mode_modeinfo)) {
-                    plogk("drm_atomic: Mode_id blob length %zu invalid.\n", blob->length);
+                    DRM_ERROR("Mode_id blob length %zu invalid.\n", blob->length);
                     drm_property_blob_put(blob);
                     return -EINVAL;
                 }
                 mode = drm_convert_umode((const struct drm_mode_modeinfo *)blob->data);
                 drm_property_blob_put(blob);
                 if (!mode) {
-                    plogk("drm_atomic: Failed to convert mode blob.\n");
+                    DRM_ERROR("Failed to convert mode blob.\n");
                     return -ENOMEM;
                 }
                 memcpy(&new_mode, mode, sizeof(new_mode));
@@ -173,7 +173,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         if (prop == config->prop_fb_id) {
             s->fb = value ? drm_framebuffer_lookup(state->dev, file_priv, (uint32_t)value) : NULL;
             if (value && !s->fb) {
-                plogk("drm_atomic: Plane fb %u not found.\n", (uint32_t)value);
+                DRM_ERROR("Plane fb %u not found.\n", (uint32_t)value);
                 return -ENOENT;
             }
             if (s->crtc) {
@@ -187,7 +187,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             struct drm_crtc        *old_crtc = s->crtc;
             struct drm_mode_object *target   = value ? drm_mode_object_find(state->dev, file_priv, (uint32_t)value, DRM_MODE_OBJECT_CRTC) : NULL;
             if (value && !target) {
-                plogk("drm_atomic: Plane crtc %u not found.\n", (uint32_t)value);
+                DRM_ERROR("Plane crtc %u not found.\n", (uint32_t)value);
                 return -ENOENT;
             }
             s->crtc = target ? container_of(target, struct drm_crtc, base) : NULL;
@@ -207,7 +207,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         if (prop == config->prop_src_x) {
             extent = s->src.x2 - s->src.x1;
             if (value > DRM_S32_MAX || (int64_t)value + extent > DRM_S32_MAX) {
-                plogk("drm_atomic: Prop src_x value 0x%llx out of range.\n", (unsigned long long)value);
+                DRM_ERROR("Prop src_x value 0x%llx out of range.\n", (unsigned long long)value);
                 return -EINVAL;
             }
             s->src.x1 = (int32_t)value;
@@ -217,7 +217,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         if (prop == config->prop_src_y) {
             extent = s->src.y2 - s->src.y1;
             if (value > DRM_S32_MAX || (int64_t)value + extent > DRM_S32_MAX) {
-                plogk("drm_atomic: Prop src_y value 0x%llx out of range.\n", (unsigned long long)value);
+                DRM_ERROR("Prop src_y value 0x%llx out of range.\n", (unsigned long long)value);
                 return -EINVAL;
             }
             s->src.y1 = (int32_t)value;
@@ -226,7 +226,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         }
         if (prop == config->prop_src_w) {
             if (value > DRM_S32_MAX || (int64_t)s->src.x1 + value > DRM_S32_MAX) {
-                plogk("drm_atomic: Prop src_w value 0x%llx out of range.\n", (unsigned long long)value);
+                DRM_ERROR("Prop src_w value 0x%llx out of range.\n", (unsigned long long)value);
                 return -EINVAL;
             }
             s->src.x2 = s->src.x1 + (int32_t)value;
@@ -234,7 +234,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         }
         if (prop == config->prop_src_h) {
             if (value > DRM_S32_MAX || (int64_t)s->src.y1 + value > DRM_S32_MAX) {
-                plogk("drm_atomic: Prop src_h value 0x%llx out of range.\n", (unsigned long long)value);
+                DRM_ERROR("Prop src_h value 0x%llx out of range.\n", (unsigned long long)value);
                 return -EINVAL;
             }
             s->src.y2 = s->src.y1 + (int32_t)value;
@@ -244,7 +244,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             int32_t v = (int32_t)value;
             extent    = s->dst.x2 - s->dst.x1;
             if ((int64_t)v + extent > DRM_S32_MAX || (int64_t)v + extent < DRM_S32_MIN) {
-                plogk("drm_atomic: Prop crtc_x value %lld out of range.\n", (long long)v);
+                DRM_ERROR("Prop crtc_x value %lld out of range.\n", (long long)v);
                 return -EINVAL;
             }
             s->dst.x1 = v;
@@ -255,7 +255,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             int32_t v = (int32_t)value;
             extent    = s->dst.y2 - s->dst.y1;
             if ((int64_t)v + extent > DRM_S32_MAX || (int64_t)v + extent < DRM_S32_MIN) {
-                plogk("drm_atomic: Prop crtc_y value %lld out of range.\n", (long long)v);
+                DRM_ERROR("Prop crtc_y value %lld out of range.\n", (long long)v);
                 return -EINVAL;
             }
             s->dst.y1 = v;
@@ -264,7 +264,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         }
         if (prop == config->prop_crtc_w) {
             if (value > DRM_S32_MAX || (int64_t)s->dst.x1 + value > DRM_S32_MAX) {
-                plogk("drm_atomic: Prop crtc_w value 0x%llx out of range.\n", (unsigned long long)value);
+                DRM_ERROR("Prop crtc_w value 0x%llx out of range.\n", (unsigned long long)value);
                 return -EINVAL;
             }
             s->dst.x2 = s->dst.x1 + (int32_t)value;
@@ -272,7 +272,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         }
         if (prop == config->prop_crtc_h) {
             if (value > DRM_S32_MAX || (int64_t)s->dst.y1 + value > DRM_S32_MAX) {
-                plogk("drm_atomic: Prop crtc_h value 0x%llx out of range.\n", (unsigned long long)value);
+                DRM_ERROR("Prop crtc_h value 0x%llx out of range.\n", (unsigned long long)value);
                 return -EINVAL;
             }
             s->dst.y2 = s->dst.y1 + (int32_t)value;
@@ -292,9 +292,9 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         struct drm_connector       *connector = container_of(obj, struct drm_connector, base);
         struct drm_connector_state *s;
 
-        /* "DPMS" is legacy-only; reject it before touching any connector state (). */
+        /* "DPMS" is legacy-only; reject it before touching any connector state. */
         if (prop == config->prop_dpms) {
-            plogk("drm_atomic: Legacy DPMS property %u can only be set via legacy uAPI.\n", prop->base.id);
+            DRM_ERROR("Legacy DPMS property %u can only be set via legacy uAPI.\n", prop->base.id);
             return -EINVAL;
         }
 
@@ -304,7 +304,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             struct drm_crtc        *old_crtc = s->crtc;
             struct drm_mode_object *target   = value ? drm_mode_object_find(state->dev, file_priv, (uint32_t)value, DRM_MODE_OBJECT_CRTC) : NULL;
             if (value && !target) {
-                plogk("drm_atomic: Connector crtc %u not found.\n", (uint32_t)value);
+                DRM_ERROR("Connector crtc %u not found.\n", (uint32_t)value);
                 return -ENOENT;
             }
             s->crtc = target ? container_of(target, struct drm_crtc, base) : NULL;
@@ -323,7 +323,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             return 0;
         }
     }
-    plogk("drm_atomic: Unsupported property %u for object type %u\n", prop->base.id, obj->type);
+    DRM_WARN("Unsupported property %u for object type %u\n", prop->base.id, obj->type);
     return -EINVAL;
 }
 
@@ -341,27 +341,27 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     uint32_t                 i;
 
     if (!dev || !atomic || !file_priv || atomic->count_objs > 256 || atomic->reserved) {
-        plogk("drm_atomic: Invalid atomic ioctl args.\n");
+        DRM_ERROR("Invalid atomic ioctl args.\n");
         return -EINVAL;
     }
     if (!(dev->driver->driver_features & DRIVER_ATOMIC)) {
-        plogk("drm_atomic: Device does not support atomic modeset.\n");
+        DRM_ERROR("Device does not support atomic modeset.\n");
         return -EOPNOTSUPP;
     }
     if (!file_priv->atomic) {
-        plogk("drm_atomic: Client is not atomic-capable.\n");
+        DRM_ERROR("Client is not atomic-capable.\n");
         return -EINVAL;
     }
     if (atomic->flags & ~DRM_MODE_ATOMIC_FLAGS) {
-        plogk("drm_atomic: Unsupported atomic flags 0x%x\n", atomic->flags);
+        DRM_WARN("Unsupported atomic flags 0x%x\n", atomic->flags);
         return -EINVAL;
     }
     if ((atomic->flags & DRM_MODE_ATOMIC_TEST_ONLY) && (atomic->flags & DRM_MODE_PAGE_FLIP_EVENT)) {
-        plogk("drm_atomic: TEST_ONLY with page flip event invalid.\n");
+        DRM_ERROR("TEST_ONLY with page flip event invalid.\n");
         return -EINVAL;
     }
     if ((atomic->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !dev->mode_config.async_page_flip) {
-        plogk("drm_atomic: Async page flip not supported by this device.\n");
+        DRM_ERROR("Async page flip not supported by this device.\n");
         return -EINVAL;
     }
 
@@ -376,26 +376,26 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 
     if (atomic->count_objs) {
         if (!atomic->objs_ptr || !atomic->count_props_ptr) {
-            plogk("drm_atomic: Missing objs/count_props pointers.\n");
+            DRM_ERROR("Missing objs/count_props pointers.\n");
             ret = -EFAULT;
             goto out;
         }
         objs        = malloc((size_t)atomic->count_objs * sizeof(*objs));
         count_props = malloc((size_t)atomic->count_objs * sizeof(*count_props));
         if (!objs || !count_props) {
-            plogk("drm_atomic: Failed to allocate object arrays (%u objs)\n", atomic->count_objs);
+            DRM_ERROR("Failed to allocate object arrays (%u objs)\n", atomic->count_objs);
             ret = -ENOMEM;
             goto out;
         }
         if (copy_from_user(objs, (const void *)(uintptr_t)atomic->objs_ptr, (size_t)atomic->count_objs * sizeof(*objs))
             || copy_from_user(count_props, (const void *)(uintptr_t)atomic->count_props_ptr, (size_t)atomic->count_objs * sizeof(*count_props))) {
-            plogk("drm_atomic: Failed to copy object arrays from user.\n");
+            DRM_ERROR("Failed to copy object arrays from user.\n");
             ret = -EFAULT;
             goto out;
         }
         for (i = 0; i < atomic->count_objs; i++) {
             if (count_props[i] > 4096 - total_props) {
-                plogk("drm_atomic: Too many props for object %u (count=%u)\n", objs[i], count_props[i]);
+                DRM_ERROR("Too many props for object %u (count=%u)\n", objs[i], count_props[i]);
                 ret = -E2BIG;
                 goto out;
             }
@@ -404,20 +404,20 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     }
     if (total_props) {
         if (!atomic->props_ptr || !atomic->prop_values_ptr) {
-            plogk("drm_atomic: Missing props/prop_values pointers.\n");
+            DRM_ERROR("Missing props/prop_values pointers.\n");
             ret = -EFAULT;
             goto out;
         }
         props       = malloc((size_t)total_props * sizeof(*props));
         prop_values = malloc((size_t)total_props * sizeof(*prop_values));
         if (!props || !prop_values) {
-            plogk("drm_atomic: Failed to allocate prop arrays (%u props)\n", total_props);
+            DRM_ERROR("Failed to allocate prop arrays (%u props)\n", total_props);
             ret = -ENOMEM;
             goto out;
         }
         if (copy_from_user(props, (const void *)(uintptr_t)atomic->props_ptr, (size_t)total_props * sizeof(*props))
             || copy_from_user(prop_values, (const void *)(uintptr_t)atomic->prop_values_ptr, (size_t)total_props * sizeof(*prop_values))) {
-            plogk("drm_atomic: Failed to copy prop arrays from user.\n");
+            DRM_ERROR("Failed to copy prop arrays from user.\n");
             ret = -EFAULT;
             goto out;
         }
@@ -433,12 +433,12 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             uint32_t                j;
             struct drm_mode_object *obj = drm_mode_object_find(dev, file_priv, obj_id, DRM_MODE_OBJECT_ANY);
             if (!obj) {
-                plogk("drm_atomic: Object %u not found.\n", obj_id);
+                DRM_ERROR("Object %u not found.\n", obj_id);
                 ret = -ENOENT;
                 break;
             }
             if (obj->type != DRM_MODE_OBJECT_CRTC && obj->type != DRM_MODE_OBJECT_PLANE && obj->type != DRM_MODE_OBJECT_CONNECTOR) {
-                plogk("drm_atomic: Object %u has unsupported type %u\n", obj_id, obj->type);
+                DRM_WARN("Object %u has unsupported type %u\n", obj_id, obj->type);
                 drm_mode_object_put(obj);
                 ret = -EINVAL;
                 break;
@@ -446,7 +446,7 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             for (j = 0; props && j < obj_count; j++) {
                 struct drm_property *prop = drm_property_find(dev, file_priv, props[prop_offset + j]);
                 if (!prop) {
-                    plogk("drm_atomic: Property %u not found.\n", props[prop_offset + j]);
+                    DRM_ERROR("Property %u not found.\n", props[prop_offset + j]);
                     ret = -ENOENT;
                     break;
                 }
@@ -511,11 +511,11 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     struct drm_mode_object          *crtc_obj;
 
     if (!dev || !page_flip) {
-        plogk("drm_atomic: Page flip with invalid args.\n");
+        DRM_ERROR("Page flip with invalid args.\n");
         return -EINVAL;
     }
     if (page_flip->flags & ~(DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC)) {
-        plogk("drm_atomic: Page flip invalid flags 0x%x\n", page_flip->flags);
+        DRM_ERROR("Page flip invalid flags 0x%x\n", page_flip->flags);
         return -EINVAL;
     }
 
@@ -534,12 +534,12 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     crtc = container_of(crtc_obj, struct drm_crtc, base);
 
     if (!crtc->enabled) {
-        plogk("drm_atomic: Page flip on disabled crtc %u\n", page_flip->crtc_id);
+        DRM_ERROR("Page flip on disabled crtc %u\n", page_flip->crtc_id);
         drm_mode_object_put(&crtc->base);
         return -EINVAL;
     }
     if ((page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !dev->mode_config.async_page_flip) {
-        plogk("drm_atomic: Async page flip not supported on crtc %u\n", page_flip->crtc_id);
+        DRM_ERROR("Async page flip not supported on crtc %u\n", page_flip->crtc_id);
         drm_mode_object_put(&crtc->base);
         return -EINVAL;
     }
@@ -563,7 +563,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     spin_lock(&crtc->commit_lock);
     if (crtc->page_flip_pending) {
         spin_unlock(&crtc->commit_lock);
-        plogk("drm_atomic: Page flip busy on crtc %u\n", page_flip->crtc_id);
+        DRM_ERROR("Page flip busy on crtc %u\n", page_flip->crtc_id);
         drm_mode_object_put(&crtc->base);
         return -EBUSY;
     }
@@ -578,7 +578,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     if (page_flip->flags & DRM_MODE_PAGE_FLIP_EVENT) {
         e = malloc(sizeof(*e));
         if (!e) {
-            plogk("drm_atomic: Failed to allocate flip event for crtc %u\n", page_flip->crtc_id);
+            DRM_ERROR("Failed to allocate flip event for crtc %u\n", page_flip->crtc_id);
             spin_lock(&crtc->commit_lock);
             crtc->page_flip_pending = false;
             spin_unlock(&crtc->commit_lock);
@@ -603,7 +603,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) {
         ret = drm_crtc_vblank_get(crtc);
         if (ret) {
-            plogk("drm_atomic: Failed to get vblank for crtc %u (ret=%d)\n", page_flip->crtc_id, ret);
+            DRM_ERROR("Failed to get vblank for crtc %u (ret=%d)\n", page_flip->crtc_id, ret);
             goto err_flip;
         }
         spin_lock(&crtc->commit_lock);
@@ -621,18 +621,18 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
         if (h->page_flip) {
             ret = h->page_flip(crtc, fb, e, page_flip->flags);
             if (ret) {
-                plogk("drm_atomic: Crtc %u page_flip failed (ret=%d)\n", page_flip->crtc_id, ret);
+                DRM_ERROR("Crtc %u page_flip failed (ret=%d)\n", page_flip->crtc_id, ret);
                 if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
                 goto err_flip;
             }
         } else {
-            plogk("drm_atomic: Crtc %u has no page_flip helper.\n", page_flip->crtc_id);
+            DRM_ERROR("Crtc %u has no page_flip helper.\n", page_flip->crtc_id);
             ret = -ENOSYS;
             if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
             goto err_flip;
         }
     } else {
-        plogk("drm_atomic: Crtc %u has no helper funcs.\n", page_flip->crtc_id);
+        DRM_ERROR("Crtc %u has no helper funcs.\n", page_flip->crtc_id);
         ret = -ENOSYS;
         if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
         goto err_flip;
@@ -675,12 +675,12 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
     int                           ret = 0;
 
     if (!dev || !file_priv || !cursor || !cursor->flags || (cursor->flags & ~(DRM_MODE_CURSOR_BO | DRM_MODE_CURSOR_MOVE))) {
-        plogk("drm_atomic: Cursor with invalid args.\n");
+        DRM_ERROR("Cursor with invalid args.\n");
         return -EINVAL;
     }
     base = drm_mode_object_find(dev, file_priv, cursor->crtc_id, DRM_MODE_OBJECT_CRTC);
     if (!base) {
-        plogk("drm_atomic: Cursor crtc %u not found.\n", cursor->crtc_id);
+        DRM_ERROR("Cursor crtc %u not found.\n", cursor->crtc_id);
         return -ENOENT;
     }
     crtc    = container_of(base, struct drm_crtc, base);
@@ -688,31 +688,31 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
 
     if (cursor->flags & DRM_MODE_CURSOR_BO) {
         if (!helpers || !helpers->cursor_set) {
-            plogk("drm_atomic: Crtc %u has no cursor_set helper.\n", cursor->crtc_id);
+            DRM_ERROR("Crtc %u has no cursor_set helper.\n", cursor->crtc_id);
             ret = -ENOSYS;
             goto out;
         }
         if (cursor->handle) {
             if (!cursor->width || !cursor->height || hot_x < 0 || hot_y < 0 || (uint32_t)hot_x >= cursor->width || (uint32_t)hot_y >= cursor->height) {
-                plogk("drm_atomic: Invalid cursor size %ux%u hot %dx%d\n", cursor->width, cursor->height, hot_x, hot_y);
+                DRM_ERROR("Invalid cursor size %ux%u hot %dx%d\n", cursor->width, cursor->height, hot_x, hot_y);
                 ret = -EINVAL;
                 goto out;
             }
             new_obj = drm_gem_object_lookup(file_priv, cursor->handle);
             if (!new_obj) {
-                plogk("drm_atomic: Cursor gem handle %u not found.\n", cursor->handle);
+                DRM_ERROR("Cursor gem handle %u not found.\n", cursor->handle);
                 ret = -ENOENT;
                 goto out;
             }
             if (new_obj->size < (size_t)cursor->width * cursor->height * 4) {
-                plogk("drm_atomic: Cursor gem too small for %ux%u\n", cursor->width, cursor->height);
+                DRM_ERROR("Cursor gem too small for %ux%u\n", cursor->width, cursor->height);
                 ret = -EINVAL;
                 goto out;
             }
         }
         ret = helpers->cursor_set(crtc, new_obj, cursor->width, cursor->height, hot_x, hot_y);
         if (ret) {
-            plogk("drm_atomic: Crtc %u cursor_set failed (ret=%d)\n", cursor->crtc_id, ret);
+            DRM_ERROR("Crtc %u cursor_set failed (ret=%d)\n", cursor->crtc_id, ret);
             goto out;
         }
         spin_lock(&crtc->spinlock);
@@ -726,13 +726,13 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
     }
     if (cursor->flags & DRM_MODE_CURSOR_MOVE) {
         if (!helpers || !helpers->cursor_move) {
-            plogk("drm_atomic: Crtc %u has no cursor_move helper.\n", cursor->crtc_id);
+            DRM_ERROR("Crtc %u has no cursor_move helper.\n", cursor->crtc_id);
             ret = -ENOSYS;
             goto out;
         }
         ret = helpers->cursor_move(crtc, cursor->x, cursor->y);
         if (ret) {
-            plogk("drm_atomic: Crtc %u cursor_move failed (ret=%d)\n", cursor->crtc_id, ret);
+            DRM_ERROR("Crtc %u cursor_move failed (ret=%d)\n", cursor->crtc_id, ret);
             goto out;
         }
         crtc->x = cursor->x;

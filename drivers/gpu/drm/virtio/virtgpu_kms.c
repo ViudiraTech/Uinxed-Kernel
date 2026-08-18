@@ -75,13 +75,13 @@ static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
 
     /* Reject a truncated EDID whose header overstates its size. */
     if ((size_t)((unsigned)edid->extensions + 1) * EDID_LENGTH > (size_t)edid_size) {
-        plogk("virtgpu: Connector: EDID size mismatch (declared %u blocks, received %d bytes)\n", (unsigned)edid->extensions + 1, edid_size);
+        DRM_ERROR("Connector: EDID size mismatch (declared %u blocks, received %d bytes)\n", (unsigned)edid->extensions + 1, edid_size);
         free(edid);
         return 0;
     }
 
     if (!drm_edid_is_valid(edid)) {
-        plogk("virtgpu: Connector: EDID invalid (%d bytes)\n", edid_size);
+        DRM_ERROR("Connector: EDID invalid (%d bytes)\n", edid_size);
         free(edid);
         return 0;
     }
@@ -101,7 +101,7 @@ static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
         char name[14];
 
         drm_edid_get_monitor_name(edid, name, sizeof(name));
-        plogk("virtgpu: Connector: EDID parsed: %d mode(s), monitor=\"%s\", %ux%u mm.\n", count, name[0] ? name : "unknown", connector->display_info_width_mm, connector->display_info_height_mm);
+        DRM_INFO("Connector: EDID parsed: %d mode(s), monitor=\"%s\", %ux%u mm.\n", count, name[0] ? name : "unknown", connector->display_info_width_mm, connector->display_info_height_mm);
     }
 
     free(edid);
@@ -141,7 +141,7 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
 
         mode = drm_mode_create(dev);
         if (!mode) {
-            DRM_ERROR("virtgpu: out of memory allocating display mode.\n");
+            DRM_ERROR("out of memory allocating display mode.\n");
             return -ENOMEM;
         }
 
@@ -169,7 +169,7 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
     /* Fallback: DRM default mode if the host reported no display info. */
     if (vgdev->num_scanouts == 0) {
         if (drm_connector_add_fallback_mode(connector)) {
-            DRM_ERROR("virtgpu: out of memory adding fallback mode.\n");
+            DRM_ERROR("out of memory adding fallback mode.\n");
             return -ENOMEM;
         }
         vgdev->num_scanouts         = 1;
@@ -306,7 +306,7 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
 
             if (!flush_fail_logged) {
                 flush_fail_logged = true;
-                plogk("virtgpu: Console flush failed: %d (rect %ux%u+%u+%u)\n", flush_ret, width, height, x, y);
+                DRM_ERROR("Console flush failed: %d (rect %ux%u+%u+%u)\n", flush_ret, width, height, x, y);
             }
         }
     }
@@ -533,7 +533,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     primary = malloc(sizeof(*primary));
     if (!primary) {
-        DRM_ERROR("virtgpu: out of memory allocating primary plane.\n");
+        DRM_ERROR("out of memory allocating primary plane.\n");
         return -ENOMEM;
     }
     memset(primary, 0, sizeof(*primary));
@@ -549,7 +549,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     primary->state = malloc(sizeof(*primary->state));
     if (!primary->state) {
-        DRM_ERROR("virtgpu: out of memory allocating plane state.\n");
+        DRM_ERROR("out of memory allocating plane state.\n");
         return -ENOMEM;
     }
     memset(primary->state, 0, sizeof(*primary->state));
@@ -561,7 +561,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     crtc = malloc(sizeof(*crtc));
     if (!crtc) {
-        DRM_ERROR("virtgpu: out of memory allocating CRTC.\n");
+        DRM_ERROR("out of memory allocating CRTC.\n");
         return -ENOMEM;
     }
     memset(crtc, 0, sizeof(*crtc));
@@ -596,7 +596,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     crtc->state = malloc(sizeof(*crtc->state));
     if (!crtc->state) {
-        DRM_ERROR("virtgpu: out of memory allocating CRTC state.\n");
+        DRM_ERROR("out of memory allocating CRTC state.\n");
         return -ENOMEM;
     }
     memset(crtc->state, 0, sizeof(*crtc->state));
@@ -608,7 +608,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     encoder = malloc(sizeof(*encoder));
     if (!encoder) {
-        DRM_ERROR("virtgpu: out of memory allocating encoder.\n");
+        DRM_ERROR("out of memory allocating encoder.\n");
         return -ENOMEM;
     }
     memset(encoder, 0, sizeof(*encoder));
@@ -634,7 +634,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     connector = malloc(sizeof(*connector));
     if (!connector) {
-        DRM_ERROR("virtgpu: out of memory allocating connector.\n");
+        DRM_ERROR("out of memory allocating connector.\n");
         return -ENOMEM;
     }
     memset(connector, 0, sizeof(*connector));
@@ -659,7 +659,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     connector->state = malloc(sizeof(*connector->state));
     if (!connector->state) {
-        DRM_ERROR("virtgpu: out of memory allocating connector state.\n");
+        DRM_ERROR("out of memory allocating connector state.\n");
         return -ENOMEM;
     }
     memset(connector->state, 0, sizeof(*connector->state));

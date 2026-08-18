@@ -275,7 +275,7 @@ static int gem_alloc_name(struct drm_gem_object *obj, uint32_t *name_out)
 
     if (i >= GEM_MAX_NAMES) {
         spin_unlock(&gem_name_lock);
-        plogk("drm: Gem_alloc_name: global name table full (%d entries).\n", GEM_MAX_NAMES);
+        DRM_ERROR("Gem_alloc_name: global name table full (%d entries).\n", GEM_MAX_NAMES);
         return -ENOMEM;
     }
 
@@ -374,7 +374,7 @@ int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj
 
     entry = malloc(sizeof(*entry));
     if (!entry) {
-        plogk("drm: Handle_create: out of memory.\n");
+        DRM_ERROR("Handle_create: out of memory.\n");
         return -ENOMEM;
     }
     memset(entry, 0, sizeof(*entry));
@@ -564,7 +564,7 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     /* Allocate GEM object */
     obj = malloc(sizeof(*obj));
     if (!obj) {
-        plogk("drm: Dumb_create: out of memory allocating GEM object.\n");
+        DRM_ERROR("Dumb_create: out of memory allocating GEM object.\n");
         return -ENOMEM;
     }
     memset(obj, 0, sizeof(*obj));
@@ -578,7 +578,7 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
      * drm_gem_mmap can later look up the GEM object by offset.
      */
     obj->mmap_offset = dumb_offset_alloc(size);
-    if (!obj->mmap_offset) plogk("drm: Dumb mmap offset space exhausted (size=%zu)\n", size);
+    if (!obj->mmap_offset) DRM_ERROR("Dumb mmap offset space exhausted (size=%zu)\n", size);
 
     /*
      * Allocate backing memory for the dumb buffer, page-rounded so the whole
@@ -587,7 +587,7 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     if (size > 0) {
         obj->backing = aligned_alloc(4096, ALIGN_UP(size, PAGE_4K_SIZE));
         if (!obj->backing) {
-            plogk("drm: Dumb buffer backing allocation failed (size=%zu)\n", size);
+            DRM_ERROR("Dumb buffer backing allocation failed (size=%zu)\n", size);
             free(obj);
             return -ENOMEM;
         }
@@ -599,7 +599,7 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     /* Create handle for userspace */
     ret = drm_gem_handle_create(file_priv, obj, &handle);
     if (ret < 0) {
-        plogk("drm: Dumb_create: GEM handle creation failed (ret=%d)\n", ret);
+        DRM_ERROR("Dumb_create: GEM handle creation failed (ret=%d)\n", ret);
         free(obj->backing);
         free(obj);
         return ret;
@@ -673,7 +673,7 @@ static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
     }
 
     spin_unlock(&prime_fd_lock);
-    plogk("drm: Prime_fd_alloc: PRIME fd table full (%d entries).\n", PRIME_FD_MAX);
+    DRM_ERROR("Prime_fd_alloc: PRIME fd table full (%d entries).\n", PRIME_FD_MAX);
     return -ENOMEM;
 }
 

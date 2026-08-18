@@ -241,7 +241,7 @@ static int input_device_uevent(struct device *device, struct kobj_uevent_env *en
      * libinput consumes these standard udev properties.  The generic
      * input_id builtin cannot infer them reliably from this kernel's compact
      * sysfs capability files, so publish the authoritative device classes at
-     * the source uevent just like Linux input drivers do.
+     * the source uevent just like input drivers do.
      */
     ret = add_uevent_var(env, "ID_INPUT=1");
     if (ret) return ret;

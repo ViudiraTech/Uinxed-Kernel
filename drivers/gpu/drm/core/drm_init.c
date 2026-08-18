@@ -65,7 +65,7 @@ void drm_device_list_remove(struct drm_device *dev)
 /*
  * Return the name of the DRM driver bound to the primary display (card0),
  * or the first registered device's driver name, or NULL when no DRM device
- * is registered.  Used to derive the Linux-style fbdev identifier
+ * is registered.  Used to derive the fbdev identifier
  * "<driver>drmfb".  The driver structs are static and never freed, so the
  * returned pointer stays valid.
  */
@@ -404,7 +404,7 @@ void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t siz
     }
 
     /*
-     * Clamp the mapping to the object's full size, like Linux: a huge mmap
+     * Clamp the mapping to the object's full size a huge mmap
      * length must not expose physical memory past the buffer.  Backing is
      * page-rounded (see drm_gem_dumb_create / virtgpu_gem_alloc_object), so
      * ALIGN_UP(obj->size) is always mappable; rounding DOWN would leave the

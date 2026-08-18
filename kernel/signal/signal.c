@@ -902,7 +902,7 @@ static int signal_dequeue(signal_state_t *state, siginfo_t *info)
  * restart a syscall is made by the caller (syscall_dispatch based on
  * the syscall's own return value).
  *
- * Delivery rules (matching Linux behavior):
+ * Delivery rules (matching expected behavior):
  * - SIG_IGN / default non-terminating actions: all such pending signals
  *   are cleared in one call (no need to return to userspace between them).
  * - Default terminating actions: process exits immediately.

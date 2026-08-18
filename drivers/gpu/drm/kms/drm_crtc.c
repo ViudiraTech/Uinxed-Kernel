@@ -32,13 +32,13 @@ int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, str
     (void)name;
 
     if (!dev || !crtc) {
-        plogk("drm_crtc: Init_with_planes with NULL dev or crtc.\n");
+        DRM_ERROR("Init_with_planes with NULL dev or crtc.\n");
         return -EINVAL;
     }
 
     ret = drm_mode_object_idr_alloc(dev, &crtc->base, DRM_MODE_OBJECT_CRTC);
     if (ret) {
-        plogk("drm_crtc: Failed to allocate object id (ret=%d)\n", ret);
+        DRM_ERROR("Failed to allocate object id (ret=%d)\n", ret);
         return ret;
     }
 
@@ -71,7 +71,7 @@ int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, str
     ret = drm_object_attach_property(&crtc->base, dev->mode_config.prop_active, 0);
     if (!ret) ret = drm_object_attach_property(&crtc->base, dev->mode_config.prop_mode_id, 0);
     if (ret) {
-        plogk("drm_crtc: Failed to attach properties (ret=%d)\n", ret);
+        DRM_ERROR("Failed to attach properties (ret=%d)\n", ret);
         drm_crtc_cleanup(crtc);
         return ret;
     }
@@ -87,13 +87,13 @@ int drm_mode_getcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     struct drm_crtc        *crtc;
 
     if (!dev || !crtc_req) {
-        plogk("drm_crtc: Getcrtc with invalid args.\n");
+        DRM_ERROR("Getcrtc with invalid args.\n");
         return -EINVAL;
     }
 
     obj = drm_mode_object_find(dev, file_priv, crtc_req->crtc_id, DRM_MODE_OBJECT_CRTC);
     if (!obj) {
-        plogk("drm_crtc: Crtc %u not found.\n", crtc_req->crtc_id);
+        DRM_ERROR("Crtc %u not found.\n", crtc_req->crtc_id);
         return -ENOENT;
     }
     crtc = container_of(obj, struct drm_crtc, base);
@@ -141,13 +141,13 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     int                      ret           = 0;
 
     if (!dev || !crtc_req) {
-        plogk("drm_crtc: Setcrtc with invalid args.\n");
+        DRM_ERROR("Setcrtc with invalid args.\n");
         return -EINVAL;
     }
 
     obj = drm_mode_object_find(dev, file_priv, crtc_req->crtc_id, DRM_MODE_OBJECT_CRTC);
     if (!obj) {
-        plogk("drm_crtc: Crtc %u not found.\n", crtc_req->crtc_id);
+        DRM_ERROR("Crtc %u not found.\n", crtc_req->crtc_id);
         return -ENOENT;
     }
     crtc = container_of(obj, struct drm_crtc, base);
@@ -156,7 +156,7 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     if (crtc_req->fb_id != 0) {
         fb = drm_framebuffer_lookup(dev, file_priv, crtc_req->fb_id);
         if (!fb) {
-            plogk("drm_crtc: Fb %u not found.\n", crtc_req->fb_id);
+            DRM_ERROR("Fb %u not found.\n", crtc_req->fb_id);
             drm_mode_object_put(obj);
             return -ENOENT;
         }
@@ -165,58 +165,58 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     if (crtc_req->mode_valid) {
         /* Validate mode parameters */
         if (!fb || crtc_req->mode.clock == 0 || crtc_req->mode.hdisplay == 0 || crtc_req->mode.vdisplay == 0) {
-            plogk("drm_crtc: Invalid mode parameters.\n");
+            DRM_ERROR("Invalid mode parameters.\n");
             ret = -EINVAL;
             goto out;
         }
 
         /* Validate sync ranges: hsync_start <= hsync_end <= htotal */
         if (crtc_req->mode.hsync_start > crtc_req->mode.hsync_end || crtc_req->mode.hsync_end > crtc_req->mode.htotal) {
-            plogk("drm_crtc: Invalid hsync range.\n");
+            DRM_ERROR("Invalid hsync range.\n");
             ret = -EINVAL;
             goto out;
         }
 
         /* Validate sync ranges: vsync_start <= vsync_end <= vtotal */
         if (crtc_req->mode.vsync_start > crtc_req->mode.vsync_end || crtc_req->mode.vsync_end > crtc_req->mode.vtotal) {
-            plogk("drm_crtc: Invalid vsync range.\n");
+            DRM_ERROR("Invalid vsync range.\n");
             ret = -EINVAL;
             goto out;
         }
 
         /* Validate htotal/vtotal are non-zero */
         if (crtc_req->mode.htotal == 0 || crtc_req->mode.vtotal == 0) {
-            plogk("drm_crtc: Invalid htotal/vtotal.\n");
+            DRM_ERROR("Invalid htotal/vtotal.\n");
             ret = -EINVAL;
             goto out;
         }
 
         /* Validate dimensions against mode_config limits */
         if (crtc_req->mode.hdisplay > dev->mode_config.max_width || crtc_req->mode.vdisplay > dev->mode_config.max_height) {
-            plogk("drm_crtc: Mode exceeds limits (%ux%u)\n", crtc_req->mode.hdisplay, crtc_req->mode.vdisplay);
+            DRM_ERROR("Mode exceeds limits (%ux%u)\n", crtc_req->mode.hdisplay, crtc_req->mode.vdisplay);
             ret = -EINVAL;
             goto out;
         }
         if (crtc_req->x > DRM_S32_MAX || crtc_req->y > DRM_S32_MAX || (uint64_t)crtc_req->x + crtc_req->mode.hdisplay > DRM_S32_MAX || (uint64_t)crtc_req->y + crtc_req->mode.vdisplay > DRM_S32_MAX) {
-            plogk("drm_crtc: Invalid crtc position.\n");
+            DRM_ERROR("Invalid crtc position.\n");
             ret = -EINVAL;
             goto out;
         }
 
         if (crtc_req->count_connectors > (uint32_t)dev->mode_config.num_connector || (crtc_req->count_connectors && !crtc_req->set_connectors_ptr)) {
-            plogk("drm_crtc: Invalid connector count %u\n", crtc_req->count_connectors);
+            DRM_ERROR("Invalid connector count %u\n", crtc_req->count_connectors);
             ret = -EINVAL;
             goto out;
         }
         if (crtc_req->count_connectors) {
             connector_ids = malloc((size_t)crtc_req->count_connectors * sizeof(*connector_ids));
             if (!connector_ids) {
-                plogk("drm_crtc: Failed to allocate connector id array (%u entries)\n", crtc_req->count_connectors);
+                DRM_ERROR("Failed to allocate connector id array (%u entries)\n", crtc_req->count_connectors);
                 ret = -ENOMEM;
                 goto out;
             }
             if (copy_from_user(connector_ids, (const void *)(uintptr_t)crtc_req->set_connectors_ptr, (size_t)crtc_req->count_connectors * sizeof(*connector_ids))) {
-                plogk("drm_crtc: Failed to copy connector ids from user.\n");
+                DRM_ERROR("Failed to copy connector ids from user.\n");
                 ret = -EFAULT;
                 goto out;
             }
@@ -241,7 +241,7 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
         mode.status      = MODE_OK;
         strncpy(mode.name, crtc_req->mode.name, DRM_DISPLAY_MODE_LEN - 1);
     } else if (crtc_req->count_connectors) {
-        plogk("drm_crtc: Connectors specified without mode.\n");
+        DRM_ERROR("Connectors specified without mode.\n");
         ret = -EINVAL;
         goto out;
     }
@@ -282,13 +282,13 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
         struct drm_mode_object *conn_obj;
         for (uint32_t j = 0; j < i; j++)
             if (connector_ids[i] == connector_ids[j]) {
-                plogk("drm_crtc: Duplicate connector id %u\n", connector_ids[i]);
+                DRM_ERROR("Duplicate connector id %u\n", connector_ids[i]);
                 ret = -EINVAL;
                 goto out;
             }
         conn_obj = drm_mode_object_find(dev, file_priv, connector_ids[i], DRM_MODE_OBJECT_CONNECTOR);
         if (!conn_obj) {
-            plogk("drm_crtc: Connector %u not found.\n", connector_ids[i]);
+            DRM_ERROR("Connector %u not found.\n", connector_ids[i]);
             ret = -ENOENT;
             goto out;
         }
@@ -357,7 +357,7 @@ int drm_mode_gamma_get_ioctl(struct drm_device *dev, void *data, struct drm_file
         goto out;
     }
 
-    /* : user buffer size must match the CRTC gamma size. */
+    /* user buffer size must match the CRTC gamma size. */
     if (lut_req->gamma_size != crtc->gamma_size) {
         ret = -EINVAL;
         goto out;
