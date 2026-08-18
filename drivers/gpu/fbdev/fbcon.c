@@ -12,8 +12,8 @@
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
-#include <drivers/gpu/fbdev/vt_ansi.h>
 #include <drivers/tty/tty.h>
+#include <drivers/tty/vt_ansi.h>
 #include <kernel/timer/timer.h>
 #include <libs/gfx/fonts.h>
 #include <libs/gfx/gfx_proc.h>

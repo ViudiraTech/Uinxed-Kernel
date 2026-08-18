@@ -10,7 +10,6 @@
 
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/video.h>
-#include <drivers/gpu/fbdev/vt_ansi.h>
 #include <drivers/tty/console.h>
 #include <drivers/tty/serial/serial_core.h>
 #include <drivers/tty/tty.h>

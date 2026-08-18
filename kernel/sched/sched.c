@@ -274,8 +274,8 @@ static void advance_min_vruntime(eevdf_rq_t *rq)
 static void avg_vruntime_add(eevdf_rq_t *rq, task_t *task)
 {
     int64_t delta = (int64_t)(task->vruntime - rq->min_vruntime) * (int64_t)task->weight;
-
     rq->avg_vruntime += delta;
+
     /* avg_load is read locklessly by the cross-CPU balancer. */
     __atomic_add_fetch(&rq->avg_load, task->weight, __ATOMIC_RELAXED);
 }
@@ -469,7 +469,7 @@ static void update_tss_stack(task_t *task)
     }
 }
 
-/* Place a task on the given CPU's runqueue.  Takes the target rq lock (the caller holds scheduler.lock, or none). */
+/* Place a task on the given CPU's runqueue. Takes the target rq lock (the caller holds scheduler.lock, or none). */
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 {
     if (!task || task->state == TASK_ZOMBIE || task->state == TASK_IDLE) return;
