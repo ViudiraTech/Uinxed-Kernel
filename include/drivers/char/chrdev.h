@@ -31,17 +31,7 @@ typedef struct cdev {
         struct cdev       *next;
 } cdev_t;
 
-/*
- * Register a static character device.
- *
- * @dir:  /dev-relative directory ("" or e.g. "snd", "dri")
- * @name: leaf node name
- * @major/@minor: device number range
- * @count:       number of minors owned
- * @node_type:   VFS type flags (file_stream etc.)
- * @mode:        node permission bits (0 = 0600)
- * @ops:         device operations bound to the node
- */
+/* Register a static character device. */
 int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, uint32_t count, uint16_t node_type, uint16_t mode, const tmpfs_device_ops_t *ops);
 
 /* Remove a static character device by its full /dev path. */

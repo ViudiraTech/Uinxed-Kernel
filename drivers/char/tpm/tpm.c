@@ -110,7 +110,6 @@ int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
 }
 
 /* TPM 2.0: build and send a command (no sessions) */
-
 static int tpm2_send_command(tpm_device_t *dev, uint32_t cc, const uint8_t *params, uint32_t param_len, uint8_t *rsp_buf, size_t rsp_buf_size)
 {
     uint8_t cmd_buf[TPM_BUFSIZE];
@@ -139,7 +138,6 @@ static int tpm2_send_command(tpm_device_t *dev, uint32_t cc, const uint8_t *para
 }
 
 /* TPM 2.0 Startup */
-
 static int tpm2_startup(tpm_device_t *dev)
 {
     uint8_t params[2];
@@ -148,7 +146,6 @@ static int tpm2_startup(tpm_device_t *dev)
 }
 
 /* TPM 2.0 GetCapability (property read) */
-
 int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value)
 {
     uint8_t params[12] = {0};
@@ -177,7 +174,6 @@ int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value)
 }
 
 /* TPM GetRandom (v2.0 + v1.2) */
-
 int tpm_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
 {
     if (!dev || !out || max == 0) return -1;
@@ -201,7 +197,6 @@ int tpm_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
 }
 
 /* TPM 2.0 PCR Read */
-
 int tpm2_pcr_read(tpm_device_t *dev, uint32_t pcr_idx, uint8_t *digest)
 {
     uint8_t params[6];
@@ -240,7 +235,6 @@ int tpm2_pcr_read(tpm_device_t *dev, uint32_t pcr_idx, uint8_t *digest)
 }
 
 /* TPM 1.2 GetRandom */
-
 int tpm1_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
 {
     uint8_t cmd_buf[TPM_BUFSIZE];
@@ -267,7 +261,6 @@ int tpm1_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
 }
 
 /* Log TPM capabilities after successful init */
-
 static void tpm_log_capabilities(tpm_device_t *dev)
 {
     uint32_t value;
@@ -282,7 +275,6 @@ static void tpm_log_capabilities(tpm_device_t *dev)
 }
 
 /* Hardware probe: read DID/VID from MMIO at legacy address */
-
 static uint32_t tpm_verify_mmio(void *virt_addr)
 {
     volatile uint32_t *ptr = (volatile uint32_t *)((uintptr_t)virt_addr + TIS_REG_DID_VID(0));
@@ -292,7 +284,6 @@ static uint32_t tpm_verify_mmio(void *virt_addr)
 }
 
 /* Main TPM initialization */
-
 int tpm_init(void)
 {
 #if !CONFIG_TPM

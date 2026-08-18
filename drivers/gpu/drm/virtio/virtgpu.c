@@ -247,7 +247,6 @@ static struct drm_driver virtgpu_drm_driver = {
 };
 
 /* KMS framebuffer damage */
-
 static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips)
 {
     struct virtio_gpu_device *vgdev;
@@ -305,7 +304,6 @@ const struct drm_framebuffer_funcs virtgpu_fb_funcs = {
 };
 
 /* Ioctl: MAP */
-
 static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_virtgpu_map *args = (struct drm_virtgpu_map *)data;
@@ -330,7 +328,6 @@ static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file
 }
 
 /* Ioctl: EXECBUFFER (3D command submission) */
-
 static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct virtio_gpu_device      *vgdev   = (struct virtio_gpu_device *)dev->dev_private;
@@ -417,7 +414,6 @@ out:
 }
 
 /* Ioctl: GETPARAM */
-
 static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct virtio_gpu_device    *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -459,7 +455,6 @@ static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm
 }
 
 /* Ioctl: RESOURCE_CREATE (3D resource) */
-
 static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct virtio_gpu_device           *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -523,7 +518,6 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
 }
 
 /* Ioctl: RESOURCE_INFO */
-
 static int virtgpu_ioctl_resource_info(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_virtgpu_resource_info *args = (struct drm_virtgpu_resource_info *)data;
@@ -542,7 +536,6 @@ static int virtgpu_ioctl_resource_info(struct drm_device *dev, void *data, struc
 }
 
 /* Ioctl: TRANSFER_FROM_HOST / TRANSFER_TO_HOST */
-
 static int virtgpu_ioctl_transfer_from_host(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct virtio_gpu_device       *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -621,7 +614,6 @@ static int virtgpu_ioctl_transfer_to_host(struct drm_device *dev, void *data, st
 }
 
 /* Ioctl: WAIT (fence wait) */
-
 static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_virtgpu_3d_wait *args = (struct drm_virtgpu_3d_wait *)data;
@@ -642,7 +634,6 @@ static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_fil
 }
 
 /* Ioctl: GET_CAPS */
-
 static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct virtio_gpu_device       *vgdev     = (struct virtio_gpu_device *)dev->dev_private;
@@ -703,7 +694,6 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
 }
 
 /* Ioctl: RESOURCE_CREATE_BLOB */
-
 static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct virtio_gpu_device                *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -788,7 +778,6 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
 }
 
 /* Ioctl: CONTEXT_INIT */
-
 static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct virtio_gpu_device            *vgdev  = (struct virtio_gpu_device *)dev->dev_private;
@@ -860,7 +849,6 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
 }
 
 /* Page-flip: switch scanout to a new framebuffer (called from KMS) */
-
 int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *fb, struct drm_framebuffer *old_fb)
 {
     struct drm_gem_object    *gem_obj    = fb ? fb->obj[0] : NULL;
@@ -918,7 +906,6 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
 }
 
 /* DebugFS - simple feature dump */
-
 static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
 {
     plogk("virtgpu: Virgl=%d, edid=%d, blob=%d, ctx_init=%d\n", vgdev->has_virgl, vgdev->has_edid, vgdev->has_resource_blob, vgdev->has_context_init);
@@ -926,7 +913,6 @@ static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
 }
 
 /* Module init / probe */
-
 int virtio_gpu_driver_init(void)
 {
     struct virtio_gpu_device *vgdev;

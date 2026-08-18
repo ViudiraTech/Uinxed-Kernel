@@ -21,7 +21,6 @@
 #include <process/uaccess.h>
 
 /* drm_ioctl_permit - check auth / master flags against file_priv */
-
 int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 {
     if (!file_priv) return -EACCES;
@@ -48,7 +47,6 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 }
 
 /* drm_get_cap / drm_set_client_cap - handlers */
-
 int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_get_cap *cap = (struct drm_get_cap *)data;
@@ -196,7 +194,6 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
 };
 
 /* ioctl descriptor lookup - full command match */
-
 static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const struct drm_ioctl_desc *table, int count)
 {
     for (int i = 0; i < count; i++)
@@ -205,7 +202,6 @@ static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const stru
 }
 
 /* drm_ioctl - validated dispatch */
-
 int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct drm_file *file_priv)
 {
     const struct drm_ioctl_desc *desc  = NULL;
@@ -406,7 +402,6 @@ int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
 }
 
 /* drm_setversion - handle DRM_IOCTL_SET_VERSION (accept any version) */
-
 int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     (void)dev;

@@ -138,8 +138,6 @@ struct class
         const struct attribute_group **dev_groups;
 };
 
-/* Device model registration API */
-
 /* Register/unregister a bus with the device model */
 int  bus_register(struct bus_type *bus);
 void bus_unregister(struct bus_type *bus);
@@ -190,7 +188,6 @@ int  device_model_init(void);
 void device_model_exit(void);
 
 /* Helper: get a device's sysfs name (kobject name) */
-
 static inline const char *dev_name(const struct device *dev)
 {
     if (!dev) return "(null)";

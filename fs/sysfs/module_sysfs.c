@@ -262,8 +262,6 @@ static void module_holders_destroy(module_sysfs_t *entry)
     entry->holders = NULL;
 }
 
-/* Initialization */
-
 /* Locate the /sys/module/ kobject created by sysfs_kobject_init(). */
 void module_sysfs_init(void)
 {

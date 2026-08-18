@@ -81,8 +81,6 @@ static int  sysfs_stat(void *file, vfs_node_t node);
 static void sysfs_populate_dir(struct kobject *kobj);
 static void sysfs_unbind_dir(struct kobject *kobj);
 
-/* Internal helpers */
-
 /* Allocate a sysfs node of the given type. */
 static sysfs_node_t *sysfs_node_alloc(sysfs_node_type_t type)
 {
@@ -243,8 +241,6 @@ static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
     *content = buf;
     return n;
 }
-
-/* VFS callbacks */
 
 /* Mount sysfs on a VFS node. */
 static int sysfs_mount(const char *handle, vfs_node_t node)
@@ -1350,8 +1346,6 @@ void sysfs_remove_groups(struct kobject *kobj, const struct attribute_group **gr
     for (int i = 0; groups[i]; i++) sysfs_remove_group(kobj, groups[i]);
 }
 
-/* sysfs_cleanup_kobject_files */
-
 /* Remove every attribute, binary attribute and symlink of a kobject. */
 void sysfs_cleanup_kobject_files(struct kobject *kobj)
 {
@@ -1415,8 +1409,6 @@ void sysfs_cleanup_kobject_files(struct kobject *kobj)
         }
     }
 }
-
-/* sysfs_rename_dir */
 
 /* Rename a kobject's sysfs directory. */
 int sysfs_rename_dir(struct kobject *kobj, const char *new_name)

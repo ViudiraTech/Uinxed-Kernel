@@ -24,7 +24,7 @@ typedef struct {
         int64_t tv_usec;
 } linux_timeval_t;
 
-/* Poll event flags (Linux-compatible) */
+/* Poll event flags */
 #define POLLIN     0x0001
 #define POLLPRI    0x0002
 #define POLLOUT    0x0004

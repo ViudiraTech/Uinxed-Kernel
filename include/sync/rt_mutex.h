@@ -17,7 +17,7 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/* Futex word flags for PI mutex (Linux-compatible) */
+/* Futex word flags for PI mutex */
 #define FUTEX_WAITERS    0x80000000
 #define FUTEX_OWNER_DIED 0x40000000
 #define FUTEX_TID_MASK   0x3fffffff

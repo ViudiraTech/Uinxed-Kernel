@@ -134,8 +134,6 @@ typedef struct extfs_journal extfs_journal_t;
 #define EXT4_BG_BLOCK_UNINIT 0x0002U
 #define EXT4_BG_INODE_ZEROED 0x0004U
 
-/* On-disk structures */
-
 /* Super block - 1024 bytes at byte offset 1024 */
 typedef struct ext2_super_block {
         uint32_t s_inodes_count;
@@ -253,8 +251,6 @@ typedef struct ext2_dir_entry {
         char     name[EXT2_NAME_LEN];
 } __attribute__((packed)) ext2_dir_entry_t;
 
-/* In-memory structures */
-
 /* Per-filesystem superblock info */
 typedef struct extfs_sb_info {
         blockdev_device_t   device;
@@ -299,8 +295,6 @@ typedef struct extfs_handle {
         uint32_t           inode_no; // On-disk inode number
         int                owns_sb;  // Whether this handle owns the sb_info
 } extfs_handle_t;
-
-/* Function prototypes */
 
 /* super.c */
 int  extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device);

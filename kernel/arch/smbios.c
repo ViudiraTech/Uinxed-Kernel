@@ -82,8 +82,6 @@ int smbios_minor_version(void)
     return ((entry_point_32_t *)smbios_entry())->minor_version;
 }
 
-/* Type-0 */
-
 /* Get BIOS Vendor string */
 const char *smbios_bios_vendor(void)
 {
@@ -176,8 +174,6 @@ uint8_t smbios_bios_ec_minor_release(void)
     if (hdr->length < 0x1c) return 0;
     return *((uint8_t *)hdr + 29);
 }
-
-/* Type-1 */
 
 /* Get System Manufacturer string */
 const char *smbios_sys_manufacturer(void)

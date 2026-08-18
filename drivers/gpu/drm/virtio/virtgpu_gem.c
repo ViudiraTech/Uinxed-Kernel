@@ -18,8 +18,6 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 
-/* Object alloc / free */
-
 /* Allocate a GEM object backed by physically contiguous frames. */
 struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_t size)
 {
@@ -107,8 +105,6 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
     obj->base.backing = NULL;
     free(obj);
 }
-
-/* Dumb buffer helpers */
 
 /* Create a dumb-buffer backed by a host-side 2D resource. */
 int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args)

@@ -79,8 +79,6 @@ uint64_t rtc_since_epoch(void)
     return rtc_civil_to_epoch(&t);
 }
 
-/* Character device callbacks */
-
 /* Read the current CMOS time as a byte stream. */
 int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {

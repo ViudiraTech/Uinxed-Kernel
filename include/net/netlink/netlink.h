@@ -16,7 +16,7 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-/* Netlink socket address (Linux-compatible) */
+/* Netlink socket address */
 
 typedef struct sockaddr_nl {
         uint16_t nl_family; // AF_NETLINK
@@ -43,8 +43,6 @@ typedef struct nlmsghdr {
 #define NLMSG_NEXT(nlh)         ((nlmsghdr_t *)((uint8_t *)(nlh) + NLMSG_ALIGN((nlh)->nlmsg_len)))
 #define NLMSG_OK(nlh, len)      ((len) >= (int)sizeof(nlmsghdr_t) && (nlh)->nlmsg_len >= sizeof(nlmsghdr_t) && (nlh)->nlmsg_len <= (uint32_t)(len))
 #define NLMSG_PAYLOAD(nlh, len) ((nlh)->nlmsg_len - NLMSG_ALIGN(NLMSG_HDRLEN))
-
-/* Netlink message flags */
 
 /* Standard flags */
 #define NLM_F_REQUEST       0x0001 // It is a request message
@@ -233,35 +231,13 @@ typedef struct nl_msg {
 
 #define NL_MAX_MULTICAST_GROUPS 32 // groups 0-31
 
-/* Kernel netlink API */
-
 /* Initialise the netlink subsystem. Must be called before socket_init(). */
 void netlink_init(void);
 
-/*
- * Broadcast a netlink message to all sockets subscribed to the given
- * protocol and multicast group.
- *
- * @protocol: NETLINK_* family
- * @group:    multicast group bit (1 << N) or combination
- * @data:     pointer to nlmsghdr + payload
- * @len:      total message length
- * @flags:    allocation flags (0 = may sleep, 1 = atomic/GFP_ATOMIC)
- *
- * Returns number of sockets the message was delivered to, or negative errno.
- */
+/* Broadcast a netlink message to all sockets subscribed to the given Returns number of sockets the message was delivered to, or negative errno. */
 int netlink_broadcast(uint32_t protocol, uint32_t group, const void *data, uint32_t len, int flags);
 
-/*
- * Send a unicast netlink message to a specific socket.
- *
- * @sk:   destination socket (nl_sock_t cast to socket_t)
- * @data: pointer to nlmsghdr + payload
- * @len:  total message length
- * @flags: allocation flags
- *
- * Returns 0 on success or negative errno.
- */
+/* Send a unicast netlink message to a specific socket. Returns 0 on success or negative errno. */
 int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags);
 
 /*

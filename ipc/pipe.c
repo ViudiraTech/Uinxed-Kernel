@@ -99,15 +99,15 @@ static inline void pipe_ring_unlock(spinlock_t *lock)
 
 static int pipe_fsid = -1;
 
-/* Internal helpers */
-
 /* Notify a pipe node's poll source of readiness changes. */
 static inline void pipe_poll_notify(vfs_node_t node, uint32_t events)
 {
     if (!node) return;
 
-    /* Call the source primitive directly: it performs the single subscriber
-     * check itself, avoiding the wrapper and a duplicate atomic load. */
+    /*
+     * Call the source primitive directly: it performs the single subscriber
+     * check itself, avoiding the wrapper and a duplicate atomic load.
+     */
     vfs_poll_source_notify(&node->poll_source, events);
 }
 
@@ -247,8 +247,10 @@ static pipe_ring_t *pipe_ring_alloc(void)
     }
     ring->capacity = PIPE_BUF_SIZE;
 
-    /* The configured ring size is power-of-two by default.  Keep a safe
-     * modulo-free path for custom non-power-of-two configurations too. */
+    /*
+     * The configured ring size is power-of-two by default. Keep a safe
+     * modulo-free path for custom non-power-of-two configurations too.
+     */
     ring->index_mask      = (ring->capacity && !(ring->capacity & (ring->capacity - 1))) ? ring->capacity - 1 : 0;
     ring->head            = 0;
     ring->tail            = 0;
@@ -292,7 +294,6 @@ static void pipe_raise_sigpipe(void)
 }
 
 /* VFS callback: open */
-
 static void pipe_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -327,7 +328,6 @@ static void pipe_vfs_open(void *parent, const char *name, vfs_node_t node)
  * We wake all blocked readers and writers here so that no task
  * remains stuck on a pipe that will never be serviced again.
  */
-
 static void pipe_vfs_close(void *current)
 {
     pipe_ring_t *ring = (pipe_ring_t *)current;
@@ -443,7 +443,6 @@ static void pipe_file_release(vfs_node_t node, void *private_data)
 }
 
 /* VFS callback: read */
-
 static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t flags, void *addr, size_t size)
 {
     if (!ring || (!addr && size)) return -EINVAL;
@@ -590,7 +589,6 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
 }
 
 /* VFS callback: write */
-
 static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t flags, const void *addr, size_t size)
 {
     if (!ring || (!addr && size)) return -EINVAL;
@@ -767,7 +765,6 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
 }
 
 /* VFS callback: poll */
-
 static int pipe_vfs_poll(void *file, size_t events)
 {
     pipe_ring_t *ring = (pipe_ring_t *)file;
@@ -811,7 +808,6 @@ static int pipe_file_poll(vfs_node_t node, void *private_data, uint64_t flags, s
 }
 
 /* VFS callback: free (release handle resources) */
-
 static int pipe_vfs_free(void *handle)
 {
     pipe_ring_t *ring = (pipe_ring_t *)handle;
@@ -822,7 +818,6 @@ static int pipe_vfs_free(void *handle)
 }
 
 /* VFS callback: stat */
-
 static int pipe_vfs_stat(void *file, vfs_node_t node)
 {
     (void)file;
@@ -836,7 +831,6 @@ static int pipe_vfs_stat(void *file, vfs_node_t node)
 }
 
 /* VFS callback stubs (unused operations for pipe) */
-
 static int pipe_stub_mount(const char *s, vfs_node_t n)
 {
     (void)s;
@@ -894,7 +888,6 @@ static int pipe_stub_rename(const vfs_rename_context_t *context)
 }
 
 /* Pipe node creation (shared by sys_pipe and sys_pipe2) */
-
 static vfs_node_t pipe_node_create(pipe_ring_t *ring)
 {
     if (pipe_fsid < 0) return NULL;
@@ -910,8 +903,6 @@ static vfs_node_t pipe_node_create(pipe_ring_t *ring)
 
     return node;
 }
-
-/* Syscall: pipe / pipe2 */
 
 /* Forward declaration */
 int64_t sys_pipe2(int pipefd[2], int flags);
@@ -1005,8 +996,10 @@ int pipe_mknod(char *path, uint16_t mode, uint64_t dev)
         filename = lastslash + 1;
         parent   = rootdir;
     } else if (lastslash) {
-        /* Open the parent via a private copy so the caller's path buffer is
-         * left intact. */
+        /*
+         * Open the parent via a private copy so the caller's path buffer is
+         * left intact.
+         */
         size_t parent_len = (size_t)(lastslash - path);
         char   parent_path[VFS_PATH_MAX];
         if (parent_len + 1 > sizeof(parent_path)) return -EINVAL;
@@ -1058,7 +1051,6 @@ int pipe_mknod(char *path, uint16_t mode, uint64_t dev)
 }
 
 /* Initialization */
-
 void pipe_init(void)
 {
     vfs_callback_t cb = calloc(1, sizeof(struct vfs_callback));

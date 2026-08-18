@@ -96,8 +96,6 @@ typedef struct evdev {
         struct device   *sysfs_device;
 } evdev_t;
 
-/* Public API */
-
 /*
  * Allocate and initialize a new evdev device for the given input_dev.
  * The input_dev is NOT copied - caller must keep it alive.

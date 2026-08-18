@@ -94,15 +94,15 @@ int drm_mode_config_init(struct drm_device *dev)
     dev->mode_config.cursor_width  = 64;
     dev->mode_config.cursor_height = 64;
 
-    dev->mode_config.async_page_flip                             = false;
-    dev->mode_config.fb_modifiers_not_supported                  = false;
-    dev->mode_config.normalize_zpos                              = true;
-    dev->mode_config.poll_enabled                                = false;
-    dev->mode_config.poll_running                                = false;
-    dev->mode_config.delayed_event                               = false;
-    dev->mode_config.poll_init                                   = false;
+    dev->mode_config.async_page_flip            = false;
+    dev->mode_config.fb_modifiers_not_supported = false;
+    dev->mode_config.normalize_zpos             = true;
+    dev->mode_config.poll_enabled               = false;
+    dev->mode_config.poll_running               = false;
+    dev->mode_config.delayed_event              = false;
+    dev->mode_config.poll_init                  = false;
 
-    dev->mode_config.helper_private   = NULL;
+    dev->mode_config.helper_private = NULL;
 
     dev->mode_config.prop_src_x                   = NULL;
     dev->mode_config.prop_src_y                   = NULL;
@@ -342,16 +342,7 @@ void drm_mode_config_cleanup(struct drm_device *dev)
     dev->mode_config.num_fb          = 0;
 }
 
-/*
- * drm_mode_getresources - Handle DRM_IOCTL_MODE_GETRESOURCES.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_card_res (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Fills the drm_mode_card_res struct with counts of framebuffers, CRTCs,
- * connectors, and encoders, and the min/max dimensions.
- * Returns 0 on success.
- */
+/* Handle DRM_IOCTL_MODE_GETRESOURCES. Returns 0 on success. */
 int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_card_res *res = (struct drm_mode_card_res *)data;

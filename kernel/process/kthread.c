@@ -42,8 +42,10 @@ static void kthread_trampoline(kthread_bootstrap_t *bootstrap)
     kthread_exit(ret);
 }
 
-/* Allocate a task's kernel stack and seed it so the trampoline runs with the
- * bootstrap record in rdi.  Returns 0 on success, non-zero on OOM. */
+/*
+ * Allocate a task's kernel stack and seed it so the trampoline runs with the
+ * bootstrap record in rdi. Returns 0 on success, non-zero on OOM.
+ */
 static int setup_kthread_stack(task_t *task, kthread_bootstrap_t *bootstrap)
 {
     task->kernel_stack = malloc(TASK_KERNEL_STACK);
@@ -68,8 +70,10 @@ static int setup_kthread_stack(task_t *task, kthread_bootstrap_t *bootstrap)
     return 0;
 }
 
-/* kthreadd (PID 2) loop: drain create requests, reap exited kthread children,
- * then sleep on kthreadd_wait until either event recurs. */
+/*
+ * kthreadd (PID 2) loop: drain create requests, reap exited kthread children,
+ * then sleep on kthreadd_wait until either event recurs.
+ */
 static void kthreadd_main(void *unused)
 {
     (void)unused;
@@ -121,8 +125,10 @@ static void kthread_reap_children(void)
     }
 }
 
-/* Bootstrap kthreadd directly (not via kthread_create) as PID 2, the parent of
- * every subsequent kernel thread. */
+/*
+ * Bootstrap kthreadd directly (not via kthread_create) as PID 2, the parent of
+ * every subsequent kernel thread.
+ */
 void kthreadd_init(void)
 {
     slist_init(&kthread_create_list);
@@ -156,8 +162,10 @@ void kthreadd_init(void)
     plogk("kthread: kthreadd started (pid=2)\n");
 }
 
-/* Enqueue a creation request for kthreadd and block until it has allocated the
- * task.  Returns the (not-yet-runnable) task, or NULL with no errno on OOM. */
+/*
+ * Enqueue a creation request for kthreadd and block until it has allocated the
+ * task. Returns the (not-yet-runnable) task, or NULL with no errno on OOM.
+ */
 static task_t *__kthread_create(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id, bool pinned)
 {
     kthread_create_info_t *info = malloc(sizeof(kthread_create_info_t));
@@ -204,8 +212,10 @@ static task_t *__kthread_create(const char *name, kthread_entry_t entry, void *a
     return result;
 }
 
-/* Perform the allocation for one request and always complete it, waking the
- * waiter on both success and failure so kthread_create() never hangs. */
+/*
+ * Perform the allocation for one request and always complete it, waking the
+ * waiter on both success and failure so kthread_create() never hangs.
+ */
 static void create_kthread(kthread_create_info_t *info)
 {
     int     err  = EOK;

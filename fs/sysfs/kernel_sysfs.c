@@ -24,10 +24,6 @@
 #include <mem/alloc.h>
 #include <process/sched.h>
 
-/* Forward reference */
-
-/* Attribute show functions */
-
 /* Show the kernel name and version. */
 static ssize_t version_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
@@ -130,8 +126,6 @@ static struct attribute *kernel_attrs[] = {
     &version_attr, &cmdline_attr, &hostname_attr, &ostype_attr, &osrelease_attr, &uevent_seqnum_attr, &profiling_attr, &uptime_attr, NULL,
 };
 
-/* Sysfs ops */
-
 /*
  * Unified show/store that dispatches to the correct function based
  * on the attribute pointer.
@@ -162,8 +156,6 @@ static const struct sysfs_ops kernel_sysfs_ops_dispatch = {
     .store = kernel_attr_store,
 };
 
-/* Kobj type */
-
 /* Release the static /sys/kernel/ kobject. */
 static void kernel_kobj_release(struct kobject *kobj)
 {
@@ -176,8 +168,6 @@ static struct kobj_type kernel_ktype = {
     .sysfs_ops     = &kernel_sysfs_ops_dispatch,
     .default_attrs = kernel_attrs,
 };
-
-/* Initialization */
 
 /* Attach the kernel attribute files to /sys/kernel/. */
 void kernel_sysfs_init(void)

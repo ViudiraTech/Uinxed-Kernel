@@ -53,8 +53,6 @@ static void signalfd_format_info(signalfd_siginfo_t *dest, int sig, const siginf
     dest->ssi_arch      = source->si_arch;
 }
 
-/* VFS callback implementations */
-
 /* VFS open callback (no-op) */
 static void signalfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -138,8 +136,6 @@ static int signalfd_vfs_free(void *handle)
     return EOK;
 }
 
-/* Generic stubs */
-
 /* Unsupported unmount callback */
 static void signalfd_stub_unmount(void *root)
 {
@@ -221,8 +217,6 @@ static int signalfd_stub_mount(const char *s, vfs_node_t n)
     (void)n;
     return -ENOSYS;
 }
-
-/* Public API */
 
 /* Allocate and initialize a signalfd VFS node */
 static vfs_node_t signalfd_node_create(sigset_t sigmask, int flags)

@@ -215,8 +215,6 @@ rdwr_out:
     }
 }
 
-/* Adapter lifecycle hooks */
-
 /* Publish an i2c adapter as a sysfs device and /dev/i2c-N node. */
 int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
 {
@@ -295,8 +293,6 @@ void i2c_sysfs_adapter_del(struct i2c_adapter *adap)
     if (adev) device_unregister(&adev->dev);
 #endif
 }
-
-/* Registration */
 
 /* Register the i2c bus and i2c-dev class. */
 void i2c_sysfs_init(void)

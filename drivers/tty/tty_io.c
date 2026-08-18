@@ -157,8 +157,6 @@ void tty_unregister_driver(tty_driver_t *drv)
     spin_unlock(&tty_driver_lock);
 }
 
-/* Per-node dispatch */
-
 /* open(2): bind the node to its driver and call the driver's open. */
 int tty_dispatch_open(struct vfs_node *node, uint64_t flags, void **private_data)
 {

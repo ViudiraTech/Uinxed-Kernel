@@ -30,7 +30,6 @@ static int               nvme_initialised;
 static uintptr_t         nvme_mmio_search_base = 0xffffd00000000000ULL;
 
 /* MMIO helpers */
-
 static inline uint64_t nvme_read64(const volatile void *addr, size_t offset)
 {
     return mmio_read64((void *)((uintptr_t)addr + offset));
@@ -52,7 +51,6 @@ static inline void nvme_write64(const volatile void *addr, size_t offset, uint64
 }
 
 /* Doorbell access */
-
 static volatile uint32_t *nvme_sq_doorbell(nvme_controller_t *ctrl, uint32_t qid)
 {
     uintptr_t base = (uintptr_t)ctrl->regs + NVME_REG_DBS;
@@ -68,7 +66,6 @@ static volatile uint32_t *nvme_cq_doorbell(nvme_controller_t *ctrl, uint32_t qid
 }
 
 /* CAP register field extraction */
-
 static uint32_t nvme_cap_mqes(uint64_t cap)
 {
     return (uint32_t)(cap & 0xFFFF);
@@ -157,8 +154,6 @@ static void nvme_free_queue(nvme_queue_t *q)
     }
 }
 
-/* Completion polling */
-
 /* Poll the CQ until the completion for expected_cid arrives or timeout. */
 static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe_t *out)
 {
@@ -204,8 +199,6 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe
     return -ETIMEDOUT;
 }
 
-/* Admin command submission */
-
 /* Submit one admin command on the admin queue and wait for its result. */
 static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint32_t cdw10, uint32_t cdw11, uint32_t cdw12, nvme_cqe_t *result)
 {
@@ -236,7 +229,6 @@ static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, u
  * Because alloc_frames() returns physically contiguous pages,
  * the PRP list is a linear walk of page-aligned addresses.
  */
-
 static int nvme_build_prp(nvme_queue_t *q, uint64_t dma_phys, uint32_t byte_count, uint64_t *prp1_out, uint64_t *prp2_out)
 {
     uint32_t offset           = (uint32_t)(dma_phys & (PAGE_4K_SIZE - 1));
@@ -287,8 +279,6 @@ static int nvme_build_prp(nvme_queue_t *q, uint64_t dma_phys, uint32_t byte_coun
     *prp2_out = q->prp_list_phys;
     return EOK;
 }
-
-/* Controller initialisation */
 
 /* Probe and initialise a single NVMe controller. */
 static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
@@ -526,8 +516,6 @@ err_io:
     goto err_admin;
 }
 
-/* I/O command submission */
-
 /* Submit one I/O command on the I/O queue and wait for completion. */
 static int nvme_do_io(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint64_t slba, uint16_t nlb)
 {
@@ -725,8 +713,6 @@ int nvme_flush(const struct blockdev_device *dev)
 
     return nvme_do_io(ctrl, NVME_NVM_FLUSH, ns->nsid, 0, 0, 0, 0);
 }
-
-/* Public API */
 
 /* Probe and initialise all NVMe controllers found on the PCI bus. */
 void nvme_init(void)

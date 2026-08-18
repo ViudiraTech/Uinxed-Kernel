@@ -20,8 +20,6 @@
 
 static int isofs_fs_id = 0;
 
-/* Block device I/O helpers */
-
 /* Read a block from the volume, clamped to the mount block size. */
 static int isofs_read_block(isofs_mount_t *mnt, uint32_t block, void *buf, uint32_t size)
 {
@@ -46,15 +44,11 @@ static int isofs_read_bytes(isofs_mount_t *mnt, uint64_t offset, void *buf, uint
     return status;
 }
 
-/* ISO date helper */
-
 /* Convert a directory-record date to a Unix timestamp. */
 static uint64_t iso_date_from_de(const uint8_t *d, int high_sierra)
 {
     return isofs_date_to_unix(d, high_sierra ? ISO_DATE_HIGH_SIERRA : 0);
 }
-
-/* Mount/dismount */
 
 /* Free a mount structure. */
 static void isofs_mount_destroy(isofs_mount_t *mnt)
@@ -330,8 +324,6 @@ static int isofs_read_symlink(isofs_handle_t *h, char *buf, size_t bufsize)
     if (!h || !h->is_symlink || !h->raw_de || !h->mount) return -EINVAL;
     return isofs_rr_symlink(h->raw_de, h->mount, buf, (int)bufsize);
 }
-
-/* VFS callbacks */
 
 /* Mount an ISO 9660 volume, parsing its volume and root descriptors. */
 static int isofs_vfs_mount(const char *src, vfs_node_t node)

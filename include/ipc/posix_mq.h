@@ -50,8 +50,6 @@ typedef struct sigevent {
 #define SIGEV_SIGNAL 2
 #define SIGEV_THREAD 3
 
-/* POSIX MQ syscall interface */
-
 /* Open or create a message queue. */
 int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr);
 

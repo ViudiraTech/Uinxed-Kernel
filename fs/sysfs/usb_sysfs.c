@@ -239,8 +239,6 @@ static struct attribute *usb_device_attributes[] = {
 static const struct attribute_group usb_device_group    = {.attrs = usb_device_attributes};
 const struct attribute_group       *usb_device_groups[] = {&usb_device_group, NULL};
 
-/* Initialization */
-
 /* Register the usb bus and mark the core ready for device registration. */
 void usb_sysfs_init(void)
 {

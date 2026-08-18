@@ -24,19 +24,7 @@
 
 /* Internal helper from drm_mode_object.c */
 
-/*
- * drm_crtc_init_with_planes - Initialise a new CRTC object with primary and cursor planes.
- * @dev: DRM device
- * @crtc: CRTC object to initialise
- * @primary: primary plane to attach (may be NULL)
- * @cursor: cursor plane to attach (may be NULL)
- * @funcs: CRTC helper funcs pointer (stored in helper_private)
- * @name: name of the CRTC (unused in MVP, kept for API compatibility)
- *
- * Allocates a mode-object ID, initialises the mutex and spinlocks,
- * inserts the CRTC into the device's crtc_list, and sets defaults.
- * Returns 0 on success or a negative errno on failure.
- */
+/* Initialise a new CRTC object with primary and cursor planes. Returns 0 on success or a negative errno on failure. */
 int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, struct drm_plane *primary, struct drm_plane *cursor, void *funcs, const char *name)
 {
     int ret;
@@ -91,16 +79,7 @@ int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, str
     return 0;
 }
 
-/*
- * drm_mode_getcrtc - Handle DRM_IOCTL_MODE_GETCRTC.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_crtc (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up the CRTC by id, fills the drm_mode_crtc struct with the
- * current CRTC state (fb_id, position, mode, gamma_size), and returns
- * the mode_valid flag. Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_GETCRTC. */
 int drm_mode_getcrtc(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_crtc   *crtc_req = (struct drm_mode_crtc *)data;
@@ -147,17 +126,7 @@ int drm_mode_getcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     return 0;
 }
 
-/*
- * drm_mode_setcrtc - Handle DRM_IOCTL_MODE_SETCRTC.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_crtc (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up the CRTC and framebuffer. Validates the mode parameters
- * (clock, hdisplay, vdisplay, sync ranges). Programs the CRTC with
- * the new mode and binds the framebuffer to the primary plane.
- * Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_SETCRTC. Returns 0 on success or -EINVAL/-ENOENT. */
 int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_crtc    *crtc_req = (struct drm_mode_crtc *)data;
@@ -366,16 +335,7 @@ static int drm_crtc_ensure_gamma_store(struct drm_crtc *crtc)
     return 0;
 }
 
-/*
- * drm_mode_gamma_get_ioctl - Handle DRM_IOCTL_MODE_GETGAMMA.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_crtc_lut (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Copies the red/green/blue gamma ramps of the CRTC into the user
- * buffers. The user-supplied gamma_size must match the CRTC's size.
- * Returns 0 on success or -EINVAL/-ENOENT/-EFAULT.
- */
+/* Handle DRM_IOCTL_MODE_GETGAMMA. Returns 0 on success or -EINVAL/-ENOENT/-EFAULT. */
 int drm_mode_gamma_get_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_crtc_lut *lut_req = (struct drm_mode_crtc_lut *)data;
@@ -397,7 +357,7 @@ int drm_mode_gamma_get_ioctl(struct drm_device *dev, void *data, struct drm_file
         goto out;
     }
 
-    /* Linux semantics: user buffer size must match the CRTC gamma size. */
+    /* : user buffer size must match the CRTC gamma size. */
     if (lut_req->gamma_size != crtc->gamma_size) {
         ret = -EINVAL;
         goto out;
@@ -408,8 +368,7 @@ int drm_mode_gamma_get_ioctl(struct drm_device *dev, void *data, struct drm_file
 
     entries = (size_t)crtc->gamma_size;
     bytes   = entries * sizeof(uint16_t);
-    if (copy_to_user((void *)(uintptr_t)lut_req->red, crtc->gamma_store, bytes)
-        || copy_to_user((void *)(uintptr_t)lut_req->green, crtc->gamma_store + entries, bytes)
+    if (copy_to_user((void *)(uintptr_t)lut_req->red, crtc->gamma_store, bytes) || copy_to_user((void *)(uintptr_t)lut_req->green, crtc->gamma_store + entries, bytes)
         || copy_to_user((void *)(uintptr_t)lut_req->blue, crtc->gamma_store + 2 * entries, bytes)) {
         ret = -EFAULT;
         goto out;
@@ -420,16 +379,7 @@ out:
     return ret;
 }
 
-/*
- * drm_mode_gamma_set_ioctl - Handle DRM_IOCTL_MODE_SETGAMMA.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_crtc_lut (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Copies the red/green/blue gamma ramps from the user buffers into the
- * CRTC gamma store. The user-supplied gamma_size must match the CRTC's
- * size. Returns 0 on success or -EINVAL/-ENOENT/-EFAULT.
- */
+/* Handle DRM_IOCTL_MODE_SETGAMMA. */
 int drm_mode_gamma_set_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_crtc_lut *lut_req = (struct drm_mode_crtc_lut *)data;
@@ -455,8 +405,7 @@ int drm_mode_gamma_set_ioctl(struct drm_device *dev, void *data, struct drm_file
 
     entries = (size_t)crtc->gamma_size;
     bytes   = entries * sizeof(uint16_t);
-    if (copy_from_user(crtc->gamma_store, (const void *)(uintptr_t)lut_req->red, bytes)
-        || copy_from_user(crtc->gamma_store + entries, (const void *)(uintptr_t)lut_req->green, bytes)
+    if (copy_from_user(crtc->gamma_store, (const void *)(uintptr_t)lut_req->red, bytes) || copy_from_user(crtc->gamma_store + entries, (const void *)(uintptr_t)lut_req->green, bytes)
         || copy_from_user(crtc->gamma_store + 2 * entries, (const void *)(uintptr_t)lut_req->blue, bytes)) {
         ret = -EFAULT;
         goto out;

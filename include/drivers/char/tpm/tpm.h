@@ -263,8 +263,6 @@ struct tpm_device {
         uint32_t crb_sm;       // CRB start method
 };
 
-/* TPM public API */
-
 /* Initialize TPM subsystem (auto-detection, interface init, startup) */
 int tpm_init(void);
 
@@ -284,8 +282,6 @@ tpm_device_t *tpm_get_device(void);
  * Returns response length on success, negative on error.
  */
 int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len);
-
-/* High-level TPM 2.0 commands */
 
 /* Get a TPM 2.0 property value (32-bit). Returns 0 on success. */
 int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value);

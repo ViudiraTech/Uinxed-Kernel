@@ -13,7 +13,6 @@
 #include <mem/alloc.h>
 
 /* Display information */
-
 int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
 {
     struct virtio_gpu_ctrl_hdr          cmd;
@@ -44,7 +43,6 @@ int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
 }
 
 /* EDID */
-
 int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *edid, int *edid_size)
 {
     struct virtio_gpu_get_edid  cmd;
@@ -75,7 +73,6 @@ int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *
 }
 
 /* Resource creation - 2D */
-
 int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj)
 {
     struct virtio_gpu_create_resource_2d cmd;
@@ -99,7 +96,6 @@ int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virti
 }
 
 /* Resource creation - 3D */
-
 int virtgpu_cmd_create_resource_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_resource_create *rc)
 {
     struct virtio_gpu_resource_create_3d cmd;
@@ -128,7 +124,6 @@ int virtgpu_cmd_create_resource_3d(struct virtio_gpu_device *vgdev, struct virti
 }
 
 /* Resource creation - Blob */
-
 int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_resource_create_blob *blob)
 {
     struct virtio_gpu_resource_create_blob *cmd;
@@ -164,7 +159,6 @@ int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_o
 }
 
 /* Resource destruction */
-
 int virtgpu_cmd_unref_resource(struct virtio_gpu_device *vgdev, uint32_t res_id)
 {
     struct virtio_gpu_unref    cmd;
@@ -182,7 +176,6 @@ int virtgpu_cmd_unref_resource(struct virtio_gpu_device *vgdev, uint32_t res_id)
 }
 
 /* Backing management (guest memory attach/detach) */
-
 int virtgpu_cmd_attach_backing(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj)
 {
     struct virtio_gpu_resource_attach_backing *cmd;
@@ -234,7 +227,6 @@ int virtgpu_cmd_detach_backing(struct virtio_gpu_device *vgdev, uint32_t res_id)
 }
 
 /* Data transfer (2D) */
-
 int virtgpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint64_t offset)
 {
     struct virtio_gpu_transfer_to_host_2d cmd;
@@ -378,7 +370,6 @@ int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_i
 }
 
 /* Data transfer (3D) */
-
 int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id, const struct drm_virtgpu_3d_transfer *xf, bool to_host)
 {
     struct virtio_gpu_transfer_3d cmd;
@@ -406,7 +397,6 @@ int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_o
 }
 
 /* Resource flush */
-
 int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, struct virtio_gpu_rect *rect)
 {
     struct virtio_gpu_resource_flush cmd;
@@ -431,7 +421,6 @@ int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gp
 }
 
 /* Scanout */
-
 int virtgpu_cmd_set_scanout(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj)
 {
     struct virtio_gpu_set_scanout cmd;
@@ -496,7 +485,6 @@ int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id
 }
 
 /* Context management (3D) */
-
 int virtgpu_cmd_ctx_create(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t context_init, const char *debug_name, uint32_t name_len)
 {
     struct virtio_gpu_ctx_create cmd;
@@ -589,7 +577,6 @@ int virtgpu_cmd_ctx_detach_resource(struct virtio_gpu_device *vgdev, uint32_t ct
 }
 
 /* 3D command submission */
-
 int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx, const void *cmd_data, uint32_t size, struct virtio_gpu_fence *fence)
 {
     struct virtio_gpu_submit_3d *cmd;
@@ -623,7 +610,6 @@ int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint
 }
 
 /* Capset query */
-
 int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, uint32_t *capset_id, uint32_t *max_version, uint32_t *max_size)
 {
     struct virtio_gpu_get_capset_info  cmd;

@@ -236,8 +236,6 @@ int drm_modeset_backoff(struct drm_modeset_acquire_ctx *ctx)
     return 0;
 }
 
-/* Device-wide locking */
-
 /*
  * Acquire all KMS modeset locks of @dev under @ctx: the global mode_config
  * mutex plus every CRTC mutex. If any CRTC acquisition returns -EDEADLK, the

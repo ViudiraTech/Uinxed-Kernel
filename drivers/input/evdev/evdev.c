@@ -43,8 +43,6 @@
 #define _IOC_NRMASK   ((1U << _IOC_NRBITS) - 1)
 #define _IOC_SIZEMASK ((1U << _IOC_SIZEBITS) - 1)
 
-/* bit operations */
-
 /* Set one bit in a bitmap word array. */
 static inline void set_bit(unsigned int nr, uint32_t *addr)
 {
@@ -185,7 +183,6 @@ static int evdev_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t
 }
 
 /* evdev_get_mask_cnt */
-
 static size_t evdev_get_mask_cnt(unsigned int type)
 {
     static const size_t counts[EV_CNT] = {
@@ -196,7 +193,6 @@ static size_t evdev_get_mask_cnt(unsigned int type)
 }
 
 /* evdev_compute_buffer_size */
-
 static unsigned int evdev_compute_buffer_size(input_dev_t *dev)
 {
     unsigned int n_events = dev->hint_events_per_packet * EVDEV_BUF_PACKETS;
@@ -209,7 +205,6 @@ static unsigned int evdev_compute_buffer_size(input_dev_t *dev)
 }
 
 /* __evdev_is_filtered */
-
 static bool __evdev_is_filtered(evdev_client_t *client, unsigned int type, unsigned int code)
 {
     uint32_t *mask;
@@ -228,7 +223,6 @@ static bool __evdev_is_filtered(evdev_client_t *client, unsigned int type, unsig
 }
 
 /* __evdev_queue_syn_dropped */
-
 static void __evdev_queue_syn_dropped(evdev_client_t *client)
 {
     uint64_t      ns = evdev_clock_ns(client->clk_type);
@@ -253,14 +247,12 @@ static void __evdev_flush_queue(evdev_client_t *client, unsigned int type)
 }
 
 /* __pass_event */
-
 static bool __pass_event(evdev_client_t *client, const input_event_t *event)
 {
     return evdev_queue_push(&client->queue, event);
 }
 
 /* evdev_pass_values */
-
 static void evdev_pass_values(evdev_client_t *client, const input_event_t *values, unsigned int count)
 {
     unsigned int  i;
@@ -300,7 +292,6 @@ static void evdev_pass_values(evdev_client_t *client, const input_event_t *value
 }
 
 /* evdev_events */
-
 static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned int count)
 {
     evdev_t        *evdev = dev->evdev;
@@ -335,7 +326,6 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
 }
 
 /* evdev_set_clk_type */
-
 static int evdev_set_clk_type(evdev_client_t *client, int clk_type)
 {
     input_event_t dropped;
@@ -360,7 +350,6 @@ static int evdev_set_clk_type(evdev_client_t *client, int clk_type)
 }
 
 /* evdev_grab / evdev_ungrab */
-
 static int evdev_grab(evdev_t *evdev, evdev_client_t *client)
 {
     spin_lock(&evdev->client_lock);
@@ -386,7 +375,6 @@ static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client)
 }
 
 /* evdev_attach_client / evdev_detach_client */
-
 static void evdev_attach_client(evdev_t *evdev, evdev_client_t *client)
 {
     spin_lock(&evdev->client_lock);
@@ -403,7 +391,6 @@ static void evdev_detach_client(evdev_t *evdev, evdev_client_t *client)
 }
 
 /* evdev_open_device / evdev_close_device */
-
 static int evdev_open_device(evdev_t *evdev)
 {
     int ret = 0;
@@ -431,7 +418,6 @@ static bool evdev_close_device(evdev_t *evdev)
 }
 
 /* evdev_hangup */
-
 static void evdev_hangup(evdev_t *evdev)
 {
     ilist_node_t   *node;
@@ -451,7 +437,6 @@ static void evdev_hangup(evdev_t *evdev)
 }
 
 /* evdev_create */
-
 evdev_t *evdev_create(input_dev_t *dev)
 {
     evdev_t *evdev;
@@ -494,7 +479,6 @@ static void evdev_free(evdev_t *evdev)
 }
 
 /* evdev_destroy */
-
 void evdev_destroy(evdev_t *evdev)
 {
     bool destroy;
@@ -513,7 +497,6 @@ void evdev_destroy(evdev_t *evdev)
 }
 
 /* evdev_register */
-
 int evdev_register(evdev_t *evdev)
 {
     int minor;
@@ -574,7 +557,6 @@ rollback_table:
 }
 
 /* evdev_unregister */
-
 void evdev_unregister(evdev_t *evdev)
 {
     char path[32];
@@ -611,7 +593,6 @@ void evdev_unregister(evdev_t *evdev)
 }
 
 /* evdev_find_by_minor */
-
 evdev_t *evdev_find_by_minor(int minor)
 {
     evdev_t *evdev;
@@ -626,7 +607,6 @@ evdev_t *evdev_find_by_minor(int minor)
 }
 
 /* evdev_init */
-
 void evdev_init(void)
 {
     int i;
@@ -636,8 +616,6 @@ void evdev_init(void)
     evdev_initialized = true;
     spin_unlock(&evdev_table_lock);
 }
-
-/* event validation and injection */
 
 /* Return whether the device supports the given event type and code. */
 static bool evdev_event_supported(const input_dev_t *dev, unsigned int type, unsigned int code)
@@ -851,14 +829,12 @@ void evdev_inject_event(input_dev_t *dev, uint16_t type, uint16_t code, int32_t 
 }
 
 /* evdev_inject_syn */
-
 void evdev_inject_syn(input_dev_t *dev)
 {
     evdev_inject_event(dev, EV_SYN, SYN_REPORT, 0);
 }
 
 /* evdev_fop_open */
-
 evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
 {
     evdev_client_t *client;
@@ -909,7 +885,6 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
 }
 
 /* evdev_fop_release */
-
 void evdev_fop_release(evdev_client_t *client)
 {
     evdev_t *evdev;
@@ -937,7 +912,6 @@ void evdev_fop_release(evdev_client_t *client)
 }
 
 /* evdev_fop_read */
-
 ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool nonblock)
 {
     evdev_t       *evdev;
@@ -992,7 +966,6 @@ ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool non
 }
 
 /* evdev_fop_write */
-
 ssize_t evdev_fop_write(evdev_client_t *client, const void *buf, size_t count)
 {
     evdev_t             *evdev;
@@ -1016,7 +989,6 @@ ssize_t evdev_fop_write(evdev_client_t *client, const void *buf, size_t count)
 }
 
 /* evdev_fop_poll */
-
 int evdev_fop_poll(evdev_client_t *client, int events)
 {
     evdev_t *evdev;
@@ -1037,8 +1009,6 @@ int evdev_fop_poll(evdev_client_t *client, int events)
 
     return revents;
 }
-
-/* evdev_fop_ioctl */
 
 /* Copy a NUL-terminated string to user space. */
 static int evdev_copy_string_to_user(void *arg, const char *string, size_t maxlen)

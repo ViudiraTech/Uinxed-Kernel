@@ -25,7 +25,6 @@
 #include <sync/spin_lock.h>
 
 /* drm_atomic_state_alloc: allocate and initialize an atomic state */
-
 struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
 {
     struct drm_atomic_state *state;
@@ -68,7 +67,6 @@ struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
 }
 
 /* drm_atomic_state_default_clear: free all sub-state allocations */
-
 static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
 {
     struct drm_device      *dev    = state->dev;
@@ -128,7 +126,6 @@ static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
 }
 
 /* drm_atomic_state_free: fully release an atomic state */
-
 void drm_atomic_state_free(struct drm_atomic_state *state)
 {
     if (!state) return;
@@ -138,7 +135,6 @@ void drm_atomic_state_free(struct drm_atomic_state *state)
 }
 
 /* drm_atomic_get_crtc_state: get or create CRTC state for @crtc */
-
 struct drm_crtc_state *drm_atomic_get_crtc_state(struct drm_atomic_state *state, struct drm_crtc *crtc)
 {
     struct __drm_crtcs_state *crtc_entry = &state->crtcs[crtc->index];
@@ -182,7 +178,6 @@ struct drm_crtc_state *drm_atomic_get_crtc_state(struct drm_atomic_state *state,
 }
 
 /* drm_atomic_get_plane_state: get or create plane state for @plane */
-
 struct drm_plane_state *drm_atomic_get_plane_state(struct drm_atomic_state *state, struct drm_plane *plane)
 {
     struct drm_mode_config    *config = &state->dev->mode_config;
@@ -231,7 +226,6 @@ struct drm_plane_state *drm_atomic_get_plane_state(struct drm_atomic_state *stat
 }
 
 /* drm_atomic_get_connector_state: get or create connector state */
-
 struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_state *state, struct drm_connector *connector)
 {
     int i;
@@ -287,7 +281,6 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
 }
 
 /* drm_atomic_add_affected_planes: add all planes on @crtc to state */
-
 int drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_crtc *crtc)
 {
     struct drm_device      *dev    = state->dev;
@@ -310,7 +303,6 @@ int drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_cr
 }
 
 /* drm_atomic_add_affected_connectors: add all connectors on @crtc */
-
 int drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
@@ -343,7 +335,6 @@ int drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct dr
 }
 
 /* drm_atomic_check_only: validate the atomic state */
-
 int drm_atomic_check_only(struct drm_atomic_state *state)
 {
     struct drm_device      *dev    = state->dev;
@@ -439,7 +430,6 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
 }
 
 /* drm_atomic_commit: validate and apply the atomic state */
-
 static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 {
     struct drm_device      *dev    = state->dev;
@@ -629,7 +619,6 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 }
 
 /* Ordered blocking/nonblocking commit dispatch */
-
 static void drm_atomic_commit_wait_turn(struct drm_atomic_state *state)
 {
     struct drm_mode_config *config = &state->dev->mode_config;

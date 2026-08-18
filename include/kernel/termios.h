@@ -306,8 +306,6 @@ struct winsize {
 
 #define TTY_IOCTL_MAGIC 0x54
 
-/* Standard TTY ioctls */
-
 /* termios get/set */
 #define TCGETS  0x5401
 #define TCSETS  0x5402

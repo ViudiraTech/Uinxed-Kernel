@@ -122,8 +122,6 @@ struct drm_mode_object *drm_mode_object_find(struct drm_device *dev, struct drm_
     return NULL;
 }
 
-/* Per-object property storage */
-
 /*
  * Store or update @property's value on @obj. If the property is already
  * present its value is replaced; otherwise a new slot is appended,
@@ -267,14 +265,7 @@ int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property 
     return drm_object_property_set_value(obj, property, init_val);
 }
 
-/*
- * drm_mode_obj_getproperties_ioctl - Handle DRM_IOCTL_MODE_OBJ_GETPROPERTIES.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_obj_get_properties (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up a mode object by ID and returns its attached property IDs and values.
- */
+/* Handle DRM_IOCTL_MODE_OBJ_GETPROPERTIES. */
 int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_obj_get_properties *req = (struct drm_mode_obj_get_properties *)data;
@@ -347,14 +338,7 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
     return 0;
 }
 
-/*
- * drm_mode_obj_setproperty_ioctl - Handle DRM_IOCTL_MODE_OBJ_SETPROPERTY.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_obj_set_property (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up a mode object and property, then sets the property value on the object.
- */
+/* Handle DRM_IOCTL_MODE_OBJ_SETPROPERTY. */
 int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_obj_set_property *req = (struct drm_mode_obj_set_property *)data;

@@ -36,8 +36,6 @@ static uint16_t uart8250_base(const uart_port_t *port)
     return (uint16_t)(uintptr_t)port->private_data;
 }
 
-/* uart_ops */
-
 /* Enable RX interrupts (data available) on the port. */
 static int uart8250_startup(uart_port_t *port)
 {
@@ -93,8 +91,6 @@ static const uart_ops_t uart8250_ops = {
     .console_write = uart8250_console_write,
 };
 
-/* serial console driver */
-
 /* Console write callback: forward to the underlying UART port. */
 static void serial_console_write(console_t *c, const uint8_t *buf, size_t len)
 {
@@ -108,9 +104,11 @@ static tty_core_t *serial_console_get_tty(console_t *c)
     uart_port_t *port = c->data;
     tty_core_t  *tty  = NULL;
 
-    /* /dev/console reaches a serial console without opening /dev/ttyS<N>.
+    /*
+     * /dev/console reaches a serial console without opening /dev/ttyS<N>.
      * Resolve it through the serial core so its line discipline and wait
-     * queues are initialized before init issues its first termios ioctl. */
+     * queues are initialized before init issues its first termios ioctl.
+     */
     if (!port || serial_tty_core(port->number, &tty)) return NULL;
 
     /*
@@ -124,8 +122,6 @@ static tty_core_t *serial_console_get_tty(console_t *c)
     if (port->ops && port->ops->startup) port->ops->startup(port);
     return tty;
 }
-
-/* detection */
 
 /* Probe a UART base port with a loopback byte test. */
 static int uart8250_detect(uint16_t base)
@@ -146,8 +142,6 @@ static int uart8250_detect(uint16_t base)
     outb(base + UART8250_REG_MCR, 0x0f); // quit loopback
     return 1;
 }
-
-/* IRQ handling */
 
 /* Map a port index to its shared legacy IRQ line. */
 static int uart8250_irq_of(int number)
@@ -189,8 +183,6 @@ INTERRUPT_BEGIN static void uart8250_irq4_handler(interrupt_frame_t *frame)
     send_eoi();
 }
 INTERRUPT_END
-
-/* registration */
 
 /* Detect the legacy COM ports and register them with the serial core. */
 void init_serial(void)

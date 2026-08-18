@@ -69,8 +69,6 @@ static inline void sb16_outb(uint16_t port, uint8_t val)
     outb(port, val);
 }
 
-/* DMA channel helpers */
-
 /*
  * Program ISA DMA controller for a transfer.
  * channel: 0-3 for 8-bit, 4-7 for 16-bit (but 4 is cascade)
@@ -131,7 +129,6 @@ static void sb16_dma_program(uint8_t channel, uint32_t phys_addr, uint32_t size,
     enable_intr();
 }
 
-/* DSP low-level I/O */
 /* Wait until the DSP write port is ready for a command. */
 int sb16_dsp_wait_write(sb16_device_t *dev)
 {
@@ -181,8 +178,6 @@ int sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor)
     if (sb16_dsp_read(dev, minor)) return -1;
     return 0;
 }
-
-/* Mixer */
 
 /* Read a mixer register. */
 uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg)
@@ -237,8 +232,6 @@ void sb16_set_input_source(sb16_device_t *dev, uint8_t source)
     dev->input_source = source;
 }
 
-/* Sample rate setting */
-
 /* Set the 8-bit sample rate via the DSP. */
 int sb16_set_rate8(sb16_device_t *dev, uint16_t rate)
 {
@@ -258,8 +251,6 @@ int sb16_set_rate16(sb16_device_t *dev, uint16_t rate)
     if (sb16_dsp_write(dev, (rate >> 8) & 0xFF)) return -1;
     return sb16_dsp_write(dev, rate & 0xFF);
 }
-
-/* Playback */
 
 /* Play one 8-bit DMA buffer through the DSP. */
 int sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
@@ -303,8 +294,6 @@ int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     dev->playing = 1;
     return 0;
 }
-
-/* Capture */
 
 /* Capture one 8-bit DMA buffer from the DSP. */
 int sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
@@ -377,8 +366,6 @@ void sb16_stop(sb16_device_t *dev)
     dev->playing   = 0;
     dev->capturing = 0;
 }
-
-/* Audio subsystem callbacks */
 
 /* audio callback: start playback. */
 static int sb16_audio_start(audio_card_t *card)
@@ -559,8 +546,6 @@ static int sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
     *pos = 0;
     return EOK;
 }
-
-/* Detection and initialization */
 
 /* Probe the legacy ports and detect the DSP. */
 int sb16_detect(sb16_device_t *dev)

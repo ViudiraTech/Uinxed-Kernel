@@ -239,8 +239,6 @@ void fpu_init(void)
 #endif
 }
 
-/* Task FPU state lifecycle */
-
 /* Allocate and initialize a task's FPU state area */
 int fpu_task_init(struct task *task)
 {

@@ -25,9 +25,9 @@
 #define GPU_MAX_GPU_DRIVERS 16
 
 static struct gpu_driver {
-    const char *name;
-    int (*probe)(void);
-    bool fallback;
+        const char *name;
+        int (*probe)(void);
+        bool fallback;
 } gpu_drivers[GPU_MAX_GPU_DRIVERS];
 
 static int        gpu_driver_count;

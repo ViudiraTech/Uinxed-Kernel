@@ -1,4 +1,4 @@
-﻿/*
+/*
  *
  *      drm_init.c
  *      DRM subsystem initialization entry point
@@ -41,7 +41,7 @@ void drm_device_list_add(struct drm_device *dev)
     for (int i = 0; i < DRM_MAX_DEVICES; i++) {
         if (!drm_device_list[i]) {
             drm_device_list[i] = dev;
-            added             = true;
+            added              = true;
             break;
         }
     }
@@ -71,13 +71,15 @@ void drm_device_list_remove(struct drm_device *dev)
  */
 const char *drm_active_driver_name(void)
 {
-    /* The binding is fixed once any DRM device registers (at boot).  Cache
+    /*
+     * The binding is fixed once any DRM device registers (at boot). Cache
      * the resolved driver name as a POINTER to the static driver string:
      * pointer-sized stores are atomic (no torn copy) and the string outlives
-     * every caller.  Only a still-empty device list re-scans, so early
+     * every caller. Only a still-empty device list re-scans, so early
      * callers (before GPU probing) still pick up the driver once it appears
      * without holding the list lock on every FBIOGET_FSCREENINFO /
-     * /sys/class/graphics/fb0/name read. */
+     * /sys/class/graphics/fb0/name read.
+     */
     static const char *cached;
     const char        *name = NULL;
 
@@ -215,8 +217,10 @@ int drm_dev_ioctl(void *file, size_t req, void *arg)
     return drm_ioctl(dev, (unsigned int)req, arg, file_priv);
 }
 
-/* Parse a strictly numeric node suffix.  Returns -1 for an empty,
- * non-numeric, or overflowing suffix instead of atoi()'s silent 0. */
+/*
+ * Parse a strictly numeric node suffix. Returns -1 for an empty,
+ * non-numeric, or overflowing suffix instead of atoi()'s silent 0.
+ */
 static int drm_parse_minor(const char *s)
 {
     int minor = 0;
@@ -310,8 +314,8 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
      * source watched by Weston's epoll loop.  Event readiness itself remains
      * per-open and is checked through drm_poll(file, ...).
      */
-    file->filp = node;
-    *private_data     = file;
+    file->filp    = node;
+    *private_data = file;
     return 0;
 }
 
@@ -374,7 +378,6 @@ static void drm_gem_vma_get(void *data)
 }
 
 /* DRM per-open mmap callback (VMA-aware GEM mmap) */
-
 void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma)
 {
     struct drm_device     *dev       = (struct drm_device *)ctx;

@@ -82,17 +82,7 @@ const char *drm_connector_type_name(uint32_t type)
     }
 }
 
-/*
- * drm_connector_init - Initialise a connector object.
- * @dev: DRM device
- * @connector: connector to initialise
- * @funcs: connector helper funcs pointer (stored in helper_private)
- * @connector_type: DRM_MODE_CONNECTOR_* type
- *
- * Allocates a mode-object ID, initialises the mutex and mode lists,
- * inserts into the device connector list, and sets defaults.
- * Returns 0 on success or a negative errno on failure.
- */
+/* Initialise a connector object. Returns 0 on success or a negative errno on failure. */
 int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, void *funcs, int connector_type)
 {
     int ret;
@@ -102,8 +92,10 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
         return -EINVAL;
     }
 
-    /* connector_type indexes dev->mode_config.connector_type_count[], so it
-     * must stay inside the DRM_MODE_CONNECTOR_* range. */
+    /*
+     * connector_type indexes dev->mode_config.connector_type_count[], so it
+     * must stay inside the DRM_MODE_CONNECTOR_* range.
+     */
     if (connector_type < 0 || connector_type > DRM_MODE_CONNECTOR_USB) {
         plogk("drm_connector: Init with out-of-range connector_type %d.\n", connector_type);
         return -EINVAL;
@@ -120,14 +112,12 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
     ilist_init(&connector->user_modes);
     ilist_insert_after(&dev->mode_config.connector_list, &connector->head);
 
-    connector->dev                     = dev;
-    connector->connector_type          = (uint32_t)connector_type;
-    connector->connector_type_id       = ++dev->mode_config.connector_type_count[connector_type];
+    connector->dev               = dev;
+    connector->connector_type    = (uint32_t)connector_type;
+    connector->connector_type_id = ++dev->mode_config.connector_type_count[connector_type];
     {
         /* Linux-style name, e.g. "Virtual-1", used in logs and DRM_IOCTL_MODE_GETCONNECTOR. */
-        (void)snprintf(connector->name, sizeof(connector->name), "%s-%u",
-                       drm_connector_type_name(connector->connector_type),
-                       connector->connector_type_id);
+        (void)snprintf(connector->name, sizeof(connector->name), "%s-%u", drm_connector_type_name(connector->connector_type), connector->connector_type_id);
     }
     connector->status                  = connector_status_unknown;
     connector->force                   = DRM_FORCE_UNSPECIFIED;
@@ -179,14 +169,7 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
     return 0;
 }
 
-/*
- * drm_connector_attach_encoder - Attach an encoder to a connector's possible encoders list.
- * @connector: connector
- * @encoder: encoder to attach
- *
- * Grows the possible_encoders_ids array by one and appends the encoder's
- * base ID. Returns 0 on success or -ENOMEM.
- */
+/* Attach an encoder to a connector's possible encoders list. */
 int drm_connector_attach_encoder(struct drm_connector *connector, struct drm_encoder *encoder)
 {
     uint32_t *new_ids;
@@ -227,16 +210,7 @@ int drm_connector_register(struct drm_connector *connector)
     return 0;
 }
 
-/*
- * drm_mode_getconnector - Handle DRM_IOCTL_MODE_GETCONNECTOR.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_get_connector (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up the connector by id, fills the struct with encoder count,
- * mode count, connection status, and physical dimensions.
- * Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_GETCONNECTOR. Returns 0 on success or -EINVAL/-ENOENT. */
 int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_connector *conn_req = (struct drm_mode_get_connector *)data;
@@ -383,8 +357,10 @@ void drm_connector_cleanup(struct drm_connector *connector)
         spin_unlock(&dev->mode_config.idr_mutex);
 
         if (dev->mode_config.num_connector > 0) dev->mode_config.num_connector--;
-        /* Give the per-type instance counter back so a re-init of the same
-         * type keeps Linux-style names (Virtual-1, not Virtual-2). */
+        /*
+         * Give the per-type instance counter back so a re-init of the same
+         * type keeps Linux-style names (Virtual-1, not Virtual-2).
+         */
         if (connector->connector_type <= DRM_MODE_CONNECTOR_USB && dev->mode_config.connector_type_count[connector->connector_type] > 0) {
             dev->mode_config.connector_type_count[connector->connector_type]--;
         }
@@ -442,15 +418,7 @@ int drm_connector_property_set_ioctl(struct drm_device *dev, void *data, struct 
     return drm_mode_obj_setproperty_ioctl(dev, &obj_set_prop, file_priv);
 }
 
-/*
- * drm_connector_update_edid_property - Update the EDID property blob for a connector.
- * @connector: connector
- * @edid: pointer to EDID data (may be NULL to clear)
- * @size: size of EDID data in bytes
- *
- * Destroys any existing EDID blob and creates a new one wrapping the
- * provided EDID data. Returns 0 on success or -ENOMEM.
- */
+/* Update the EDID property blob for a connector. */
 int drm_connector_update_edid_property(struct drm_connector *connector, const unsigned char *edid, size_t size)
 {
     struct drm_device        *dev;
@@ -480,8 +448,10 @@ int drm_connector_update_edid_property(struct drm_connector *connector, const un
     return 0;
 }
 
-/* Add the Kconfig-driven fallback mode so a connector is never mode-less
- * when EDID/display-info probing yields nothing.  Returns 0 on success. */
+/*
+ * Add the Kconfig-driven fallback mode so a connector is never mode-less
+ * when EDID/display-info probing yields nothing. Returns 0 on success.
+ */
 int drm_connector_add_fallback_mode(struct drm_connector *connector)
 {
     struct drm_display_mode *mode;

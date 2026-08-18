@@ -80,8 +80,6 @@ static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr);
 static void        mq_queue_destroy(mq_queue_t *queue);
 static void        mq_notify_signal(mq_queue_t *queue);
 
-/* Registry helpers */
-
 /* Find a queue by name in the global registry. */
 static mq_queue_t *mq_queue_lookup(const char *name)
 {
@@ -232,8 +230,6 @@ static mq_message_t *mq_dequeue(mq_queue_t *queue)
     return msg;
 }
 
-/* mq_notify signal delivery */
-
 /* Deliver the registered mq_notify signal to the notified task, once. */
 static void mq_notify_signal(mq_queue_t *queue)
 {
@@ -266,8 +262,6 @@ static void mq_notify_signal(mq_queue_t *queue)
         spin_unlock(&queue->lock);
     }
 }
-
-/* VFS callback: close */
 
 /* Close a descriptor, releasing its queue reference at the last close. */
 static void mq_vfs_close(void *current)
@@ -304,7 +298,6 @@ static void mq_vfs_close(void *current)
 }
 
 /* VFS callback: read (delegate to mq_timedreceive) */
-
 static size_t mq_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -343,7 +336,6 @@ static size_t mq_vfs_read(void *file, void *addr, size_t offset, size_t size)
 }
 
 /* VFS callback: write (delegate to mq_timedsend) */
-
 static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -401,7 +393,6 @@ static int mq_vfs_free(void *handle)
 }
 
 /* VFS callback stubs */
-
 static int mq_stub_mount(const char *s, vfs_node_t n)
 {
     (void)s;
@@ -509,7 +500,6 @@ static int mq_des_install(mq_des_t *des)
 }
 
 /* Syscall: mq_open */
-
 int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
 {
     char name_buf[MQ_NAME_MAX];
@@ -607,7 +597,6 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
 }
 
 /* Syscall: mq_unlink */
-
 int64_t sys_mq_unlink(const char *name)
 {
     char name_buf[MQ_NAME_MAX];
@@ -680,7 +669,6 @@ static mq_des_t *mq_fd_lookup(int mqdes, int *err)
 }
 
 /* Syscall: mq_timedsend */
-
 int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_t msg_prio, const void *abs_timeout)
 {
     int      err;
@@ -772,7 +760,6 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
 }
 
 /* Syscall: mq_timedreceive */
-
 int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *msg_prio, const void *abs_timeout)
 {
     int      err;
@@ -865,7 +852,6 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
 }
 
 /* Syscall: mq_notify */
-
 int64_t sys_mq_notify(int mqdes, const sigevent_t *notification)
 {
     int err;
@@ -929,7 +915,6 @@ int64_t sys_mq_notify(int mqdes, const sigevent_t *notification)
 }
 
 /* Syscall: mq_getsetattr */
-
 int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldattr)
 {
     int err;
@@ -977,7 +962,6 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
 }
 
 /* Initialization */
-
 void posix_mq_init(void)
 {
 #if CONFIG_POSIX_MQ

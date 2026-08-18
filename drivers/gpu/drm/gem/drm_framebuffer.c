@@ -25,16 +25,7 @@
 
 /* Internal helper from drm_mode_object.c */
 
-/*
- * drm_framebuffer_init - Initialise a framebuffer object.
- * @dev: DRM device
- * @fb: framebuffer to initialise
- * @funcs: framebuffer funcs pointer (unused in MVP, kept for API compat)
- *
- * Allocates the public mode-object ID, indexes fb_idr by that same ID,
- * inserts into the device fb_list, and increments num_fb. Returns 0 on
- * success or a negative errno.
- */
+/* Initialise a framebuffer object. */
 int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, const struct drm_framebuffer_funcs *funcs)
 {
     int ret;
@@ -79,16 +70,7 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, con
     return 0;
 }
 
-/*
- * drm_mode_addfb - Handle DRM_IOCTL_MODE_ADDFB (legacy).
- * @dev: DRM device
- * @data: pointer to struct drm_mode_fb_cmd (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Derives the fourcc format from bpp/depth, looks up the GEM object
- * backing the buffer, validates pitch/size, and registers the fb.
- * Returns 0 on success or -EINVAL/-ENOMEM.
- */
+/* Handle DRM_IOCTL_MODE_ADDFB (legacy). Returns 0 on success or -EINVAL/-ENOMEM. */
 int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_fb_cmd *r = (struct drm_mode_fb_cmd *)data;
@@ -255,15 +237,7 @@ static unsigned int drm_format_bpp(uint32_t format)
     }
 }
 
-/*
- * drm_mode_addfb2 - Handle DRM_IOCTL_MODE_ADDFB2.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_fb_cmd2 (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up GEM objects for each plane handle, validates pitch/size
- * per plane, and registers the fb. Returns 0 on success or -EINVAL/-ENOMEM.
- */
+/* Handle DRM_IOCTL_MODE_ADDFB2. */
 int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_fb_cmd2 *r = (struct drm_mode_fb_cmd2 *)data;
@@ -400,15 +374,7 @@ err_cleanup:
     return ret;
 }
 
-/*
- * drm_mode_rmfb - Handle DRM_IOCTL_MODE_RMFB.
- * @dev: DRM device
- * @data: pointer to fb_id (uint32_t)
- * @file_priv: DRM file handle
- *
- * Removes a framebuffer from the fb_idr and device fb_list, and frees it.
- * Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_RMFB. Returns 0 on success or -EINVAL/-ENOENT. */
 int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     uint32_t                fb_id = *(uint32_t *)data;
@@ -458,15 +424,7 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
     return 0;
 }
 
-/*
- * drm_mode_getfb - Handle DRM_IOCTL_MODE_GETFB (legacy).
- * @dev: DRM device
- * @data: pointer to struct drm_mode_fb_cmd (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up the framebuffer by fb_id, fills width, height, pitch, bpp,
- * and depth fields. Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_GETFB (legacy). */
 int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_fb_cmd *r = (struct drm_mode_fb_cmd *)data;
@@ -528,15 +486,7 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     return 0;
 }
 
-/*
- * drm_mode_dirtyfb - Handle DRM_IOCTL_MODE_DIRTYFB.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_fb_dirty_cmd (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Validates the dirty-fb arguments and passes annotations through to
- * the framebuffer's dirty callback unchanged.
- */
+/* Handle DRM_IOCTL_MODE_DIRTYFB. */
 int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_fb_dirty_cmd *r = (struct drm_mode_fb_dirty_cmd *)data;
@@ -611,15 +561,7 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
     return ret;
 }
 
-/*
- * drm_mode_getfb2_ioctl - Handle DRM_IOCTL_MODE_GETFB2.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_get_fb2 (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up a framebuffer by fb_id and fills in its properties.
- * Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_GETFB2. Returns 0 on success or -EINVAL/-ENOENT. */
 int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_fb2 *r = (struct drm_mode_get_fb2 *)data;
@@ -704,15 +646,7 @@ void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
     }
 }
 
-/*
- * drm_framebuffer_lookup - Look up a framebuffer by ID.
- * @dev: DRM device
- * @file_priv: DRM file handle (unused)
- * @id: framebuffer ID
- *
- * Returns the framebuffer pointer or NULL if not found.
- * The caller does NOT receive an extra reference.
- */
+/* Look up a framebuffer by ID. Returns the framebuffer pointer or NULL if not found. */
 struct drm_framebuffer *drm_framebuffer_lookup(struct drm_device *dev, struct drm_file *file_priv, uint32_t id)
 {
     struct drm_framebuffer *fb;

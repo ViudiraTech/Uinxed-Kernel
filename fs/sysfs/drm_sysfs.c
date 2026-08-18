@@ -21,8 +21,6 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
-/* DRM device class */
-
 /* Emit the DRM uevent environment variables. */
 static int drm_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
@@ -40,7 +38,7 @@ static struct class drm_class = {
 
 /* Class attribute: /sys/class/drm/version */
 
-/* Linux drm_sysfs.c: CLASS_ATTR_STRING(version, 0444, "drm 1.1.0 20060810"). */
+/* : CLASS_ATTR_STRING(version, 0444, "drm 1.1.0 20060810"). */
 static ssize_t drm_version_show(struct class *cls, struct class_attribute *attr, char *buf)
 {
     (void)cls;
@@ -49,8 +47,6 @@ static ssize_t drm_version_show(struct class *cls, struct class_attribute *attr,
 }
 
 static CLASS_ATTR(version, 0444, drm_version_show, NULL);
-
-/* Connector attributes */
 
 /* Read the connector's connection status. */
 static ssize_t connector_status_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -195,8 +191,6 @@ static struct bin_attribute connector_edid_attr = {
     .attr = __ATTR(edid, 0444),
     .read = connector_edid_read,
 };
-
-/* Initialization */
 
 /* Register the DRM device class once at sysfs initialization. */
 void drm_sysfs_init(void)

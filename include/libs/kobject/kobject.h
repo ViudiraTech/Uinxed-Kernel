@@ -153,8 +153,6 @@ struct kset {
         unsigned int                  dynamic : 1;
 };
 
-/* kobject lifecycle API */
-
 /* Initialise a kobject (must be called before kobject_add) */
 void kobject_init(struct kobject *kobj, struct kobj_type *ktype);
 
@@ -188,8 +186,6 @@ int kobject_move(struct kobject *kobj, struct kobject *new_parent);
 /* Return a pointer to the kobject's name */
 const char *kobject_name(const struct kobject *kobj);
 
-/* kset lifecycle API */
-
 /* Initialise a kset */
 void kset_init(struct kset *kset);
 
@@ -211,8 +207,6 @@ static inline void kset_put(struct kset *kset)
 {
     if (kset) kobject_put(&kset->kobj);
 }
-
-/* uevent helpers */
 
 /* Send a KOBJ_ADD uevent for a kobject */
 int kobject_uevent(struct kobject *kobj, enum kobject_action action);

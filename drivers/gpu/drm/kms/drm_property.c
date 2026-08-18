@@ -28,8 +28,6 @@
 
 /* Decrement refcount under lock; return true iff it reached zero. */
 
-/* Local helpers */
-
 /* Forward declaration: defined later in this file. */
 void drm_property_destroy(struct drm_device *dev, struct drm_property *property);
 
@@ -70,8 +68,6 @@ static void drm_property_free_enum_list(struct drm_property *prop)
         node = next;
     }
 }
-
-/* Property construction */
 
 /*
  * Create and register a new KMS property of @flags with @name and
@@ -225,8 +221,6 @@ struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_
     }
     return prop;
 }
-
-/* Blobs */
 
 /*
  * Create a property blob wrapping a copy of @data (@length bytes). The blob
@@ -454,8 +448,6 @@ int drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_fi
     return 0;
 }
 
-/* Destruction and lookup */
-
 /*
  * Tear down a property: unlink it from the device property list, free all
  * enum entries and the value array, remove it from the object IDR, and
@@ -485,15 +477,7 @@ void drm_property_destroy(struct drm_device *dev, struct drm_property *property)
 /* Forward declaration */
 struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
 
-/*
- * drm_mode_getproperty_ioctl - Handle DRM_IOCTL_MODE_GETPROPERTY.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_get_property (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up a property by ID and fills in its name, flags, value count,
- * and enum/blob count.
- */
+/* Handle DRM_IOCTL_MODE_GETPROPERTY. */
 int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_property *prop_req = (struct drm_mode_get_property *)data;

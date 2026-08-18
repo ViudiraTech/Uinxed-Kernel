@@ -253,7 +253,6 @@ static void dumb_offset_free(uint64_t offset, size_t size)
 }
 
 /* Lookup a GEM object by global flink name */
-
 static struct drm_gem_object *gem_find_by_name(uint32_t name)
 {
     int i;
@@ -264,7 +263,6 @@ static struct drm_gem_object *gem_find_by_name(uint32_t name)
 }
 
 /* Allocate a global flink name and store the object */
-
 static int gem_alloc_name(struct drm_gem_object *obj, uint32_t *name_out)
 {
     int i;
@@ -291,7 +289,6 @@ static int gem_alloc_name(struct drm_gem_object *obj, uint32_t *name_out)
 }
 
 /* Free a global flink name entry */
-
 static void __attribute__((unused)) gem_free_name(uint32_t name)
 {
     int i;
@@ -310,7 +307,6 @@ static void __attribute__((unused)) gem_free_name(uint32_t name)
 }
 
 /* drm_gem_object_init: initialize a GEM object */
-
 int drm_gem_object_init(struct drm_device *dev, struct drm_gem_object *obj, size_t size)
 {
     if (!obj) return -EINVAL;
@@ -326,7 +322,6 @@ int drm_gem_object_init(struct drm_device *dev, struct drm_gem_object *obj, size
 }
 
 /* drm_gem_object_get: increment refcount */
-
 void drm_gem_object_get(struct drm_gem_object *obj)
 {
     if (!obj) return;
@@ -337,7 +332,6 @@ void drm_gem_object_get(struct drm_gem_object *obj)
 }
 
 /* drm_gem_object_put: decrement refcount, free if zero */
-
 void drm_gem_object_put(struct drm_gem_object *obj)
 {
     int refcount;
@@ -371,7 +365,6 @@ void drm_gem_object_put(struct drm_gem_object *obj)
 }
 
 /* drm_gem_handle_create: create a per-file handle for a GEM object */
-
 int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj, uint32_t *handle_out)
 {
     struct drm_gem_handle_entry *entry;
@@ -406,7 +399,6 @@ int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj
 }
 
 /* drm_gem_handle_delete: delete a per-file handle */
-
 int drm_gem_handle_delete(struct drm_file *file_priv, uint32_t handle)
 {
     struct drm_gem_object *obj;
@@ -437,7 +429,6 @@ int drm_gem_handle_delete(struct drm_file *file_priv, uint32_t handle)
 }
 
 /* drm_gem_object_lookup: find a GEM object by handle */
-
 struct drm_gem_object *drm_gem_object_lookup(struct drm_file *file_priv, uint32_t handle)
 {
     struct drm_gem_object *obj;
@@ -455,7 +446,6 @@ struct drm_gem_object *drm_gem_object_lookup(struct drm_file *file_priv, uint32_
 }
 
 /* drm_gem_object_lookup_by_offset: find a GEM object by mmap offset */
-
 struct drm_gem_object *drm_gem_object_lookup_by_offset(struct drm_file *file_priv, uint64_t offset)
 {
     struct drm_gem_object *obj;
@@ -484,7 +474,6 @@ struct drm_gem_object *drm_gem_object_lookup_by_offset(struct drm_file *file_pri
 }
 
 /* drm_gem_open_ioctl: handle DRM_IOCTL_GEM_OPEN */
-
 int drm_gem_open_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_gem_open   *args = (struct drm_gem_open *)data;
@@ -516,7 +505,6 @@ int drm_gem_open_ioctl(struct drm_device *dev, void *data, struct drm_file *file
 }
 
 /* drm_gem_close_ioctl: handle DRM_IOCTL_GEM_CLOSE */
-
 int drm_gem_close_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_gem_close *args = (struct drm_gem_close *)data;
@@ -527,7 +515,6 @@ int drm_gem_close_ioctl(struct drm_device *dev, void *data, struct drm_file *fil
 }
 
 /* drm_gem_flink_ioctl: handle DRM_IOCTL_GEM_FLINK */
-
 int drm_gem_flink_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_gem_flink  *args = (struct drm_gem_flink *)data;
@@ -553,7 +540,6 @@ int drm_gem_flink_ioctl(struct drm_device *dev, void *data, struct drm_file *fil
 }
 
 /* drm_gem_dumb_create: handle DRM_IOCTL_MODE_CREATE_DUMB */
-
 int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args)
 {
     struct drm_gem_object *obj;
@@ -594,8 +580,10 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     obj->mmap_offset = dumb_offset_alloc(size);
     if (!obj->mmap_offset) plogk("drm: Dumb mmap offset space exhausted (size=%zu)\n", size);
 
-    /* Allocate backing memory for the dumb buffer, page-rounded so the whole
-     * object is mmapable (drm_dev_file_mmap clamps to ALIGN_UP(obj->size)). */
+    /*
+     * Allocate backing memory for the dumb buffer, page-rounded so the whole
+     * object is mmapable (drm_dev_file_mmap clamps to ALIGN_UP(obj->size)).
+     */
     if (size > 0) {
         obj->backing = aligned_alloc(4096, ALIGN_UP(size, PAGE_4K_SIZE));
         if (!obj->backing) {
@@ -626,7 +614,6 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
 }
 
 /* drm_gem_dumb_map_offset: handle DRM_IOCTL_MODE_MAP_DUMB */
-
 int drm_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle, uint64_t *offset)
 {
     struct drm_gem_object *obj;
@@ -648,7 +635,6 @@ int drm_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *dev, 
 }
 
 /* drm_gem_dumb_destroy: handle DRM_IOCTL_MODE_DESTROY_DUMB */
-
 int drm_gem_dumb_destroy(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle)
 {
     (void)dev;
@@ -725,7 +711,6 @@ void drm_gem_prime_fd_free(int fd)
 }
 
 /* drm_gem_prime_handle_to_fd: handle DRM_IOCTL_PRIME_HANDLE_TO_FD */
-
 int drm_gem_prime_handle_to_fd(struct drm_device *dev, struct drm_file *file_priv, uint32_t handle, uint32_t flags, int *prime_fd)
 {
     struct drm_gem_object *obj;
@@ -757,7 +742,6 @@ int drm_gem_prime_handle_to_fd(struct drm_device *dev, struct drm_file *file_pri
 }
 
 /* drm_gem_prime_fd_to_handle: handle DRM_IOCTL_PRIME_FD_TO_HANDLE */
-
 int drm_gem_prime_fd_to_handle(struct drm_device *dev, struct drm_file *file_priv, int prime_fd, uint32_t *handle)
 {
     struct drm_gem_object *obj;

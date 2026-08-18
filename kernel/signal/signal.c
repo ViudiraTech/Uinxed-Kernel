@@ -372,8 +372,6 @@ void signal_exec_reset(process_t *proc)
     spin_unlock(&state->lock);
 }
 
-/* Permission check */
-
 /* Check whether one process may signal another */
 int signal_check_perm(const process_t *from, const process_t *to)
 {
@@ -405,15 +403,19 @@ int signal_check_perm(const process_t *from, const process_t *to)
  */
 static bool signal_task_ignored(const process_t *proc, int sig)
 {
-    /* Linux sig_ignored(): a blocked signal is never ignored, since its
-     * disposition may change before it is unblocked. */
+    /*
+     * Linux sig_ignored(): a blocked signal is never ignored, since its
+     * disposition may change before it is unblocked.
+     */
     if (sigismember(&proc->signal.blocked, sig)) return false;
 
     /* SIGKILL and SIGSTOP may not be sent to the global init (PID 1). */
     if (is_global_init(proc) && (sig == SIGKILL || sig == SIGSTOP)) return true;
 
-    /* SIGNAL_UNKILLABLE: the global init ignores any signal whose disposition
-     * is SIG_DFL; it only receives signals for which it has a handler. */
+    /*
+     * SIGNAL_UNKILLABLE: the global init ignores any signal whose disposition
+     * is SIG_DFL; it only receives signals for which it has a handler.
+     */
     if (is_global_init(proc) && proc->signal.sighand[sig].sa_handler == SIG_DFL) return true;
 
     /*
@@ -427,12 +429,14 @@ static bool signal_task_ignored(const process_t *proc, int sig)
      */
     if (sig == SIGCONT) return false;
 
-    /* Linux sig_handler_ignored(): a signal is dropped before enqueue when its
+    /*
+     * Linux sig_handler_ignored(): a signal is dropped before enqueue when its
      * disposition is explicitly SIG_IGN, or implicitly SIG_DFL for a
-     * sig_kernel_ignore() signal (SIGCHLD, SIGWINCH, SIGURG).  Kernel threads
+     * sig_kernel_ignore() signal (SIGCHLD, SIGWINCH, SIGURG). Kernel threads
      * set every signal to SIG_IGN via ignore_signals(), so they ignore all
      * signals — SIGKILL and SIGSTOP included — and are stopped only by
-     * kthread_stop(). */
+     * kthread_stop().
+     */
     if (proc->signal.sighand[sig].sa_handler == SIG_IGN) return true;
     if (proc->signal.sighand[sig].sa_handler == SIG_DFL && (sig == SIGCHLD || sig == SIGWINCH || sig == SIGURG)) return true;
     return false;
@@ -719,9 +723,11 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     signal_state_t *state = &proc->signal;
     sigaction_t    *sa    = &state->sighand[sig];
 
-    /* Check if signal is ignored.  SIGKILL is not special-cased here: a user
+    /*
+     * Check if signal is ignored. SIGKILL is not special-cased here: a user
      * process can never set it to SIG_IGN (sigaction rejects it), and a kernel
-     * thread's SIG_IGN is dropped at send time in signal_task_ignored(). */
+     * thread's SIG_IGN is dropped at send time in signal_task_ignored().
+     */
     if (sa->sa_handler == SIG_IGN) return SIG_DELIV_HANDLED;
 
     /* Check if signal is default */
@@ -989,8 +995,6 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
     return signal_deliver_for_process(process_current(), frame);
 }
 
-/* SIGCHLD notification */
-
 /* Notify a parent that a child exited */
 void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_code, int status)
 {
@@ -1052,8 +1056,6 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
     if (newly_pending) signalfd_deliver(parent, SIGCHLD, &info);
     if (parent->task) task_wakeup(parent->task);
 }
-
-/* Syscall implementations */
 
 /*
  * sys_kill - Send a signal to a process

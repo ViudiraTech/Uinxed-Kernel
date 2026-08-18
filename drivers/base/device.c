@@ -36,8 +36,6 @@ static struct kobject *get_devices_kobj(void);
 static struct kobject *get_bus_kobj(void);
 static struct kobject *get_class_kobj(void);
 
-/* Device attribute sysfs_ops */
-
 /* Show a device attribute value. */
 static ssize_t dev_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
@@ -62,8 +60,6 @@ static const struct sysfs_ops dev_sysfs_ops = {
     .show  = dev_attr_show,
     .store = dev_attr_store,
 };
-
-/* Bus attribute sysfs_ops */
 
 /* Show a bus attribute value. */
 static ssize_t bus_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
@@ -90,8 +86,6 @@ static const struct sysfs_ops bus_sysfs_ops = {
     .store = bus_attr_store,
 };
 
-/* Driver attribute sysfs_ops */
-
 /* Show a driver attribute value. */
 static ssize_t drv_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
@@ -116,8 +110,6 @@ static const struct sysfs_ops drv_sysfs_ops = {
     .show  = drv_attr_show,
     .store = drv_attr_store,
 };
-
-/* Class attribute sysfs_ops */
 
 /* Show a class attribute value. */
 static ssize_t class_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
@@ -344,8 +336,6 @@ static struct kobj_type class_ktype = {
     .default_attrs = NULL,
     .uevent_name   = class_uevent_name,
 };
-
-/* Lazy initialisation helpers */
 
 /* Resolve the /sys/devices kobject lazily. */
 static struct kobject *get_devices_kobj(void)

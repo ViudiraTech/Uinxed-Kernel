@@ -38,8 +38,6 @@ typedef struct block_sysfs_dev {
 
 static struct kobject *block_root_kobj;
 
-/* Attribute show functions */
-
 /* Return the block sysfs wrapper containing a kobject. */
 static block_sysfs_dev_t *to_bsd(struct kobject *kobj)
 {
@@ -96,8 +94,6 @@ static ssize_t removable_show(struct kobject *kobj, struct attribute *attr, char
     (void)attr;
     return (ssize_t)sysfs_emit(buf, "%d\n", to_bsd(kobj)->removable);
 }
-
-/* Sysfs ops */
 
 /* Dispatch a show operation to the matching block attribute. */
 static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
@@ -362,8 +358,6 @@ void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
     (void)handle;
 #endif
 }
-
-/* Initialization */
 
 /* Export every registered disk to /sys/block/. */
 void block_sysfs_init(void)

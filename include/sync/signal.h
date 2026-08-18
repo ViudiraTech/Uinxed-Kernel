@@ -395,8 +395,6 @@ typedef enum {
     SIG_DFL_CONT,
 } sig_dfl_action_t;
 
-/* Kernel API */
-
 /* Initialize the signal subsystem */
 void signal_init(void);
 
@@ -410,9 +408,11 @@ void signal_itimer_cancel(process_t *proc);
 /* Initialize signal state for a new process */
 void signal_state_init(signal_state_t *state);
 
-/* Linux ignore_signals(): set every signal to SIG_IGN.  Kernel threads call
+/*
+ * Linux ignore_signals(): set every signal to SIG_IGN. Kernel threads call
  * this to ignore every signal (SIGKILL and SIGSTOP included); they are stopped
- * only by kthread_stop(). */
+ * only by kthread_stop().
+ */
 void signal_ignore_all(signal_state_t *state);
 
 /* Free signal state resources */

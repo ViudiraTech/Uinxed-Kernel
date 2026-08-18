@@ -45,7 +45,6 @@ ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];
 static int        ahci_port_count = 0;
 
 /* MMIO helpers */
-
 uint32_t ahci_read32(volatile uint8_t *base, uint32_t reg)
 {
     return mmio_read32((void *)(base + reg));
@@ -57,7 +56,6 @@ void ahci_write32(volatile uint8_t *base, uint32_t reg, uint32_t val)
 }
 
 /* Slot finder */
-
 static int ahci_find_slot(ahci_port_state_t *port)
 {
     uint32_t slots = ((ahci_read32(hba_mmio, HOST_CAP) >> 8) & 0x1F) + 1;
@@ -69,7 +67,6 @@ static int ahci_find_slot(ahci_port_state_t *port)
 }
 
 /* Port start / stop */
-
 static int ahci_port_stop(ahci_port_state_t *port)
 {
     int               tout;
@@ -165,7 +162,6 @@ static int ahci_issue_cmd(ahci_port_state_t *port, int slot, uint8_t *cfis, int 
 }
 
 /* Identify device (SATA only after signature check) */
-
 static int ahci_port_identify(ahci_port_state_t *port, ahci_device_t *dev)
 {
     fis_reg_h2d_t cfis;

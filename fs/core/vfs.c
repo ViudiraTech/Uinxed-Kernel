@@ -127,7 +127,7 @@ int vfs_chmod_process(vfs_node_t node, uint16_t mode, process_t *proc)
     return EOK;
 }
 
-/* Change ownership, treating UINT32_MAX as Linux's "leave unchanged" value. */
+/* Change ownership, treating UINT32_MAX as "leave unchanged" value. */
 int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, process_t *proc)
 {
     if (!node || !proc) return -EINVAL;
@@ -1690,8 +1690,10 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
     if (!user_range_ok(addr, size)) return -EFAULT;
     vfs_file_write_user_cb_t write_user = callbackof(file, file_write_user);
 
-    /* See the matching read path above.  A pipe write only moves bytes and
+    /*
+     * See the matching read path above. A pipe write only moves bytes and
      * must not perform a per-call metadata refresh through do_update().
+     * /
      */
     if ((file->type & (file_stream | file_pipe)) && write_user != vfs_empty_callback.file_write_user) {
         if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;

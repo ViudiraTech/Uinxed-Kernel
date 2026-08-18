@@ -396,25 +396,25 @@ struct drm_plane {
 };
 
 struct drm_encoder {
-        struct drm_device          *dev;
-        struct drm_mode_object      base;
-        uint32_t                    encoder_type;
-        uint32_t                    possible_crtcs;
-        uint32_t                    possible_clones;
-        struct drm_crtc            *crtc;
-        ilist_node_t                head; // in mode_config.encoder_list
-        void                       *helper_private;
+        struct drm_device     *dev;
+        struct drm_mode_object base;
+        uint32_t               encoder_type;
+        uint32_t               possible_crtcs;
+        uint32_t               possible_clones;
+        struct drm_crtc       *crtc;
+        ilist_node_t           head; // in mode_config.encoder_list
+        void                  *helper_private;
 };
 
 struct drm_connector {
-        struct drm_device        *dev;
-        struct drm_mode_object    base;
-        char                      name[DRM_CONNECTOR_NAME_LEN];
-        uint32_t                  connector_type;
-        uint32_t                  connector_type_id;
-        bool                      interlace_allowed, doublescan_allowed, stereo_allowed;
-        uint32_t                  ycbcr_420_allowed;
-        enum drm_connector_status status;
+        struct drm_device          *dev;
+        struct drm_mode_object      base;
+        char                        name[DRM_CONNECTOR_NAME_LEN];
+        uint32_t                    connector_type;
+        uint32_t                    connector_type_id;
+        bool                        interlace_allowed, doublescan_allowed, stereo_allowed;
+        uint32_t                    ycbcr_420_allowed;
+        enum drm_connector_status   status;
         ilist_node_t                modes;      // head of drm_display_mode.head
         ilist_node_t                user_modes; // head of usermode_head
         uint32_t                    display_info_width_mm, display_info_height_mm;
@@ -438,8 +438,10 @@ struct drm_connector {
         uint32_t  possible_encoders_count;
         uint32_t *possible_encoders_ids;
 
-        /* Sysfs class device (/sys/class/drm/cardN-<type>-<id>), for removal
-         * during connector cleanup. */
+        /*
+         * Sysfs class device (/sys/class/drm/cardN-<type>-<id>), for removal
+         * during connector cleanup.
+         */
         struct device *kdev;
 };
 
@@ -466,8 +468,6 @@ struct drm_framebuffer {
         int                                 id;
         struct drm_file                    *file; // file that created it (for cleanup)
 };
-
-/* Atomic state (forward) */
 
 /* Per-plane state entry inside an atomic transaction. */
 struct __drm_planes_state {
@@ -526,8 +526,8 @@ struct drm_gem_object {
         spinlock_t         ref_lock;
         uint32_t           handle_count;
         uint32_t           size;
-        void              *backing;     // allocated backing memory for dumb/prime buffers
-        uint64_t           mmap_offset; // offset returned by dumb_map_offset for mmap lookup
+        void              *backing;          // allocated backing memory for dumb/prime buffers
+        uint64_t           mmap_offset;      // offset returned by dumb_map_offset for mmap lookup
         ilist_node_t       handle_list_node; // legacy, per-file entries are separate
         void              *import_attach;    // attached dma-buf attachment (for PRIME import)
         void              *dma_buf;          // dma-buf (for PRIME export)
@@ -561,8 +561,10 @@ struct drm_mode_config {
         int num_total_plane;
         int num_fb;
 
-        /* Per-connector-type instance counters, indexed by DRM_MODE_CONNECTOR_*.
-         * Mirrors Linux's per-type ida: each type's instances are numbered from 1. */
+        /*
+         * Per-connector-type instance counters, indexed by DRM_MODE_CONNECTOR_*.
+         * Mirrors per-type ida: each type's instances are numbered from 1.
+         */
         uint32_t connector_type_count[DRM_MODE_CONNECTOR_USB + 1];
 
         int      num_connector_property_list;
@@ -680,10 +682,7 @@ struct drm_driver {
         int (*dumb_create)(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args);
         int (*dumb_map_offset)(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle, uint64_t *offset);
         int (*dumb_destroy)(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle);
-
 };
-
-/* File handle */
 
 /* Event queue entry. */
 struct drm_event_node {
@@ -776,11 +775,13 @@ struct drm_device {
         void (*fb_console_flush)(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
         bool (*fb_console_flush_guard)(void);
 
-        /* Set once a KMS commit has handed the display to a client on a
+        /*
+         * Set once a KMS commit has handed the display to a client on a
          * device whose console was not handed to a DRM buffer (no
          * fb_console_flush, e.g. simpledrm shares the boot framebuffer).
          * The console is blanked on that first commit and unblanked when the
-         * last client closes. */
+         * last client closes.
+         */
         bool console_blanked_by_commit;
 };
 
@@ -793,14 +794,14 @@ struct drm_minor {
         char              *device_node_name; // e.g. "card0"
 };
 
-/* Minor allocator */
-
 /* Linux include/linux/major.h: DRM_MAJOR 226. */
 #define DRM_MAJOR 226
 
-/* Minor type values mirror Linux's enum drm_minor_type in include/drm/drm_file.h
+/*
+ * Minor type values mirror enum drm_minor_type in include/drm/drm_file.h
  * (PRIMARY=0, CONTROL=1, RENDER=2, ACCEL=32; 32 is spaced to leave room for
- * more minor types).  CONTROL is unused here and accel is not yet implemented. */
+ * more minor types). CONTROL is unused here and accel is not yet implemented.
+ */
 #define DRM_MINOR_PRIMARY 0
 #define DRM_MINOR_RENDER  2
 #define DRM_MINOR_ACCEL   32
@@ -811,8 +812,6 @@ int drm_minor_alloc(int type);
 
 /* Release a previously allocated minor. */
 void drm_minor_free(int type, int index);
-
-/* Generic / lifecycle */
 
 /* Allocate and register a new drm_device bound to @driver. */
 struct drm_device *drm_dev_alloc(struct drm_driver *driver);

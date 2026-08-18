@@ -50,14 +50,7 @@ struct drm_display_mode *drm_mode_create(struct drm_device *dev)
     return mode;
 }
 
-/*
- * drm_mode_destroy - Unregister and free a display mode object.
- * @dev: DRM device
- * @mode: display mode to destroy
- *
- * Removes the mode from the global IDR, unlinks it from any list it
- * is on, and frees the struct.
- */
+/* Unregister and free a display mode object. */
 void drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode)
 {
     if (!dev || !mode) return;
@@ -71,15 +64,7 @@ void drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode)
     free(mode);
 }
 
-/*
- * drm_mode_probed_add - Add a probed display mode to a connector's mode list.
- * @connector: connector
- * @mode: display mode to add
- *
- * Inserts the mode into the connector's modes list and increments the
- * mode's connector_count. The mode must have been allocated with
- * drm_mode_create() or drm_mode_duplicate().
- */
+/* Add a probed display mode to a connector's mode list. */
 void drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode)
 {
     if (!connector || !mode) return;
@@ -88,15 +73,7 @@ void drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mod
     mode->connector_count++;
 }
 
-/*
- * drm_mode_copy - Copy a display mode (shallow struct copy).
- * @dst: destination mode
- * @src: source mode
- *
- * Copies all fields of the display mode from src to dst using memcpy,
- * while preserving the destination's mode object identity (base) and its
- * position in any list (head).
- */
+/* Copy a display mode (shallow struct copy). */
 void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *src)
 {
     struct drm_mode_object base = dst->base;
@@ -155,13 +132,7 @@ struct drm_display_mode *drm_convert_umode(const struct drm_mode_modeinfo *umode
     return mode;
 }
 
-/*
- * drm_convert_to_umode - Convert a kernel drm_display_mode to a UAPI drm_mode_modeinfo.
- * @out: destination UAPI struct
- * @in: source kernel display mode
- *
- * Fills the UAPI struct fields from the kernel display mode.
- */
+/* Convert a kernel drm_display_mode to a UAPI drm_mode_modeinfo. */
 void drm_convert_to_umode(struct drm_mode_modeinfo *out, const struct drm_display_mode *in)
 {
     if (!out || !in) return;
@@ -226,14 +197,7 @@ void drm_mode_set_name(struct drm_display_mode *mode)
     (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN, "%dx%d%s", mode->hdisplay, mode->vdisplay, interlaced ? "i" : "");
 }
 
-/*
- * drm_mode_duplicate - Allocate and duplicate an existing mode.
- * @dev: drm_device to allocate the duplicated mode for
- * @mode: mode to duplicate
- *
- * Allocate a new mode, copy the existing mode into it, and return a pointer
- * to it.  Used to create new instances of established modes.
- */
+/* Allocate and duplicate an existing mode. */
 struct drm_display_mode *drm_mode_duplicate(struct drm_device *dev, const struct drm_display_mode *mode)
 {
     struct drm_display_mode *nmode;

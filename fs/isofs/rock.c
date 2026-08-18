@@ -36,9 +36,11 @@ static void rr_seek_susp(isofs_rr_state_t *state, const struct iso_directory_rec
     }
 }
 
-/* Follow a CE (continuation) entry to the block holding further SUSP
- * records.  Returns 0 on success, 1 when no continuation exists, or a
- * negative error code. */
+/*
+ * Follow a CE (continuation) entry to the block holding further SUSP
+ * records. Returns 0 on success, 1 when no continuation exists, or a
+ * negative error code.
+ */
 static int rr_fetch_continuation(isofs_rr_state_t *state)
 {
     const int entry_head = 4;

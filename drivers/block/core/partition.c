@@ -56,7 +56,6 @@ typedef struct gpt_location {
  * order regardless of the host, so all fields are decoded through
  * these helpers.
  */
-
 static uint16_t load_le16(const void *pointer)
 {
     const uint8_t *bytes = pointer;
@@ -323,8 +322,6 @@ static int parse_mbr(const blockdev_device_t *device, partition_table_t *table, 
     return table->count ? EOK : -ENOENT;
 }
 
-/* GPT parsing */
-
 /* Read and validate a GPT header at header_lba, filling in location */
 static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_lba, gpt_location_t *location, uint8_t *sector, uint8_t *scratch)
 {
@@ -492,12 +489,12 @@ static int format_guid(const uint8_t guid[16], char *buffer, size_t size)
     return EOK;
 }
 
-/* Public API */
-
-/* Detect the partition-table format on a disk and populate a partition_table_t.
+/*
+ * Detect the partition-table format on a disk and populate a partition_table_t.
  * A protective MBR entry (type 0xEE at LBA 1) selects GPT; otherwise the
  * classic MBR path is taken. GPT headers are validated by CRC before use,
- * falling back to the backup header when the primary is damaged. */
+ * falling back to the backup header when the primary is damaged.
+ */
 int partition_scan(const blockdev_device_t *device, partition_table_t *table)
 {
     gpt_location_t primary;

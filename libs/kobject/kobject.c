@@ -24,8 +24,6 @@
 #include <net/netlink/netlink.h>
 #include <sync/spin_lock.h>
 
-/* Static helpers */
-
 /* Default release function for dynamically-allocated kobjects */
 static void dynamic_kobj_release(struct kobject *kobj)
 {
@@ -91,7 +89,6 @@ static int kobject_list_add(clist_t *list, void *data)
 }
 
 /* Initialize a kobject. */
-
 void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
 {
     if (!kobj) return;
@@ -120,7 +117,6 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
 }
 
 /* Set a formatted name on a kobject. */
-
 int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
 {
     char    buf[KOBJ_NAME_LEN];
@@ -145,7 +141,6 @@ int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
 }
 
 /* Add a kobject to its parent and kset, creating its sysfs entry. */
-
 int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...)
 {
     va_list args;
@@ -238,7 +233,6 @@ err_refs:
 }
 
 /* Initialize a kobject and add it to sysfs. */
-
 int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...)
 {
     va_list args;
@@ -256,7 +250,6 @@ int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct k
 }
 
 /* Allocate, initialize and add a kobject. */
-
 struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
 {
     struct kobject *kobj;
@@ -277,7 +270,6 @@ struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
 }
 
 /* Increment a kobject's reference count. */
-
 struct kobject *kobject_get(struct kobject *kobj)
 {
     if (!kobj || !kref_get_unless_zero(&kobj->kref)) return NULL;
@@ -306,7 +298,6 @@ void kobject_put(struct kobject *kobj)
 }
 
 /* Remove a kobject from sysfs and its parent/kset. */
-
 void kobject_del(struct kobject *kobj)
 {
     struct kobject *parent;
@@ -355,7 +346,6 @@ void kobject_del(struct kobject *kobj)
 }
 
 /* Rename a kobject and update its sysfs entry. */
-
 int kobject_rename(struct kobject *kobj, const char *new_name)
 {
     char *old_path;
@@ -397,7 +387,6 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
 }
 
 /* Move a kobject under a new parent. */
-
 int kobject_move(struct kobject *kobj, struct kobject *new_parent)
 {
     struct kobject *old_parent;
@@ -465,7 +454,6 @@ int kobject_move(struct kobject *kobj, struct kobject *new_parent)
 }
 
 /* Return the name of a kobject. */
-
 const char *kobject_name(const struct kobject *kobj)
 {
     if (!kobj) return "(null)";
@@ -473,7 +461,6 @@ const char *kobject_name(const struct kobject *kobj)
 }
 
 /* Initialize a kset. */
-
 void kset_init(struct kset *kset)
 {
     if (!kset) return;
@@ -483,7 +470,6 @@ void kset_init(struct kset *kset)
 }
 
 /* Allocate, initialize and add a kset. */
-
 struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops *uevent_ops, struct kobject *parent_kobj)
 {
     struct kset *kset;
@@ -509,7 +495,6 @@ struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops 
 }
 
 /* Remove a kset from sysfs and release it. */
-
 void kset_unregister(struct kset *kset)
 {
     if (!kset) return;
@@ -518,7 +503,6 @@ void kset_unregister(struct kset *kset)
 }
 
 /* Build the sysfs path of a kobject. */
-
 char *kobject_get_path(struct kobject *kobj)
 {
     char           *path;
@@ -563,7 +547,6 @@ char *kobject_get_path(struct kobject *kobj)
 }
 
 /* Broadcast a uevent for a kobject. */
-
 int kobject_uevent(struct kobject *kobj, enum kobject_action action)
 {
     if (!kobj) return -EINVAL;

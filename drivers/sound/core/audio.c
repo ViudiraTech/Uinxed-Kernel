@@ -160,8 +160,6 @@ audio_device_node_t *audio_get_device_node(size_t index)
     return &audio_nodes[index];
 }
 
-/* PCM Ring Buffer */
-
 /* Allocate and initialize the ring buffer for the given frame count. */
 int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames)
 {
@@ -286,8 +284,6 @@ size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames
     return frames;
 }
 
-/* Per-open instance helpers */
-
 /* Allocate and initialize the per-open PCM file state. */
 static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
 {
@@ -321,8 +317,6 @@ static void audio_pcm_destroy(audio_pcm_file_t *pf)
     wait_queue_wake_all(&pf->write_wait);
     free(pf);
 }
-
-/* file_open / file_release */
 
 /* Create a per-open PCM file state for a device node. */
 int audio_file_open(vfs_node_t vnode, uint64_t flags, void **private_data)
@@ -510,8 +504,6 @@ int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events
 
     return revents & (int)events;
 }
-
-/* ALSA-compatible ioctl handler */
 
 /* SNDRV_PCM_IOCTL_HW_PARAMS: validate and apply the hardware format. */
 static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params *uarg)

@@ -1319,10 +1319,10 @@ static void destroy_internal(module_internal_t *internal)
     free(internal);
 }
 
-/* Public API */
-
-/* Load a kernel module: validate, layout, map, relocate, then run init.
- * The pipeline is all-or-nothing: any failure destroys the partial state. */
+/*
+ * Load a kernel module: validate, layout, map, relocate, then run init.
+ * The pipeline is all-or-nothing: any failure destroys the partial state.
+ */
 int module_load(const void *image, size_t size, const char *params, unsigned int flags, const char *name_hint)
 {
 #if !CONFIG_MODULES

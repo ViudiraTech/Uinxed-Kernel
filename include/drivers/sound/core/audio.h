@@ -271,8 +271,6 @@ size_t audio_device_node_count(void);
 /* Return the device node at an index. */
 audio_device_node_t *audio_get_device_node(size_t index);
 
-/* Per-open instance callbacks */
-
 /* Open a device node and create the PCM file state. */
 int audio_file_open(vfs_node_t node, uint64_t flags, void **private_data);
 
@@ -291,8 +289,6 @@ int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events
 /* Handle an ioctl on a PCM file. */
 int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
 
-/* Legacy device callbacks */
-
 /* Read device-node data. */
 size_t audio_device_read(void *ctx, void *addr, size_t offset, size_t size);
 
@@ -304,8 +300,6 @@ int audio_device_poll(void *ctx, size_t events);
 
 /* Handle an ioctl on a device node. */
 int audio_device_ioctl(void *ctx, size_t req, void *arg);
-
-/* PCM ring buffer helpers */
 
 /* Allocate and initialize a ring buffer. */
 int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames);
@@ -327,8 +321,6 @@ snd_pcm_sframes_t pcm_ring_buffer_space(audio_pcm_file_t *pf);
 
 /* Advance the hardware pointer. */
 void pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_uframes_t frames);
-
-/* Mixer helpers */
 
 /* Add src into dst with s16 clamping. */
 size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames, unsigned int channels);

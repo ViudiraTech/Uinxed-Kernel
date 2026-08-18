@@ -28,7 +28,6 @@
 static drm_magic_t magic_counter = 1;
 
 /* drm_getmagic - handle DRM_IOCTL_GET_MAGIC */
-
 int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_auth      *auth;
@@ -66,7 +65,6 @@ int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 }
 
 /* drm_authmagic - handle DRM_IOCTL_AUTH_MAGIC */
-
 int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_auth      *auth;
@@ -96,7 +94,6 @@ int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv
 }
 
 /* drm_setmaster - handle DRM_IOCTL_SET_MASTER */
-
 int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     drm_master_t *master;
@@ -135,15 +132,16 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 
     file_priv->master = master;
 
-    /* The master now owns the display: suspend the kernel console so it
-     * stops repainting a framebuffer shared with the compositor's scanout. */
+    /*
+     * The master now owns the display: suspend the kernel console so it
+     * stops repainting a framebuffer shared with the compositor's scanout.
+     */
     video_console_blank(true);
 
     return 0;
 }
 
 /* drm_dropmaster - handle DRM_IOCTL_DROP_MASTER */
-
 int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     drm_master_t *master;

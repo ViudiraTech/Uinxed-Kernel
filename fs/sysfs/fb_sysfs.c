@@ -40,7 +40,7 @@ static int fb_mode_string(char *buf, uint64_t width, uint64_t height)
 /* Parse a leading unsigned decimal up to the first non-digit / newline. */
 static int fb_parse_uint(const char *buf, size_t count, uint64_t *out)
 {
-    char  tmp[32];
+    char   tmp[32];
     size_t len = 0;
     char  *end;
 
@@ -107,7 +107,7 @@ static ssize_t fb_bpp_store(struct device *dev, struct device_attribute *attr, c
     return (ssize_t)count;
 }
 
-/* Show the framebuffer virtual resolution as "xres,yres" (Linux fbsysfs.c). */
+/* Show the framebuffer virtual resolution as "xres,yres" (). */
 static ssize_t fb_virtual_size_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -182,8 +182,10 @@ static ssize_t fb_mode_store(struct device *dev, struct device_attribute *attr, 
     if (n <= 0) return -EINVAL;
     elen = (size_t)n;
     if (elen && expected[elen - 1] == '\n') elen--;
-    /* NUL-terminate at the trimmed length so the match compares the mode
-     * string without its trailing newline (mirroring the trimmed input). */
+    /*
+     * NUL-terminate at the trimmed length so the match compares the mode
+     * string without its trailing newline (mirroring the trimmed input).
+     */
     expected[elen] = '\0';
     if (!fb_sysfs_match(buf, count, expected)) return -EINVAL;
     return (ssize_t)count;
@@ -263,7 +265,7 @@ static ssize_t fb_state_store(struct device *dev, struct device_attribute *attr,
     return (ssize_t)count;
 }
 
-/* Console / cursor toggles: Linux fbsysfs.c keeps both empty no-ops. */
+/* Console / cursor toggles: keeps both empty no-ops. */
 static ssize_t fb_console_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
@@ -312,8 +314,19 @@ static DEVICE_ATTR(console, 0644, fb_console_show, fb_console_store);
 static DEVICE_ATTR(cursor, 0644, fb_cursor_show, fb_cursor_store);
 
 static struct attribute *framebuffer_attributes[] = {
-    &dev_attr_name.attr, &dev_attr_stride.attr, &dev_attr_bits_per_pixel.attr, &dev_attr_virtual_size.attr, &dev_attr_modes.attr, &dev_attr_mode.attr, &dev_attr_blank.attr,
-    &dev_attr_pan.attr,  &dev_attr_rotate.attr, &dev_attr_state.attr,          &dev_attr_console.attr,       &dev_attr_cursor.attr, NULL,
+    &dev_attr_name.attr,
+    &dev_attr_stride.attr,
+    &dev_attr_bits_per_pixel.attr,
+    &dev_attr_virtual_size.attr,
+    &dev_attr_modes.attr,
+    &dev_attr_mode.attr,
+    &dev_attr_blank.attr,
+    &dev_attr_pan.attr,
+    &dev_attr_rotate.attr,
+    &dev_attr_state.attr,
+    &dev_attr_console.attr,
+    &dev_attr_cursor.attr,
+    NULL,
 };
 
 static struct attribute_group framebuffer_group = {

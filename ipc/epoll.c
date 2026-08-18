@@ -69,8 +69,6 @@ typedef struct epoll_instance {
 
 static int epoll_fsid = -1;
 
-/* Internal helpers */
-
 /*
  * Map a process_fd_poll result (which returns POLLIN/POLLOUT/POLLERR/POLLHUP)
  * to the corresponding EPOLL bits.  Only bits that are set in both the
@@ -122,8 +120,6 @@ static void epoll_target_close(vfs_poll_subscription_t *subscription, uint32_t e
     wait_queue_wake_all(&item->epi->wq);
     if (item->epi->node) vfs_poll_notify(item->epi->node, POLLIN);
 }
-
-/* Item operations */
 
 /* Find an epoll_item by fd.  Must be called with epi->lock held. */
 static epoll_item_t *epoll_item_find(epoll_instance_t *epi, int fd)
@@ -307,8 +303,6 @@ static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_event
     return collected;
 }
 
-/* VFS callbacks */
-
 /* VFS open callback; epoll nodes carry no name-based open state. */
 static void epoll_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -394,7 +388,6 @@ static int epoll_vfs_free(void *handle)
 }
 
 /* Stubs for unused VFS callbacks */
-
 static int epoll_stub_mount(const char *s, vfs_node_t n)
 {
     (void)s;
@@ -457,8 +450,6 @@ static int epoll_stub_rename(const vfs_rename_context_t *context)
     (void)context;
     return -ENOSYS;
 }
-
-/* Epoll node creation */
 
 /* Allocate an epoll instance and wrap it in a VFS node. */
 static vfs_node_t epoll_node_create(void)
@@ -523,7 +514,6 @@ static epoll_instance_t *epoll_resolve_fd(int epfd, process_t *proc, process_fil
 }
 
 /* Syscall: epoll_create */
-
 int64_t sys_epoll_create(int size)
 {
     (void)size;
@@ -544,7 +534,6 @@ int64_t sys_epoll_create(int size)
 }
 
 /* Syscall: epoll_create1 */
-
 int64_t sys_epoll_create1(int flags)
 {
     process_t *proc = process_current();
@@ -566,7 +555,6 @@ int64_t sys_epoll_create1(int flags)
 }
 
 /* Syscall: epoll_ctl */
-
 int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 {
     process_t *proc = process_current();
@@ -697,7 +685,6 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 }
 
 /* Syscall: epoll_wait */
-
 int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeout)
 {
     process_t *proc = process_current();
@@ -761,7 +748,6 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 }
 
 /* Syscall: epoll_pwait */
-
 int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int timeout, const void *sigmask, size_t sigsetsize)
 {
     process_t      *proc = process_current();
@@ -793,7 +779,6 @@ int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int time
 }
 
 /* Initialization */
-
 void epoll_init(void)
 {
     vfs_callback_t cb = malloc(sizeof(struct vfs_callback));

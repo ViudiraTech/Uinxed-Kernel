@@ -139,7 +139,6 @@ static int  tcp_autobind(tcp_endpoint_t *endpoint, uint32_t address);
 static void tcp_records_free(tcp_tx_record_t *record);
 
 /* Wraparound-safe 32-bit sequence comparisons */
-
 static int seq_before(uint32_t a, uint32_t b)
 {
     return (int32_t)(a - b) < 0;
@@ -572,7 +571,6 @@ tcp_endpoint_t *tcp_accept(tcp_endpoint_t *endpoint)
  * Build a TCP segment, checksum it, and hand it to the IP layer.
  * When track is set the segment is queued for retransmission.
  */
-
 static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, const void *data, size_t length, int track)
 {
     size_t header_length = TCP_HEADER_LEN + ((flags & TCP_FLAG_SYN) ? 4U : 0U);
@@ -1375,7 +1373,6 @@ bad:
  * the checksum, matches the 4-tuple to a PCB (or opens a passive
  * connection on a listener), then feeds ACK / data / FIN handling.
  */
-
 int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 {
     (void)device;
@@ -1617,7 +1614,6 @@ bad:
  * TIME_WAIT expiry. Event callbacks are deferred until after the
  * global table lock is released.
  */
-
 void tcp_timer(uint64_t now_ticks)
 {
     tcp_endpoint_t      *deferred_ep[TCP_ENDPOINT_MAX];

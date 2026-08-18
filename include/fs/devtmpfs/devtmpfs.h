@@ -24,23 +24,7 @@
  */
 void devtmpfs_init(void);
 
-/*
- * Register a character device node under /dev.
- *
- * Creates parent directories as needed, allocates a tmpfs-backed VFS node,
- * binds the supplied device operations, and records the entry for later
- * unregistration.
- *
- * @path:      absolute path e.g. "/dev/dri/card0"
- * @dev:       device number (use MKDEV(major, minor) or encode manually)
- * @rdev:      raw device number (for stat)
- * @node_type: VFS type flags (file_stream, file_keyboard, etc.)
- * @ops:       device operations (copied into the tmpfs handle)
- * Boot-time devices (populated during devtmpfs_init()) log "Registered ...";
- * devices registered afterwards stay silent.
- *
- * Returns 0 on success, negative errno on failure.
- */
+/* time devices (populated during devtmpfs_init()) log "Registered ..."; Returns 0 on success, negative errno on failure. */
 int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev, uint16_t node_type, const tmpfs_device_ops_t *ops);
 
 /*

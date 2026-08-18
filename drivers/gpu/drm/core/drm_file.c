@@ -25,7 +25,6 @@
 #include <sync/spin_lock.h>
 
 /* drm_file_alloc - allocate and initialize a drm_file */
-
 struct drm_file *drm_file_alloc(struct drm_device *dev)
 {
     struct drm_file *file;
@@ -64,7 +63,6 @@ struct drm_file *drm_file_alloc(struct drm_device *dev)
 }
 
 /* drm_file_free - cleanup and free a drm_file */
-
 void drm_file_free(struct drm_file *file)
 {
     if (!file) return;
@@ -96,7 +94,6 @@ void drm_file_free(struct drm_file *file)
 }
 
 /* drm_send_event - enqueue a DRM event for userspace delivery */
-
 static void drm_event_release_file_ref(struct drm_pending_vblank_event *e)
 {
     struct drm_file *file_priv;
@@ -192,7 +189,6 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
 }
 
 /* drm_read - read events from the drm file (blocking) */
-
 int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset, bool nonblock)
 {
     struct drm_event_node *node;
@@ -259,7 +255,6 @@ int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset
 }
 
 /* drm_poll - poll for pending events */
-
 unsigned int drm_poll(struct drm_file *file_priv, unsigned int events)
 {
     unsigned int mask = 0;

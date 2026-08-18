@@ -1,4 +1,4 @@
-﻿/*
+/*
  *
  *      drm_drv.c
  *      DRM device lifecycle
@@ -104,7 +104,6 @@ struct drm_file *drm_file_alloc(struct drm_device *dev);
 void             drm_file_free(struct drm_file *file);
 
 /* drm_dev_alloc - allocate and zero-initialize a drm_device */
-
 struct drm_device *drm_dev_alloc(struct drm_driver *driver)
 {
     struct drm_device *dev;
@@ -204,9 +203,11 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     return dev;
 }
 
-/* Register one /dev/dri/<node> char device.  devt_base is 0 for cardN and
- * 128 for renderD128+N.  On success @node_marker is set so the caller can
- * mirror the node in sysfs only when the /dev node really exists. */
+/*
+ * Register one /dev/dri/<node> char device. devt_base is 0 for cardN and
+ * 128 for renderD128+N. On success @node_marker is set so the caller can
+ * mirror the node in sysfs only when the /dev node really exists.
+ */
 static void drm_register_dri_node(struct drm_device *dev, struct drm_minor *minor, int devt_base, void **node_marker)
 {
     char               path[64];
@@ -237,7 +238,6 @@ static void drm_register_dri_node(struct drm_device *dev, struct drm_minor *mino
 }
 
 /* drm_dev_register - register device, expose KMS defaults */
-
 int drm_dev_register(struct drm_device *dev, uint64_t flags)
 {
     (void)flags;
@@ -246,45 +246,55 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         return -EINVAL;
     }
 
-    /* mode_config bounds are set by drm_mode_config_init() and may have been
+    /*
+     * mode_config bounds are set by drm_mode_config_init() and may have been
      * pinned by the driver's KMS setup (e.g. simpledrm pins min==max to the
-     * native framebuffer).  Do not overwrite them here. */
+     * native framebuffer). Do not overwrite them here.
+     */
 
     if (dev->driver && (dev->driver->driver_features & DRIVER_MODESET)) {
-        /* Enable polling for KMS devices; the remaining mode_config defaults
+        /*
+         * Enable polling for KMS devices; the remaining mode_config defaults
          * (cursor size, zpos normalization, async_page_flip, ...) are owned by
-         * drm_mode_config_init() and the driver's KMS setup. */
+         * drm_mode_config_init() and the driver's KMS setup.
+         */
         dev->mode_config.poll_enabled = true;
     }
 
-    if (dev->driver) { DRM_INFO("Initialized %s %d.%d.%d %s for %s on minor %d\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel, dev->driver->date, "virtual device", dev->primary ? dev->primary->index : 0); }
+    if (dev->driver) {
+        DRM_INFO("Initialized %s %d.%d.%d %s for %s on minor %d\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel, dev->driver->date, "virtual device",
+                 dev->primary ? dev->primary->index : 0);
+    }
 
-    /* Register /dev/dri/cardN via devtmpfs, then mirror it under
-     * /sys/class/drm/ (one entry per GPU) only when the node exists. */
+    /*
+     * Register /dev/dri/cardN via devtmpfs, then mirror it under
+     * /sys/class/drm/ (one entry per GPU) only when the node exists.
+     */
     if (dev->primary) drm_register_dri_node(dev, dev->primary, 0, &dev->dev_node_card0);
     if (dev->dev_node_card0) drm_sysfs_register_device(dev);
 
     /* Register /dev/dri/renderDN if the driver supports rendering. */
     if (dev->render && dev->driver && (dev->driver->driver_features & DRIVER_RENDER)) {
         drm_register_dri_node(dev, dev->render, 128, &dev->dev_node_renderD);
-        /* Mirror the render node under /sys/class/drm/ (renderD128+N), but
-         * only when the /dev/dri node itself was actually registered. */
+        /*
+         * Mirror the render node under /sys/class/drm/ (renderD128+N), but
+         * only when the /dev/dri node itself was actually registered.
+         */
         if (dev->dev_node_renderD) drm_sysfs_register_render_device(dev);
     }
 
-    /* Registration summary: which node(s) userspace got and the KMS limits
-     * clients must respect.  One consolidated line per device keeps the boot
-     * log free of per-node chatter. */
+    /*
+     * Registration summary: which node(s) userspace got and the KMS limits
+     * clients must respect. One consolidated line per device keeps the boot
+     * log free of per-node chatter.
+     */
     if (dev->driver && dev->primary) {
         char nodes[96];
 
-        (void)snprintf(nodes, sizeof(nodes), "/dev/dri/%s%s%s",
-                       dev->primary->device_node_name,
-                       (dev->render && dev->dev_node_renderD) ? " /dev/dri/" : "",
+        (void)snprintf(nodes, sizeof(nodes), "/dev/dri/%s%s%s", dev->primary->device_node_name, (dev->render && dev->dev_node_renderD) ? " /dev/dri/" : "",
                        (dev->render && dev->dev_node_renderD) ? dev->render->device_node_name : "");
-        DRM_INFO("%s: published %s; KMS range %ux%u..%ux%u\n", dev->driver->name, nodes,
-                 dev->mode_config.min_width, dev->mode_config.min_height,
-                 dev->mode_config.max_width, dev->mode_config.max_height);
+        DRM_INFO("%s: published %s; KMS range %ux%u..%ux%u\n", dev->driver->name, nodes, dev->mode_config.min_width, dev->mode_config.min_height, dev->mode_config.max_width,
+                 dev->mode_config.max_height);
     }
 
     /*
@@ -300,7 +310,6 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
 }
 
 /* drm_kms_console_handoff - publish a committed scanout framebuffer to the console */
-
 void drm_kms_console_handoff(struct drm_device *dev, struct drm_framebuffer *fb)
 {
     struct drm_gem_object *obj;
@@ -322,7 +331,6 @@ void drm_kms_console_handoff(struct drm_device *dev, struct drm_framebuffer *fb)
 }
 
 /* drm_dev_unregister - unregister a device (drop reference) */
-
 void drm_dev_unregister(struct drm_device *dev)
 {
     if (!dev) return;
@@ -330,7 +338,6 @@ void drm_dev_unregister(struct drm_device *dev)
 }
 
 /* drm_dev_get - acquire a reference to the device */
-
 struct drm_device *drm_dev_get(struct drm_device *dev)
 {
     if (!dev) return NULL;
@@ -352,7 +359,6 @@ struct drm_device *drm_dev_get(struct drm_device *dev)
 }
 
 /* drm_dev_put - release a reference; free when refcount hits zero */
-
 void drm_dev_put(struct drm_device *dev)
 {
     int new_ref;
@@ -391,7 +397,6 @@ void drm_dev_put(struct drm_device *dev)
 }
 
 /* drm_dev_unplug - mark device as removed, prevent new opens */
-
 static void drm_dev_unplug(struct drm_device *dev)
 {
     if (!dev) return;
@@ -402,7 +407,6 @@ static void drm_dev_unplug(struct drm_device *dev)
 }
 
 /* drm_open - open a /dev/dri file; allocate and init drm_file */
-
 int drm_open(struct drm_device *dev, struct drm_file *file)
 {
     int ret;
@@ -471,7 +475,6 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
 }
 
 /* drm_release - close a /dev/dri file; cleanup and free drm_file */
-
 void drm_release(struct drm_file *file)
 {
     struct drm_device *dev;
@@ -548,9 +551,11 @@ void drm_release(struct drm_file *file)
         }
     }
 
-    /* Drop the master reference, if any, and let the console repaint.
+    /*
+     * Drop the master reference, if any, and let the console repaint.
      * A process that took DRM master and closed without DROP_MASTER must
-     * not leave the display frozen. */
+     * not leave the display frozen.
+     */
     if (file->master) {
         drm_ht_destroy(&file->master->magiclist);
         free(file->master);
@@ -558,8 +563,10 @@ void drm_release(struct drm_file *file)
         video_console_blank(false);
     }
 
-    /* Last client on a non-handoff device: undo the first-commit console
-     * blank so the kernel console returns once the compositor exits. */
+    /*
+     * Last client on a non-handoff device: undo the first-commit console
+     * blank so the kernel console returns once the compositor exits.
+     */
     if (dev && dev->console_blanked_by_commit && dev->open_count == 0) {
         dev->console_blanked_by_commit = false;
         video_console_blank(false);

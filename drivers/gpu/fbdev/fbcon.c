@@ -775,7 +775,6 @@ void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint3
 }
 
 /* ANSI escape sequence parser instance and callbacks */
-
 static uint32_t fbcon_rgb24_to_fb(uint32_t rgb24)
 {
     color_t c = {(rgb24 >> 16) & 0xFF, (rgb24 >> 8) & 0xFF, rgb24 & 0xFF};

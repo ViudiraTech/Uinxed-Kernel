@@ -292,7 +292,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         struct drm_connector       *connector = container_of(obj, struct drm_connector, base);
         struct drm_connector_state *s;
 
-        /* "DPMS" is legacy-only; reject it before touching any connector state (Linux semantics). */
+        /* "DPMS" is legacy-only; reject it before touching any connector state (). */
         if (prop == config->prop_dpms) {
             plogk("drm_atomic: Legacy DPMS property %u can only be set via legacy uAPI.\n", prop->base.id);
             return -EINVAL;
@@ -328,7 +328,6 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
 }
 
 /* drm_mode_atomic_ioctl: handle DRM_IOCTL_MODE_ATOMIC */
-
 int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_atomic  *atomic = (struct drm_mode_atomic *)data;
@@ -502,7 +501,6 @@ out:
 }
 
 /* drm_mode_page_flip_ioctl: handle DRM_IOCTL_MODE_PAGE_FLIP */
-
 int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_crtc_page_flip  *page_flip = (struct drm_mode_crtc_page_flip *)data;
@@ -754,7 +752,6 @@ int drm_mode_cursor_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 }
 
 /* drm_mode_cursor2_ioctl: handle DRM_IOCTL_MODE_CURSOR2 */
-
 int drm_mode_cursor2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_cursor2 *cursor2 = (struct drm_mode_cursor2 *)data;

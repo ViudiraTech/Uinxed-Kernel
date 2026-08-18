@@ -111,8 +111,6 @@ parport_t *parport_find_by_number(int number)
     return p;
 }
 
-/* port access */
-
 /* Read the data register through the port's accessor. */
 uint8_t parport_read_data(parport_t *p)
 {

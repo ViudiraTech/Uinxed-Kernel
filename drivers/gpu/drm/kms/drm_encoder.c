@@ -23,17 +23,7 @@
 
 /* Internal helper from drm_mode_object.c */
 
-/*
- * drm_encoder_init - Initialise an encoder object.
- * @dev: DRM device
- * @encoder: encoder to initialise
- * @funcs: encoder helper funcs pointer (stored in helper_private)
- * @encoder_type: DRM_MODE_ENCODER_* type
- * @name: name of the encoder (unused in MVP, kept for API compatibility)
- *
- * Allocates a mode-object ID, inserts into the device encoder list,
- * and sets the encoder type. Returns 0 on success or a negative errno.
- */
+/* Initialise an encoder object. */
 int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void *funcs, int encoder_type, const char *name)
 {
     int ret;
@@ -65,16 +55,7 @@ int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void *
     return 0;
 }
 
-/*
- * drm_mode_getencoder - Handle DRM_IOCTL_MODE_GETENCODER.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_get_encoder (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up the encoder by id, fills the struct with encoder type,
- * attached CRTC id, possible_crtcs, and possible_clones.
- * Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_GETENCODER. Returns 0 on success or -EINVAL/-ENOENT. */
 int drm_mode_getencoder(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_encoder *enc_req = (struct drm_mode_get_encoder *)data;

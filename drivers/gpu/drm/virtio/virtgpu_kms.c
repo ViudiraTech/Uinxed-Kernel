@@ -35,8 +35,6 @@ static bool virtgpu_display_flush_guard(void)
     return vgdev->ctrlq_cmd_lock.lock == 0;
 }
 
-/* Connector helper functions */
-
 /* Report connection status: a VM GPU is present whenever scanouts exist. */
 static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *connector, bool force)
 {
@@ -195,8 +193,6 @@ static int virtgpu_connector_mode_valid(struct drm_connector *connector, struct 
     return MODE_OK;
 }
 
-/* Encoder helper functions */
-
 /* The encoder imposes no extra atomic constraints. */
 static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state)
 {
@@ -204,8 +200,6 @@ static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm
     (void)crtc_state;
     (void)conn_state;
 }
-
-/* CRTC helper functions */
 
 /* On modeset, push the new framebuffer to the scanout. */
 static void virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb)
@@ -251,7 +245,6 @@ static void virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_s
 }
 
 /* Page flip helper for legacy ioctl */
-
 static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags)
 {
     struct drm_device        *dev   = crtc->dev;
@@ -434,11 +427,11 @@ err_free_obj:
 /* Publish CRTC/plane state and switch the console onto the framebuffer. */
 static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct drm_connector *conn, struct drm_display_mode *mode, struct virtio_gpu_object *obj, struct drm_framebuffer *fb)
 {
-    struct drm_device  *dev    = vgdev->drm_dev;
-    struct drm_crtc    *crtc   = conn->state ? conn->state->crtc : NULL;
-    struct drm_plane   *primary = crtc ? crtc->primary : NULL;
-    uint32_t            w      = (uint32_t)mode->hdisplay;
-    uint32_t            h      = (uint32_t)mode->vdisplay;
+    struct drm_device *dev     = vgdev->drm_dev;
+    struct drm_crtc   *crtc    = conn->state ? conn->state->crtc : NULL;
+    struct drm_plane  *primary = crtc ? crtc->primary : NULL;
+    uint32_t           w       = (uint32_t)mode->hdisplay;
+    uint32_t           h       = (uint32_t)mode->vdisplay;
 
     if (crtc) {
         crtc->enabled = true;
@@ -469,11 +462,13 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
         primary->crtc_id = crtc ? crtc->base.id : 0;
     }
 
-    /* Attach the scanout flush hooks to the DRM device, then let the DRM
-     * core hand the kernel console over to this framebuffer.  The driver
-     * only reports its scanout to DRM; all console/TTY work is core-owned. */
-    vgdev_flush_ctx = vgdev;
-    vgdev_flush_obj = obj;
+    /*
+     * Attach the scanout flush hooks to the DRM device, then let the DRM
+     * core hand the kernel console over to this framebuffer. The driver
+     * only reports its scanout to DRM; all console/TTY work is core-owned.
+     */
+    vgdev_flush_ctx             = vgdev;
+    vgdev_flush_obj             = obj;
     dev->fb_console_flush       = virtgpu_kms_flush_fb;
     dev->fb_console_flush_guard = virtgpu_display_flush_guard;
     drm_kms_console_handoff(dev, fb);
@@ -482,8 +477,10 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
     return 0;
 }
 
-/* Initial modeset: try modes preferred-first (Linux-style), else keep the
- * bootloader framebuffer.  Non-fatal on failure. */
+/*
+ * Initial modeset: try modes preferred-first (Linux-style), else keep the
+ * bootloader framebuffer. Non-fatal on failure.
+ */
 static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
 {
     struct drm_device        *dev    = vgdev->drm_dev;
@@ -517,8 +514,6 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     DRM_INFO("Initial modeset: no usable mode (%d)\n", ret);
     return ret;
 }
-
-/* Public init / fini */
 
 /* Set up the full KMS pipeline: plane, CRTC, encoder and connector. */
 int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
@@ -660,7 +655,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
             return ret;
         }
     }
-    connector->status                 = connector_status_connected;
+    connector->status = connector_status_connected;
 
     connector->state = malloc(sizeof(*connector->state));
     if (!connector->state) {

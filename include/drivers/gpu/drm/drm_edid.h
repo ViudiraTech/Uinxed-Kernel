@@ -137,8 +137,8 @@ struct cvt_timing {
 struct detailed_non_pixel {
         uint8_t pad1;
         uint8_t type; // ff=serial, fe=string, fd=monitor range, fc=monitor name
-                      // fb=color point data, fa=standard timing data,
-                      // f9=undefined, f8=mfg. reserved
+                      /* fb=color point data, fa=standard timing data, */
+                      /* f9=undefined, f8=mfg. reserved */
         uint8_t pad2;
         union {
                 struct detailed_data_string        str;
@@ -264,12 +264,7 @@ struct cea_sad {
         uint8_t byte2; // meaning depends on format
 };
 
-/*
- * Decode the manufacturer ID.
- * @mfg_id: The manufacturer ID
- * @vend: A 4-byte buffer to store the 3-letter vendor string plus a '\0'
- *        termination.
- */
+/* Decode the manufacturer ID. */
 static inline const char *drm_edid_decode_mfg_id(uint16_t mfg_id, char vend[4])
 {
     vend[0] = '@' + ((mfg_id >> 10) & 0x1f);
@@ -280,11 +275,7 @@ static inline const char *drm_edid_decode_mfg_id(uint16_t mfg_id, char vend[4])
     return vend;
 }
 
-/*
- * Encode an ID for matching against drm_edid_get_panel_id().
- * @vend_chr_0..2: The three vendor string characters.
- * @product_id: The 16-bit product ID.
- */
+/* Encode an ID for matching against drm_edid_get_panel_id(). */
 #define drm_edid_encode_panel_id(vend_chr_0, vend_chr_1, vend_chr_2, product_id) \
     ((((uint32_t)(vend_chr_0) - '@') & 0x1f) << 26 | (((uint32_t)(vend_chr_1) - '@') & 0x1f) << 21 | (((uint32_t)(vend_chr_2) - '@') & 0x1f) << 16 | ((product_id) & 0xffff))
 

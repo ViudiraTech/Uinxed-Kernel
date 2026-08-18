@@ -98,7 +98,6 @@ typedef struct iso_supplementary_descriptor {
 } __attribute__((packed)) iso_supplementary_descriptor_t;
 
 /* ISO 9660 byte-order read helpers */
-
 static inline uint8_t isonum_711(const uint8_t *p)
 {
     return *p;

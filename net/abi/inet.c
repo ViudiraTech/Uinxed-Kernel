@@ -311,7 +311,6 @@ static uint32_t inet_socket_address_size(const inet_core_socket_t *sock)
  * Each core_* function implements one of the socket_core_ops slots
  * and talks to the wrapped tcp/udp/icmp endpoint.
  */
-
 static int core_create(int family, int type, int protocol, uint32_t flags, void **context)
 {
     inet_core_socket_t *sock = calloc(1, sizeof(*sock));

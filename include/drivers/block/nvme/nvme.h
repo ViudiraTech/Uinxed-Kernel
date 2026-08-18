@@ -61,8 +61,6 @@ struct blockdev_device;
 #define NVME_MAX_NAMESPACES  16
 #define NVME_SECTOR_SIZE     512
 
-/* NVMe Command Opcodes */
-
 /* Admin commands */
 #define NVME_ADMIN_DELETE_IO_SQ 0x00
 #define NVME_ADMIN_CREATE_IO_SQ 0x01
@@ -121,8 +119,6 @@ struct blockdev_device;
 /* Timeouts */
 #define NVME_TIMEOUT_MS    5000 // controller enable timeout (ms)
 #define NVME_TIMEOUT_LOOPS 0x400000
-
-/* Data Structures */
 
 /* 64-byte Submission Queue Entry */
 typedef struct {
@@ -315,8 +311,6 @@ typedef struct nvme_controller {
         uint8_t    initialised;
         spinlock_t lock; // global controller lock
 } nvme_controller_t;
-
-/* Public API */
 
 /* Initialise all NVMe controllers on the PCI bus */
 void nvme_init(void);

@@ -121,8 +121,6 @@ void pi_waiter_add(task_t *waiter, rt_mutex_t *mutex)
     pi_propagate_chain(mutex->owner);
 }
 
-/* rt_mutex operations */
-
 /* Initialize an rt_mutex, binding it to a futex word. */
 void rt_mutex_init(rt_mutex_t *mutex, uint32_t *uaddr)
 {

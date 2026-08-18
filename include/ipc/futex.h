@@ -57,8 +57,6 @@ struct futex_waitv {
         uint32_t __reserved;
 };
 
-/* Futex syscall interface */
-
 /* Classic futex syscall: wait/wake/requeue on a userspace word. */
 int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout, uint32_t *uaddr2, uint32_t val3);
 

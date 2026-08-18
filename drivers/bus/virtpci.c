@@ -170,8 +170,6 @@ static int vp_scan_caps(struct vp_device *dev)
     return 0;
 }
 
-/* Device status management */
-
 /* Write the device status register. */
 void vp_set_status(struct vp_device *dev, uint8_t status)
 {
@@ -192,8 +190,6 @@ void vp_reset_device(struct vp_device *dev)
     /* Read back to flush the write */
     vp_get_status(dev);
 }
-
-/* Feature negotiation */
 
 /* Negotiate a feature set with the device and store the result. */
 int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64_t *negotiated)
@@ -250,8 +246,6 @@ void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, 
     if (!cfg) return;
     for (i = 0; i < len; i++) cfg[offset + i] = src[i];
 }
-
-/* Virtqueue ring setup */
 
 /*
  * Allocate and initialise a single virtqueue.
@@ -369,8 +363,6 @@ void vp_del_vq(struct vp_virtqueue *vq)
     if (vq->queue_phys && vq->queue_page_count) free_frames(vq->queue_phys, vq->queue_page_count);
     memset(vq, 0, sizeof(*vq));
 }
-
-/* Virtqueue submission helpers */
 
 /* Queue a single descriptor into the available ring. */
 int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
@@ -544,8 +536,6 @@ int virtqueue_enable_cb(struct vp_virtqueue *vq)
     compiler_barrier();
     return (vq->used->idx != vq->used_idx);
 }
-
-/* Device discovery and lifecycle */
 
 /* Locate a virtio PCI device, map its capabilities and reset it. */
 int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev)

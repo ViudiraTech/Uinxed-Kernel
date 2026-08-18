@@ -1406,7 +1406,6 @@ static int64_t sys_getcwd(uint64_t buf, uint64_t size, uint64_t arg2, uint64_t a
 }
 
 /* eventfd, timerfd, signalfd wrappers */
-
 static int64_t sys_eventfd_wrap(uint64_t initval, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -1638,8 +1637,6 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     return vfs_umount(tgt);
 }
 
-/* Extended syscall stubs */
-
 /* Generic syscall stub: return -ENOSYS */
 static int64_t sys_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -1839,8 +1836,6 @@ static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, u
     return 0;
 }
 
-/* restart_syscall */
-
 /* restart_syscall syscall: restart a blocking syscall */
 static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -1856,7 +1851,6 @@ static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
 }
 
 /* chmod / chown helpers */
-
 static int64_t sys_chmod_common(const char *path, uint64_t mode)
 {
     process_t *proc = process_current();
@@ -1970,8 +1964,10 @@ static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint
     return result;
 }
 
-/* Create the node described by mode at an already-resolved path. Shared by
- * mknod (AT_FDCWD) and mknodat so the type dispatch cannot drift. */
+/*
+ * Create the node described by mode at an already-resolved path. Shared by
+ * mknod (AT_FDCWD) and mknodat so the type dispatch cannot drift.
+ */
 int64_t mknod_create_node(char *resolved, uint64_t mode, uint64_t dev)
 {
     switch (mode & 0170000) {
@@ -2866,8 +2862,6 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
     return (int64_t)child->task->pid;
 }
 
-/* process_madvise */
-
 /* process_madvise syscall: apply advice to a process */
 static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t vlen, uint64_t advice, uint64_t flags, uint64_t arg5)
 {
@@ -2911,8 +2905,6 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
     return result;
 }
 
-/* epoll_pwait2 */
-
 /* epoll_pwait2 syscall: wait with a nanosecond timeout */
 static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t tsp, uint64_t sigmask, uint64_t sigsetsize)
 {
@@ -2934,7 +2926,6 @@ static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t ma
 }
 
 /* mmap family wrappers (6-arg syscall -> actual function) */
-
 static int64_t sys_mprotect_wrap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -3013,7 +3004,6 @@ static int64_t sys_munlockall_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
 }
 
 /* Signal syscall wrappers */
-
 static int64_t sys_rt_sigaction_wrap(uint64_t sig, uint64_t act, uint64_t oact, uint64_t sigsetsize, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -3157,8 +3147,6 @@ static int64_t sys_getpgid_wrap(uint64_t pid, uint64_t arg1, uint64_t arg2, uint
     (void)arg5;
     return sys_getpgid((pid_t)pid);
 }
-
-/* IPC syscall wrappers */
 
 /* Socket wrappers */
 static int64_t sys_socket_wrap(uint64_t family, uint64_t type, uint64_t protocol, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -3313,7 +3301,6 @@ static int64_t sys_pipe2_wrap(uint64_t pipefd, uint64_t flags, uint64_t arg2, ui
 }
 
 /* System V IPC wrappers */
-
 static int64_t sys_semget_wrap(uint64_t key, uint64_t nsems, uint64_t semflg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4113,8 +4100,6 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
     return (int64_t)written;
 }
 
-/* writev / readv */
-
 /* writev syscall: write a vector of buffers */
 static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -4223,8 +4208,6 @@ readv_done:
     return total;
 }
 
-/* chroot */
-
 /* chroot syscall: change the root directory */
 static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -4258,7 +4241,6 @@ static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint
 }
 
 /* fcntl wrapper */
-
 static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4952,9 +4934,11 @@ int syscall_dispatch(syscall_frame_t *frame)
         goto check_signals;
     }
 
-    /* read/write dominate the small-block streaming path.  The dispatcher
+    /*
+     * read/write dominate the small-block streaming path. The dispatcher
      * already has the task selected by current_task(), so avoid a second
-     * task lookup, the syscall-table lookup, and the indirect call. */
+     * task lookup, the syscall-table lookup, and the indirect call.
+     */
     if (num == SYS_READ) {
         retval     = sys_read_task(dispatch_task, frame->rdi, frame->rsi, frame->rdx);
         frame->rax = (uint64_t)retval;
@@ -4974,9 +4958,11 @@ int syscall_dispatch(syscall_frame_t *frame)
         goto check_signals;
     }
 
-    /* sys_stub intentionally shares one implementation; record the syscall
+    /*
+     * sys_stub intentionally shares one implementation; record the syscall
      * number here, where the dispatcher still has it, so userspace probes
-     * (notably Xorg) identify the missing ABI entry in the kernel log. */
+     * (notably Xorg) identify the missing ABI entry in the kernel log.
+     */
     if (syscall_table[num] == sys_stub) {
         task_t *task = current_task();
         plogk("syscall: syscall %llu is not implemented (pid %llu, %s)\n", num, task ? task->pid : 0, task ? task->name : "?");

@@ -437,8 +437,10 @@ static int ptrace_resume(task_t *target, ptrace_run_mode_t mode, int sig)
     return 0;
 }
 
-/* Attach to a target task: validate permissions, mark it as traced and
- * arrange a stop so the tracer can take control */
+/*
+ * Attach to a target task: validate permissions, mark it as traced and
+ * arrange a stop so the tracer can take control
+ */
 static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t options)
 {
     process_t *current = process_current();

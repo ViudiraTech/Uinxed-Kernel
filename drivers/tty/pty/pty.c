@@ -131,8 +131,10 @@ static int pty_allocate_number(void)
     return -ENOSPC;
 }
 
-/* Slave tty output path: copy bytes into the master ring buffer,
- * blocking (or returning EAGAIN) when the master's buffer is full */
+/*
+ * Slave tty output path: copy bytes into the master ring buffer,
+ * blocking (or returning EAGAIN) when the master's buffer is full
+ */
 static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
 {
     pty_pair_t *pair   = context;

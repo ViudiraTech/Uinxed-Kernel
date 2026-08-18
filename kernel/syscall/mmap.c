@@ -91,9 +91,11 @@ static int vma_range_overlaps(process_t *proc, uintptr_t start, uintptr_t end)
     return 0;
 }
 
-/* Take an extra reference for a driver-backed vm_private_data after a VMA
+/*
+ * Take an extra reference for a driver-backed vm_private_data after a VMA
  * copy or split, so each half releases its own reference on teardown.
- * (SHM VMAs use sysv_shm_vma_get() and never set vm_private_* hooks.) */
+ * (SHM VMAs use sysv_shm_vma_get() and never set vm_private_* hooks.)
+ */
 static void vma_private_get(vm_area_t *vma)
 {
     if (vma && vma->vm_private_get && vma->vm_private_put && vma->vm_private_data) vma->vm_private_get(vma->vm_private_data);
@@ -221,8 +223,10 @@ fail:
 
 /* Full mmap syscall implementation */
 
-/* Drop a file_mmap VMA that failed before it was inserted.  Releases the
- * driver's VMA-held private reference (if any) and the retained file node. */
+/*
+ * Drop a file_mmap VMA that failed before it was inserted. Releases the
+ * driver's VMA-held private reference (if any) and the retained file node.
+ */
 static void file_mmap_vma_abort(vm_area_t *vma)
 {
     if (!vma) return;
@@ -409,7 +413,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
              * A driver shrinks vma->end to its object size so that a huge
              * request cannot expose memory past the backing allocation.
              */
-            size_t map_len = vma->end - vma->start;
+            size_t   map_len   = vma->end - vma->start;
             uint64_t pte_flags = vm_flags_to_pte(vm_flags);
             size_t   mapped    = 0;
             for (; mapped < map_len; mapped += PAGE_4K_SIZE) {

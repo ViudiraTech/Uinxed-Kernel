@@ -67,8 +67,6 @@ static nl_mcast_table_t nl_mcast[NL_PROTO_MAX];
 static uint32_t   nl_pid_counter;
 static spinlock_t nl_pid_lock;
 
-/* Internal helpers */
-
 /* Fetch the private netlink state attached to a socket. */
 static nl_sock_t *nl_sk(struct socket *sk)
 {
@@ -445,7 +443,6 @@ static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
 }
 
 /* Multicast subscription management */
-
 static int nl_mcast_subscribe(uint32_t protocol, struct socket *sk, uint32_t groups)
 {
     nl_mcast_table_t *tab;
@@ -515,7 +512,6 @@ static int netlink_wrap_poll(struct socket *sk, size_t events);
 static int netlink_wrap_close(struct socket *sk);
 
 /* Socket lifecycle */
-
 struct socket *netlink_sock_alloc(uint32_t protocol)
 {
     struct socket *sk;
@@ -775,8 +771,6 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
     return first_error ? first_error : -ESRCH;
 }
 
-/* Sendmsg */
-
 /* Send a netlink message: route requests, unicast, or multicast delivery. */
 int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockaddr_nl_t *addr, uint32_t addrlen, int flags)
 {
@@ -919,8 +913,6 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
     return (int)nlhdr_len;
 }
 
-/* Recvmsg */
-
 /* Receive the next datagram, blocking if empty unless MSG_DONTWAIT. */
 int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid, int *msg_flags)
 {
@@ -953,7 +945,6 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
             return -EAGAIN;
         }
 
-        /* Block until a message arrives */
         /* Register with the socket's blocked-task tracking */
         spin_unlock(&ns->recv_lock);
 
@@ -1043,8 +1034,6 @@ int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *add
     if (copy_to_user(addrlen, &actual_len, sizeof(actual_len))) return -EFAULT;
     return ret;
 }
-
-/* Poll */
 
 /* Report the socket's readable/writable/error poll status. */
 int netlink_poll(struct socket *sk, size_t events)
@@ -1180,7 +1169,6 @@ int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *o
 }
 
 /* Kernel API: Broadcast */
-
 int netlink_broadcast(uint32_t protocol, uint32_t group, const void *data, uint32_t len, int flags)
 {
     (void)flags;
@@ -1188,14 +1176,11 @@ int netlink_broadcast(uint32_t protocol, uint32_t group, const void *data, uint3
 }
 
 /* Kernel API: Unicast */
-
 int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags)
 {
     (void)flags;
     return nl_queue_datagram(sk, data, len, 0, 0, 0, 0);
 }
-
-/* Kernel API: Has listeners */
 
 /* Return 1 if any socket is subscribed to the given group. */
 int netlink_has_listeners(uint32_t protocol, uint32_t group)
@@ -1219,7 +1204,6 @@ int netlink_has_listeners(uint32_t protocol, uint32_t group)
 }
 
 /* Wrapper functions - match socket_t polymorphic op signatures */
-
 static int netlink_wrap_read(struct socket *sk, void *buf, size_t sz, void *addr, uint32_t *addrlen)
 {
     return netlink_recvmsg(sk, buf, sz, addr, addrlen, 0);
@@ -1242,7 +1226,6 @@ static int netlink_wrap_close(struct socket *sk)
 }
 
 /* Subsystem init */
-
 void netlink_init(void)
 {
 #if CONFIG_NETLINK

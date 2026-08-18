@@ -79,8 +79,6 @@ typedef struct futex_bucket {
 
 static futex_bucket_t futex_hash[FUTEX_HASH_SIZE];
 
-/* Internal helpers */
-
 /* Hash a user address into a bucket index. */
 static inline uint32_t futex_hash_index(uint32_t *uaddr)
 {
@@ -257,8 +255,6 @@ static uint64_t futex_deadline(uint64_t ticks, int absolute, int realtime)
     return ticks > UINT64_MAX - now ? UINT64_MAX : now + ticks;
 }
 
-/* FUTEX_WAIT / FUTEX_WAIT_BITSET */
-
 /*
  * Wait on a futex.  If *uaddr != val, return -EAGAIN immediately.
  * Otherwise block until woken by futex_wake or until the timeout
@@ -313,8 +309,6 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint64_t 
     spin_unlock(&bucket->lock);
     return ret;
 }
-
-/* FUTEX_WAKE / FUTEX_WAKE_BITSET */
 
 /*
  * Wake up to nr_wake waiters on the futex at uaddr.
@@ -487,8 +481,6 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t 
     return woken;
 }
 
-/* FUTEX_WAKE_OP */
-
 /*
  * Decode the val3 encoding for FUTEX_WAKE_OP:
  *   bits 28-31: oparg  (4-bit operand for the atomic operation)
@@ -627,8 +619,6 @@ static int futex_wake_op(uint32_t *uaddr, int nr_wake, int nr_wake2, uint32_t *u
 
     return woken;
 }
-
-/* PI futex helpers */
 
 /*
  * Get or create a rt_mutex for the given futex word.
@@ -922,8 +912,6 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
 
     return woken;
 }
-
-/* sys_futex */
 
 /*
  * Futex syscall entry point.
@@ -1397,8 +1385,6 @@ int64_t sys_futex_requeue(uint64_t waiters, uint64_t flags, uint64_t nr_wake, ui
 
     return futex2_requeue_core(wv[0].uaddr, size_code0, wv[1].uaddr, size_code1, (int)nr_wake, (int)nr_requeue, wv[0].val);
 }
-
-/* futex_init */
 
 /*
  * Initialize the futex hash table.

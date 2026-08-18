@@ -210,7 +210,6 @@ typedef struct {
 } ntfs_handle_t;
 
 /* little-endian accessors */
-
 static inline u64 le64(const u8 *p)
 {
     return (u64)p[0] | ((u64)p[1] << 8) | ((u64)p[2] << 16) | ((u64)p[3] << 24) | ((u64)p[4] << 32) | ((u64)p[5] << 40) | ((u64)p[6] << 48) | ((u64)p[7] << 56);
@@ -1211,8 +1210,6 @@ out:
     return status;
 }
 
-/* disk I/O helpers */
-
 /* Read and unpack one MFT record. */
 static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
 {
@@ -1525,8 +1522,6 @@ static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size
     if (!mnt->active_transaction) return blockdev_write_bytes(&mnt->dev, byte_off, buf, size);
     return fs_txn_stage_bytes(mnt->active_transaction, byte_off, buf, size, FS_TXN_METADATA);
 }
-
-/* runlist parser */
 
 /* Decode a runlist into vcn/lcn/run triples, handling sparse runs. */
 static int runlist_parse(u8 *rl, int len, s64 *vcn, s64 *lcn, s64 *run, int max)
@@ -3264,8 +3259,6 @@ static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
     return size;
 }
 
-/* directory entry helpers */
-
 /* Materialize one directory index entry as a VFS child node. */
 static void add_dir_entry(vfs_node_t parent, ntfs_mount_t *mnt, u8 *entry, u32 entry_len)
 {
@@ -3468,8 +3461,6 @@ static int ntfs_load_file_runlist(ntfs_handle_t *h, vfs_node_t node)
     free(mft);
     return 0;
 }
-
-/* VFS callbacks */
 
 /* Mount an NTFS volume from its boot sector and MFT. */
 static int ntfs_vfs_mount(const char *src, vfs_node_t node)

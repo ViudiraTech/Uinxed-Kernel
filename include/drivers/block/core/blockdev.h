@@ -55,8 +55,6 @@ extern blockdev_ops_t *blk_ops_table;
 /* Register a block device backend. Returns type id (>=1), or negative errno. */
 int blockdev_register_type(blockdev_ops_t ops);
 
-/* Opening devices */
-
 /* Open an IDE disk (drive 0-3) */
 int blockdev_open_ide(uint8_t drive, blockdev_device_t *device);
 
@@ -92,8 +90,6 @@ int blockdev_open_name(const char *name, blockdev_device_t *device);
  * Copies the parent's ops_id and wraps base_lba/sector_count.
  */
 int blockdev_open_partition(const blockdev_device_t *parent, uint64_t first_lba, uint64_t sector_count, blockdev_device_t *device);
-
-/* I/O */
 
 /* Read `count` sectors starting at `lba` into `buffer` */
 int blockdev_read_sectors(const blockdev_device_t *device, uint64_t lba, uint32_t count, void *buffer);

@@ -166,8 +166,6 @@ typedef struct msginfo {
         int32_t msgseg;
 } msginfo_t;
 
-/* System V IPC syscall interface */
-
 /* Semaphore operations. */
 int64_t sys_semget(key_t key, int nsems, int semflg);
 int64_t sys_semop(int semid, sembuf_t *sops, size_t nsops);

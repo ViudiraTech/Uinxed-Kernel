@@ -450,8 +450,6 @@ uint32_t pci_get_irq(pci_device_cache_t *device)
     return read_pci(reg) & 0xFF;
 }
 
-/* MSI/MSI-X Support */
-
 /* Available MSI vector tracking */
 #define MSI_VECTOR_MIN       48
 #define MSI_VECTOR_MAX       247

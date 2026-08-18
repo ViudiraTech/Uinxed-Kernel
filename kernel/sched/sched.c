@@ -30,8 +30,6 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/* Constants */
-
 /*
  * Build system may pre-define these via -D in the Makefile.
  * The #ifndef guards ensure the command-line value takes precedence.
@@ -79,7 +77,6 @@ static uint32_t next_task_cpu;
 void context_switch(task_context_t *prev, task_context_t *next, volatile uint64_t *prev_on_cpu);
 
 /* Context switch (naked assembly) */
-
 __attribute__((naked)) void context_switch(task_context_t *prev __attribute__((unused)), task_context_t *next __attribute__((unused)), volatile uint64_t *prev_on_cpu __attribute__((unused)))
 {
     __asm__ volatile("movq %rsp, 0(%rdi)\n\t"
@@ -105,8 +102,6 @@ __attribute__((naked)) void context_switch(task_context_t *prev __attribute__((u
                      "popfq\n\t"
                      "ret\n\t");
 }
-
-/* Helpers: container_of variants */
 
 /* Return the task whose scheduler-list node is given */
 static task_t *sched_node_to_task(ilist_node_t *node)
@@ -294,7 +289,6 @@ static void avg_vruntime_sub(eevdf_rq_t *rq, task_t *task)
 }
 
 /* EEVDF core: update_curr - advance vruntime of the running task */
-
 static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
 {
     task_t *curr = rq->curr;
@@ -306,7 +300,6 @@ static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
 }
 
 /* EEVDF core: update_deadline - assign a new deadline slice */
-
 static void update_deadline(eevdf_rq_t *rq, task_t *task)
 {
     /* Only update if the task has consumed its current slice */
@@ -319,7 +312,6 @@ static void update_deadline(eevdf_rq_t *rq, task_t *task)
 }
 
 /* EEVDF core: place_entity - set vruntime/deadline on enqueue */
-
 static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
 {
     uint64_t vruntime = avg_vruntime(rq);
@@ -358,7 +350,6 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
 }
 
 /* EEVDF core: enqueue_entity / dequeue_entity */
-
 static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
 {
     /*
@@ -398,7 +389,6 @@ static void dequeue_entity(eevdf_rq_t *rq, task_t *task)
  * augmentation to skip subtrees that contain no eligible
  * entities.
  */
-
 static task_t *pick_eevdf(eevdf_rq_t *rq)
 {
     task_t    *curr = rq->curr;
@@ -454,8 +444,6 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
     return rq->idle;
 }
 
-/* Per-CPU helpers */
-
 /* Return the runqueue of the current CPU */
 static eevdf_rq_t *local_rq(void)
 {
@@ -497,8 +485,6 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
     enqueue_entity(rq, task);
 }
 
-/* Public API: enqueue_task */
-
 /* Enqueue a task on its assigned CPU */
 void enqueue_task(task_t *task)
 {
@@ -510,8 +496,6 @@ void enqueue_task_initial(task_t *task)
 {
     enqueue_task_on_cpu(task, task->cpu_id, 1);
 }
-
-/* Wake / sleep helpers */
 
 /* Wake a sleeping or blocked task, enqueueing it if runnable */
 static void wake_task_locked(task_t *task, int remove_linked_node)
@@ -869,8 +853,6 @@ static void wake_sleeping_tasks(void)
     }
 }
 
-/* Idle thread */
-
 /* Per-CPU idle loop: halt until an interrupt, then yield to real work */
 static void idle_thread(void *arg)
 {
@@ -922,7 +904,6 @@ static task_t *idle_task_alloc(uint32_t cpu_id)
 }
 
 /* sched_init - bootstrap the scheduler */
-
 void sched_init(void)
 {
     memset(&scheduler, 0, sizeof(scheduler));
@@ -981,8 +962,6 @@ void sched_init(void)
     }
 }
 
-/* AP management */
-
 /* Mark an application processor's runqueue online */
 void sched_ap_online(uint32_t cpu_id)
 {
@@ -1026,7 +1005,6 @@ uint32_t sched_cpu_count(void)
 }
 
 /* task_set_cpu - migrate a task to a different CPU */
-
 int task_set_cpu(task_t *task, uint32_t cpu_id)
 {
     if (!task || cpu_id >= cpu_scheduler_count) return 1;
@@ -1157,7 +1135,6 @@ void sched_yield(void)
 }
 
 /* sched_start - launch the scheduler on the BSP */
-
 void sched_start(void)
 {
     disable_intr();
@@ -1176,7 +1153,6 @@ void sched_start(void)
 }
 
 /* task_sleep_ticks - voluntary sleep for N ticks */
-
 void task_sleep_ticks(uint64_t ticks)
 {
     if (!ticks) {
@@ -1200,7 +1176,6 @@ void task_sleep_ticks(uint64_t ticks)
 }
 
 /* task_block - block the current task */
-
 void task_block(void)
 {
     disable_intr();
@@ -1218,7 +1193,6 @@ void task_block(void)
 }
 
 /* task_wakeup - wake a blocked or sleeping task */
-
 int task_wakeup(task_t *task)
 {
     if (!task) return 1;
@@ -1491,7 +1465,6 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
 }
 
 /* sched_tick - periodic tick accounting and preemption */
-
 void sched_tick(void)
 {
     if (!scheduler.started || !cpu_rqs) return;
@@ -1538,14 +1511,12 @@ void sched_tick(void)
 }
 
 /* sched_ticks - return the global tick count */
-
 uint64_t sched_ticks(void)
 {
     return scheduler.ticks;
 }
 
 /* task_exit - terminate the current task */
-
 void task_exit(void)
 {
     disable_intr();
@@ -1574,7 +1545,6 @@ void task_exit(void)
 }
 
 /* current_task - return the task running on this CPU */
-
 task_t *current_task(void)
 {
     if (!cpu_rqs) return &boot_task;

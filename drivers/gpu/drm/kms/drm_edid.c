@@ -1293,23 +1293,10 @@ static const struct drm_display_mode edid_4k_modes[] = {
      },
 };
 
-/* clang-format on */
 
 /* CVT / GTF modeline generation helpers */
 
-/*
- * edid_cvt_mode - create a modeline based on the CVT algorithm
- * @dev: drm device
- * @hdisplay: hdisplay size
- * @vdisplay: vdisplay size
- * @vrefresh: vrefresh rate
- * @reduced: whether to use reduced blanking
- * @interlaced: whether to compute an interlaced mode
- * @margins: whether to add margins (borders)
- *
- * This function implements the VESA CVT (Coordinated Video Timing)
- * modeline formula published in the VESA Display Monitor Timing spec.
- */
+/* create a modeline based on the CVT algorithm */
 static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdisplay, int vdisplay, int vrefresh, bool reduced, bool interlaced, bool margins)
 {
 #define HV_FACTOR             1000
@@ -1453,22 +1440,7 @@ static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdispl
     return drm_mode;
 }
 
-/*
- * edid_gtf_mode_complex - create the modeline based on the full GTF algorithm
- * @dev: drm device
- * @hdisplay: hdisplay size
- * @vdisplay: vdisplay size
- * @vrefresh: vrefresh rate.
- * @interlaced: whether to compute an interlaced mode
- * @margins: desired margin (borders) size
- * @GTF_M: extended GTF formula parameters
- * @GTF_2C: extended GTF formula parameters
- * @GTF_K: extended GTF formula parameters
- * @GTF_2J: extended GTF formula parameters
- *
- * This function implements the VESA GTF (Generalized Timing Formula)
- * modeline algorithm published in the VESA Display Monitor Timing spec.
- */
+/* create the modeline based on the full GTF algorithm */
 static struct drm_display_mode *edid_gtf_mode_complex(struct drm_device *dev, int hdisplay, int vdisplay, int vrefresh, bool interlaced, int margins, int GTF_M, int GTF_2C, int GTF_K, int GTF_2J)
 {
 #define GTF_MARGIN_PERCENTAGE 18
@@ -1711,8 +1683,10 @@ static struct drm_display_mode *mode_from_std_timing(struct drm_connector *conne
         vsize = 768;
     }
 
-    /* If this connector already has a mode for this size and refresh rate,
-     * use that instead. */
+    /*
+     * If this connector already has a mode for this size and refresh rate,
+     * use that instead.
+     */
     {
         ilist_node_t *node = connector->modes.next;
         while (node && node != &connector->modes) {
@@ -1996,8 +1970,10 @@ static int collect_hdmi_vsdb_modes(struct drm_connector *connector, const uint8_
         if (db[8] & (1 << 6)) offset++;
     }
 
-    /* the declared length is not long enough for the 2 first bytes
-     * of additional video format capabilities */
+    /*
+     * the declared length is not long enough for the 2 first bytes
+     * of additional video format capabilities
+     */
     if (len < (8 + offset + 2)) return 0;
 
     offset++; // 3D_Present + reserved
@@ -2131,7 +2107,6 @@ static bool scan_cta_for_audio(const struct edid *edid)
 }
 
 /* Monitor name extraction */
-
 static bool is_display_descriptor(const struct detailed_timing *descriptor, uint8_t type)
 {
     return descriptor->pixel_clock == 0 && descriptor->data.other_data.pad1 == 0 && descriptor->data.other_data.type == type;
@@ -2279,7 +2254,6 @@ struct edid *drm_edid_duplicate(const struct edid *edid)
     return new_edid;
 }
 
-/* Public API */
 
 /* Copy the monitor name from the EDID into the caller's buffer. */
 void drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize)
@@ -2359,13 +2333,11 @@ int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid)
 }
 
 /* EDID size helper */
-
 static size_t edid_size(const struct edid *edid)
 {
     return (size_t)(edid->extensions + 1) * EDID_LENGTH;
 }
 
-/* Established timing modes */
 
 /*
  * These more or less come from the DMT spec.  The 720x400 modes are
@@ -2496,7 +2468,6 @@ static int collect_standard_modes(struct drm_connector *connector, const struct 
 }
 
 /* CEA mode tables */
-
 static const struct drm_display_mode *cta_mode_for_vic(uint8_t vic)
 {
     if (vic >= 1 && vic < 1 + (uint8_t)ARRAY_SIZE(edid_cea_modes_1)) return &edid_cea_modes_1[vic - 1];
@@ -2520,7 +2491,6 @@ struct drm_display_mode *drm_display_mode_from_cea_vic(struct drm_device *dev, u
 }
 
 /* DMT table lookup */
-
 struct drm_display_mode *drm_mode_find_dmt(struct drm_device *dev, int hsize, int vsize, int fresh, bool rb)
 {
     int i;
@@ -2540,7 +2510,6 @@ struct drm_display_mode *drm_mode_find_dmt(struct drm_device *dev, int hsize, in
 }
 
 /* CEA mode matching (used for alternate clock detection) */
-
 static int cta_alternate_clock(const struct drm_display_mode *cea_mode)
 {
     int clock = cea_mode->clock;

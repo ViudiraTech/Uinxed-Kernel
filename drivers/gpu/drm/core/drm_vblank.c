@@ -1,4 +1,4 @@
-﻿/*
+/*
  *
  *      drm_vblank.c
  *      DRM vblank management
@@ -25,14 +25,15 @@
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 
-/* Global count of CRTCs with vblank enabled; lets drm_vblank_tick early-return
+/*
+ * Global count of CRTCs with vblank enabled; lets drm_vblank_tick early-return
  * when nothing is waiting on a vblank instead of scanning every device and
- * churning refcounts on every 1 kHz timer tick. */
+ * churning refcounts on every 1 kHz timer tick.
+ */
 static uint32_t   drm_vblank_enabled_total;
 static spinlock_t drm_vblank_enabled_lock = {.lock = 0, .rflags = 0};
 
 /* drm_vblank_init: initialize vblank subsystem for @num_crtcs CRTCs */
-
 int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
 {
     struct drm_vblank_crtc *vblank;
@@ -70,13 +71,12 @@ int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
     }
 
     dev->vblank_array = vblank;
-    dev->num_crtc            = (int)num_crtcs;
+    dev->num_crtc     = (int)num_crtcs;
 
     return 0;
 }
 
 /* drm_crtc_vblank_count: get vblank count for a CRTC */
-
 uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
@@ -100,7 +100,6 @@ uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc)
 }
 
 /* drm_crtc_vblank_get: acquire a vblank reference for this CRTC */
-
 int drm_crtc_vblank_get(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
@@ -129,7 +128,6 @@ int drm_crtc_vblank_get(struct drm_crtc *crtc)
 }
 
 /* drm_crtc_vblank_put: release a vblank reference for this CRTC */
-
 void drm_crtc_vblank_put(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
@@ -155,7 +153,6 @@ void drm_crtc_vblank_put(struct drm_crtc *crtc)
 }
 
 /* drm_crtc_arm_vblank_event: queue a vblank event to the CRTC */
-
 void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e)
 {
     struct drm_device      *dev;
@@ -213,7 +210,6 @@ void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_
 }
 
 /* drm_crtc_send_vblank_event: stamp and send an event to its owner */
-
 void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e)
 {
     struct drm_vblank_crtc *vblank;
@@ -251,7 +247,6 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
 }
 
 /* drm_crtc_vblank_off: turn off vblank for a CRTC */
-
 void drm_crtc_vblank_off(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
@@ -284,7 +279,6 @@ void drm_crtc_vblank_off(struct drm_crtc *crtc)
 }
 
 /* drm_crtc_vblank_on: turn on vblank for a CRTC */
-
 void drm_crtc_vblank_on(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
@@ -317,7 +311,6 @@ void drm_crtc_vblank_on(struct drm_crtc *crtc)
 }
 
 /* drm_handle_vblank: handle a vblank interrupt for the given pipe */
-
 void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 {
     struct drm_vblank_crtc           *vblank;
@@ -381,8 +374,10 @@ void drm_vblank_tick(void)
     struct drm_device *devs[DRM_MAX_DEVICES];
     int                ndev;
 
-    /* Fast path: no CRTC has vblank enabled, so skip the device-list scan,
-     * refcount churn and per-CRTC spinlocks that cost nothing to avoid. */
+    /*
+     * Fast path: no CRTC has vblank enabled, so skip the device-list scan,
+     * refcount churn and per-CRTC spinlocks that cost nothing to avoid.
+     */
     spin_lock(&drm_vblank_enabled_lock);
     bool any_enabled = drm_vblank_enabled_total > 0;
     spin_unlock(&drm_vblank_enabled_lock);
@@ -426,7 +421,6 @@ void drm_vblank_tick(void)
 }
 
 /* drm_wait_vblank_ioctl: handle DRM_IOCTL_WAIT_VBLANK */
-
 int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     union drm_wait_vblank  *vblwait = (union drm_wait_vblank *)data;
@@ -588,7 +582,6 @@ void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_pri
 }
 
 /* drm_vblank_cleanup: free the vblank array */
-
 void drm_vblank_cleanup(struct drm_device *dev)
 {
     if (!dev || !dev->vblank_array) {
@@ -617,5 +610,5 @@ void drm_vblank_cleanup(struct drm_device *dev)
 
     free(dev->vblank_array);
     dev->vblank_array = NULL;
-    dev->num_crtc            = 0;
+    dev->num_crtc     = 0;
 }

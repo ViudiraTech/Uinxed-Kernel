@@ -69,8 +69,6 @@ static uint64_t timerfd_now_ns(const timerfd_ctx_t *ctx)
     return timer_monotonic_ns();
 }
 
-/* VFS callback implementations */
-
 /* VFS open callback (no-op) */
 static void timerfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -156,8 +154,6 @@ static int timerfd_vfs_free(void *handle)
     return EOK;
 }
 
-/* Generic stubs */
-
 /* Unsupported unmount callback */
 static void timerfd_stub_unmount(void *root)
 {
@@ -239,8 +235,6 @@ static int timerfd_stub_mount(const char *s, vfs_node_t n)
     (void)n;
     return -ENOSYS;
 }
-
-/* Public API */
 
 /* Allocate and initialize a timerfd VFS node */
 static vfs_node_t timerfd_node_create(int clockid, int flags)

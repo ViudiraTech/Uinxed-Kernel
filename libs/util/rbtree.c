@@ -11,8 +11,6 @@
 #include <libs/std/stddef.h>
 #include <libs/util/rbtree.h>
 
-/* Internal helpers */
-
 /* Recompute the augmented value up the chain to the root. */
 static void augment_propagate(rb_node_t *node, rb_augment_fn augment, void *data)
 {
@@ -232,8 +230,6 @@ static rb_node_t *rb_subtree_min(rb_node_t *node)
     while (node->left) node = node->left;
     return node;
 }
-
-/* Public API */
 
 /* Initialize an empty red-black tree. */
 void rb_init_root(rb_root_t *root)

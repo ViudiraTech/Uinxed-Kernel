@@ -287,8 +287,6 @@ typedef struct hda_controller {
 
 static hda_controller_t hda_ctrl;
 
-/* MMIO access helpers */
-
 /* Read a 32-bit MMIO register. */
 static inline uint32_t hda_read32(uint16_t reg)
 {
@@ -365,8 +363,6 @@ static inline void sd_write8(int stream, uint16_t reg, uint8_t val)
     hda_write8(0x80 + stream * 0x20 + reg, val);
 }
 
-/* BAR size probing */
-
 /* Probe the size of a PCI BAR. */
 static uint32_t hda_read_bar_size(pci_device_cache_t *dev, int bar_idx)
 {
@@ -397,8 +393,6 @@ static uint32_t hda_read_bar_size(pci_device_cache_t *dev, int bar_idx)
     if (!sized) return 0;
     return (~sized + 1) & 0xFFFFFFFF;
 }
-
-/* Verb helpers */
 
 /* Build a codec verb from address, node, verb id and payload. */
 static inline uint32_t hda_mk_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload)
@@ -485,8 +479,6 @@ static uint32_t hda_get_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t 
     return res;
 }
 
-/* Controller reset */
-
 /* Reset the HDA controller. */
 static void hda_reset_controller(void)
 {
@@ -509,8 +501,6 @@ static void hda_reset_controller(void)
 
     msleep(2);
 }
-
-/* CORB/RIRB */
 
 /* Allocate and map the CORB/RIRB DMA buffers. */
 static int hda_alloc_corb_rirb(void)
@@ -571,8 +561,6 @@ static void hda_init_corb_rirb(void)
 
     hda_ctrl.rirb_rp = 0;
 }
-
-/* Codec probing */
 
 /* Probe one codec address and record vendor/device id. */
 static int hda_probe_codec(int addr)
@@ -686,8 +674,6 @@ static int hda_parse_widgets(hda_codec_t *codec)
     plogk("hda: Codec #%d widgets: %d (DAC=%d, ADC=%d, PIN=%d)\n", codec->addr, count, codec->dac_count, codec->adc_count, codec->pin_count);
     return 0;
 }
-
-/* Codec configuration */
 
 /* Configure the codec DAC/ADC/pin routing and gain. */
 static void hda_config_codec(hda_codec_t *codec)
@@ -871,8 +857,6 @@ static void hda_stop_stream(int stream_idx)
     hda_ctrl.streams[stream_idx].running   = 0;
     hda_ctrl.streams[stream_idx].allocated = 0;
 }
-
-/* Audio subsystem interface */
 
 /* Find a free stream descriptor for the given direction. */
 static int hda_allocate_stream(int direction)
@@ -1179,8 +1163,6 @@ static const audio_card_ops_t hda_audio_ops = {
     .set_params   = hda_audio_set_params,
 };
 
-/* Interrupt handler */
-
 /* Handle HDA controller interrupts. */
 static void hda_interrupt_handler(interrupt_frame_t *frame)
 {
@@ -1234,8 +1216,6 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
         }
     }
 }
-
-/* Initialization */
 
 /* Probe the PCI controller and register an audio card. */
 void hda_init(void)

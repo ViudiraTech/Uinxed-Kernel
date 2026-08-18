@@ -103,8 +103,6 @@ static size_t strnlen_local(const char *s, size_t maxlen)
     return n;
 }
 
-/* Circular buffer helpers */
-
 /* Initialize a ring buffer with the given capacity (clamped to SOCK_BUF_MAX). */
 static int sock_buf_init(sock_buf_t *buf, uint32_t capacity)
 {
@@ -283,7 +281,6 @@ static void sock_buf_discard(sock_buf_t *buf, uint32_t len)
 }
 
 /* Blocked-socket tracking */
-
 static void sock_blocked_register(socket_t *sk, task_t *task)
 {
     /*
@@ -317,7 +314,6 @@ static void sock_blocked_wake_all(socket_t *sk)
 }
 
 /* Bound-address registry */
-
 static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out)
 {
     spin_lock(&sock_bound_lock);
@@ -468,7 +464,6 @@ size_t socket_format_unix_table(char *buffer, size_t capacity)
 }
 
 /* UNIX address parsing */
-
 static int unix_addr_parse(const sockaddr_un_t *addr, uint32_t addrlen, int *is_abstract)
 {
     if (!addr || !is_abstract) return -EINVAL;
@@ -493,7 +488,6 @@ static int unix_addr_parse(const sockaddr_un_t *addr, uint32_t addrlen, int *is_
 }
 
 /* Socket lifecycle */
-
 static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
 {
     socket_t *sk;
@@ -716,7 +710,6 @@ static void socket_unref(socket_t *sk)
 }
 
 /* Socket fd installation */
-
 int socket_fd_install(socket_t *sk)
 {
     return socket_fd_install_flags(sk, 0);
@@ -779,7 +772,6 @@ static int socket_fd_nonblock(int fd)
  * NOTE: returns a weak pointer (no refcount bump).
  * The caller must ensure the socket stays alive during use.
  */
-
 socket_t *socket_from_fd(int fd)
 {
     process_t      *proc;
@@ -805,7 +797,6 @@ out:
 }
 
 /* UNIX autobind */
-
 static int unix_autobind(socket_t *sk)
 {
     sockaddr_un_t addr;
@@ -867,7 +858,6 @@ static int unix_autobind(socket_t *sk)
 }
 
 /* UNIX bind */
-
 static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
 {
     int abstract;
@@ -932,7 +922,6 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
 }
 
 /* UNIX listen */
-
 static int unix_listen(socket_t *sk, uint32_t backlog)
 {
     if (sk->type != SOCK_STREAM && sk->type != SOCK_SEQPACKET) return -EOPNOTSUPP;
@@ -971,7 +960,6 @@ static int unix_listen(socket_t *sk, uint32_t backlog)
 }
 
 /* UNIX stream connect */
-
 static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
 {
     socket_t *listener = NULL;
@@ -1074,7 +1062,6 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
 }
 
 /* UNIX accept */
-
 static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int flags)
 {
     socket_t *client;
@@ -1134,7 +1121,6 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
 }
 
 /* UNIX stream send */
-
 static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, int flags, process_file_t **rights, size_t rights_count)
 {
     socket_t *peer;
@@ -1249,7 +1235,6 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
 }
 
 /* UNIX stream recv */
-
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
 {
     int       is_nonblock;
@@ -1459,7 +1444,6 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
 }
 
 /* UNIX datagram send */
-
 static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags)
 {
     socket_t *dest = NULL;
@@ -1538,7 +1522,6 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
 }
 
 /* UNIX datagram recv */
-
 static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials, int *message_flags, size_t *record_size)
 {
     int            is_nonblock;
@@ -1621,7 +1604,6 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
 }
 
 /* Socket poll support */
-
 static int socket_poll(socket_t *sk, size_t events)
 {
     int revents = 0;
@@ -1678,7 +1660,6 @@ static int socket_poll(socket_t *sk, size_t events)
 }
 
 /* VFS callbacks */
-
 static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     socket_t *sk = (socket_t *)file;
@@ -1858,7 +1839,6 @@ static int socket_vfs_free(void *handle)
 }
 
 /* VFS stubs */
-
 static void socket_stub_unmount(void *root)
 {
     (void)root;
@@ -1952,10 +1932,7 @@ static void socket_stub_open(void *parent, const char *name, vfs_node_t node)
     (void)node;
 }
 
-/* System call implementations */
-
 /* sys_socket */
-
 int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
 {
     uint16_t  sock_type;
@@ -2032,7 +2009,6 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
 }
 
 /* sys_bind */
-
 int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
     socket_t     *sk;
@@ -2075,7 +2051,6 @@ int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 }
 
 /* sys_listen */
-
 int64_t sys_listen(int fd, int backlog)
 {
     socket_t *sk;
@@ -2097,7 +2072,6 @@ int64_t sys_listen(int fd, int backlog)
 }
 
 /* sys_accept */
-
 int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 {
     socket_t *sk;
@@ -2143,7 +2117,6 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 }
 
 /* sys_connect */
-
 int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
     socket_t     *sk;
@@ -2193,7 +2166,6 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 }
 
 /* sys_sendto */
-
 int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_t *addr, uint32_t addrlen)
 {
     socket_t     *sk;
@@ -2299,7 +2271,6 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
 }
 
 /* sys_recvfrom */
-
 int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr, uint32_t *addrlen)
 {
     socket_t *sk;
@@ -2416,7 +2387,6 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
 }
 
 /* Internal: sendmsg/recvmsg with kernel buffers */
-
 static void socket_release_rights(process_file_t **rights, size_t rights_count)
 {
     for (size_t i = 0; i < rights_count; i++) process_file_put_transfer(rights[i]);
@@ -2847,7 +2817,6 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 }
 
 /* sys_sendmsg */
-
 int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
 {
     socket_t       *sk;
@@ -2933,7 +2902,6 @@ int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
 }
 
 /* sys_recvmsg */
-
 int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
 {
     socket_t *sk;
@@ -2999,7 +2967,6 @@ int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
 }
 
 /* sys_shutdown */
-
 int64_t sys_shutdown(int fd, int how)
 {
     socket_t *sk;
@@ -3040,7 +3007,6 @@ int64_t sys_shutdown(int fd, int how)
 }
 
 /* sys_socketpair */
-
 int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
 {
     socket_t *sk1, *sk2;
@@ -3117,7 +3083,6 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
 }
 
 /* sys_getsockname */
-
 int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
     socket_t *sk;
@@ -3160,7 +3125,6 @@ int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 }
 
 /* sys_getpeername */
-
 int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
     socket_t *sk;
@@ -3196,7 +3160,6 @@ int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 }
 
 /* sys_setsockopt */
-
 int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t optlen)
 {
     socket_t *sk;
@@ -3352,7 +3315,6 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
 }
 
 /* sys_getsockopt */
-
 int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen)
 {
     socket_t *sk;
@@ -3486,7 +3448,6 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 }
 
 /* sys_sendmmsg */
-
 int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
 {
     socket_t *sk;
@@ -3590,7 +3551,6 @@ int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
 }
 
 /* sys_recvmmsg */
-
 int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeout)
 {
     socket_t *sk;
@@ -3682,7 +3642,6 @@ int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeo
 }
 
 /* Subsystem initialization */
-
 void socket_init(void)
 {
     memset(sock_bound_tab, 0, sizeof(sock_bound_tab));

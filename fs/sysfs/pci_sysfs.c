@@ -180,8 +180,6 @@ static const struct attribute_group *pci_dev_groups[] = {
     NULL,
 };
 
-/* Device release */
-
 /* Release a PCI sysfs device and its private data. */
 static void pci_dev_release(struct device *dev)
 {
@@ -189,8 +187,6 @@ static void pci_dev_release(struct device *dev)
     if (psd) free(psd);
     free(dev);
 }
-
-/* Initialization */
 
 /* Register the PCI bus type and publish every cached device. */
 void pci_sysfs_init(void)

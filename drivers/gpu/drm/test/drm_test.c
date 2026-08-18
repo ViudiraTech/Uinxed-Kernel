@@ -56,7 +56,6 @@ static void test_gem_free(test_gem_object_t *obj)
 }
 
 /* DRM functional test - exercises GEM + framebuffer + ioctl */
-
 void drm_run_test(void)
 {
     int                idx = 0;

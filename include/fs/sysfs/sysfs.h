@@ -107,8 +107,6 @@ static inline int sysfs_emit_at(char *buf, int at, const char *fmt, ...)
     return n;
 }
 
-/* sysfs filesystem API */
-
 /* Create / remove a single attribute file under a kobject */
 int  sysfs_create_file(struct kobject *kobj, const struct attribute *attr);
 void sysfs_remove_file(struct kobject *kobj, const struct attribute *attr);

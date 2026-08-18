@@ -28,7 +28,6 @@ ahci_satapi_device_t ahci_satapi_devices[AHCI_MAX_DEVICES];
 int                  ahci_satapi_device_count = 0;
 
 /* Slot finder (same logic as ahci.c) */
-
 static int satapi_find_slot(ahci_port_state_t *port)
 {
     uint32_t slots = ((ahci_read32(hba_mmio, HOST_CAP) >> 8) & 0x1F) + 1;
@@ -40,7 +39,6 @@ static int satapi_find_slot(ahci_port_state_t *port)
 }
 
 /* Issue an ATAPI packet command via AHCI */
-
 static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t *cdb, uint16_t cdb_len, uint8_t direction, int is_dma, uint64_t buf_phys, uint32_t byte_count)
 {
     volatile hba_cmd_header_t *hdr = &port->cmd_list[slot];
@@ -107,8 +105,6 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
     if (byte_count && hdr->prdbc != byte_count) return -EIO;
     return 0;
 }
-
-/* Public API */
 
 /* Register SATAPI devices discovered by the AHCI probe. */
 void ahci_satapi_init(void)

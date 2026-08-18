@@ -292,7 +292,6 @@ void acpi_event_poll(void)
 }
 
 /* Default power button callback */
-
 static void power_button_handler(void *context)
 {
     (void)context;

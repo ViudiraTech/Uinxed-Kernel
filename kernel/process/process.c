@@ -799,9 +799,11 @@ static process_file_t *process_fd_get_light(process_t *proc, int fd, bool *borro
     return process_fd_get(proc, fd);
 }
 
-/* read(2)/write(2) already obtained the current process from the syscall
- * frame.  Their single-threaded hot path can therefore borrow the fd slot
- * without calling current_task() a second time. */
+/*
+ * read(2)/write(2) already obtained the current process from the syscall
+ * frame. Their single-threaded hot path can therefore borrow the fd slot
+ * without calling current_task() a second time.
+ */
 static process_file_t *process_fd_get_light_current(process_t *proc, int fd, bool *borrowed)
 {
     *borrowed = false;
@@ -1107,9 +1109,11 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
         return -EBADF;
     }
 
-    /* Pipes and stream devices do not modify a mounted file or page cache.
+    /*
+     * Pipes and stream devices do not modify a mounted file or page cache.
      * Avoid walking the mount-parent chain for the hot read/write stream
-     * path; the device callback owns the write policy for these nodes. */
+     * path; the device callback owns the write policy for these nodes.
+     */
     if (!positionless && vfs_mount_is_readonly(file->node)) {
         if (!positionless) process_file_io_unlock(file);
         process_file_put_light(file, borrowed);
@@ -2100,9 +2104,11 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             return NULL;
         }
 
-        /* A driver-backed mapping (e.g. DRM GEM) shares vm_private_data across
+        /*
+         * A driver-backed mapping (e.g. DRM GEM) shares vm_private_data across
          * the fork: take an extra reference so the child's own teardown can
-         * release it independently of the parent. */
+         * release it independently of the parent.
+         */
         if (copy->vm_private_get && copy->vm_private_put && copy->vm_private_data) copy->vm_private_get(copy->vm_private_data);
 
         if (vm_area_insert(child, copy)) {

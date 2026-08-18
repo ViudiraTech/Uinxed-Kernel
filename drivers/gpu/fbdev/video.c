@@ -197,8 +197,8 @@ static fbdev_var_screeninfo_t video_fb_var(const video_info_t *info)
     var.blue.offset    = info->blue_mask_shift;
     var.blue.length    = info->blue_mask_size;
     /* Physical display size in mm; 0 means unknown (Linux convention). */
-    var.width          = 0;
-    var.height         = 0;
+    var.width  = 0;
+    var.height = 0;
 
     /* Stable 60 Hz timing metadata for the fixed scanout mode. */
     var.right_margin = 80;
@@ -283,7 +283,8 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             if (copy_from_user(&var, arg, sizeof(var))) return -EFAULT;
             int status = video_fb_validate_mode(&info, &var);
             if (status) {
-                plogk("video: [warn] fb_set_var rejected %ux%u bpp=%u (fixed mode is %ux%u bpp=%u)\n", var.xres, var.yres, var.bits_per_pixel, (unsigned int)info.width, (unsigned int)info.height, info.bpp);
+                plogk("video: [warn] fb_set_var rejected %ux%u bpp=%u (fixed mode is %ux%u bpp=%u)\n", var.xres, var.yres, var.bits_per_pixel, (unsigned int)info.width, (unsigned int)info.height,
+                      info.bpp);
                 return status;
             }
             fbdev_var_screeninfo_t normalized = video_fb_var(&info);
@@ -312,8 +313,10 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             return EOK;
         }
         case FBIOBLANK :
-            /* The current DRM KMS path has no DPMS primitive; accept explicit
-             * unblank (which userspace issues when taking over the console). */
+            /*
+             * The current DRM KMS path has no DPMS primitive; accept explicit
+             * unblank (which userspace issues when taking over the console).
+             */
             if (arg == FB_BLANK_UNBLANK) return EOK;
             (void)arg;
             return -EINVAL;
@@ -346,8 +349,10 @@ static int video_refresh_worker(void *arg)
     while (!kthread_should_stop()) {
         task_sleep_ticks((TIMER_HZ + 59) / 60);
 
-        /* While a DRM master owns the display (compositor running), the
-         * console must not repaint a framebuffer shared with the scanout. */
+        /*
+         * While a DRM master owns the display (compositor running), the
+         * console must not repaint a framebuffer shared with the scanout.
+         */
         spin_lock(&video_state_lock);
         bool suspended = video_console_suspended;
         spin_unlock(&video_state_lock);
@@ -390,10 +395,12 @@ void video_start_refresh_worker(void)
     }
 }
 
-/* Suspend or resume the kernel console while a DRM master owns the display.
+/*
+ * Suspend or resume the kernel console while a DRM master owns the display.
  * A compositor and the console must not repaint the same framebuffer at
- * once; Linux hides the console while a DRM master is active.  Refcounted so
- * that several concurrent masters keep it blanked until the last one drops. */
+ * once; Linux hides the console while a DRM master is active. Refcounted so
+ * that several concurrent masters keep it blanked until the last one drops.
+ */
 void video_console_blank(bool blank)
 {
     spin_lock(&video_state_lock);

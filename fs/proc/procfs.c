@@ -167,8 +167,6 @@ static procfs_sysctl_t procfs_sysctl_kernel[] = {
 
 #define PROC_SYS_KERNEL 0
 
-/* Helpers */
-
 /* No-op for procfs link callbacks that need no implementation. */
 static void procfs_dummy(void)
 {
@@ -240,8 +238,6 @@ static void procfs_deactivate_pid_nodes(vfs_node_t root)
         child->type = file_none;
     }
 }
-
-/* Content generators */
 
 /* Generate /proc/stat content. */
 static void gen_info_stat(procfs_file_t *pf)
@@ -469,7 +465,7 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
     uint64_t cpu_mhz    = cpu_hz / 1000000;
     uint64_t cpu_mhz_fp = (cpu_hz % 1000000) / 10000; // one decimal
 
-    /* BogoMIPS: approx (cpu_hz / 1000000) / 2, same as Linux on x86 */
+    /* BogoMIPS: approx (cpu_hz / 1000000) / 2, on x86 */
     uint64_t bogo    = cpu_hz / 2000000;
     uint64_t bogo_fp = ((cpu_hz % 2000000) * 10) / 2000000;
 
@@ -808,8 +804,6 @@ static void gen_tty_ldiscs(procfs_file_t *pf)
     pf->size     = n < 0 ? 0 : (size_t)n;
     pf->capacity = 256;
 }
-
-/* /proc/sys sysctl support */
 
 /* Return the sysctl entry for a directory index. */
 static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
@@ -1660,7 +1654,6 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
 }
 
 /* VFS callbacks */
-
 static int procfs_mount(const char *handle, vfs_node_t node)
 {
     /*
@@ -2365,8 +2358,6 @@ static struct vfs_callback procfs_callbacks = {
     .file_write   = procfs_file_write,
     .resize       = procfs_resize,
 };
-
-/* Registration */
 
 /* Register the proc filesystem with the VFS layer. */
 void procfs_regist(void)

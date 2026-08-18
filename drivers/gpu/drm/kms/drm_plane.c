@@ -24,22 +24,7 @@
 
 /* Internal helpers from drm_mode_object.c */
 
-/*
- * drm_plane_init - Initialise a plane object.
- * @dev: DRM device
- * @plane: plane to initialise
- * @possible_crtcs: bitmask of CRTC indices that can drive this plane
- * @funcs: plane helper funcs pointer (stored in helper_private)
- * @formats: array of supported DRM_FORMAT_* fourcc codes
- * @format_count: number of entries in @formats
- * @modifiers: array of supported format modifiers (may be NULL)
- * @type: DRM_PLANE_TYPE_* (primary, cursor, overlay)
- * @name: human-readable name for the plane
- *
- * Allocates a mode-object ID, initialises the mutex, copies the format
- * and modifier arrays, inserts into the device plane list, and stores
- * the plane type and name. Returns 0 on success or -ENOMEM/-errno.
- */
+/* Initialise a plane object. */
 int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t possible_crtcs, void *funcs, const uint32_t *formats, unsigned int format_count, const uint64_t *modifiers,
                    enum drm_plane_type type, const char *name)
 {
@@ -130,15 +115,7 @@ bool drm_plane_format_supported(const struct drm_plane *plane, uint32_t format)
     return false;
 }
 
-/*
- * drm_mode_getplane_res - Handle DRM_IOCTL_MODE_GETPLANERESOURCES.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_get_plane_res (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Fills the count_planes field with the total number of planes.
- * Returns 0 on success.
- */
+/* Handle DRM_IOCTL_MODE_GETPLANERESOURCES. Returns 0 on success. */
 int drm_mode_getplane_res(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_plane_res *plane_res = (struct drm_mode_get_plane_res *)data;
@@ -175,16 +152,7 @@ int drm_mode_getplane_res(struct drm_device *dev, void *data, struct drm_file *f
     return 0;
 }
 
-/*
- * drm_mode_getplane - Handle DRM_IOCTL_MODE_GETPLANE.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_get_plane (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up the plane by id, fills the struct with possible_crtcs,
- * format count, and currently attached CRTC/FB ids.
- * Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_GETPLANE. Returns 0 on success or -EINVAL/-ENOENT. */
 int drm_mode_getplane(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_plane *plane_req = (struct drm_mode_get_plane *)data;
@@ -224,16 +192,7 @@ int drm_mode_getplane(struct drm_device *dev, void *data, struct drm_file *file_
     return 0;
 }
 
-/*
- * drm_mode_setplane - Handle DRM_IOCTL_MODE_SETPLANE.
- * @dev: DRM device
- * @data: pointer to struct drm_mode_set_plane (userspace buffer)
- * @file_priv: DRM file handle
- *
- * Looks up the plane by id. If fb_id is non-zero, applies the plane's
- * framebuffer, CRTC binding, and source/destination coordinates.
- * Returns 0 on success or -EINVAL/-ENOENT.
- */
+/* Handle DRM_IOCTL_MODE_SETPLANE. Returns 0 on success or -EINVAL/-ENOENT. */
 int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_set_plane *plane_req = (struct drm_mode_set_plane *)data;

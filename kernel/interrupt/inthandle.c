@@ -273,8 +273,6 @@ INTERRUPT_END
 
 /* ISR 14 (#PF) is handled by the paging subsystem */
 
-/* ISR 15 CPU reserved */
-
 /* x87 floating point error (#MF) */
 INTERRUPT_BEGIN static void ISR_16_handle(interrupt_frame_t *frame)
 {

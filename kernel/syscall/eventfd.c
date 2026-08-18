@@ -29,8 +29,6 @@
 
 static int eventfd_fsid = -1;
 
-/* VFS callback implementations */
-
 /* VFS open callback (no-op) */
 static void eventfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -249,8 +247,6 @@ static int eventfd_stub_mount(const char *s, vfs_node_t n)
     (void)n;
     return -ENOSYS;
 }
-
-/* Public API */
 
 /* Allocate and initialize an eventfd VFS node */
 static vfs_node_t eventfd_node_create(unsigned int initval, int flags)

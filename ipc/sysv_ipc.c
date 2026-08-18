@@ -123,8 +123,6 @@ static spinlock_t   msg_global_lock;
 static sem_undo_t *sem_undo_list;
 static spinlock_t  sem_undo_lock;
 
-/* Common IPC helpers */
-
 /* Check the current process's permission to access the IPC object. */
 static int ipc_perm_check(const ipc_perm_t *perm, int mode)
 {
@@ -143,8 +141,6 @@ static int ipc_perm_check(const ipc_perm_t *perm, int mode)
     if ((perm->mode & 0777 & mode) == (mode & 0777)) return 0;
     return -EACCES;
 }
-
-/* ID allocation helpers */
 
 /* Allocate an IPC id from a free table slot, with a rotating sequence. */
 static int ipc_id_alloc(void **table, uint16_t *seq_table, int max, spinlock_t *lock, void *obj)
@@ -210,8 +206,6 @@ static int ipc_id_remove(void **table, uint16_t *seq_table, int max, spinlock_t 
     return 0;
 }
 
-/* Semaphore undo helpers */
-
 /* Find the undo record for a process/semaphore pair. */
 static sem_undo_t *sem_undo_find(process_t *proc, int semid)
 {
@@ -261,8 +255,6 @@ void sysv_sem_undo_release(process_t *proc)
     }
     spin_unlock(&sem_undo_lock);
 }
-
-/* Semaphore subsystem */
 
 /* sys_semget - get or create a semaphore set */
 int64_t sys_semget(key_t key, int nsems, int semflg)
@@ -811,8 +803,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
     }
 }
 
-/* Shared memory subsystem */
-
 /* Increment the attach count when a VMA maps a shared-memory segment. */
 int sysv_shm_vma_get(void *identity, uint32_t pid)
 {
@@ -1220,8 +1210,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
     }
 }
 
-/* Message queue subsystem */
-
 /* sys_msgget - get or create a message queue */
 int64_t sys_msgget(key_t key, int msgflg)
 {
@@ -1612,8 +1600,6 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             return -EINVAL;
     }
 }
-
-/* Initialization */
 
 /* sysv_ipc_init - initialize all System V IPC subsystems */
 void sysv_ipc_init(void)

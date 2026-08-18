@@ -57,8 +57,6 @@ typedef struct epoll_event {
 _Static_assert(sizeof(epoll_event_t) == 12, "Linux x86_64 epoll_event must be 12 bytes");
 _Static_assert(__builtin_offsetof(epoll_event_t, data) == 4, "epoll_event.data must start at byte 4");
 
-/* Epoll syscall interface */
-
 /* Create a new epoll instance. */
 int64_t sys_epoll_create(int size);
 

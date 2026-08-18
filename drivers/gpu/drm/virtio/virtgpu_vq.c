@@ -23,7 +23,6 @@
 #include <mem/page.h>
 
 /* Virtqueue initialisation / teardown */
-
 int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
 {
     struct vp_device *vp = vgdev->vp_dev;

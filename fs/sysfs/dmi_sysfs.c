@@ -192,8 +192,6 @@ static struct bin_attribute smbios_entry_point_attr = {
     .read = smbios_entry_point_read,
 };
 
-/* Registration */
-
 /* Register the DMI class and firmware tables in sysfs. */
 void dmi_sysfs_init(void)
 {

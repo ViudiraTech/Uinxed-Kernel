@@ -61,8 +61,6 @@ int smbios_major_version(void);
 /* Get SMBIOS minor version */
 int smbios_minor_version(void);
 
-/* Type-0 */
-
 /* Get BIOS Vendor string */
 const char *smbios_bios_vendor(void);
 
@@ -95,8 +93,6 @@ uint8_t smbios_bios_ec_major_release(void);
 
 /* Get BIOS Embedded Controller Firmware Minor Release */
 uint8_t smbios_bios_ec_minor_release(void);
-
-/* Type-1 */
 
 /* Get System Manufacturer string */
 const char *smbios_sys_manufacturer(void);

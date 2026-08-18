@@ -266,8 +266,6 @@ static int blk_ahci_atapi_type(void)
 }
 #endif
 
-/* Public API */
-
 /* Open an IDE ATA drive and fill in a blockdev handle. */
 int blockdev_open_ide(uint8_t drive, blockdev_device_t *device)
 {

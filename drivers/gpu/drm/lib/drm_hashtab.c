@@ -50,8 +50,8 @@ void drm_ht_destroy(struct drm_open_hash *ht)
 /* Insert @item at the head of its bucket; duplicate keys are rejected. */
 int drm_ht_insert_item(struct drm_open_hash *ht, struct drm_hash_item *item)
 {
-    ilist_node_t          *bucket;
-    ilist_node_t          *node;
+    ilist_node_t *bucket;
+    ilist_node_t *node;
 
     if (!ht || !ht->table || !item) return -EINVAL;
 
@@ -77,8 +77,8 @@ int drm_ht_peek(struct drm_open_hash *ht, struct drm_hash_item **item)
 /* Locate an item by key. */
 int drm_ht_find_item(struct drm_open_hash *ht, unsigned long key, struct drm_hash_item **item)
 {
-    ilist_node_t         *bucket;
-    ilist_node_t         *node;
+    ilist_node_t *bucket;
+    ilist_node_t *node;
 
     if (!ht || !ht->table || !item) return -EINVAL;
 
