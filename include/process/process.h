@@ -107,6 +107,8 @@ typedef struct vm_area {
         vfs_node_t       vm_file;         // owning file (NULL for anonymous)
         uint64_t         vm_pgoff;        // page offset within file
         void            *vm_private_data; // driver-private per-VMA data
+        void            (*vm_private_put)(void *data); // release hook for vm_private_data
+        void            (*vm_private_get)(void *data); // fork-copy hook for vm_private_data
         bool             vm_pagecache;    // VMA pins a regular-file cache mapping
 } vm_area_t;
 

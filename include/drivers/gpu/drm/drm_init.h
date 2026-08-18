@@ -16,32 +16,7 @@
 
 struct vm_area;
 
-/*
- * GPU driver registry.  A GPU driver registers a probe callback with the
- * DRM framework; the core then drives discovery generically instead of a
- * specific accelerator being called directly from the boot path.
- */
-#define DRM_MAX_GPU_DRIVERS 16
-#define DRM_MAX_DEVICES     16
-
-struct drm_gpu_driver {
-        const char *name;
-        int (*probe)(void);
-};
-
-/* Register a built-in GPU driver probe with the DRM framework. */
-int drm_gpu_driver_register(const char *name, int (*probe)(void));
-
-/*
- * Probe every registered GPU driver and attach any that find hardware
- * (multi-GPU machines get a node per driver).  Returns 0 if at least one
- * GPU attached, otherwise the last probe error code; the boot path is then
- * expected to call drm_init_fallback() for the software framebuffer device.
- */
-int drm_gpu_probe_all(void);
-
-/* Fallback DRM initialization when no GPU driver can be probed. */
-int drm_init_fallback(void);
+#define DRM_MAX_DEVICES 16
 
 /* Run the DRM subsystem functional self-test. */
 void drm_run_test(void);
@@ -72,6 +47,25 @@ void drm_device_list_add(struct drm_device *dev);
 void drm_device_list_remove(struct drm_device *dev);
 
 /*
+ * Hand the kernel console over to a DRM scanout framebuffer.
+ *
+ * The DRM core owns all console/TTY interaction here; GPU drivers only
+ * attach their scanout flush hooks (fb_console_flush / fb_console_flush_guard
+ * on @dev) and call this once the initial modeset has committed the primary
+ * framebuffer.  Drivers must not call console or TTY subsystems directly.
+ */
+void drm_kms_console_handoff(struct drm_device *dev, struct drm_framebuffer *fb);
+
+/*
+ * Return the name of the DRM driver bound to the primary display (card0),
+ * the first registered device's driver name, or NULL when no DRM device is
+ * registered.  The result is cached after the first non-empty lookup, so it
+ * is cheap to call on every fbdev ioctl / sysfs read.  Pointer is static and
+ * remains valid.
+ */
+const char *drm_active_driver_name(void);
+
+/*
  * Per-open callbacks used by tmpfs/devtmpfs. DRM state is attached to each
  * file descriptor, never to the shared directory node.
  */
@@ -88,6 +82,5 @@ size_t drm_dev_read(void *file, void *addr, size_t offset, size_t size);
 size_t drm_dev_write(void *file, const void *addr, size_t offset, size_t size);
 int    drm_dev_ioctl(void *file, size_t req, void *arg);
 int    drm_dev_poll(void *file, size_t events);
-void  *drm_dev_mmap(void *file, size_t offset, size_t size, int flags);
 
 #endif // INCLUDE_DRM_INIT_H_

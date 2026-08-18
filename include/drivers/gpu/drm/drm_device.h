@@ -12,10 +12,8 @@
 #define INCLUDE_DRM_DEVICE_H_
 
 #include <drivers/gpu/drm/drm.h>
-#include <drivers/gpu/drm/drm_color_mgmt.h>
 #include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mm.h>
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_rect.h>
@@ -28,6 +26,7 @@
 
 /* Forward declarations */
 
+struct device;
 struct drm_device;
 struct drm_file;
 struct drm_driver;
@@ -404,7 +403,6 @@ struct drm_encoder {
         uint32_t                    possible_clones;
         struct drm_crtc            *crtc;
         ilist_node_t                head; // in mode_config.encoder_list
-        const struct drm_connector *connector_mask_list_head_unused;
         void                       *helper_private;
 };
 
@@ -417,12 +415,8 @@ struct drm_connector {
         bool                      interlace_allowed, doublescan_allowed, stereo_allowed;
         uint32_t                  ycbcr_420_allowed;
         enum drm_connector_status status;
-        struct list_head_unused {
-                void *n;
-        } probed_modes_anchor;
         ilist_node_t                modes;      // head of drm_display_mode.head
         ilist_node_t                user_modes; // head of usermode_head
-        struct drm_display_mode    *modes_ptr_array_placeholder;
         uint32_t                    display_info_width_mm, display_info_height_mm;
         uint8_t                    *eld;
         uint8_t                    *edid_blob_ptr;
@@ -443,7 +437,14 @@ struct drm_connector {
         void     *helper_private;
         uint32_t  possible_encoders_count;
         uint32_t *possible_encoders_ids;
+
+        /* Sysfs class device (/sys/class/drm/cardN-<type>-<id>), for removal
+         * during connector cleanup. */
+        struct device *kdev;
 };
+
+/* Map a DRM_MODE_CONNECTOR_* value to its Linux connector name ("Virtual", ...). */
+const char *drm_connector_type_name(uint32_t type);
 
 struct drm_framebuffer_funcs {
         int (*dirty)(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips);
@@ -459,7 +460,6 @@ struct drm_framebuffer {
         unsigned int                        offsets[4];
         unsigned int                        hot_x, hot_y;
         struct drm_gem_object              *obj[4];
-        unsigned int                        filp_legacy_unused;
         ilist_node_t                        head;      // in mode_config.fb_list
         ilist_node_t                        filp_head; // in file fbs list
         const struct drm_framebuffer_funcs *funcs;
@@ -521,7 +521,6 @@ struct drm_atomic_state {
 /* GEM object */
 
 struct drm_gem_object {
-        struct drm_file   *filp_owner_default_unused;
         struct drm_device *dev;
         int                refcount;
         spinlock_t         ref_lock;
@@ -529,7 +528,6 @@ struct drm_gem_object {
         uint32_t           size;
         void              *backing;     // allocated backing memory for dumb/prime buffers
         uint64_t           mmap_offset; // offset returned by dumb_map_offset for mmap lookup
-        struct drm_mm_node vma_node_placeholder;
         ilist_node_t       handle_list_node; // legacy, per-file entries are separate
         void              *import_attach;    // attached dma-buf attachment (for PRIME import)
         void              *dma_buf;          // dma-buf (for PRIME export)
@@ -563,6 +561,10 @@ struct drm_mode_config {
         int num_total_plane;
         int num_fb;
 
+        /* Per-connector-type instance counters, indexed by DRM_MODE_CONNECTOR_*.
+         * Mirrors Linux's per-type ida: each type's instances are numbered from 1. */
+        uint32_t connector_type_count[DRM_MODE_CONNECTOR_USB + 1];
+
         int      num_connector_property_list;
         uint32_t min_width, min_height;
         uint32_t max_width, max_height;
@@ -574,31 +576,27 @@ struct drm_mode_config {
         struct drm_property *prop_crtc_id, *prop_active, *prop_mode_id;
         struct drm_property *prop_plane_type, *prop_zpos, *prop_zpos_default;
         struct drm_property *prop_rotation, *prop_pixel_blend_mode;
-        struct drm_property *prop_src_blend_pixel_unused;
         struct drm_property *prop_alpha;
         struct drm_property *prop_connector_id;
         struct drm_property *prop_dpms, *prop_path, *prop_tile, *prop_link_status;
+        struct drm_property *prop_non_desktop;
         struct drm_property *prop_edid, *prop_content_protection;
         struct drm_property *prop_scaling_mode, *prop_aspect_ratio;
         struct drm_property *prop_vrr_capable, *prop_hdr_output_metadata;
-        struct drm_property *prop_aspect_ratio_unused;
         struct drm_property *prop_gamma_lut, *prop_degamma_lut, *prop_ctm;
         struct drm_property *prop_gamma_lut_size, *prop_degamma_lut_size, *prop_ctm_size;
         struct drm_property *prop_max_bpc;
-        struct drm_property *prop_color_mode_unused;
         struct drm_property *prop_colorspace;
         struct drm_property *prop_writeback_fb_id, *prop_writeback_pix_fmt, *prop_writeback_out_fence_ptr;
 
         bool async_page_flip;
         bool fb_modifiers_not_supported;
         bool normalize_zpos;
-        bool atomic_async_page_flip_not_supported_unused;
         bool poll_enabled;
         bool poll_running;
         bool delayed_event;
         bool poll_init;
 
-        void        *poll_work_unused;
         void        *helper_private;
         spinlock_t   blob_lock;
         spinlock_t   commit_queue_lock;
@@ -664,7 +662,6 @@ struct drm_driver {
         /* ioctl table (NULL-terminated). */
         const struct drm_ioctl_desc *ioctls;
         int                          num_ioctls;
-        int                          major_dev_unused;
 
         /* GEM helpers. */
         int (*gem_create_ioctl)(struct drm_device *dev, void *data, struct drm_file *file_priv);
@@ -678,18 +675,12 @@ struct drm_driver {
         /* KMS hooks (driver-specific). */
         int (*mode_valid)(struct drm_device *dev, const struct drm_display_mode *mode);
         const struct drm_framebuffer_funcs *fb_funcs;
-        const struct drm_mode_config_funcs_placeholder {
-                int dummy;
-        }    *mode_config_funcs_placeholder;
-        void *fops_unused;
 
         /* dumb buffer callbacks. */
         int (*dumb_create)(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args);
         int (*dumb_map_offset)(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle, uint64_t *offset);
         int (*dumb_destroy)(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle);
 
-        int      dev_priv_size_unused;
-        uint32_t primary_index_unused;
 };
 
 /* File handle */
@@ -708,38 +699,27 @@ struct drm_gem_handle_entry {
 
 struct drm_file {
         bool authenticated;
-        bool stereo3d_allowed_unused;
         bool universal_planes;
         bool atomic;
         bool aspect_ratio_allowed;
-        bool writeback_connectors_allowed_unused;
-        bool supports_virtual_audio_unused;
-        bool is_control_unused;
 
         spinlock_t     table_lock; // protects object_idr / GEM handle table
         struct drm_idr object_idr; // per-file object handles
 
         drm_master_t *master; // current master
-        drm_master_t *is_current_unmatched_unused;
-        drm_master_t *render_master_unused;
 
         /* legacy magic authentication */
         spinlock_t           magic_lock;
         struct drm_open_hash magiclist;
-        drm_magic_t          magic_unused_anchor;
 
         ilist_node_t head;        // in device filelist
         ilist_node_t fbs_head;    // head of framebuffer.filp_head for this file
         ilist_node_t object_list; // head of drm_gem_handle_entry.head
         ilist_node_t blobs_head;  // head of user-created drm_property_blob.head_file
 
-        struct drm_device *minor_unused;
+        struct drm_device *dev;
         void              *driver_priv;
-        void              *filp_unused; // opaque fs file pointer
-
-        /* client cap flags */
-        uint32_t client_caps;
-        uint32_t pad;
+        void              *filp; // opaque fs file node
 
         /* Event queue (vblank, page-flip, etc.) */
         spinlock_t             event_lock;
@@ -762,9 +742,6 @@ struct drm_device {
         spinlock_t   filelist_lock;
         ilist_node_t filelist; // head of drm_file.head
 
-        struct drm_idr object_idr_unused_legacy;
-        spinlock_t     object_idr_lock;
-
         int  open_count;
         int  unplugged;
         bool vblank_disable_allowed;
@@ -773,45 +750,60 @@ struct drm_device {
         int        refcount;
         spinlock_t ref_lock;
 
-        void *pdev_unused; // opaque bus device
         void *busid_str;
         char *unique;
         int   unique_len;
 
         /* vblank bookkeeping */
-        struct drm_vblank_crtc *vblank_unused_array;
+        struct drm_vblank_crtc *vblank_array;
         int                     num_crtc;
         spinlock_t              vblank_time_lock;
         spinlock_t              vbl_lock;
 
-        void *driver_private_unused;
-
-        /* primary node minor pointer */
+        /* primary/render node minor pointers */
         struct drm_minor *primary;
         struct drm_minor *render;
-        struct drm_minor *accel_unused;
 
-        /* devtmpfs node handle (opaque) */
+        /* devtmpfs node markers */
         void *dev_node_card0;
-        void *dev_node_renderD_unused;
+        void *dev_node_renderD;
+
+        /*
+         * Console scanout flush hooks.  Set by the KMS driver when it
+         * attaches its scanout to DRM; the core console handoff owns all
+         * console/TTY interaction on the driver's behalf.
+         */
+        void (*fb_console_flush)(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
+        bool (*fb_console_flush_guard)(void);
+
+        /* Set once a KMS commit has handed the display to a client on a
+         * device whose console was not handed to a DRM buffer (no
+         * fb_console_flush, e.g. simpledrm shares the boot framebuffer).
+         * The console is blanked on that first commit and unblanked when the
+         * last client closes. */
+        bool console_blanked_by_commit;
 };
 
 /* Minor (per-/dev/dri node) */
 
 struct drm_minor {
         int                index;
-        int                type; // 0=primary 1=render 2=accel
+        int                type; // DRM_MINOR_PRIMARY / DRM_MINOR_RENDER / DRM_MINOR_ACCEL
         struct drm_device *dev;
-        void              *kdev_unused; // opaque devtmpfs device
-        void              *debugfs_root_unused;
         char              *device_node_name; // e.g. "card0"
 };
 
 /* Minor allocator */
 
+/* Linux include/linux/major.h: DRM_MAJOR 226. */
+#define DRM_MAJOR 226
+
+/* Minor type values mirror Linux's enum drm_minor_type in include/drm/drm_file.h
+ * (PRIMARY=0, CONTROL=1, RENDER=2, ACCEL=32; 32 is spaced to leave room for
+ * more minor types).  CONTROL is unused here and accel is not yet implemented. */
 #define DRM_MINOR_PRIMARY 0
-#define DRM_MINOR_RENDER  1
-#define DRM_MINOR_ACCEL   2
+#define DRM_MINOR_RENDER  2
+#define DRM_MINOR_ACCEL   32
 #define DRM_MAX_MINOR     64
 
 /* Allocate a free /dev/dri minor of the given type. */
@@ -886,6 +878,8 @@ bool drm_mode_object_put_dec_and_test(struct drm_mode_object *obj);
 int                         drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_mode_getcrtc(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int                         drm_mode_gamma_get_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int                         drm_mode_gamma_set_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_mode_cursor_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_mode_cursor2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *file_priv);

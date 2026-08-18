@@ -91,6 +91,20 @@ static int vma_range_overlaps(process_t *proc, uintptr_t start, uintptr_t end)
     return 0;
 }
 
+/* Take an extra reference for a driver-backed vm_private_data after a VMA
+ * copy or split, so each half releases its own reference on teardown.
+ * (SHM VMAs use sysv_shm_vma_get() and never set vm_private_* hooks.) */
+static void vma_private_get(vm_area_t *vma)
+{
+    if (vma && vma->vm_private_get && vma->vm_private_put && vma->vm_private_data) vma->vm_private_get(vma->vm_private_data);
+}
+
+/* Release the driver-backed private reference of a VMA being discarded. */
+static void vma_private_put(vm_area_t *vma)
+{
+    if (vma && vma->vm_private_put && vma->vm_private_data) vma->vm_private_put(vma->vm_private_data);
+}
+
 /* Remove or split VMAs overlapping the range, releasing their backing files */
 static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
 {
@@ -104,6 +118,7 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
         }
         if (start <= vma->start && end >= vma->end) {
             *prev = vma->next;
+            vma_private_put(vma);
             if (vma->vm_file) {
                 if (vma->vm_pagecache) vfs_cache_mapping_unpin(vma->vm_file);
                 memfd_vma_release(vma->vm_file, vma->flags);
@@ -148,6 +163,8 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
             }
             memfd_vma_retain(right->vm_file, right->flags);
         }
+        /* The split right half shares vm_private_data: give it its own ref. */
+        vma_private_get(right);
         right->next = vma->next;
         vma->end    = start;
         vma->next   = right;
@@ -184,12 +201,15 @@ static vm_area_t *vma_split_locked(process_t *proc, vm_area_t *vma, uintptr_t sp
         memfd_vma_retain(right->vm_file, right->flags);
     }
     if (right->type == VM_REGION_SHM && right->vm_private_data && sysv_shm_vma_get(right->vm_private_data, proc->task ? (uint32_t)proc->task->pid : 0)) goto fail_backing;
+    /* Driver-backed mapping (DRM GEM): give the right half its own ref. */
+    vma_private_get(right);
 
     vma->end    = split;
     right->next = vma->next;
     vma->next   = right;
     return right;
 fail_backing:
+    vma_private_put(right);
     if (right->vm_file) memfd_vma_release(right->vm_file, right->flags);
     if (right->vm_file && right->vm_pagecache) vfs_cache_mapping_unpin(right->vm_file);
 fail_file:
@@ -200,6 +220,16 @@ fail:
 }
 
 /* Full mmap syscall implementation */
+
+/* Drop a file_mmap VMA that failed before it was inserted.  Releases the
+ * driver's VMA-held private reference (if any) and the retained file node. */
+static void file_mmap_vma_abort(vm_area_t *vma)
+{
+    if (!vma) return;
+    if (vma->vm_private_put && vma->vm_private_data) vma->vm_private_put(vma->vm_private_data);
+    if (vma->vm_file) vfs_close(vma->vm_file);
+    free(vma);
+}
 
 int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t offset)
 {
@@ -362,39 +392,41 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 
             void *result = callbackof(file->node, file_mmap)(file->node, file->private_data, file_offset, pages, vm_flags, vma);
             if (!result) {
-                vfs_close(vma->vm_file);
-                free(vma);
+                file_mmap_vma_abort(vma);
                 process_file_put(file);
                 return -ENODEV;
             }
 
             uintptr_t backing = (uintptr_t)result;
             if (backing & (PAGE_4K_SIZE - 1)) {
-                vfs_close(vma->vm_file);
-                free(vma);
+                file_mmap_vma_abort(vma);
                 process_file_put(file);
                 return -EINVAL;
             }
 
+            /*
+             * Map only what the driver made available (vma->end - vma->start).
+             * A driver shrinks vma->end to its object size so that a huge
+             * request cannot expose memory past the backing allocation.
+             */
+            size_t map_len = vma->end - vma->start;
             uint64_t pte_flags = vm_flags_to_pte(vm_flags);
             size_t   mapped    = 0;
-            for (; mapped < pages; mapped += PAGE_4K_SIZE) {
+            for (; mapped < map_len; mapped += PAGE_4K_SIZE) {
                 uint64_t frame    = (uint64_t)virt_any_to_phys(backing + mapped) & PAGE_4K_MASK;
                 bool     retained = frame && frame_retain_range(frame, 1) == 0;
                 if (!retained || page_map_new_to(proc->user_page_dir, mmap_addr + mapped, frame, pte_flags) < 0) {
                     if (retained) (void)frame_release_range(frame, 1);
                     (void)unmap_physical_pages(proc, mmap_addr, mapped);
-                    vfs_close(vma->vm_file);
-                    free(vma);
+                    file_mmap_vma_abort(vma);
                     process_file_put(file);
                     return -ENOMEM;
                 }
             }
 
             if (vm_area_insert(proc, vma)) {
-                (void)unmap_physical_pages(proc, mmap_addr, pages);
-                vfs_close(vma->vm_file);
-                free(vma);
+                (void)unmap_physical_pages(proc, mmap_addr, map_len);
+                file_mmap_vma_abort(vma);
                 process_file_put(file);
                 return -ENOMEM;
             }

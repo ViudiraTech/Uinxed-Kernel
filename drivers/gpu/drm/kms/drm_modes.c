@@ -35,10 +35,14 @@ struct drm_display_mode *drm_mode_create(struct drm_device *dev)
     if (!dev) return NULL;
 
     mode = malloc(sizeof(*mode));
-    if (!mode) return NULL;
+    if (!mode) {
+        plogk("drm: Mode_create: out of memory.\n");
+        return NULL;
+    }
     memset(mode, 0, sizeof(*mode));
 
     if (drm_mode_object_idr_alloc(dev, &mode->base, DRM_MODE_OBJECT_MODE)) {
+        plogk("drm: Mode_create: mode object ID allocation failed.\n");
         free(mode);
         return NULL;
     }
@@ -122,7 +126,10 @@ struct drm_display_mode *drm_convert_umode(const struct drm_mode_modeinfo *umode
     if (!umode) return NULL;
 
     mode = malloc(sizeof(*mode));
-    if (!mode) return NULL;
+    if (!mode) {
+        plogk("drm: Convert_umode: out of memory.\n");
+        return NULL;
+    }
     memset(mode, 0, sizeof(*mode));
 
     mode->clock           = (int)umode->clock;

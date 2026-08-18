@@ -10,12 +10,11 @@
 
 #include <drivers/gpu/drm/drm_edid.h>
 #include <drivers/gpu/drm/drm_fourcc.h>
+#include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 #include <drivers/gpu/drm/virtio/virtgpu_gem.h>
 #include <drivers/gpu/drm/virtio/virtgpu_kms.h>
-#include <drivers/gpu/fbdev/video.h>
-#include <drivers/tty/tty.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -143,7 +142,10 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
         if (!dm->enabled) continue;
 
         mode = drm_mode_create(dev);
-        if (!mode) return -ENOMEM;
+        if (!mode) {
+            DRM_ERROR("virtgpu: out of memory allocating display mode.\n");
+            return -ENOMEM;
+        }
 
         (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", dm->width, dm->height);
         mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
@@ -168,7 +170,10 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
 
     /* Fallback: DRM default mode if the host reported no display info. */
     if (vgdev->num_scanouts == 0) {
-        if (drm_connector_add_fallback_mode(connector)) return -ENOMEM;
+        if (drm_connector_add_fallback_mode(connector)) {
+            DRM_ERROR("virtgpu: out of memory adding fallback mode.\n");
+            return -ENOMEM;
+        }
         vgdev->num_scanouts         = 1;
         vgdev->scanouts[0].enabled  = true;
         vgdev->scanouts[0].width    = DRM_DEFAULT_WIDTH;
@@ -429,10 +434,11 @@ err_free_obj:
 /* Publish CRTC/plane state and switch the console onto the framebuffer. */
 static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct drm_connector *conn, struct drm_display_mode *mode, struct virtio_gpu_object *obj, struct drm_framebuffer *fb)
 {
-    struct drm_crtc  *crtc    = conn->state ? conn->state->crtc : NULL;
-    struct drm_plane *primary = crtc ? crtc->primary : NULL;
-    uint32_t          w       = (uint32_t)mode->hdisplay;
-    uint32_t          h       = (uint32_t)mode->vdisplay;
+    struct drm_device  *dev    = vgdev->drm_dev;
+    struct drm_crtc    *crtc   = conn->state ? conn->state->crtc : NULL;
+    struct drm_plane   *primary = crtc ? crtc->primary : NULL;
+    uint32_t            w      = (uint32_t)mode->hdisplay;
+    uint32_t            h      = (uint32_t)mode->vdisplay;
 
     if (crtc) {
         crtc->enabled = true;
@@ -463,13 +469,14 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
         primary->crtc_id = crtc ? crtc->base.id : 0;
     }
 
-    /* Switch the kernel console to the DRM framebuffer. */
+    /* Attach the scanout flush hooks to the DRM device, then let the DRM
+     * core hand the kernel console over to this framebuffer.  The driver
+     * only reports its scanout to DRM; all console/TTY work is core-owned. */
     vgdev_flush_ctx = vgdev;
     vgdev_flush_obj = obj;
-    video_switch_framebuffer(obj->base.backing, w, h, obj->stride, virtgpu_kms_flush_fb);
-
-    /* Update TTY to DRM mode now that the DRM framebuffer is live */
-    tty_set_device_type(TTY_DEVICE_DRM);
+    dev->fb_console_flush       = virtgpu_kms_flush_fb;
+    dev->fb_console_flush_guard = virtgpu_display_flush_guard;
+    drm_kms_console_handoff(dev, fb);
 
     DRM_INFO("Initial modeset: %ux%u fb=%u crtc=%u\n", w, h, fb->base.id, crtc ? crtc->base.id : 0);
     return 0;
@@ -505,9 +512,9 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
         if (!ret) return virtgpu_kms_initial_commit(vgdev, conn, mode, obj, fb);
     }
 
-    /* No usable mode: keep the bootloader console and clear any partial scanout. */
+    /* No usable mode: clear the scanout so nothing half-configured is displayed. */
     virtgpu_cmd_set_scanout(vgdev, 0, NULL);
-    DRM_INFO("Initial modeset: no usable mode - keeping bootloader framebuffer console (%d)\n", ret);
+    DRM_INFO("Initial modeset: no usable mode (%d)\n", ret);
     return ret;
 }
 
@@ -523,9 +530,6 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     struct drm_connector *connector;
     int                   ret;
 
-    /* Guard panic-time console flushes against the synchronous ctrlq lock. */
-    video_set_flush_guard(virtgpu_display_flush_guard);
-
     /* Query display info from host */
     ret = virtgpu_cmd_get_display_info(vgdev);
     if (ret) plogk("virtgpu: Failed to get display info: %d (using defaults)\n", ret);
@@ -533,7 +537,10 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     /* Primary plane */
 
     primary = malloc(sizeof(*primary));
-    if (!primary) return -ENOMEM;
+    if (!primary) {
+        DRM_ERROR("virtgpu: out of memory allocating primary plane.\n");
+        return -ENOMEM;
+    }
     memset(primary, 0, sizeof(*primary));
     vgdev->kms_primary = primary;
 
@@ -546,7 +553,10 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     }
 
     primary->state = malloc(sizeof(*primary->state));
-    if (!primary->state) return -ENOMEM;
+    if (!primary->state) {
+        DRM_ERROR("virtgpu: out of memory allocating plane state.\n");
+        return -ENOMEM;
+    }
     memset(primary->state, 0, sizeof(*primary->state));
     primary->state->plane   = primary;
     primary->state->alpha   = 0xFFFF;
@@ -555,7 +565,10 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     /* CRTC (with real helper callbacks) */
 
     crtc = malloc(sizeof(*crtc));
-    if (!crtc) return -ENOMEM;
+    if (!crtc) {
+        DRM_ERROR("virtgpu: out of memory allocating CRTC.\n");
+        return -ENOMEM;
+    }
     memset(crtc, 0, sizeof(*crtc));
     vgdev->kms_crtc = crtc;
 
@@ -587,7 +600,10 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     dev->mode_config.async_page_flip = true;
 
     crtc->state = malloc(sizeof(*crtc->state));
-    if (!crtc->state) return -ENOMEM;
+    if (!crtc->state) {
+        DRM_ERROR("virtgpu: out of memory allocating CRTC state.\n");
+        return -ENOMEM;
+    }
     memset(crtc->state, 0, sizeof(*crtc->state));
     crtc->state->crtc   = crtc;
     crtc->state->active = false;
@@ -596,7 +612,10 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     /* Encoder (with helper callbacks) */
 
     encoder = malloc(sizeof(*encoder));
-    if (!encoder) return -ENOMEM;
+    if (!encoder) {
+        DRM_ERROR("virtgpu: out of memory allocating encoder.\n");
+        return -ENOMEM;
+    }
     memset(encoder, 0, sizeof(*encoder));
     vgdev->kms_encoder = encoder;
 
@@ -619,7 +638,10 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     /* Connector (with helper callbacks) */
 
     connector = malloc(sizeof(*connector));
-    if (!connector) return -ENOMEM;
+    if (!connector) {
+        DRM_ERROR("virtgpu: out of memory allocating connector.\n");
+        return -ENOMEM;
+    }
     memset(connector, 0, sizeof(*connector));
     vgdev->kms_connector = connector;
 
@@ -639,11 +661,12 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
         }
     }
     connector->status                 = connector_status_connected;
-    connector->display_info_width_mm  = 500;
-    connector->display_info_height_mm = 280;
 
     connector->state = malloc(sizeof(*connector->state));
-    if (!connector->state) return -ENOMEM;
+    if (!connector->state) {
+        DRM_ERROR("virtgpu: out of memory allocating connector state.\n");
+        return -ENOMEM;
+    }
     memset(connector->state, 0, sizeof(*connector->state));
     connector->state->connector    = connector;
     connector->state->crtc         = crtc;

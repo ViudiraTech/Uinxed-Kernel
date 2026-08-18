@@ -69,6 +69,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
     }
 
     if (size && drm_gem_create_mmap_offset(&obj->base)) {
+        plogk("virtgpu: GEM mmap offset allocation failed (size=%lu)\n", (unsigned long)size);
         free(obj->entries);
         free_frames(obj->backing_phys, obj->backing_page_count);
         free(obj);
@@ -143,6 +144,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     /* Create 2D resource on host */
     ret = virtgpu_cmd_create_resource_2d(vgdev, obj);
     if (ret) {
+        plogk("virtgpu: Dumb_create: host 2D resource creation failed (ret=%d, %ux%u)\n", ret, args->width, args->height);
         obj->hw_res_handle = 0;
         virtgpu_gem_free_object(&obj->base);
         return ret;
@@ -151,6 +153,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     /* Attach backing storage */
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
     if (ret) {
+        plogk("virtgpu: Dumb_create: backing attach failed (ret=%d, res_id=%u)\n", ret, obj->hw_res_handle);
         virtgpu_gem_free_object(&obj->base);
         return ret;
     }
@@ -159,6 +162,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     /* Create GEM handle for userspace */
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
+        plogk("virtgpu: Dumb_create: GEM handle creation failed (ret=%d)\n", ret);
         virtgpu_gem_free_object(&obj->base);
         return ret;
     }
@@ -180,7 +184,7 @@ int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *d
 
     /*
      * Use the GEM object's backing memory address as the mmap offset.
-     * The core DRM mmap handler (drm_dev_mmap) will look it up.
+     * The core DRM mmap handler (drm_dev_file_mmap) will look it up.
      */
     if (!gem_obj->mmap_offset) {
         drm_gem_object_put(gem_obj);

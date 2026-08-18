@@ -26,6 +26,63 @@
 /* Internal helpers from drm_mode_object.c and drm_property.c */
 
 /*
+ * drm_connector_type_name - Map a DRM_MODE_CONNECTOR_* value to its Linux name.
+ * @type: DRM_MODE_CONNECTOR_* connector type
+ *
+ * Matches Linux's drm_connector_enum_list names ("VGA", "DVI-I", "Virtual", ...).
+ * Returns "Unknown" for any unrecognised type.
+ */
+const char *drm_connector_type_name(uint32_t type)
+{
+    switch (type) {
+        case DRM_MODE_CONNECTOR_Unknown :
+            return "Unknown";
+        case DRM_MODE_CONNECTOR_VGA :
+            return "VGA";
+        case DRM_MODE_CONNECTOR_DVII :
+            return "DVI-I";
+        case DRM_MODE_CONNECTOR_DVID :
+            return "DVI-D";
+        case DRM_MODE_CONNECTOR_DVIA :
+            return "DVI-A";
+        case DRM_MODE_CONNECTOR_Composite :
+            return "Composite";
+        case DRM_MODE_CONNECTOR_SVIDEO :
+            return "SVIDEO";
+        case DRM_MODE_CONNECTOR_LVDS :
+            return "LVDS";
+        case DRM_MODE_CONNECTOR_Component :
+            return "Component";
+        case DRM_MODE_CONNECTOR_9PinDIN :
+            return "DIN";
+        case DRM_MODE_CONNECTOR_DisplayPort :
+            return "DP";
+        case DRM_MODE_CONNECTOR_HDMIA :
+            return "HDMI-A";
+        case DRM_MODE_CONNECTOR_HDMIB :
+            return "HDMI-B";
+        case DRM_MODE_CONNECTOR_TV :
+            return "TV";
+        case DRM_MODE_CONNECTOR_eDP :
+            return "eDP";
+        case DRM_MODE_CONNECTOR_VIRTUAL :
+            return "Virtual";
+        case DRM_MODE_CONNECTOR_DSI :
+            return "DSI";
+        case DRM_MODE_CONNECTOR_DPI :
+            return "DPI";
+        case DRM_MODE_CONNECTOR_WRITEBACK :
+            return "Writeback";
+        case DRM_MODE_CONNECTOR_SPI :
+            return "SPI";
+        case DRM_MODE_CONNECTOR_USB :
+            return "USB";
+        default :
+            return "Unknown";
+    }
+}
+
+/*
  * drm_connector_init - Initialise a connector object.
  * @dev: DRM device
  * @connector: connector to initialise
@@ -45,6 +102,13 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
         return -EINVAL;
     }
 
+    /* connector_type indexes dev->mode_config.connector_type_count[], so it
+     * must stay inside the DRM_MODE_CONNECTOR_* range. */
+    if (connector_type < 0 || connector_type > DRM_MODE_CONNECTOR_USB) {
+        plogk("drm_connector: Init with out-of-range connector_type %d.\n", connector_type);
+        return -EINVAL;
+    }
+
     ret = drm_mode_object_idr_alloc(dev, &connector->base, DRM_MODE_OBJECT_CONNECTOR);
     if (ret) {
         plogk("drm_connector: Failed to allocate object id (ret=%d)\n", ret);
@@ -58,7 +122,13 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
 
     connector->dev                     = dev;
     connector->connector_type          = (uint32_t)connector_type;
-    connector->connector_type_id       = 0;
+    connector->connector_type_id       = ++dev->mode_config.connector_type_count[connector_type];
+    {
+        /* Linux-style name, e.g. "Virtual-1", used in logs and DRM_IOCTL_MODE_GETCONNECTOR. */
+        (void)snprintf(connector->name, sizeof(connector->name), "%s-%u",
+                       drm_connector_type_name(connector->connector_type),
+                       connector->connector_type_id);
+    }
     connector->status                  = connector_status_unknown;
     connector->force                   = DRM_FORCE_UNSPECIFIED;
     connector->dpms                    = DRM_MODE_DPMS_ON;
@@ -81,7 +151,6 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
     connector->override_edid           = false;
     connector->override_edid_set       = false;
     memset(&connector->edid_lock, 0, sizeof(connector->edid_lock));
-    memset(connector->name, 0, sizeof(connector->name));
 
     dev->mode_config.num_connector++;
     ret = drm_object_attach_property(&connector->base, dev->mode_config.prop_crtc_id, 0);
@@ -94,6 +163,15 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
     ret = drm_connector_attach_dpms_property(connector);
     if (ret) {
         plogk("drm_connector: Failed to attach dpms property (ret=%d)\n", ret);
+        drm_connector_cleanup(connector);
+        return ret;
+    }
+
+    /* Standard connector properties: link-status (GOOD) and non-desktop (false). */
+    ret = drm_object_attach_property(&connector->base, dev->mode_config.prop_link_status, DRM_MODE_LINK_STATUS_GOOD);
+    if (!ret) ret = drm_object_attach_property(&connector->base, dev->mode_config.prop_non_desktop, 0);
+    if (ret) {
+        plogk("drm_connector: Failed to attach link property (ret=%d)\n", ret);
         drm_connector_cleanup(connector);
         return ret;
     }
@@ -288,6 +366,9 @@ void drm_connector_cleanup(struct drm_connector *connector)
 
     dev = connector->dev;
 
+    /* Remove the connector's /sys/class/drm/ device first. */
+    drm_sysfs_connector_remove(connector);
+
     while (connector->modes.next && connector->modes.next != &connector->modes) {
         struct drm_display_mode *mode = container_of(connector->modes.next, struct drm_display_mode, head);
         ilist_remove(&mode->head);
@@ -302,6 +383,11 @@ void drm_connector_cleanup(struct drm_connector *connector)
         spin_unlock(&dev->mode_config.idr_mutex);
 
         if (dev->mode_config.num_connector > 0) dev->mode_config.num_connector--;
+        /* Give the per-type instance counter back so a re-init of the same
+         * type keeps Linux-style names (Virtual-1, not Virtual-2). */
+        if (connector->connector_type <= DRM_MODE_CONNECTOR_USB && dev->mode_config.connector_type_count[connector->connector_type] > 0) {
+            dev->mode_config.connector_type_count[connector->connector_type]--;
+        }
     }
 
     free(connector->possible_encoders_ids);

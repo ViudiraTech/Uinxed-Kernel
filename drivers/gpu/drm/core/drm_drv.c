@@ -1,4 +1,4 @@
-/*
+﻿/*
  *
  *      drm_drv.c
  *      DRM device lifecycle
@@ -13,6 +13,8 @@
 #include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_print.h>
+#include <drivers/gpu/fbdev/video.h>
+#include <drivers/tty/tty.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/sysfs/drm_sysfs.h>
 #include <fs/tmpfs/tmpfs.h>
@@ -202,6 +204,38 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     return dev;
 }
 
+/* Register one /dev/dri/<node> char device.  devt_base is 0 for cardN and
+ * 128 for renderD128+N.  On success @node_marker is set so the caller can
+ * mirror the node in sysfs only when the /dev node really exists. */
+static void drm_register_dri_node(struct drm_device *dev, struct drm_minor *minor, int devt_base, void **node_marker)
+{
+    char               path[64];
+    tmpfs_device_ops_t ops;
+    uint64_t           devt;
+    int                ret;
+
+    if (!minor || !node_marker) return;
+
+    memset(&ops, 0, sizeof(ops));
+    ops.open       = (tmpfs_dev_open_t)drm_dev_open;
+    ops.release    = (tmpfs_dev_release_t)drm_dev_release;
+    ops.mmap       = drm_dev_file_mmap;
+    ops.file_read  = drm_dev_file_read;
+    ops.file_write = drm_dev_file_write;
+    ops.file_poll  = drm_dev_file_poll;
+    ops.file_ioctl = drm_dev_file_ioctl;
+    ops.ctx        = dev;
+
+    (void)snprintf(path, sizeof(path), "/dev/dri/%s", minor->device_node_name);
+    devt = MKDEV(DRM_MAJOR, devt_base + minor->index);
+    ret  = devtmpfs_register_char_device(path, devt, devt, file_stream, &ops);
+    if (ret) {
+        DRM_ERROR("Failed to register %s: %d\n", path, ret);
+        return;
+    }
+    *node_marker = (void *)(uintptr_t)1; // marker
+}
+
 /* drm_dev_register - register device, expose KMS defaults */
 
 int drm_dev_register(struct drm_device *dev, uint64_t flags)
@@ -212,77 +246,79 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         return -EINVAL;
     }
 
-    dev->mode_config.min_width  = 0;
-    dev->mode_config.min_height = 0;
-    dev->mode_config.max_width  = 8192;
-    dev->mode_config.max_height = 8192;
+    /* mode_config bounds are set by drm_mode_config_init() and may have been
+     * pinned by the driver's KMS setup (e.g. simpledrm pins min==max to the
+     * native framebuffer).  Do not overwrite them here. */
 
     if (dev->driver && (dev->driver->driver_features & DRIVER_MODESET)) {
-        dev->mode_config.cursor_width               = 64;
-        dev->mode_config.cursor_height              = 64;
-        dev->mode_config.async_page_flip            = false;
-        dev->mode_config.fb_modifiers_not_supported = false;
-        dev->mode_config.normalize_zpos             = true;
-        dev->mode_config.poll_enabled               = true;
+        /* Enable polling for KMS devices; the remaining mode_config defaults
+         * (cursor size, zpos normalization, async_page_flip, ...) are owned by
+         * drm_mode_config_init() and the driver's KMS setup. */
+        dev->mode_config.poll_enabled = true;
     }
 
-    if (dev->driver) { DRM_INFO("Initialized %s %d.%d.%d %s\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel, dev->driver->date); }
+    if (dev->driver) { DRM_INFO("Initialized %s %d.%d.%d %s for %s on minor %d\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel, dev->driver->date, "virtual device", dev->primary ? dev->primary->index : 0); }
 
-    /* Register under /sys/class/drm/ (one entry per GPU) */
-    drm_sysfs_register_device(dev);
-
-    /* Register /dev/dri/cardN via devtmpfs. */
-    if (dev->primary) {
-        char               path[64];
-        tmpfs_device_ops_t drm_ops;
-
-        memset(&drm_ops, 0, sizeof(drm_ops));
-        drm_ops.open       = (tmpfs_dev_open_t)drm_dev_open;
-        drm_ops.release    = (tmpfs_dev_release_t)drm_dev_release;
-        drm_ops.mmap       = drm_dev_file_mmap;
-        drm_ops.file_read  = drm_dev_file_read;
-        drm_ops.file_write = drm_dev_file_write;
-        drm_ops.file_poll  = drm_dev_file_poll;
-        drm_ops.file_ioctl = drm_dev_file_ioctl;
-        drm_ops.ctx        = dev;
-
-        (void)snprintf(path, sizeof(path), "/dev/dri/%s", dev->primary->device_node_name);
-        uint64_t devt = MKDEV(226, dev->primary->index);
-        int      ret  = devtmpfs_register_char_device(path, devt, devt, file_stream, &drm_ops);
-        if (ret) {
-            DRM_ERROR("Failed to register %s: %d\n", path, ret);
-        } else {
-            dev->dev_node_card0 = (void *)(uintptr_t)1; // marker
-        }
-    }
+    /* Register /dev/dri/cardN via devtmpfs, then mirror it under
+     * /sys/class/drm/ (one entry per GPU) only when the node exists. */
+    if (dev->primary) drm_register_dri_node(dev, dev->primary, 0, &dev->dev_node_card0);
+    if (dev->dev_node_card0) drm_sysfs_register_device(dev);
 
     /* Register /dev/dri/renderDN if the driver supports rendering. */
     if (dev->render && dev->driver && (dev->driver->driver_features & DRIVER_RENDER)) {
-        char               path[64];
-        tmpfs_device_ops_t render_ops;
-        uint64_t           devt;
-
-        memset(&render_ops, 0, sizeof(render_ops));
-        render_ops.open       = (tmpfs_dev_open_t)drm_dev_open;
-        render_ops.release    = (tmpfs_dev_release_t)drm_dev_release;
-        render_ops.mmap       = drm_dev_file_mmap;
-        render_ops.file_read  = drm_dev_file_read;
-        render_ops.file_write = drm_dev_file_write;
-        render_ops.file_poll  = drm_dev_file_poll;
-        render_ops.file_ioctl = drm_dev_file_ioctl;
-        render_ops.ctx        = dev;
-
-        (void)snprintf(path, sizeof(path), "/dev/dri/%s", dev->render->device_node_name);
-        devt    = MKDEV(226, 128 + dev->render->index);
-        int ret = devtmpfs_register_char_device(path, devt, devt, file_stream, &render_ops);
-        if (ret) {
-            DRM_ERROR("Failed to register %s: %d\n", path, ret);
-        } else {
-            dev->dev_node_renderD_unused = (void *)(uintptr_t)1; // marker
-        }
+        drm_register_dri_node(dev, dev->render, 128, &dev->dev_node_renderD);
+        /* Mirror the render node under /sys/class/drm/ (renderD128+N), but
+         * only when the /dev/dri node itself was actually registered. */
+        if (dev->dev_node_renderD) drm_sysfs_register_render_device(dev);
     }
 
+    /* Registration summary: which node(s) userspace got and the KMS limits
+     * clients must respect.  One consolidated line per device keeps the boot
+     * log free of per-node chatter. */
+    if (dev->driver && dev->primary) {
+        char nodes[96];
+
+        (void)snprintf(nodes, sizeof(nodes), "/dev/dri/%s%s%s",
+                       dev->primary->device_node_name,
+                       (dev->render && dev->dev_node_renderD) ? " /dev/dri/" : "",
+                       (dev->render && dev->dev_node_renderD) ? dev->render->device_node_name : "");
+        DRM_INFO("%s: published %s; KMS range %ux%u..%ux%u\n", dev->driver->name, nodes,
+                 dev->mode_config.min_width, dev->mode_config.min_height,
+                 dev->mode_config.max_width, dev->mode_config.max_height);
+    }
+
+    /*
+     * Publish the device to the core device list (looked up by minor for
+     * /dev/dri opens and iterated by the vblank emulation timer).  Done by
+     * the core, exactly like drm_dev_register() in Linux, so GPU drivers
+     * only call drm_dev_alloc()/drm_dev_register() and never touch the
+     * list themselves.
+     */
+    drm_device_list_add(dev);
+
     return 0;
+}
+
+/* drm_kms_console_handoff - publish a committed scanout framebuffer to the console */
+
+void drm_kms_console_handoff(struct drm_device *dev, struct drm_framebuffer *fb)
+{
+    struct drm_gem_object *obj;
+    void                  *backing;
+    unsigned int           w, h, pitch;
+
+    if (!dev || !fb || !dev->fb_console_flush) return;
+    obj = fb->obj[0];
+    if (!obj || !obj->backing) return;
+
+    backing = obj->backing;
+    w       = fb->width;
+    h       = fb->height;
+    pitch   = fb->pitches[0];
+
+    video_set_flush_guard(dev->fb_console_flush_guard);
+    tty_set_device_type(TTY_DEVICE_DRM);
+    video_switch_framebuffer(backing, w, h, pitch, dev->fb_console_flush);
 }
 
 /* drm_dev_unregister - unregister a device (drop reference) */
@@ -409,7 +445,7 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
     wait_queue_init(&file->event_wait);
 
     /* Store back-pointer to device for use in drm_release. */
-    file->minor_unused = dev;
+    file->dev = dev;
 
     spin_lock(&dev->filelist_lock);
     ilist_insert_after(&dev->filelist, &file->head);
@@ -441,7 +477,7 @@ void drm_release(struct drm_file *file)
     struct drm_device *dev;
 
     if (!file) return;
-    dev = (struct drm_device *)file->minor_unused;
+    dev = (struct drm_device *)file->dev;
 
     /*
      * Block new nonblocking commits before framebuffer/GEM teardown and wait
@@ -510,6 +546,23 @@ void drm_release(struct drm_file *file)
             drm_gem_object_put(obj);
             free(entry);
         }
+    }
+
+    /* Drop the master reference, if any, and let the console repaint.
+     * A process that took DRM master and closed without DROP_MASTER must
+     * not leave the display frozen. */
+    if (file->master) {
+        drm_ht_destroy(&file->master->magiclist);
+        free(file->master);
+        file->master = NULL;
+        video_console_blank(false);
+    }
+
+    /* Last client on a non-handoff device: undo the first-commit console
+     * blank so the kernel console returns once the compositor exits. */
+    if (dev && dev->console_blanked_by_commit && dev->open_count == 0) {
+        dev->console_blanked_by_commit = false;
+        video_console_blank(false);
     }
 
     drm_file_free(file);

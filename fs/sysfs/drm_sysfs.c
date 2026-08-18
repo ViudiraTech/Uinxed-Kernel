@@ -23,12 +23,14 @@
 
 /* DRM device class */
 
-/* Emit the DRM minor uevent environment variables. */
+/* Emit the DRM uevent environment variables. */
 static int drm_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
-    (void)dev;
-    /* DRM minor uevent contract. */
-    return add_uevent_var(env, "DEVTYPE=drm_minor");
+    /*
+     * Linux drm_sysfs.c: minor class devices emit "DEVTYPE=drm_minor",
+     * connector class devices (devt == 0) emit "DEVTYPE=drm_connector".
+     */
+    return add_uevent_var(env, dev && dev->devt ? "DEVTYPE=drm_minor" : "DEVTYPE=drm_connector");
 }
 
 static struct class drm_class = {
@@ -36,54 +38,17 @@ static struct class drm_class = {
     .dev_uevent = drm_device_uevent,
 };
 
-/* Map a connector type to its name. */
-static const char *drm_connector_type_name(uint32_t type)
+/* Class attribute: /sys/class/drm/version */
+
+/* Linux drm_sysfs.c: CLASS_ATTR_STRING(version, 0444, "drm 1.1.0 20060810"). */
+static ssize_t drm_version_show(struct class *cls, struct class_attribute *attr, char *buf)
 {
-    switch (type) {
-        case DRM_MODE_CONNECTOR_VGA :
-            return "VGA";
-        case DRM_MODE_CONNECTOR_DVII :
-            return "DVI-I";
-        case DRM_MODE_CONNECTOR_DVID :
-            return "DVI-D";
-        case DRM_MODE_CONNECTOR_DVIA :
-            return "DVI-A";
-        case DRM_MODE_CONNECTOR_Composite :
-            return "Composite";
-        case DRM_MODE_CONNECTOR_SVIDEO :
-            return "SVIDEO";
-        case DRM_MODE_CONNECTOR_LVDS :
-            return "LVDS";
-        case DRM_MODE_CONNECTOR_Component :
-            return "Component";
-        case DRM_MODE_CONNECTOR_9PinDIN :
-            return "DIN";
-        case DRM_MODE_CONNECTOR_DisplayPort :
-            return "DP";
-        case DRM_MODE_CONNECTOR_HDMIA :
-            return "HDMI-A";
-        case DRM_MODE_CONNECTOR_HDMIB :
-            return "HDMI-B";
-        case DRM_MODE_CONNECTOR_TV :
-            return "TV";
-        case DRM_MODE_CONNECTOR_eDP :
-            return "eDP";
-        case DRM_MODE_CONNECTOR_VIRTUAL :
-            return "Virtual";
-        case DRM_MODE_CONNECTOR_DSI :
-            return "DSI";
-        case DRM_MODE_CONNECTOR_DPI :
-            return "DPI";
-        case DRM_MODE_CONNECTOR_WRITEBACK :
-            return "Writeback";
-        case DRM_MODE_CONNECTOR_SPI :
-            return "SPI";
-        case DRM_MODE_CONNECTOR_USB :
-            return "USB";
-        default :
-            return "Unknown";
-    }
+    (void)cls;
+    (void)attr;
+    return sysfs_emit(buf, "drm 1.1.0 20060810\n");
 }
+
+static CLASS_ATTR(version, 0444, drm_version_show, NULL);
 
 /* Connector attributes */
 
@@ -116,7 +81,7 @@ static bool drm_sysfs_match(const char *buf, size_t count, const char *token)
     return count == token_len && memcmp(buf, token, token_len) == 0;
 }
 
-/* Force the connector state from sysfs: "detect" clears the override, "on"/"digital"/"off" force the status, else -EINVAL. */
+/* Force the connector state from sysfs: "detect" clears the override, "on"/"on-digital"/"off" force the status, else -EINVAL. */
 static ssize_t connector_status_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
     struct drm_connector    *connector = dev->driver_data;
@@ -132,7 +97,7 @@ static ssize_t connector_status_store(struct device *dev, struct device_attribut
         new_force = DRM_FORCE_UNSPECIFIED;
     else if (drm_sysfs_match(buf, count, "on"))
         new_force = DRM_FORCE_ON;
-    else if (drm_sysfs_match(buf, count, "digital"))
+    else if (drm_sysfs_match(buf, count, "on-digital"))
         new_force = DRM_FORCE_ON_DIGITAL;
     else if (drm_sysfs_match(buf, count, "off"))
         new_force = DRM_FORCE_OFF;
@@ -242,6 +207,8 @@ void drm_sysfs_init(void)
         plogk("drm_sysfs: Class_register(drm) failed: %d\n", ret);
         return;
     }
+    ret = class_create_file(&drm_class, &class_attr_version);
+    if (ret != EOK) plogk("drm_sysfs: class_create_file(version) failed: %d\n", ret);
     plogk("drm_sysfs: registered /sys/class/drm\n");
 #endif
 }
@@ -251,7 +218,18 @@ void drm_sysfs_register_device(struct drm_device *dev)
 {
 #if CONFIG_SYSFS
     if (!dev || !dev->primary) return;
-    if (!device_create(&drm_class, NULL, MKDEV(226, dev->primary->index), dev, "card%d", dev->primary->index)) plogk("drm_sysfs: Failed to create /sys/class/drm/card%d\n", dev->primary->index);
+    if (!device_create(&drm_class, NULL, MKDEV(DRM_MAJOR, dev->primary->index), dev, "card%d", dev->primary->index)) plogk("drm_sysfs: Failed to create /sys/class/drm/card%d\n", dev->primary->index);
+#endif
+}
+
+/* Publish the render node under /sys/class/drm/ (renderD128+N). */
+void drm_sysfs_register_render_device(struct drm_device *dev)
+{
+#if CONFIG_SYSFS
+    if (!dev || !dev->render || !dev->driver || !(dev->driver->driver_features & DRIVER_RENDER)) return;
+    if (!device_create(&drm_class, NULL, MKDEV(DRM_MAJOR, 128 + dev->render->index), dev, "renderD%d", 128 + dev->render->index)) {
+        plogk("drm_sysfs: Failed to create /sys/class/drm/renderD%d\n", 128 + dev->render->index);
+    }
 #endif
 }
 
@@ -268,6 +246,7 @@ void drm_sysfs_connector_add(struct drm_connector *connector)
         plogk("drm_sysfs: Failed to create /sys/class/drm/%s\n", name);
         return;
     }
+    connector->kdev = cdev;
 
     (void)device_create_file(cdev, &dev_attr_status);
     (void)device_create_file(cdev, &dev_attr_enabled);
@@ -275,5 +254,15 @@ void drm_sysfs_connector_add(struct drm_connector *connector)
     (void)device_create_file(cdev, &dev_attr_modes);
     (void)device_create_file(cdev, &dev_attr_connector_id);
     (void)sysfs_create_bin_file(&cdev->kobj, &connector_edid_attr);
+#endif
+}
+
+/* Remove a connector's /sys/class/drm/ device (during connector cleanup). */
+void drm_sysfs_connector_remove(struct drm_connector *connector)
+{
+#if CONFIG_SYSFS
+    if (!connector || !connector->kdev) return;
+    device_unregister(connector->kdev);
+    connector->kdev = NULL;
 #endif
 }

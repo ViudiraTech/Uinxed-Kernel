@@ -538,6 +538,30 @@ menu "Device Drivers"
         Enable the DRM subsystem providing /dev/dri/card0 for GPU
         device access and Kernel Mode Setting (KMS).
 
+    menu "GPU drivers"
+      depends on DRM
+
+      config SIMPLEDRM
+        bool "Simple framebuffer (simpledrm) DRM driver"
+        depends on DRM
+        default y
+        help
+          Software-scanout DRM driver for the bootloader-provided GOP
+          framebuffer.  Used as a fallback when no real GPU driver can
+          probe, giving userspace compositors (Weston) a working KMS
+          device without dedicated GPU hardware.
+
+      config VIRTIO_GPU
+        bool "VirtIO GPU DRM driver"
+        depends on DRM && VIRTIO
+        default n
+        help
+          VirtIO-GPU DRM driver for paravirtualised GPU devices.
+          Provides KMS display pipeline, render node, and optional
+          3D acceleration via virgl context protocol.
+
+    endmenu
+
     config BOOT_LOGO
       bool "Boot logo"
       default y
@@ -571,15 +595,6 @@ menu "Device Drivers"
       help
         Enable the VirtIO PCI transport layer, providing generic
         MMIO-based capability discovery and virtqueue management.
-
-    config VIRTIO_GPU
-      bool "VirtIO GPU DRM driver"
-      depends on DRM && VIRTIO
-      default n
-      help
-        VirtIO-GPU DRM driver for paravirtualised GPU devices.
-        Provides KMS display pipeline, render node, and optional
-        3D acceleration via virgl context protocol.
 
   endmenu
 

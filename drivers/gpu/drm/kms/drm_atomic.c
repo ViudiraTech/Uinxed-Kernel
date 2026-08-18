@@ -13,6 +13,7 @@
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
+#include <drivers/gpu/fbdev/video.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -664,6 +665,20 @@ int drm_atomic_commit(struct drm_atomic_state *state)
         return -EINVAL;
     }
     dev = state->dev;
+
+    /*
+     * A real KMS commit hands the display to the client.  On devices whose
+     * console was never handed to a DRM buffer (no fb_console_flush, e.g.
+     * simpledrm shares the boot framebuffer with the scanout), blank the
+     * console once so it stops repainting a framebuffer the compositor is
+     * writing.  Idempotent per device; the master path also blanks on
+     * SET_MASTER.  The commit-blank is undone when the last client closes.
+     */
+    if (!dev->fb_console_flush && !dev->console_blanked_by_commit) {
+        dev->console_blanked_by_commit = true;
+        video_console_blank(true);
+    }
+
     if (!state->commit_seq) {
         spin_lock(&dev->mode_config.commit_queue_lock);
         if (dev->mode_config.commit_queue_next != dev->mode_config.commit_queue_done) {

@@ -181,7 +181,7 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
      * Waking only event_wait reaches blocking drm_read() callers but leaves
      * VFS poll subscribers asleep forever, so publish POLLIN as well.
      */
-    if (file_priv->filp_unused) vfs_poll_notify((vfs_node_t)file_priv->filp_unused, 0x0001);
+    if (file_priv->filp) vfs_poll_notify((vfs_node_t)file_priv->filp, 0x0001);
 
     if (e->destroy)
         e->destroy(e);

@@ -25,7 +25,6 @@
 #include <drivers/char/chrdev.h>
 #include <drivers/char/tpm/tpm.h>
 #include <drivers/firmware/acpi.h>
-#include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
@@ -395,11 +394,8 @@ void kernel_entry(void)
     module_sysfs_init();           // /sys/module/<name>/
                                    //
     /* Graphics Stack */           // Initialise before /dev/fb0 snapshots its size
-    gpu_drivers_init();            /* Register every built-in GPU driver */
-    if (drm_gpu_probe_all() != 0) {
-        plogk("drm: No GPU driver attached, using software framebuffer.\n");
-        drm_init_fallback();
-    }
+    gpu_drivers_init();            // Register every built-in GPU driver
+    gpu_drivers_probe();           // Attach a GPU, or a framebuffer fallback
 
     /*
      * kthreadd must be live before any subsystem creates a kernel worker,

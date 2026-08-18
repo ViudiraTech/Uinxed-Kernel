@@ -210,6 +210,10 @@
 #    define CONFIG_VIRTIO_GPU 0
 #endif
 
+#ifndef CONFIG_SIMPLEDRM
+#    define CONFIG_SIMPLEDRM 0
+#endif
+
 #ifndef CONFIG_DRM_DEFAULT_WIDTH
 #    define CONFIG_DRM_DEFAULT_WIDTH 1024
 #endif

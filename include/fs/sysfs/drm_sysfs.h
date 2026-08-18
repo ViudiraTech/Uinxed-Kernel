@@ -20,7 +20,13 @@ void drm_sysfs_init(void);
 /* Publish a DRM device under /sys/class/drm/ (card%d). */
 void drm_sysfs_register_device(struct drm_device *dev);
 
+/* Publish a render node under /sys/class/drm/ (renderD128+N). */
+void drm_sysfs_register_render_device(struct drm_device *dev);
+
 /* Publish a connector under /sys/class/drm/ (cardN-<type>-<id>). */
 void drm_sysfs_connector_add(struct drm_connector *connector);
+
+/* Remove a connector's /sys/class/drm/ device. */
+void drm_sysfs_connector_remove(struct drm_connector *connector);
 
 #endif // INCLUDE_DRM_SYSFS_H_

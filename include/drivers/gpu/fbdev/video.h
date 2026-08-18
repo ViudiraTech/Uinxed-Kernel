@@ -67,6 +67,12 @@ extern uint32_t font_height; // Font height
 /* Get video information */
 video_info_t video_get_info(void);
 
+/*
+ * Build the Linux-style fbdev identifier: "<active DRM driver>drmfb", or
+ * "simple" when no DRM driver owns the display.
+ */
+void video_fix_id(char *buf, size_t len);
+
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void);
 
@@ -107,6 +113,9 @@ typedef void (*video_flush_fn_t)(uint32_t x, uint32_t y, uint32_t width, uint32_
  * and @flush is called after each batch draw to push pixels to the host.
  */
 void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pitch, video_flush_fn_t flush);
+
+/* Suspend/resume the kernel console while a DRM master owns the display. */
+void video_console_blank(bool blank);
 
 /* Publish a damaged rectangle after a batch of framebuffer draws. */
 void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h);

@@ -535,6 +535,7 @@ static void vm_area_free(vm_area_t *vma, uint32_t pid)
     while (vma) {
         vm_area_t *next = vma->next;
         if (vma->type == VM_REGION_SHM && vma->vm_private_data) sysv_shm_vma_put(vma->vm_private_data, pid);
+        if (vma->vm_private_put && vma->vm_private_data) vma->vm_private_put(vma->vm_private_data);
         if (vma->vm_file) {
             if (vma->vm_pagecache) vfs_cache_mapping_unpin(vma->vm_file);
             memfd_vma_release(vma->vm_file, vma->flags);
@@ -2070,6 +2071,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         copy->vm_file         = vma->vm_file ? vfs_node_retain(vma->vm_file) : NULL;
         copy->vm_pgoff        = vma->vm_pgoff;
         copy->vm_private_data = vma->vm_private_data;
+        copy->vm_private_put  = vma->vm_private_put;
+        copy->vm_private_get  = vma->vm_private_get;
         copy->vm_pagecache    = vma->vm_pagecache;
 
         if (vma->vm_file && !copy->vm_file) {
@@ -2097,8 +2100,14 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             return NULL;
         }
 
+        /* A driver-backed mapping (e.g. DRM GEM) shares vm_private_data across
+         * the fork: take an extra reference so the child's own teardown can
+         * release it independently of the parent. */
+        if (copy->vm_private_get && copy->vm_private_put && copy->vm_private_data) copy->vm_private_get(copy->vm_private_data);
+
         if (vm_area_insert(child, copy)) {
             plogk("process: Fork of '%s' failed (VMA insert)\n", parent->name);
+            if (copy->vm_private_put && copy->vm_private_data) copy->vm_private_put(copy->vm_private_data);
             if (copy->vm_file) {
                 if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
                 memfd_vma_release(copy->vm_file, copy->flags);

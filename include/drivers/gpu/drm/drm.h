@@ -148,6 +148,14 @@ struct drm_hw_lock {
         char           padding[60];
 };
 
+/*
+ * DRM core version, matching the Linux UAPI (drivers report their own
+ * driver version through DRM_IOCTL_VERSION).
+ */
+#define DRM_VERSION_MAJOR      1
+#define DRM_VERSION_MINOR      4
+#define DRM_VERSION_PATCHLEVEL 0
+
 /* DRM_IOCTL_VERSION */
 struct drm_version {
         __s32 version_major;

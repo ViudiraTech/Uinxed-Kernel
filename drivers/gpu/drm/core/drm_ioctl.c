@@ -112,7 +112,6 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
 
     switch (cap->capability) {
         case DRM_CLIENT_CAP_STEREO_3D :
-            file_priv->stereo3d_allowed_unused = (cap->value != 0);
             break;
         case DRM_CLIENT_CAP_UNIVERSAL_PLANES :
             if (cap->value > 1) return -EINVAL;
@@ -127,9 +126,8 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
             file_priv->aspect_ratio_allowed = (cap->value != 0);
             break;
         case DRM_CLIENT_CAP_WRITEBACK_CONNECTORS :
-            file_priv->writeback_connectors_allowed_unused = (cap->value != 0);
-            break;
         case DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT :
+            /* Accepted for compatibility; no driver state to track. */
             break;
         default :
             return -EINVAL;
@@ -147,8 +145,9 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_GET_UNIQUE,             NULL,                             0                    },
     {DRM_IOCTL_GET_MAGIC,              drm_getmagic,                     DRM_AUTH             },
     {DRM_IOCTL_SET_VERSION,            drm_setversion,                   DRM_MASTER | DRM_AUTH},
-    {DRM_IOCTL_SET_MASTER,             drm_setmaster,                    0                    },
-    {DRM_IOCTL_DROP_MASTER,            drm_dropmaster,                   0                    },
+    {DRM_IOCTL_MODESET_CTL,            NULL,                             DRM_MASTER | DRM_AUTH},
+    {DRM_IOCTL_SET_MASTER,             drm_setmaster,                    DRM_AUTH             },
+    {DRM_IOCTL_DROP_MASTER,            drm_dropmaster,                   DRM_AUTH             },
     {DRM_IOCTL_AUTH_MAGIC,             drm_authmagic,                    DRM_AUTH             },
     {DRM_IOCTL_GEM_CLOSE,              drm_gem_close_ioctl,              DRM_AUTH             },
     {DRM_IOCTL_GEM_FLINK,              drm_gem_flink_ioctl,              DRM_AUTH             },
@@ -168,10 +167,12 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_MODE_GETCRTC,           drm_mode_getcrtc,                 DRM_AUTH             },
     {DRM_IOCTL_MODE_SETCRTC,           drm_mode_setcrtc,                 DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_CURSOR,            drm_mode_cursor_ioctl,            DRM_AUTH             },
+    {DRM_IOCTL_MODE_GETGAMMA,          drm_mode_gamma_get_ioctl,         DRM_AUTH             },
+    {DRM_IOCTL_MODE_SETGAMMA,          drm_mode_gamma_set_ioctl,         DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_GETENCODER,        drm_mode_getencoder,              DRM_AUTH             },
     {DRM_IOCTL_MODE_GETCONNECTOR,      drm_mode_getconnector,            DRM_AUTH             },
     {DRM_IOCTL_MODE_GETPROPERTY,       drm_mode_getproperty_ioctl,       DRM_AUTH             },
-    {DRM_IOCTL_MODE_SETPROPERTY,       NULL,                             DRM_MASTER | DRM_AUTH},
+    {DRM_IOCTL_MODE_SETPROPERTY,       drm_connector_property_set_ioctl, DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_GETPROPBLOB,       drm_mode_getblob_ioctl,           DRM_AUTH             },
     {DRM_IOCTL_MODE_GETFB,             drm_mode_getfb,                   DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_ADDFB,             drm_mode_addfb,                   DRM_MASTER | DRM_AUTH},
@@ -244,6 +245,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
              * memory.
              */
             if (copy_from_user(kdata, user_data, size)) {
+                plogk("drm: Ioctl 0x%x copy_from_user failed, returning -EFAULT\n", cmd);
                 free(kdata);
                 return -EFAULT;
             }

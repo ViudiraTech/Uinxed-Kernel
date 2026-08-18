@@ -16,8 +16,10 @@
 #include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <mem/page.h>
 #include <sync/spin_lock.h>
 
 /* Global GEM name table (simple counter-based) */
@@ -275,6 +277,7 @@ static int gem_alloc_name(struct drm_gem_object *obj, uint32_t *name_out)
 
     if (i >= GEM_MAX_NAMES) {
         spin_unlock(&gem_name_lock);
+        plogk("drm: Gem_alloc_name: global name table full (%d entries).\n", GEM_MAX_NAMES);
         return -ENOMEM;
     }
 
@@ -377,7 +380,10 @@ int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj
     if (!file_priv || !obj || !handle_out) return -EINVAL;
 
     entry = malloc(sizeof(*entry));
-    if (!entry) return -ENOMEM;
+    if (!entry) {
+        plogk("drm: Handle_create: out of memory.\n");
+        return -ENOMEM;
+    }
     memset(entry, 0, sizeof(*entry));
 
     spin_lock(&file_priv->table_lock);
@@ -571,7 +577,10 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
 
     /* Allocate GEM object */
     obj = malloc(sizeof(*obj));
-    if (!obj) return -ENOMEM;
+    if (!obj) {
+        plogk("drm: Dumb_create: out of memory allocating GEM object.\n");
+        return -ENOMEM;
+    }
     memset(obj, 0, sizeof(*obj));
 
     drm_gem_object_init(dev, obj, size);
@@ -585,9 +594,10 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     obj->mmap_offset = dumb_offset_alloc(size);
     if (!obj->mmap_offset) plogk("drm: Dumb mmap offset space exhausted (size=%zu)\n", size);
 
-    /* Allocate backing memory for the dumb buffer */
+    /* Allocate backing memory for the dumb buffer, page-rounded so the whole
+     * object is mmapable (drm_dev_file_mmap clamps to ALIGN_UP(obj->size)). */
     if (size > 0) {
-        obj->backing = aligned_alloc(4096, size);
+        obj->backing = aligned_alloc(4096, ALIGN_UP(size, PAGE_4K_SIZE));
         if (!obj->backing) {
             plogk("drm: Dumb buffer backing allocation failed (size=%zu)\n", size);
             free(obj);
@@ -601,6 +611,7 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     /* Create handle for userspace */
     ret = drm_gem_handle_create(file_priv, obj, &handle);
     if (ret < 0) {
+        plogk("drm: Dumb_create: GEM handle creation failed (ret=%d)\n", ret);
         free(obj->backing);
         free(obj);
         return ret;
@@ -676,6 +687,7 @@ static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
     }
 
     spin_unlock(&prime_fd_lock);
+    plogk("drm: Prime_fd_alloc: PRIME fd table full (%d entries).\n", PRIME_FD_MAX);
     return -ENOMEM;
 }
 

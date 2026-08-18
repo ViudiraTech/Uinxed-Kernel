@@ -12,6 +12,7 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_print.h>
+#include <drivers/gpu/fbdev/video.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdbool.h>
@@ -134,6 +135,10 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 
     file_priv->master = master;
 
+    /* The master now owns the display: suspend the kernel console so it
+     * stops repainting a framebuffer shared with the compositor's scanout. */
+    video_console_blank(true);
+
     return 0;
 }
 
@@ -160,6 +165,9 @@ int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_pri
     drm_ht_destroy(&master->magiclist);
     free(master);
     file_priv->master = NULL;
+
+    /* No master owns the display any more: let the console repaint. */
+    video_console_blank(false);
 
     return 0;
 }

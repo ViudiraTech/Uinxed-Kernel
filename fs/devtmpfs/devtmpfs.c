@@ -324,7 +324,7 @@ static int devtmpfs_create_framebuffer_node(void)
         .ctx   = 0,
     };
 
-    int ret = devtmpfs_register_char_device("/dev/fb0", 2, 0, file_fbdev | file_stream, &fb_device);
+    int ret = devtmpfs_register_char_device("/dev/fb0", MKDEV(FB_MAJOR, 0), MKDEV(FB_MAJOR, 0), file_fbdev | file_stream, &fb_device);
     if (ret == 0) {
         /* Set the fb node size after registration. */
         vfs_node_t node = vfs_open("/dev/fb0");

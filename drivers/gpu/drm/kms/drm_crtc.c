@@ -354,6 +354,119 @@ out:
     return ret;
 }
 
+/* Internal: lazily allocate the CRTC gamma store (3 * gamma_size u16 entries). */
+static int drm_crtc_ensure_gamma_store(struct drm_crtc *crtc)
+{
+    if (crtc->gamma_store) return 0;
+    if (crtc->gamma_size == 0) return -EINVAL;
+
+    crtc->gamma_store = malloc(3u * (size_t)crtc->gamma_size * sizeof(uint16_t));
+    if (!crtc->gamma_store) return -ENOMEM;
+    memset(crtc->gamma_store, 0, 3u * (size_t)crtc->gamma_size * sizeof(uint16_t));
+    return 0;
+}
+
+/*
+ * drm_mode_gamma_get_ioctl - Handle DRM_IOCTL_MODE_GETGAMMA.
+ * @dev: DRM device
+ * @data: pointer to struct drm_mode_crtc_lut (userspace buffer)
+ * @file_priv: DRM file handle
+ *
+ * Copies the red/green/blue gamma ramps of the CRTC into the user
+ * buffers. The user-supplied gamma_size must match the CRTC's size.
+ * Returns 0 on success or -EINVAL/-ENOENT/-EFAULT.
+ */
+int drm_mode_gamma_get_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_crtc_lut *lut_req = (struct drm_mode_crtc_lut *)data;
+    struct drm_mode_object   *obj;
+    struct drm_crtc          *crtc;
+    size_t                    entries;
+    size_t                    bytes;
+    int                       ret;
+
+    if (!dev || !lut_req) return -EINVAL;
+
+    obj = drm_mode_object_find(dev, file_priv, lut_req->crtc_id, DRM_MODE_OBJECT_CRTC);
+    if (!obj) return -ENOENT;
+    crtc = container_of(obj, struct drm_crtc, base);
+
+    if (crtc->gamma_size == 0) {
+        lut_req->gamma_size = 0;
+        ret                 = 0;
+        goto out;
+    }
+
+    /* Linux semantics: user buffer size must match the CRTC gamma size. */
+    if (lut_req->gamma_size != crtc->gamma_size) {
+        ret = -EINVAL;
+        goto out;
+    }
+
+    ret = drm_crtc_ensure_gamma_store(crtc);
+    if (ret) goto out;
+
+    entries = (size_t)crtc->gamma_size;
+    bytes   = entries * sizeof(uint16_t);
+    if (copy_to_user((void *)(uintptr_t)lut_req->red, crtc->gamma_store, bytes)
+        || copy_to_user((void *)(uintptr_t)lut_req->green, crtc->gamma_store + entries, bytes)
+        || copy_to_user((void *)(uintptr_t)lut_req->blue, crtc->gamma_store + 2 * entries, bytes)) {
+        ret = -EFAULT;
+        goto out;
+    }
+    ret = 0;
+out:
+    drm_mode_object_put(obj);
+    return ret;
+}
+
+/*
+ * drm_mode_gamma_set_ioctl - Handle DRM_IOCTL_MODE_SETGAMMA.
+ * @dev: DRM device
+ * @data: pointer to struct drm_mode_crtc_lut (userspace buffer)
+ * @file_priv: DRM file handle
+ *
+ * Copies the red/green/blue gamma ramps from the user buffers into the
+ * CRTC gamma store. The user-supplied gamma_size must match the CRTC's
+ * size. Returns 0 on success or -EINVAL/-ENOENT/-EFAULT.
+ */
+int drm_mode_gamma_set_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_crtc_lut *lut_req = (struct drm_mode_crtc_lut *)data;
+    struct drm_mode_object   *obj;
+    struct drm_crtc          *crtc;
+    size_t                    entries;
+    size_t                    bytes;
+    int                       ret;
+
+    if (!dev || !lut_req) return -EINVAL;
+
+    obj = drm_mode_object_find(dev, file_priv, lut_req->crtc_id, DRM_MODE_OBJECT_CRTC);
+    if (!obj) return -ENOENT;
+    crtc = container_of(obj, struct drm_crtc, base);
+
+    if (crtc->gamma_size == 0 || lut_req->gamma_size != crtc->gamma_size) {
+        ret = -EINVAL;
+        goto out;
+    }
+
+    ret = drm_crtc_ensure_gamma_store(crtc);
+    if (ret) goto out;
+
+    entries = (size_t)crtc->gamma_size;
+    bytes   = entries * sizeof(uint16_t);
+    if (copy_from_user(crtc->gamma_store, (const void *)(uintptr_t)lut_req->red, bytes)
+        || copy_from_user(crtc->gamma_store + entries, (const void *)(uintptr_t)lut_req->green, bytes)
+        || copy_from_user(crtc->gamma_store + 2 * entries, (const void *)(uintptr_t)lut_req->blue, bytes)) {
+        ret = -EFAULT;
+        goto out;
+    }
+    ret = 0;
+out:
+    drm_mode_object_put(obj);
+    return ret;
+}
+
 /*
  * drm_crtc_cleanup - Tear down a CRTC and release its resources.
  * @crtc: CRTC to clean up

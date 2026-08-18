@@ -10,6 +10,7 @@
 
 #include <arch/common.h>
 #include <boot/limine.h>
+#include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/fbdev.h>
 #include <drivers/gpu/fbdev/klogo.h>
@@ -38,6 +39,8 @@ static video_flush_fn_t video_flush_cb;
 static video_info_t     video_active_info;
 static spinlock_t       video_state_lock;
 static bool             video_refresh_worker_started;
+static int              video_console_suspend_refs; // active DRM masters blanking the console
+static bool             video_console_suspended;    // console yields to a DRM master
 static bool             video_dirty;
 static uint32_t         video_dirty_x1;
 static uint32_t         video_dirty_y1;
@@ -57,6 +60,25 @@ uint32_t back_color; // Background color
 
 uint32_t font_width;  // Font width
 uint32_t font_height; // Font height
+
+/*
+ * Build the Linux-style fbdev identifier into @buf.  With an active DRM
+ * driver the id is "<driver>drmfb" (like "simpledrmdrmfb", "virtio_gpudrmfb"),
+ * matching drm_fb_helper_fill_info() in Linux.  Without any DRM device the
+ * console is a bootloader simple framebuffer, so use "simple" (the fix.id of
+ * Linux's legacy simplefb driver).
+ */
+void video_fix_id(char *buf, size_t len)
+{
+    const char *name = drm_active_driver_name();
+
+    if (!buf || len == 0) return;
+    if (name && name[0]) {
+        (void)snprintf(buf, len, "%sdrmfb", name);
+    } else {
+        (void)snprintf(buf, len, "%s", "simple");
+    }
+}
 
 /* Get video information */
 video_info_t video_get_info(void)
@@ -174,8 +196,9 @@ static fbdev_var_screeninfo_t video_fb_var(const video_info_t *info)
     var.green.length   = info->green_mask_size;
     var.blue.offset    = info->blue_mask_shift;
     var.blue.length    = info->blue_mask_size;
-    var.width          = UINT32_MAX;
-    var.height         = UINT32_MAX;
+    /* Physical display size in mm; 0 means unknown (Linux convention). */
+    var.width          = 0;
+    var.height         = 0;
 
     /* Stable 60 Hz timing metadata for the fixed scanout mode. */
     var.right_margin = 80;
@@ -241,7 +264,7 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             if (!fb_size || fb_size > UINT32_MAX) return -EOVERFLOW;
             fbdev_fix_screeninfo_t fix;
             memset(&fix, 0, sizeof(fix));
-            memcpy(fix.id, "Uinxed drmfb", sizeof("Uinxed drmfb"));
+            video_fix_id(fix.id, sizeof(fix.id));
             fix.smem_len    = (uint32_t)fb_size;
             fix.type        = FB_TYPE_PACKED_PIXELS;
             fix.visual      = FB_VISUAL_TRUECOLOR;
@@ -259,7 +282,10 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             fbdev_var_screeninfo_t var;
             if (copy_from_user(&var, arg, sizeof(var))) return -EFAULT;
             int status = video_fb_validate_mode(&info, &var);
-            if (status) return status;
+            if (status) {
+                plogk("video: [warn] fb_set_var rejected %ux%u bpp=%u (fixed mode is %ux%u bpp=%u)\n", var.xres, var.yres, var.bits_per_pixel, (unsigned int)info.width, (unsigned int)info.height, info.bpp);
+                return status;
+            }
             fbdev_var_screeninfo_t normalized = video_fb_var(&info);
             normalized.activate               = var.activate;
             return copy_to_user(arg, &normalized, sizeof(normalized)) ? -EFAULT : EOK;
@@ -286,7 +312,9 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             return EOK;
         }
         case FBIOBLANK :
-            /* The current DRM KMS path has no DPMS primitive. */
+            /* The current DRM KMS path has no DPMS primitive; accept explicit
+             * unblank (which userspace issues when taking over the console). */
+            if (arg == FB_BLANK_UNBLANK) return EOK;
             (void)arg;
             return -EINVAL;
         default :
@@ -318,6 +346,13 @@ static int video_refresh_worker(void *arg)
     while (!kthread_should_stop()) {
         task_sleep_ticks((TIMER_HZ + 59) / 60);
 
+        /* While a DRM master owns the display (compositor running), the
+         * console must not repaint a framebuffer shared with the scanout. */
+        spin_lock(&video_state_lock);
+        bool suspended = video_console_suspended;
+        spin_unlock(&video_state_lock);
+        if (suspended) continue;
+
         /* Cursor and console output both publish damage into the same box. */
         fbcon_cursor_tick(sched_ticks());
 
@@ -348,10 +383,27 @@ void video_start_refresh_worker(void)
     if (should_start) video_refresh_worker_started = true;
     spin_unlock(&video_state_lock);
     if (should_start && kernel_worker_register("video-refresh", video_refresh_worker, NULL, NULL)) {
+        plogk("video: [error] Failed to register video-refresh kernel worker.\n");
         spin_lock(&video_state_lock);
         video_refresh_worker_started = false;
         spin_unlock(&video_state_lock);
     }
+}
+
+/* Suspend or resume the kernel console while a DRM master owns the display.
+ * A compositor and the console must not repaint the same framebuffer at
+ * once; Linux hides the console while a DRM master is active.  Refcounted so
+ * that several concurrent masters keep it blanked until the last one drops. */
+void video_console_blank(bool blank)
+{
+    spin_lock(&video_state_lock);
+    if (blank) {
+        video_console_suspend_refs++;
+    } else if (video_console_suspend_refs > 0) {
+        video_console_suspend_refs--;
+    }
+    video_console_suspended = (video_console_suspend_refs > 0);
+    spin_unlock(&video_state_lock);
 }
 
 /* Initialize Video */
@@ -376,6 +428,7 @@ void video_init(void)
     if (!framebuffer) {
         buffer = NULL;
         width = height = stride = 0;
+        plogk("video: [warn] No boot framebuffer, console output disabled.\n");
         fbcon_init();
         return;
     }
@@ -384,6 +437,7 @@ void video_init(void)
     width  = framebuffer->width;
     height = framebuffer->height;
     stride = framebuffer->pitch / (framebuffer->bpp / 8);
+    plogk("video: Boot framebuffer %ux%u %u bpp\n", (unsigned int)width, (unsigned int)height, framebuffer->bpp);
 
     video_active_info.framebuffer      = framebuffer->address;
     video_active_info.width            = framebuffer->width;
@@ -565,9 +619,15 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
     uint64_t  old_height;
     uint64_t  old_stride;
 
-    if (!backing || !flush) return;
+    if (!backing || !flush) {
+        plogk("video: [error] Switch_framebuffer: NULL backing or flush callback.\n");
+        return;
+    }
 
-    if ((uintptr_t)backing & (PAGE_4K_SIZE - 1) || pitch < w * sizeof(uint32_t) || (pitch & (sizeof(uint32_t) - 1))) return;
+    if ((uintptr_t)backing & (PAGE_4K_SIZE - 1) || pitch < w * sizeof(uint32_t) || (pitch & (sizeof(uint32_t) - 1))) {
+        plogk("video: [error] Switch_framebuffer: invalid backing alignment/pitch (w=%u, h=%u, pitch=%u)\n", w, h, pitch);
+        return;
+    }
 
     tty_buff_flush();
     fbcon_handoff_begin();

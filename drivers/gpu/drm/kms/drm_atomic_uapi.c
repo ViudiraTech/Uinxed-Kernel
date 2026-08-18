@@ -361,8 +361,8 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         plogk("drm_atomic: TEST_ONLY with page flip event invalid.\n");
         return -EINVAL;
     }
-    if (atomic->flags & DRM_MODE_PAGE_FLIP_ASYNC) {
-        plogk("drm_atomic: Async page flip not supported.\n");
+    if ((atomic->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !dev->mode_config.async_page_flip) {
+        plogk("drm_atomic: Async page flip not supported by this device.\n");
         return -EINVAL;
     }
 

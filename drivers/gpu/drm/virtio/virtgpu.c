@@ -19,7 +19,6 @@
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 #include <drivers/gpu/drm/virtio/virtgpu_gem.h>
-#include <drivers/tty/tty.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdbool.h>
@@ -193,26 +192,21 @@ static void virtgpu_release(struct drm_device *dev)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
-    drm_device_list_remove(dev);
-
+    /* drm_dev_put() already removed the device from the core list. */
     if (vgdev) {
         for (uint32_t i = 0; i < vgdev->num_capsets; i++) free(vgdev->capsets[i].data);
         virtgpu_kms_fini(vgdev);
         drm_vblank_cleanup(dev);
+        /*
+         * drm_mode_config_cleanup() frees the crtc/plane/connector states
+         * and unlinks every KMS object from the mode_config lists; only the
+         * outer driver-allocated structs are released below.
+         */
         drm_mode_config_cleanup(dev);
-        if (vgdev->kms_connector) {
-            free(vgdev->kms_connector->state);
-            free(vgdev->kms_connector);
-        }
+        if (vgdev->kms_connector) free(vgdev->kms_connector);
         if (vgdev->kms_encoder) free(vgdev->kms_encoder);
-        if (vgdev->kms_crtc) {
-            free(vgdev->kms_crtc->state);
-            free(vgdev->kms_crtc);
-        }
-        if (vgdev->kms_primary) {
-            free(vgdev->kms_primary->state);
-            free(vgdev->kms_primary);
-        }
+        if (vgdev->kms_crtc) free(vgdev->kms_crtc);
+        if (vgdev->kms_primary) free(vgdev->kms_primary);
         virtgpu_vq_fini(vgdev);
 
         if (virtio_gpu_probed_device == vgdev) virtio_gpu_probed_device = NULL;
@@ -226,9 +220,9 @@ static void virtgpu_release(struct drm_device *dev)
 /* DRM driver descriptor */
 
 static struct drm_driver virtgpu_drm_driver = {
-    .name            = "virtgpu",
-    .desc            = "VirtIO GPU",
-    .date            = "20260723",
+    .name            = "virtio_gpu",
+    .desc            = "virtio GPU",
+    .date            = "0",
     .major           = 0,
     .minor           = 1,
     .patchlevel      = 0,
@@ -942,7 +936,10 @@ int virtio_gpu_driver_init(void)
     int                       ret;
 
     vp = malloc(sizeof(*vp));
-    if (!vp) return -ENOMEM;
+    if (!vp) {
+        DRM_ERROR("virtgpu: out of memory allocating virtio-pci device state.\n");
+        return -ENOMEM;
+    }
 
     ret = vp_find_device(PCI_VENDOR_ID_REDHAT, PCI_DEVICE_ID_VIRTIO_GPU, vp);
     if (ret) {
@@ -965,6 +962,7 @@ int virtio_gpu_driver_init(void)
     /* Allocate the virtio-gpu device */
     vgdev = malloc(sizeof(*vgdev));
     if (!vgdev) {
+        DRM_ERROR("virtgpu: out of memory allocating GPU device state.\n");
         vp_release_device(vp);
         free(vp);
         return -ENOMEM;
@@ -1042,9 +1040,10 @@ int virtio_gpu_driver_init(void)
         }
     }
 
-    /* Allocate and register the DRM device */
+    /* Allocate the DRM device that carries driver-private state. */
     vgdev->drm_dev = drm_dev_alloc(&virtgpu_drm_driver);
     if (!vgdev->drm_dev) {
+        DRM_ERROR("virtgpu: failed to allocate DRM device.\n");
         virtgpu_vq_fini(vgdev);
         vp_release_device(vp);
         free(vgdev);
@@ -1053,20 +1052,12 @@ int virtio_gpu_driver_init(void)
 
     vgdev->drm_dev->dev_private = vgdev;
 
-    ret = drm_dev_register(vgdev->drm_dev, 0);
-    if (ret) {
-        virtgpu_vq_fini(vgdev);
-        vp_release_device(vp);
-        free(vgdev->drm_dev);
-        free(vgdev);
-        return ret;
-    }
-
-    /* Reserve card0/renderD128 for this real GPU before KMS setup. */
-    drm_device_list_add(vgdev->drm_dev);
-    virtio_gpu_probed_device = vgdev;
-
-    /* Initialise the KMS display pipeline */
+    /*
+     * Initialise the GPU first (display info, EDID, KMS pipeline and the
+     * initial modeset) and only then publish the device to the DRM core,
+     * like Linux: the boot log shows the virtio-gpu info before the
+     * "drm: Initialized virtio_gpu" banner.
+     */
     ret = virtgpu_kms_init(vgdev);
     if (ret) {
         DRM_ERROR("KMS init failed: %d (continuing with render only)\n", ret);
@@ -1076,6 +1067,17 @@ int virtio_gpu_driver_init(void)
     /* Debug info */
     virtgpu_debugfs_info(vgdev);
 
+    /* Publishes the /dev/dri nodes, sysfs and the core device list. */
+    ret = drm_dev_register(vgdev->drm_dev, 0);
+    if (ret) {
+        /* drm_dev_unregister() releases every KMS/vq/pci resource. */
+        drm_dev_unregister(vgdev->drm_dev);
+        return ret;
+    }
+
+    /* drm_dev_register() already published the device to the DRM core. */
+    virtio_gpu_probed_device = vgdev;
+
     plogk("virtgpu: VirtIO GPU driver registered (card/render node, 3D=%d, blob=%d)\n", vgdev->has_virgl, vgdev->has_resource_blob);
 
     return 0;
@@ -1084,21 +1086,13 @@ int virtio_gpu_driver_init(void)
 /* Initialisation hook - called from kernel init */
 
 /*
- * GPU probe callback, registered as "virtio-gpu" in drivers/gpu/gpu_drivers.c
- * and driven by drm_gpu_probe_all().  Returns 0 if a device was attached.
+ * GPU probe callback, registered as "virtio_gpu" with the GPU driver bus
+ * and driven by gpu_drivers_probe().  Returns 0 if a device was attached.
  */
 int virtio_gpu_probe(void)
 {
 #if CONFIG_VIRTIO_GPU
-    int ret = virtio_gpu_driver_init();
-
-    /* Fall back to VGA if no VirtIO-GPU device was probed */
-    tty_device_t *bt = get_boot_tty();
-    if (bt->type == TTY_DEVICE_DRM && !virtio_gpu_get_device()) {
-        tty_set_device_type(TTY_DEVICE_VGA);
-        plogk("virtgpu: Not available, TTY staying in VGA mode.\n");
-    }
-    return ret;
+    return virtio_gpu_driver_init();
 #else
     return -ENODEV;
 #endif

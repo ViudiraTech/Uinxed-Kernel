@@ -97,13 +97,11 @@ int drm_mode_config_init(struct drm_device *dev)
     dev->mode_config.async_page_flip                             = false;
     dev->mode_config.fb_modifiers_not_supported                  = false;
     dev->mode_config.normalize_zpos                              = true;
-    dev->mode_config.atomic_async_page_flip_not_supported_unused = false;
     dev->mode_config.poll_enabled                                = false;
     dev->mode_config.poll_running                                = false;
     dev->mode_config.delayed_event                               = false;
     dev->mode_config.poll_init                                   = false;
 
-    dev->mode_config.poll_work_unused = NULL;
     dev->mode_config.helper_private   = NULL;
 
     dev->mode_config.prop_src_x                   = NULL;
@@ -125,20 +123,19 @@ int drm_mode_config_init(struct drm_device *dev)
     dev->mode_config.prop_zpos_default            = NULL;
     dev->mode_config.prop_rotation                = NULL;
     dev->mode_config.prop_pixel_blend_mode        = NULL;
-    dev->mode_config.prop_src_blend_pixel_unused  = NULL;
     dev->mode_config.prop_alpha                   = NULL;
     dev->mode_config.prop_connector_id            = NULL;
     dev->mode_config.prop_dpms                    = NULL;
     dev->mode_config.prop_path                    = NULL;
     dev->mode_config.prop_tile                    = NULL;
     dev->mode_config.prop_link_status             = NULL;
+    dev->mode_config.prop_non_desktop             = NULL;
     dev->mode_config.prop_edid                    = NULL;
     dev->mode_config.prop_content_protection      = NULL;
     dev->mode_config.prop_scaling_mode            = NULL;
     dev->mode_config.prop_aspect_ratio            = NULL;
     dev->mode_config.prop_vrr_capable             = NULL;
     dev->mode_config.prop_hdr_output_metadata     = NULL;
-    dev->mode_config.prop_aspect_ratio_unused     = NULL;
     dev->mode_config.prop_gamma_lut               = NULL;
     dev->mode_config.prop_degamma_lut             = NULL;
     dev->mode_config.prop_ctm                     = NULL;
@@ -146,7 +143,6 @@ int drm_mode_config_init(struct drm_device *dev)
     dev->mode_config.prop_degamma_lut_size        = NULL;
     dev->mode_config.prop_ctm_size                = NULL;
     dev->mode_config.prop_max_bpc                 = NULL;
-    dev->mode_config.prop_color_mode_unused       = NULL;
     dev->mode_config.prop_colorspace              = NULL;
     dev->mode_config.prop_writeback_fb_id         = NULL;
     dev->mode_config.prop_writeback_pix_fmt       = NULL;
@@ -191,30 +187,16 @@ int drm_mode_config_init(struct drm_device *dev)
         return -ENOMEM;
     }
 
-    return 0;
-}
-
-/*
- * drm_mode_config_cleanup_helper - Clean up a single intrusive list of KMS objects.
- *
- * Iterates a list where each node is embedded in a struct whose first
- * member is a drm_mode_object. The cleanup callback is invoked for
- * each object. After iterating, the list head is re-initialised.
- */
-static void __attribute__((unused)) drm_mode_config_cleanup_list(ilist_node_t *list, void (*cleanup)(void *obj))
-{
-    ilist_node_t *node;
-    ilist_node_t *next;
-
-    node = list->next;
-    while (node && node != list) {
-        next = node->next;
-        /* The drm_mode_object is the first member, so node == obj pointer */
-        if (cleanup) cleanup(node);
-        node = next;
+    /* Standard connector properties: "link-status" (range) and "non-desktop" (immutable range). */
+    dev->mode_config.prop_link_status = drm_property_create_range(dev, 0, "link-status", 0, DRM_MODE_LINK_STATUS_BAD);
+    dev->mode_config.prop_non_desktop = drm_property_create_range(dev, DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ATOMIC, "non-desktop", 0, 1);
+    if (!dev->mode_config.prop_link_status || !dev->mode_config.prop_non_desktop) {
+        plogk("drm: Mode_config_init: connector property creation failed, returning -ENOMEM\n");
+        drm_mode_config_cleanup(dev);
+        return -ENOMEM;
     }
 
-    ilist_init(list);
+    return 0;
 }
 
 /*
