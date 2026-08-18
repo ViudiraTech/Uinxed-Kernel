@@ -105,6 +105,7 @@ clean: info
 
 format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
 	$(Q)find . -type f ! -path './.git/*' -exec dos2unix -q {} +
+	$(Q)for f in $(C_SOURCES) $(C_HEADERS); do if [ -s "$$f" ] && [ -n "$$(tail -c1 "$$f")" ]; then printf "  FIXNL   $$f\n"; echo >> "$$f"; fi; done
 	$(Q)printf "\nCode Format complete.\n"
 
 check: info $(C_SOURCES:%=%.tidy)
