@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/gpu/fbdev/vt_ansi.h>
+#include <drivers/tty/vt_ansi.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 
