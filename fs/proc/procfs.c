@@ -164,8 +164,7 @@ static procfs_sysctl_t procfs_sysctl_kernel[] = {
 };
 
 #define PROCFS_SYSCTL_KERNEL_COUNT (sizeof(procfs_sysctl_kernel) / sizeof(procfs_sysctl_kernel[0]))
-
-#define PROC_SYS_KERNEL 0
+#define PROC_SYS_KERNEL            0
 
 /* No-op for procfs link callbacks that need no implementation. */
 static void procfs_dummy(void)
@@ -239,16 +238,32 @@ static void procfs_deactivate_pid_nodes(vfs_node_t root)
     }
 }
 
+/*
+ * CPU count used when generating per-CPU procfs content, floored at 1 and
+ * capped so the `int` remaining accounting and the buffer sizes stay within
+ * range. No x86 platform exceeds this many logical CPUs today.
+ */
+static size_t procfs_cpu_count(void)
+{
+    size_t cpu_count = get_cpu_count();
+    if (!cpu_count) cpu_count = 1;
+    if (cpu_count > 1024) cpu_count = 1024;
+    return cpu_count;
+}
+
 /* Generate /proc/stat content. */
 static void gen_info_stat(procfs_file_t *pf)
 {
-    char *buf = malloc(PROCFS_BUF_SIZE);
+    size_t cpu_count = procfs_cpu_count();
+
+    /* cpuN lines carry ten 64-bit counters each - keep every line for every CPU. */
+    size_t buf_size = (cpu_count + 1) * 256 + 512;
+    char  *buf      = malloc(buf_size);
     if (!buf) return;
 
-    size_t cpu_count = get_cpu_count();
-    char  *p         = buf;
-    int    remaining = PROCFS_BUF_SIZE;
-    int    n;
+    char *p         = buf;
+    int   remaining = (int)buf_size;
+    int   n;
 
     n = snprintf(p, remaining, "cpu  %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n", 0ULL, 0ULL, scheduler.ticks * cpu_count, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL);
     p += n;
@@ -271,7 +286,7 @@ static void gen_info_stat(procfs_file_t *pf)
 
     pf->content  = buf;
     pf->size     = (size_t)(p - buf);
-    pf->capacity = PROCFS_BUF_SIZE;
+    pf->capacity = buf_size;
 }
 
 /* Generate /proc/meminfo content. */
@@ -418,13 +433,23 @@ static void gen_info_cgroups(procfs_file_t *pf)
 /* Generate /proc/cpuinfo content. */
 static void gen_info_cpuinfo(procfs_file_t *pf)
 {
-    char *buf = malloc(PROCFS_BUF_SIZE);
+    size_t cpu_count = procfs_cpu_count();
+
+    /*
+     * One processor block is at most ~1.5 KiB (the flags field is capped at
+     * 1024 bytes plus the fixed format text).  A fixed PROCFS_BUF_SIZE buffer
+     * truncated /proc/cpuinfo once a handful of CPUs were listed, dropping the
+     * tail "processor" lines - tools that count them (fastfetch, nproc, ...)
+     * then reported fewer CPUs than actually exist.  Size the buffer for every
+     * CPU instead.
+     */
+    size_t buf_size = cpu_count * 1600;
+    char  *buf      = malloc(buf_size);
     if (!buf) return;
 
-    size_t cpu_count = get_cpu_count();
-    char  *p         = buf;
-    int    remaining = PROCFS_BUF_SIZE;
-    int    n;
+    char *p         = buf;
+    int   remaining = (int)buf_size;
+    int   n;
 
     /* Query CPUID leaf 1 once */
     uint32_t eax1, ebx1, ecx1, edx1;
@@ -470,10 +495,18 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
     uint64_t bogo    = cpu_hz / 2000000;
     uint64_t bogo_fp = ((cpu_hz % 2000000) * 10) / 2000000;
 
-    for (uint32_t i = 0; i < cpu_count && remaining > 0; i++) {
-        char flags_buf[1024];
-        cpu_build_flags(flags_buf, sizeof(flags_buf));
+    /*
+     * All logical CPUs report identical identity/flags - query each CPUID
+     * leaf once and reuse the results for every processor block.
+     */
+    char     flags_buf[1024];
+    char    *vendor     = get_vendor_name();
+    char    *model_name = get_model_name();
+    uint32_t phys_bits  = get_cpu_phys_bits();
+    uint32_t virt_bits  = get_cpu_virt_bits();
+    cpu_build_flags(flags_buf, sizeof(flags_buf));
 
+    for (uint32_t i = 0; i < cpu_count && remaining > 0; i++) {
         n = snprintf(p, remaining,
                      "processor\t: %u\n"
                      "vendor_id\t: %s\n"
@@ -500,15 +533,15 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
                      "cache_alignment\t: %u\n"
                      "address sizes\t: %u bits physical, %u bits virtual\n"
                      "power management:\n\n",
-                     i, get_vendor_name(), family, model, get_model_name(), stepping, cpu_mhz, cpu_mhz_fp, l2_kb ? l2_kb : (l1d_kb ? l1d_kb : 256U), i, max_logical, 0U, 1U, i, i,
-                     (edx1 & (1 << 0)) ? "yes" : "no", (edx1 & (1 << 0)) ? "yes" : "no", cpuid_level, flags_buf, bogo, bogo_fp, clflush_size, clflush_size, get_cpu_phys_bits(), get_cpu_virt_bits());
+                     i, vendor, family, model, model_name, stepping, cpu_mhz, cpu_mhz_fp, l2_kb ? l2_kb : (l1d_kb ? l1d_kb : 256U), i, max_logical, 0U, 1U, i, i, (edx1 & (1 << 0)) ? "yes" : "no",
+                     (edx1 & (1 << 0)) ? "yes" : "no", cpuid_level, flags_buf, bogo, bogo_fp, clflush_size, clflush_size, phys_bits, virt_bits);
         p += n;
         remaining -= n;
     }
 
     pf->content  = buf;
     pf->size     = (size_t)(p - buf);
-    pf->capacity = PROCFS_BUF_SIZE;
+    pf->capacity = buf_size;
 }
 
 /* Generate /proc/uptime content. */
@@ -551,12 +584,12 @@ static void gen_info_loadavg(procfs_file_t *pf)
     uint64_t running   = 0;
     uint32_t cpu_count = sched_cpu_count();
     for (uint32_t i = 0; i < cpu_count; i++) running += __atomic_load_n(&cpu_rqs[i].nr_running, __ATOMIC_RELAXED);
+
     /* active threads = currently running (one per CPU) + on ready queues */
     uint64_t active  = cpu_count + running;
     uint64_t total   = scheduler.next_pid ? scheduler.next_pid - 1 : 0;
     uint64_t lastpid = scheduler.next_pid ? scheduler.next_pid - 1 : 0;
-
-    int n = snprintf(buf, 128, "0.00 0.00 0.00 %llu/%llu %llu\n", active, total ? total : 1, lastpid);
+    int      n       = snprintf(buf, 128, "0.00 0.00 0.00 %llu/%llu %llu\n", active, total ? total : 1, lastpid);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -566,13 +599,16 @@ static void gen_info_loadavg(procfs_file_t *pf)
 /* Generate /proc/interrupts content. */
 static void gen_info_interrupts(procfs_file_t *pf)
 {
-    char *buf = malloc(PROCFS_BUF_SIZE);
+    size_t cpu_count = procfs_cpu_count();
+
+    /* One CPU column per vector row - keep every column for every CPU. */
+    size_t buf_size = cpu_count * 128 + 512;
+    char  *buf      = malloc(buf_size);
     if (!buf) return;
 
-    size_t cpu_count = get_cpu_count();
-    char  *p         = buf;
-    int    remaining = PROCFS_BUF_SIZE;
-    int    n;
+    char *p         = buf;
+    int   remaining = (int)buf_size;
+    int   n;
 
     n = snprintf(p, remaining, "           CPU0");
     p += n;
@@ -622,20 +658,23 @@ static void gen_info_interrupts(procfs_file_t *pf)
 
     pf->content  = buf;
     pf->size     = (size_t)(p - buf);
-    pf->capacity = PROCFS_BUF_SIZE;
+    pf->capacity = buf_size;
 }
 
 /* Generate /proc/softirqs content. */
 static void gen_info_softirqs(procfs_file_t *pf)
 {
-    static const char *names[] = {"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "IRQ_POLL", "TASKLET", "SCHED", "HRTIMER", "RCU"};
-    char              *buf     = malloc(PROCFS_BUF_SIZE);
+    static const char *names[]   = {"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "IRQ_POLL", "TASKLET", "SCHED", "HRTIMER", "RCU"};
+    size_t             cpu_count = procfs_cpu_count();
+
+    /* One CPU column per softirq row - keep every column for every CPU. */
+    size_t buf_size = cpu_count * 128 + 512;
+    char  *buf      = malloc(buf_size);
     if (!buf) return;
 
-    size_t cpu_count = get_cpu_count();
-    char  *p         = buf;
-    int    remaining = PROCFS_BUF_SIZE;
-    int    n;
+    char *p         = buf;
+    int   remaining = (int)buf_size;
+    int   n;
 
     n = snprintf(p, remaining, "                    CPU0");
     p += n;
@@ -664,7 +703,7 @@ static void gen_info_softirqs(procfs_file_t *pf)
 
     pf->content  = buf;
     pf->size     = (size_t)(p - buf);
-    pf->capacity = PROCFS_BUF_SIZE;
+    pf->capacity = buf_size;
 }
 
 /* Generate /proc/partitions content. */
@@ -1048,39 +1087,38 @@ static void gen_pid_status(procfs_file_t *pf)
     }
 
     pid_t ppid = proc->parent ? proc->parent->task->pid : 0;
-
-    int n = snprintf(buf, PROCFS_BUF_SIZE,
-                     "Name:\t%s\n"
-                     "State:\t%s\n"
-                     "Tgid:\t%llu\n"
-                     "Pid:\t%llu\n"
-                     "PPid:\t%llu\n"
-                     "TracerPid:\t%llu\n"
-                     "Uid:\t%u\t%u\t%u\t%u\n"
-                     "Gid:\t%u\t%u\t%u\t%u\n"
-                     "FDSize:\t%u\n"
-                     "Groups:\t%u\n"
-                     "VmSize:\t%8llu kB\n"
-                     "VmRSS:\t%8llu kB\n"
-                     "VmData:\t%8llu kB\n"
-                     "VmStk:\t%8llu kB\n"
-                     "VmExe:\t0 kB\n"
-                     "VmLib:\t0 kB\n"
-                     "VmPTE:\t0 kB\n"
-                     "Threads:\t1\n"
-                     "SigQ:\t0/0\n"
-                     "CapInh:\t0000000000000000\n"
-                     "CapPrm:\t0000000000000000\n"
-                     "CapEff:\t0000000000000000\n"
-                     "CapBnd:\t0000000000000000\n"
-                     "Cpus_allowed:\t1\n"
-                     "Cpus_allowed_list:\t0\n"
-                     "Mems_allowed:\t1\n"
-                     "Mems_allowed_list:\t0\n"
-                     "voluntary_ctxt_switches:\t0\n"
-                     "nonvoluntary_ctxt_switches:\t0\n",
-                     proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid, (uint64_t)ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->fsuid,
-                     proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, vmsize / 1024, vmrss / 1024, vmdata / 1024, vmstack / 1024);
+    int   n    = snprintf(buf, PROCFS_BUF_SIZE,
+                          "Name:\t%s\n"
+                               "State:\t%s\n"
+                               "Tgid:\t%llu\n"
+                               "Pid:\t%llu\n"
+                               "PPid:\t%llu\n"
+                               "TracerPid:\t%llu\n"
+                               "Uid:\t%u\t%u\t%u\t%u\n"
+                               "Gid:\t%u\t%u\t%u\t%u\n"
+                               "FDSize:\t%u\n"
+                               "Groups:\t%u\n"
+                               "VmSize:\t%8llu kB\n"
+                               "VmRSS:\t%8llu kB\n"
+                               "VmData:\t%8llu kB\n"
+                               "VmStk:\t%8llu kB\n"
+                               "VmExe:\t0 kB\n"
+                               "VmLib:\t0 kB\n"
+                               "VmPTE:\t0 kB\n"
+                               "Threads:\t1\n"
+                               "SigQ:\t0/0\n"
+                               "CapInh:\t0000000000000000\n"
+                               "CapPrm:\t0000000000000000\n"
+                               "CapEff:\t0000000000000000\n"
+                               "CapBnd:\t0000000000000000\n"
+                               "Cpus_allowed:\t1\n"
+                               "Cpus_allowed_list:\t0\n"
+                               "Mems_allowed:\t1\n"
+                               "Mems_allowed_list:\t0\n"
+                               "voluntary_ctxt_switches:\t0\n"
+                               "nonvoluntary_ctxt_switches:\t0\n",
+                          proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid, (uint64_t)ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->fsuid,
+                          proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, vmsize / 1024, vmrss / 1024, vmdata / 1024, vmstack / 1024);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -1151,7 +1189,6 @@ static void gen_pid_maps(procfs_file_t *pf)
                 region_name = "";
                 break;
         }
-
         n = snprintf(p, remaining, "%016lx-%016lx %s%c %08lx 00:00 0%s\n", vma->start, vma->end, perm, (vma->flags & VM_SHARED) ? 's' : 'p', 0UL, region_name);
         p += n;
         remaining -= n;
@@ -1268,7 +1305,6 @@ static void gen_pid_statm(procfs_file_t *pf)
         if (vma->flags & VM_SHARED) shared += pages;
     }
     spin_unlock(&proc->mmap_lock);
-
     int n = snprintf(buf, 256, "%llu %llu %llu %llu %llu %llu %llu\n", (unsigned long long)size, (unsigned long long)resident, (unsigned long long)shared, (unsigned long long)text,
                      (unsigned long long)lib, (unsigned long long)data, 0ULL);
     process_put(proc);
@@ -1459,6 +1495,7 @@ static void gen_pid_stat(procfs_file_t *pf)
         spin_lock(&tty->lock);
         tpgid = tty->foreground_pgid;
         spin_unlock(&tty->lock);
+
         /* Linux virtual consoles use major 4; this kernel exposes tty1. */
         tty_nr = (4 << 8) | 1;
         tty_core_release(tty);
@@ -1513,7 +1550,6 @@ static void gen_pid_stat(procfs_file_t *pf)
 static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
 {
     if (pf->content) return;
-
     switch (pf->type) {
         case PROCFS_INFO_FILE :
             switch (pf->subtype) {
@@ -1749,6 +1785,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                     node->type = file_dir;
                     break;
                 }
+
                 /* Try PID - numeric directory name */
                 char *end;
                 pid_t pid = (pid_t)strtol(name, &end, 10);
@@ -2046,6 +2083,7 @@ static int procfs_stat(void *file, vfs_node_t node)
             (void)procfs_ensure_child(node, "thread-self", PROCFS_SELF_LINK, 0, 1, file_symlink);
 
             procfs_deactivate_pid_nodes(node);
+
             /*
              * procfs_stat() runs under the VFS namespace lock.  Do not take
              * and then drop process references here: process_put() is allowed
@@ -2174,6 +2212,7 @@ static int procfs_stat(void *file, vfs_node_t node)
              * pipes, etc.) and would restart every procfs read at offset 0.
              */
             node->type = file_none;
+
             /*
              * Mount tables are generated as a per-open namespace snapshot.
              * Generating them here would recurse into the VFS namespace lock
@@ -2279,6 +2318,7 @@ static int procfs_resize(void *current, uint64_t size)
     (void)size;
     procfs_file_t *pf = current;
     if (!pf) return -EINVAL;
+
     /*
      * Writable proc control files accept O_TRUNC as part of fopen("w").
      * Their contents are synthetic, so truncation has no persistent data to

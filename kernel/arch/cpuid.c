@@ -296,10 +296,11 @@ void cpu_build_flags(char *buf, size_t size)
         {31, "pbe"    },
     };
 
-    for (i = 0; i < sizeof(ed1) / sizeof(ed1[0]) && pos + 12 < size; i++)
+    for (i = 0; i < sizeof(ed1) / sizeof(ed1[0]); i++)
         if (d & (1U << ed1[i].bit)) {
+            size_t l = strlen(ed1[i].name);
+            if (pos + l + 1 >= size) break; // room for ' ' + name + NUL
             buf[pos++] = ' ';
-            size_t l   = strlen(ed1[i].name);
             memcpy(buf + pos, ed1[i].name, l);
             pos += l;
         }
@@ -334,10 +335,11 @@ void cpu_build_flags(char *buf, size_t size)
         {31, "hypervisor"  },
     };
 
-    for (i = 0; i < sizeof(ec1) / sizeof(ec1[0]) && pos + 12 < size; i++)
+    for (i = 0; i < sizeof(ec1) / sizeof(ec1[0]); i++)
         if (c & (1U << ec1[i].bit)) {
+            size_t l = strlen(ec1[i].name);
+            if (pos + l + 1 >= size) break; // room for ' ' + name + NUL
             buf[pos++] = ' ';
-            size_t l   = strlen(ec1[i].name);
             memcpy(buf + pos, ec1[i].name, l);
             pos += l;
         }
@@ -377,10 +379,11 @@ void cpu_build_flags(char *buf, size_t size)
         {31, "avx512vl"  },
     };
 
-    for (i = 0; i < sizeof(eb7) / sizeof(eb7[0]) && pos + 12 < size; i++)
+    for (i = 0; i < sizeof(eb7) / sizeof(eb7[0]); i++)
         if (b & (1U << eb7[i].bit)) {
+            size_t l = strlen(eb7[i].name);
+            if (pos + l + 1 >= size) break; // room for ' ' + name + NUL
             buf[pos++] = ' ';
-            size_t l   = strlen(eb7[i].name);
             memcpy(buf + pos, eb7[i].name, l);
             pos += l;
         }
@@ -405,10 +408,11 @@ void cpu_build_flags(char *buf, size_t size)
         {22, "rdpid"          },
     };
 
-    for (i = 0; i < sizeof(ec7) / sizeof(ec7[0]) && pos + 12 < size; i++)
+    for (i = 0; i < sizeof(ec7) / sizeof(ec7[0]); i++)
         if (c & (1U << ec7[i].bit)) {
+            size_t l = strlen(ec7[i].name);
+            if (pos + l + 1 >= size) break; // room for ' ' + name + NUL
             buf[pos++] = ' ';
-            size_t l   = strlen(ec7[i].name);
             memcpy(buf + pos, ec7[i].name, l);
             pos += l;
         }
@@ -427,10 +431,11 @@ void cpu_build_flags(char *buf, size_t size)
         {29, "lm"     },
     };
 
-    for (i = 0; i < sizeof(ed8) / sizeof(ed8[0]) && pos + 12 < size; i++)
+    for (i = 0; i < sizeof(ed8) / sizeof(ed8[0]); i++)
         if (d & (1U << ed8[i].bit)) {
+            size_t l = strlen(ed8[i].name);
+            if (pos + l + 1 >= size) break; // room for ' ' + name + NUL
             buf[pos++] = ' ';
-            size_t l   = strlen(ed8[i].name);
             memcpy(buf + pos, ed8[i].name, l);
             pos += l;
         }
@@ -449,10 +454,11 @@ void cpu_build_flags(char *buf, size_t size)
         {22, "topoext"      },
     };
 
-    for (i = 0; i < sizeof(ec8) / sizeof(ec8[0]) && pos + 12 < size; i++)
+    for (i = 0; i < sizeof(ec8) / sizeof(ec8[0]); i++)
         if (c & (1U << ec8[i].bit)) {
+            size_t l = strlen(ec8[i].name);
+            if (pos + l + 1 >= size) break; // room for ' ' + name + NUL
             buf[pos++] = ' ';
-            size_t l   = strlen(ec8[i].name);
             memcpy(buf + pos, ec8[i].name, l);
             pos += l;
         }
