@@ -164,6 +164,7 @@ Uinxed-Kernel/
 |-- mem/              # Memory management subsystem
 |-- net/              # Network stack and protocol implementations
 |-- scripts/          # Build, configuration, and maintenance scripts
+|-- security          # Security and policy-related components
 |-- tools/            # Development, debugging, and auxiliary tools
 |-- .clangd_template  # Clangd configuration template
 |-- .clang-format     # Code formatting configuration
