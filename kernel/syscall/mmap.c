@@ -196,8 +196,6 @@ fail:
     return NULL;
 }
 
-/* Full mmap syscall implementation */
-
 /*
  * Drop a file_mmap VMA that failed before it was inserted. Releases the
  * driver's VMA-held private reference (if any) and the retained file node.
@@ -210,6 +208,7 @@ static void file_mmap_vma_abort(vm_area_t *vma)
     free(vma);
 }
 
+/* Full mmap syscall implementation */
 int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t offset)
 {
     process_t *proc = process_current();

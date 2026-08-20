@@ -24,8 +24,7 @@ static inline bool virtgpu_2d_formats_compatible(uint32_t resource_format, uint3
 {
     if (resource_format == framebuffer_format) return true;
 
-    return (resource_format == DRM_FORMAT_XRGB8888 && framebuffer_format == DRM_FORMAT_ARGB8888)
-           || (resource_format == DRM_FORMAT_ARGB8888 && framebuffer_format == DRM_FORMAT_XRGB8888);
+    return (resource_format == DRM_FORMAT_XRGB8888 && framebuffer_format == DRM_FORMAT_ARGB8888) || (resource_format == DRM_FORMAT_ARGB8888 && framebuffer_format == DRM_FORMAT_XRGB8888);
 }
 
 #endif // INCLUDE_VIRTGPU_FORMAT_H_

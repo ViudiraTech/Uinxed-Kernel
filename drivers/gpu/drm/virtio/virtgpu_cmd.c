@@ -107,6 +107,7 @@ int virtgpu_cmd_create_resource_3d(struct virtio_gpu_device *vgdev, struct virti
     cmd.hdr.ctx_id  = obj->ctx_id;
     cmd.resource_id = obj->hw_res_handle;
     cmd.target      = rc->target;
+
     /* RESOURCE_CREATE uses virgl's host format namespace, not DRM fourcc. */
     cmd.format     = rc->format;
     cmd.bind       = rc->bind;

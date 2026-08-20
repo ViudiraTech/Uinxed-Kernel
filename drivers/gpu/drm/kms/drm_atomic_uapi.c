@@ -662,8 +662,6 @@ err_flip:
     return ret ? ret : -EINVAL;
 }
 
-/* drm_mode_cursor_ioctl: handle DRM_IOCTL_MODE_CURSOR */
-
 /* Shared implementation for the CURSOR and CURSOR2 ioctls. */
 static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_priv, struct drm_mode_cursor *cursor, int32_t hot_x, int32_t hot_y)
 {

@@ -467,7 +467,7 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
     return 0;
 }
 
-/* drm_atomic_commit: validate and apply the atomic state */
+/* drm_atomic_commit_tail: validate and apply the atomic state */
 static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 {
     struct drm_device      *dev    = state->dev;

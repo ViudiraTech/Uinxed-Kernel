@@ -31,8 +31,8 @@
 #define SEM_MAX_NSEMS 250
 #define SEM_MAX_SETS  128
 
-#define SHM_MAX_SEGS  128
-#define SHMLBA        PAGE_4K_SIZE
+#define SHM_MAX_SEGS 128
+#define SHMLBA       PAGE_4K_SIZE
 
 #define MSG_MAX_QUEUES 128
 
@@ -528,6 +528,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
                     sem->semzcnt[snum]++;
                 }
             }
+
             /* Prepare wait under lock, then block */
             wait_queue_prepare(&sem->waitq[ksops[0].sem_num]);
             spin_unlock(&sem->lock);
@@ -594,9 +595,8 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
         }
 
         /* Wake up any waiters */
-        for (uint32_t i = 0; i < sem->nsems; i++) {
+        for (uint32_t i = 0; i < sem->nsems; i++)
             if (sem->values[i] > 0 || sem->semzcnt[i] > 0) wait_queue_wake_all(&sem->waitq[i]);
-        }
 
         free(undo_adj);
         free(ksops);

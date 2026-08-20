@@ -57,6 +57,7 @@ static int blk_empty_write(const struct blockdev_device *dev, uint64_t lba, uint
 static int blk_empty_flush(const struct blockdev_device *dev)
 {
     (void)dev;
+
     /* A successful flush is a stable-storage guarantee. */
     return -EOPNOTSUPP;
 }

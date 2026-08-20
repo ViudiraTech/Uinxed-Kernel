@@ -208,15 +208,16 @@ typedef struct process {
         uint32_t        refcount;
         uint32_t        thread_count;
         ilist_node_t    threads;
+
         /* Serializes thread-list publication with seccomp TSYNC. */
-        spinlock_t      seccomp_lock;
-        pid_t           pgid;
-        pid_t           sid;
-        tty_core_t     *controlling_tty;
-        char            name[PROCESS_NAME_LEN];
-        char            root[VFS_PATH_MAX];     // chroot path
-        char            cwd[VFS_PATH_MAX];      // current working directory
-        char            exe_path[VFS_PATH_MAX]; // executable path (procfs /proc/<pid>/exe)
+        spinlock_t  seccomp_lock;
+        pid_t       pgid;
+        pid_t       sid;
+        tty_core_t *controlling_tty;
+        char        name[PROCESS_NAME_LEN];
+        char        root[VFS_PATH_MAX];     // chroot path
+        char        cwd[VFS_PATH_MAX];      // current working directory
+        char        exe_path[VFS_PATH_MAX]; // executable path (procfs /proc/<pid>/exe)
 } process_t;
 
 typedef struct process_stats {
@@ -239,6 +240,7 @@ static inline bool is_global_init(const process_t *proc)
     return proc && proc->task && proc->task->pid == 1;
 }
 
+/* Whether a process belongs to a group ID */
 bool process_in_group(const process_t *proc, uint32_t gid);
 
 /* Initialize the process management subsystem */
@@ -291,9 +293,16 @@ process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid);
 task_t    *process_task_find_get(pid_t pid, process_t **owner);
 void       process_put(process_t *proc);
 
+/* Wake every live thread-group member, optionally resuming job-control stops. */
 void process_wake_threads(process_t *proc, bool resume_stopped);
+
+/* Apply a default job-control stop to the complete thread group. */
 void process_stop_threads(process_t *proc);
+
+/* Snapshot thread-group CPU and scheduler counters for procfs. */
 void process_get_stats(process_t *proc, process_stats_t *stats);
+
+/* Count runnable and blocked tasks for /proc/stat. */
 void process_count_task_states(uint64_t *running, uint64_t *blocked);
 
 /* Get information about the current process */
@@ -404,13 +413,20 @@ int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat);
 uint32_t process_fd_limit(process_t *proc);
 
 /* Decrement reference count on a file, freeing it when it reaches zero */
-void            process_file_put(process_file_t *file);
-void            process_file_get(process_file_t *file);
+void process_file_put(process_file_t *file);
+
+/* Take an atomic reference on an open file */
+void process_file_get(process_file_t *file);
+
+/* Look up a descriptor, taking an open-file reference */
 process_file_t *process_fd_get(process_t *proc, int fd);
+
 /* Descriptor-like references used while an SCM_RIGHTS fd is in flight. */
 process_file_t *process_fd_get_for_transfer(process_t *proc, int fd);
 void            process_file_put_transfer(process_file_t *file);
-int             process_file_poll(process_file_t *file, size_t events);
+
+/* Poll an open-file description for events. */
+int process_file_poll(process_file_t *file, size_t events);
 
 /* Resolve a pathname against cwd or a directory descriptor. */
 int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *resolved, size_t size);

@@ -56,10 +56,10 @@
 #define PS2_DEV_GET_ID          0xf2
 #define PS2_DEV_SET_LEDS        0xed
 
-/* Poll the data port; returns the byte read or -1 on timeout. */
+/* Poll the data port; returns EOK when data is ready or -ETIMEDOUT. */
 int wait_ps2_read(void);
 
-/* Poll until the write buffer is free; returns -1 on timeout. */
+/* Poll until the write buffer is free; returns EOK or -ETIMEDOUT. */
 int wait_ps2_write(void);
 
 /* Read one byte from the PS/2 data port. */

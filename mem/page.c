@@ -858,6 +858,7 @@ int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write,
     return accessible;
 }
 
+/* Advance to the next span-aligned boundary within the mapped range. */
 static uintptr_t page_range_next(uintptr_t address, uintptr_t end, uintptr_t span)
 {
     uintptr_t next = (address | (span - 1)) + 1;
@@ -872,7 +873,7 @@ uint64_t page_count_present_range(page_directory_t *directory, uintptr_t start, 
     start = ALIGN_DOWN(start, PAGE_4K_SIZE);
     end   = ALIGN_UP(end, PAGE_4K_SIZE);
 
-    uint64_t pages   = 0;
+    uint64_t  pages  = 0;
     uintptr_t cursor = start;
     spin_lock(&directory->lock);
     while (cursor < end) {

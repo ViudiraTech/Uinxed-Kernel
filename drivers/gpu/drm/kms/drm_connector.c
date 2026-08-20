@@ -361,9 +361,8 @@ void drm_connector_cleanup(struct drm_connector *connector)
          * Give the per-type instance counter back so a re-init of the same
          * type keeps the names sequential (Virtual-1, not Virtual-2).
          */
-        if (connector->connector_type <= DRM_MODE_CONNECTOR_USB && dev->mode_config.connector_type_count[connector->connector_type] > 0) {
+        if (connector->connector_type <= DRM_MODE_CONNECTOR_USB && dev->mode_config.connector_type_count[connector->connector_type] > 0)
             dev->mode_config.connector_type_count[connector->connector_type]--;
-        }
     }
 
     free(connector->possible_encoders_ids);

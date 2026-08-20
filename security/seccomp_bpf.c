@@ -12,6 +12,7 @@
 #include <libs/std/string.h>
 #include <security/seccomp.h>
 
+/* Validate a word-aligned absolute load from a seccomp_data field. */
 static bool seccomp_bpf_valid_load(uint16_t code, uint32_t offset)
 {
     if (code != (BPF_LD | BPF_W | BPF_ABS)) return false;
@@ -19,9 +20,10 @@ static bool seccomp_bpf_valid_load(uint16_t code, uint32_t offset)
     return offset <= sizeof(struct seccomp_data) - sizeof(uint32_t);
 }
 
+/* Validate an ALU instruction, including BPF_K/BPF_X and shift-width rules. */
 static bool seccomp_bpf_valid_alu(uint16_t code, uint32_t k)
 {
-    uint16_t op = BPF_OP(code);
+    uint16_t op  = BPF_OP(code);
     uint16_t src = BPF_SRC(code);
     if (code == (BPF_ALU | BPF_NEG)) return true;
     if (src != BPF_K && src != BPF_X) return false;
@@ -42,6 +44,7 @@ static bool seccomp_bpf_valid_alu(uint16_t code, uint32_t k)
     }
 }
 
+/* Validate a jump instruction so both targets stay inside the program. */
 static bool seccomp_bpf_valid_jump(const struct sock_filter *instruction, size_t index, size_t length)
 {
     uint16_t op = BPF_OP(instruction->code);
@@ -52,10 +55,10 @@ static bool seccomp_bpf_valid_jump(const struct sock_filter *instruction, size_t
     return instruction->jt < remaining && instruction->jf < remaining;
 }
 
+/* Verify a filter program is well-formed and safe to run. */
 int seccomp_bpf_validate(const struct sock_filter *program, size_t length)
 {
     if (!program || !length || length > SECCOMP_MAX_INSNS_PER_FILTER) return -EINVAL;
-
     for (size_t i = 0; i < length; i++) {
         const struct sock_filter *instruction = &program[i];
         uint16_t                  code        = instruction->code;
@@ -91,31 +94,32 @@ int seccomp_bpf_validate(const struct sock_filter *program, size_t length)
     }
     if (BPF_CLASS(program[length - 1U].code) != BPF_RET) return -EINVAL;
 
-    /* Linux classic-BPF requires every scratch-memory read to be initialized
+    /*
+     * Linux classic-BPF requires every scratch-memory read to be initialized
      * on every reachable predecessor path.  All jumps are forward, so one
-     * ascending data-flow pass reaches a fixed point. */
+     * ascending data-flow pass reaches a fixed point.
+     */
     uint16_t memory_masks[SECCOMP_MAX_INSNS_PER_FILTER] = {0};
     uint8_t  reachable[SECCOMP_MAX_INSNS_PER_FILTER]    = {0};
-    reachable[0] = 1;
+    reachable[0]                                        = 1;
     for (size_t i = 0; i < length; i++) {
         if (!reachable[i]) continue;
         const struct sock_filter *instruction = &program[i];
-        uint16_t mask = memory_masks[i];
+        uint16_t                  mask        = memory_masks[i];
         if ((instruction->code == (BPF_LD | BPF_MEM) || instruction->code == (BPF_LDX | BPF_MEM)) && !(mask & (uint16_t)(1U << instruction->k))) return -EINVAL;
         if (instruction->code == BPF_ST || instruction->code == BPF_STX) mask |= (uint16_t)(1U << instruction->k);
         if (BPF_CLASS(instruction->code) == BPF_RET) continue;
 
         size_t successors[2];
         size_t count = 1;
-        if (instruction->code == (BPF_JMP | BPF_JA)) {
+        if (instruction->code == (BPF_JMP | BPF_JA))
             successors[0] = i + 1U + instruction->k;
-        } else if (BPF_CLASS(instruction->code) == BPF_JMP) {
+        else if (BPF_CLASS(instruction->code) == BPF_JMP) {
             successors[0] = i + 1U + instruction->jt;
             successors[1] = i + 1U + instruction->jf;
-            count = 2;
-        } else {
+            count         = 2;
+        } else
             successors[0] = i + 1U;
-        }
         for (size_t branch = 0; branch < count; branch++) {
             size_t target = successors[branch];
             if (!reachable[target]) {
@@ -129,6 +133,7 @@ int seccomp_bpf_validate(const struct sock_filter *program, size_t length)
     return EOK;
 }
 
+/* Byte-wise seccomp_data load, avoiding alignment traps for ABS fetches. */
 static uint32_t seccomp_bpf_load_word(const struct seccomp_data *data, uint32_t offset)
 {
     uint32_t value;
@@ -136,10 +141,11 @@ static uint32_t seccomp_bpf_load_word(const struct seccomp_data *data, uint32_t 
     return value;
 }
 
+/* Interpret a validated classic-BPF filter against a seccomp_data snapshot. */
 uint32_t seccomp_bpf_run(const struct sock_filter *program, size_t length, const struct seccomp_data *data)
 {
-    uint32_t accumulator = 0;
-    uint32_t index       = 0;
+    uint32_t accumulator          = 0;
+    uint32_t index                = 0;
     uint32_t memory[BPF_MEMWORDS] = {0};
 
     for (size_t pc = 0; pc < length; pc++) {
@@ -173,24 +179,43 @@ uint32_t seccomp_bpf_run(const struct sock_filter *program, size_t length, const
             case BPF_ALU : {
                 uint32_t operand = BPF_SRC(code) == BPF_X ? index : instruction->k;
                 switch (BPF_OP(code)) {
-                    case BPF_ADD : accumulator += operand; break;
-                    case BPF_SUB : accumulator -= operand; break;
-                    case BPF_MUL : accumulator *= operand; break;
+                    case BPF_ADD :
+                        accumulator += operand;
+                        break;
+                    case BPF_SUB :
+                        accumulator -= operand;
+                        break;
+                    case BPF_MUL :
+                        accumulator *= operand;
+                        break;
                     case BPF_DIV :
                         if (!operand) return SECCOMP_RET_KILL_THREAD;
                         accumulator /= operand;
                         break;
-                    case BPF_OR : accumulator |= operand; break;
-                    case BPF_AND : accumulator &= operand; break;
-                    case BPF_LSH : accumulator = operand < 32U ? accumulator << operand : 0; break;
-                    case BPF_RSH : accumulator = operand < 32U ? accumulator >> operand : 0; break;
-                    case BPF_NEG : accumulator = (uint32_t)-accumulator; break;
+                    case BPF_OR :
+                        accumulator |= operand;
+                        break;
+                    case BPF_AND :
+                        accumulator &= operand;
+                        break;
+                    case BPF_LSH :
+                        accumulator = operand < 32U ? accumulator << operand : 0;
+                        break;
+                    case BPF_RSH :
+                        accumulator = operand < 32U ? accumulator >> operand : 0;
+                        break;
+                    case BPF_NEG :
+                        accumulator = (uint32_t)-accumulator;
+                        break;
                     case BPF_MOD :
                         if (!operand) return SECCOMP_RET_KILL_THREAD;
                         accumulator %= operand;
                         break;
-                    case BPF_XOR : accumulator ^= operand; break;
-                    default : return SECCOMP_RET_KILL_THREAD;
+                    case BPF_XOR :
+                        accumulator ^= operand;
+                        break;
+                    default :
+                        return SECCOMP_RET_KILL_THREAD;
                 }
                 break;
             }
@@ -203,11 +228,20 @@ uint32_t seccomp_bpf_run(const struct sock_filter *program, size_t length, const
                     uint32_t operand = BPF_SRC(code) == BPF_X ? index : instruction->k;
                     bool     taken;
                     switch (BPF_OP(code)) {
-                        case BPF_JEQ : taken = accumulator == operand; break;
-                        case BPF_JGT : taken = accumulator > operand; break;
-                        case BPF_JGE : taken = accumulator >= operand; break;
-                        case BPF_JSET : taken = (accumulator & operand) != 0; break;
-                        default : return SECCOMP_RET_KILL_THREAD;
+                        case BPF_JEQ :
+                            taken = accumulator == operand;
+                            break;
+                        case BPF_JGT :
+                            taken = accumulator > operand;
+                            break;
+                        case BPF_JGE :
+                            taken = accumulator >= operand;
+                            break;
+                        case BPF_JSET :
+                            taken = (accumulator & operand) != 0;
+                            break;
+                        default :
+                            return SECCOMP_RET_KILL_THREAD;
                     }
                     pc += taken ? instruction->jt : instruction->jf;
                 }

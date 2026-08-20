@@ -807,8 +807,12 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         case PTRACE_GET_SYSCALL_INFO :
             ret = ptrace_get_syscall_info(target, addr, data);
             break;
-        case PTRACE_SECCOMP_GET_FILTER : ret = seccomp_ptrace_get_filter(target, addr, (void *)data); break;
-        case PTRACE_SECCOMP_GET_METADATA : ret = seccomp_ptrace_get_metadata(target, addr, (void *)data); break;
+        case PTRACE_SECCOMP_GET_FILTER :
+            ret = seccomp_ptrace_get_filter(target, addr, (void *)data);
+            break;
+        case PTRACE_SECCOMP_GET_METADATA :
+            ret = seccomp_ptrace_get_metadata(target, addr, (void *)data);
+            break;
         default :
             plogk("ptrace: Unknown request %d (pid=%lld, addr=%lx)\n", request, (long long)pid, (unsigned long)addr);
             ret = -EIO;

@@ -18,20 +18,19 @@ static uart_driver_t *serial_uart_driver;
 static bool           serial_cores_inited;
 static spinlock_t     serial_core_lock;
 
-static tty_file_endpoint_t serial_endpoints[UART_MAX_PORTS];
-
-static int serial_tty_emit(void *context, const uint8_t *data, size_t size, uint64_t flags);
-
+static tty_file_endpoint_t  serial_endpoints[UART_MAX_PORTS];
+static int                  serial_tty_emit(void *context, const uint8_t *data, size_t size, uint64_t flags);
 static const tty_core_ops_t serial_operations = {.emit = serial_tty_emit, .event = NULL};
 
+/* Initialize a port's locks and tty core; idempotent, call with the lock held. */
 static void serial_core_init_port_locked(uart_port_t *port)
 {
     if (!port) return;
     if (!port->tty) port->tty = &port->tty_core;
     if (port->tty_initialized) return;
-    port->lock.lock     = 0;
-    port->lock.rflags   = 0;
-    port->rx_lock.lock  = 0;
+    port->lock.lock      = 0;
+    port->lock.rflags    = 0;
+    port->rx_lock.lock   = 0;
     port->rx_lock.rflags = 0;
     tty_core_init(port->tty, &serial_operations, port);
     port->tty_initialized = true;
@@ -235,8 +234,8 @@ void uart_insert_char(uart_port_t *port, uint8_t ch)
 int uart_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
     if (!port || !port->ops || !port->ops->tx_write) return -EIO;
-    uint64_t flags = spin_lock_irqsave(&port->lock);
-    int result = port->ops->tx_write(port, data, len);
+    uint64_t flags  = spin_lock_irqsave(&port->lock);
+    int      result = port->ops->tx_write(port, data, len);
     spin_unlock_irqrestore(&port->lock, flags);
     return result;
 }

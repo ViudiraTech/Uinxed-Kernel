@@ -21,9 +21,9 @@
 #include <mem/page.h>
 #include <mem/swap.h>
 
-log_buffer_t      frame_log;
-frame_allocator_t frame_allocator;
-uint64_t          memory_size = 0;
+log_buffer_t             frame_log;
+frame_allocator_t        frame_allocator;
+uint64_t                 memory_size = 0;
 static volatile int      frame_reclaim_active;
 static volatile uint32_t frame_reclaim_backoff;
 
@@ -54,7 +54,7 @@ void frame_reclaim_if_needed(size_t requested)
     if (free > low || !swap_has_free_space()) return;
 
     uint32_t backoff = __atomic_load_n(&frame_reclaim_backoff, __ATOMIC_RELAXED);
-    bool urgent = free <= requested;
+    bool     urgent  = free <= requested;
     if (backoff && !urgent) {
         (void)__atomic_compare_exchange_n(&frame_reclaim_backoff, &backoff, backoff - 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
         return;

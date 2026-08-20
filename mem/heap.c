@@ -38,13 +38,12 @@ void init_heap(void)
 
     if (!memmap_response) krn_halt();
 
-    for (uint64_t i = 0; i < memmap_response->entry_count; i++) {
+    for (uint64_t i = 0; i < memmap_response->entry_count; i++)
         if (memmap_response->entries[i]->type == LIMINE_MEMMAP_USABLE) usable_ram += memmap_response->entries[i]->length;
-    }
 
     if (!KERNEL_HEAP_SIZE && !KERNEL_HEAP_START) {
         /* Keep most RAM reclaimable without shrinking low-memory heaps below their old size. */
-        KERNEL_HEAP_SIZE = usable_ram / 8;
+        KERNEL_HEAP_SIZE          = usable_ram / 8;
         uint64_t low_memory_floor = usable_ram / 4;
         if (low_memory_floor > 32ULL * 1024 * 1024) low_memory_floor = 32ULL * 1024 * 1024;
         if (KERNEL_HEAP_SIZE < low_memory_floor) KERNEL_HEAP_SIZE = low_memory_floor;

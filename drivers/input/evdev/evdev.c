@@ -207,7 +207,7 @@ static int evdev_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t
     return evdev_fop_ioctl(private_data, (uint32_t)request, arg);
 }
 
-/* evdev_get_mask_cnt */
+/* Return the number of event codes for the given event type. */
 static size_t evdev_get_mask_cnt(unsigned int type)
 {
     static const size_t counts[EV_CNT] = {
@@ -217,7 +217,7 @@ static size_t evdev_get_mask_cnt(unsigned int type)
     return (type < EV_CNT) ? counts[type] : 0;
 }
 
-/* evdev_compute_buffer_size */
+/* Choose the per-client queue size from the device packet hint. */
 static unsigned int evdev_compute_buffer_size(input_dev_t *dev)
 {
     unsigned int n_events = dev->hint_events_per_packet * EVDEV_BUF_PACKETS;
@@ -229,7 +229,7 @@ static unsigned int evdev_compute_buffer_size(input_dev_t *dev)
     return roundup_pow_of_two(n_events);
 }
 
-/* __evdev_is_filtered */
+/* True when a client filter hides the given event. */
 static bool __evdev_is_filtered(evdev_client_t *client, unsigned int type, unsigned int code)
 {
     uint32_t *mask;
@@ -247,7 +247,7 @@ static bool __evdev_is_filtered(evdev_client_t *client, unsigned int type, unsig
     return mask && !test_bit(code, mask);
 }
 
-/* __evdev_queue_syn_dropped */
+/* Queue a SYN_DROPPED using the client's current clock. */
 static void __evdev_queue_syn_dropped(evdev_client_t *client)
 {
     uint64_t      ns = evdev_clock_ns(client->clk_type);
@@ -271,7 +271,7 @@ static void __evdev_flush_queue(evdev_client_t *client, unsigned int type)
     evdev_queue_flush_type(&client->queue, type);
 }
 
-/* evdev_pass_values */
+/* Timestamp, filter, and queue a batch of events for one client. */
 static void evdev_pass_values(evdev_client_t *client, const input_event_t *values, unsigned int count, const struct evdev_frame_time *frame_time)
 {
     unsigned int  i;
@@ -295,11 +295,8 @@ static void evdev_pass_values(evdev_client_t *client, const input_event_t *value
     for (i = 0; i < count; i++) {
         event = values[i];
 
-        /* Timestamp the event */
         event.sec  = sec;
         event.usec = usec;
-
-        /* Filter check */
         if (__evdev_is_filtered(client, event.type, event.code)) continue;
         wake |= evdev_queue_push(&client->queue, &event);
     }
@@ -311,13 +308,13 @@ static void evdev_pass_values(evdev_client_t *client, const input_event_t *value
     }
 }
 
-/* evdev_events */
+/* Distribute a batch of events to all clients of a device. */
 static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned int count)
 {
-    evdev_t        *evdev = dev->evdev;
-    evdev_client_t *client;
-    evdev_client_t *grab;
-    ilist_node_t   *node;
+    evdev_t                *evdev = dev->evdev;
+    evdev_client_t         *client;
+    evdev_client_t         *grab;
+    ilist_node_t           *node;
     struct evdev_frame_time frame_time;
 
     if (!evdev || !evdev->exist) return;
@@ -347,7 +344,7 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
     spin_unlock(&evdev->client_lock);
 }
 
-/* evdev_set_clk_type */
+/* Switch a client's event clock, discarding its pending frame. */
 static int evdev_set_clk_type(evdev_client_t *client, int clk_type)
 {
     input_event_t dropped;
@@ -371,7 +368,7 @@ static int evdev_set_clk_type(evdev_client_t *client, int clk_type)
     return EOK;
 }
 
-/* evdev_grab / evdev_ungrab */
+/* Grant exclusive event delivery to one client. */
 static int evdev_grab(evdev_t *evdev, evdev_client_t *client)
 {
     spin_lock(&evdev->client_lock);
@@ -384,6 +381,7 @@ static int evdev_grab(evdev_t *evdev, evdev_client_t *client)
     return 0;
 }
 
+/* Release the exclusive grab held by this client. */
 static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client)
 {
     spin_lock(&evdev->client_lock);
@@ -396,7 +394,7 @@ static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client)
     return 0;
 }
 
-/* evdev_attach_client / evdev_detach_client */
+/* Add a client to the device's client list. */
 static void evdev_attach_client(evdev_t *evdev, evdev_client_t *client)
 {
     spin_lock(&evdev->client_lock);
@@ -404,6 +402,7 @@ static void evdev_attach_client(evdev_t *evdev, evdev_client_t *client)
     spin_unlock(&evdev->client_lock);
 }
 
+/* Remove a client from the list, clearing a grab it held. */
 static void evdev_detach_client(evdev_t *evdev, evdev_client_t *client)
 {
     spin_lock(&evdev->client_lock);
@@ -412,7 +411,7 @@ static void evdev_detach_client(evdev_t *evdev, evdev_client_t *client)
     spin_unlock(&evdev->client_lock);
 }
 
-/* evdev_open_device / evdev_close_device */
+/* Bump the device open count while it exists. */
 static int evdev_open_device(evdev_t *evdev)
 {
     int ret = 0;
@@ -428,6 +427,7 @@ out:
     return ret;
 }
 
+/* Drop the open count; true when the device can be freed. */
 static bool evdev_close_device(evdev_t *evdev)
 {
     bool destroy;
@@ -439,7 +439,7 @@ static bool evdev_close_device(evdev_t *evdev)
     return destroy;
 }
 
-/* evdev_hangup */
+/* Mark the device gone and wake all clients with POLLHUP. */
 static void evdev_hangup(evdev_t *evdev)
 {
     ilist_node_t   *node;
@@ -458,7 +458,7 @@ static void evdev_hangup(evdev_t *evdev)
     spin_unlock(&evdev->client_lock);
 }
 
-/* evdev_create */
+/* Allocate and initialize an evdev device. */
 evdev_t *evdev_create(input_dev_t *dev)
 {
     evdev_t *evdev;
@@ -500,7 +500,7 @@ static void evdev_free(evdev_t *evdev)
     if (input && input->release) input->release(input);
 }
 
-/* evdev_destroy */
+/* Unregister if needed and free the device when idle. */
 void evdev_destroy(evdev_t *evdev)
 {
     bool destroy;
@@ -518,7 +518,7 @@ void evdev_destroy(evdev_t *evdev)
     if (destroy) evdev_free(evdev);
 }
 
-/* evdev_register */
+/* Register a device, allocate a minor, and publish its sysfs node. */
 int evdev_register(evdev_t *evdev)
 {
     int minor;
@@ -578,7 +578,7 @@ rollback_table:
     return result;
 }
 
-/* evdev_unregister */
+/* Remove the node, sysfs entry, and table slot for a device. */
 void evdev_unregister(evdev_t *evdev)
 {
     char path[32];
@@ -614,7 +614,7 @@ void evdev_unregister(evdev_t *evdev)
     if (destroy) evdev_free(evdev);
 }
 
-/* evdev_find_by_minor */
+/* Return the device registered at the given minor, or NULL. */
 evdev_t *evdev_find_by_minor(int minor)
 {
     evdev_t *evdev;
@@ -628,7 +628,7 @@ evdev_t *evdev_find_by_minor(int minor)
     return evdev;
 }
 
-/* evdev_init */
+/* Initialize the evdev device table. */
 void evdev_init(void)
 {
     int i;
@@ -850,13 +850,13 @@ void evdev_inject_event(input_dev_t *dev, uint16_t type, uint16_t code, int32_t 
     evdev_inject_events(dev, &event, 1);
 }
 
-/* evdev_inject_syn */
+/* Inject a SYN_REPORT frame terminator. */
 void evdev_inject_syn(input_dev_t *dev)
 {
     evdev_inject_event(dev, EV_SYN, SYN_REPORT, 0);
 }
 
-/* evdev_fop_open */
+/* Allocate a client for the device and attach it. */
 evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
 {
     evdev_client_t *client;
@@ -906,7 +906,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
     return client;
 }
 
-/* evdev_fop_release */
+/* Detach a client and free its queue and filter masks. */
 void evdev_fop_release(evdev_client_t *client)
 {
     evdev_t *evdev;
@@ -933,7 +933,7 @@ void evdev_fop_release(evdev_client_t *client)
     if (destroy) evdev_free(evdev);
 }
 
-/* evdev_fop_read */
+/* Read committed packets into a buffer, blocking while empty. */
 ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool nonblock)
 {
     evdev_t       *evdev;
@@ -987,7 +987,7 @@ ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool non
     return (ssize_t)(read_count * sizeof(input_event_t));
 }
 
-/* evdev_fop_write */
+/* Inject a client's events into its device. */
 ssize_t evdev_fop_write(evdev_client_t *client, const void *buf, size_t count)
 {
     evdev_t             *evdev;
@@ -1010,7 +1010,7 @@ ssize_t evdev_fop_write(evdev_client_t *client, const void *buf, size_t count)
     return (ssize_t)(n_events * sizeof(input_event_t));
 }
 
-/* evdev_fop_poll */
+/* Report the client's current poll readiness. */
 int evdev_fop_poll(evdev_client_t *client, int events)
 {
     evdev_t *evdev;

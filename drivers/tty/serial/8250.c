@@ -160,7 +160,7 @@ static void uart8250_service(int line_irq)
         if (!port->present || uart8250_irq_of(i) != line_irq) continue;
         base = uart8250_base(port);
         for (;;) {
-            uint8_t ch;
+            uint8_t  ch;
             uint64_t flags = spin_lock_irqsave(&port->lock);
             if (inb(base + UART8250_REG_IIR) & 0x01 || !(inb(base + UART8250_REG_LSR) & 0x01)) {
                 spin_unlock_irqrestore(&port->lock, flags);
@@ -168,6 +168,7 @@ static void uart8250_service(int line_irq)
             }
             ch = (uint8_t)inb(base + UART8250_REG_DATA);
             spin_unlock_irqrestore(&port->lock, flags);
+
             /* The line discipline may echo or wait; never call it locked. */
             uart_insert_char(port, ch);
         }
@@ -210,9 +211,9 @@ void init_serial(void)
         port->number       = i;
         port->ops          = &uart8250_ops;
         port->private_data = (void *)(uintptr_t)legacy_bases[i];
-        uint64_t flags = spin_lock_irqsave(&port->lock);
-        int present = uart8250_detect(legacy_bases[i]);
-        port->present = present != 0;
+        uint64_t flags     = spin_lock_irqsave(&port->lock);
+        int      present   = uart8250_detect(legacy_bases[i]);
+        port->present      = present != 0;
         spin_unlock_irqrestore(&port->lock, flags);
         if (present) {
             detected++;

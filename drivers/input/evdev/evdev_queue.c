@@ -22,11 +22,11 @@ bool evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int 
 {
     if (!queue || !buffer || size < 4 || !is_power_of_two(size)) return false;
 
-    queue->head              = 0;
-    queue->tail              = 0;
-    queue->packet_head       = 0;
-    queue->size              = size;
-    queue->buffer            = buffer;
+    queue->head        = 0;
+    queue->tail        = 0;
+    queue->packet_head = 0;
+    queue->size        = size;
+    queue->buffer      = buffer;
     return true;
 }
 

@@ -343,6 +343,7 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
 
     if (!vfpriv) return -EINVAL;
     if (!args->size || args->size > 65536 || (args->size & 3) || !args->command) return -EINVAL;
+
     /*
      * Fence-fd and syncobj import/export require kernel sync-file support;
      * reject them explicitly instead of silently dropping synchronization.
@@ -864,7 +865,6 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
         obj = to_virtio_gpu_object(gem_obj);
 
         if (!obj) return -EINVAL;
-
         if (obj->created_blob) {
             obj->width  = fb->width;
             obj->height = fb->height;

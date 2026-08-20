@@ -41,7 +41,7 @@ QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
 TOOL_C_SOURCES := $(wildcard tools/*.c)
 TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%.elf)
 
-CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -m64 -fpie -ffreestanding -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -mno-sse -mno-sse2 -mno-mmx -mno-80387 -I include -include kernel/config.h -MMD
+CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -mno-sse -mno-sse2 -mno-mmx -mno-80387 -I include -include kernel/config.h -MMD
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
 all: Uinxed-x64.iso

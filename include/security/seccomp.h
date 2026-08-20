@@ -1,17 +1,15 @@
 /*
  *
  *      seccomp.h
- *      Linux-compatible secure-computing ABI and Uinxed integration points.
- *      The userspace-visible values and structure layouts intentionally follow
- *      <linux/seccomp.h> and <linux/filter.h> on x86-64.
+ *      Linux-compatible secure-computing ABI (follows <linux/seccomp.h>).
  *
  *      2026/8/20 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
-#ifndef INCLUDE_SECURITY_SECCOMP_H_
-#define INCLUDE_SECURITY_SECCOMP_H_
+#ifndef INCLUDE_SECCOMP_H_
+#define INCLUDE_SECCOMP_H_
 
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -53,16 +51,16 @@
 #define BPF_MOD      0x90
 #define BPF_XOR      0xa0
 
-#define BPF_JA   0x00
-#define BPF_JEQ  0x10
-#define BPF_JGT  0x20
-#define BPF_JGE  0x30
-#define BPF_JSET 0x40
-#define BPF_SRC(code) ((code) & 0x08)
-#define BPF_K         0x00
-#define BPF_X         0x08
-#define BPF_RVAL(code) ((code) & 0x18)
-#define BPF_A          0x10
+#define BPF_JA           0x00
+#define BPF_JEQ          0x10
+#define BPF_JGT          0x20
+#define BPF_JGE          0x30
+#define BPF_JSET         0x40
+#define BPF_SRC(code)    ((code) & 0x08)
+#define BPF_K            0x00
+#define BPF_X            0x08
+#define BPF_RVAL(code)   ((code) & 0x18)
+#define BPF_A            0x10
 #define BPF_MISCOP(code) ((code) & 0xf8)
 #define BPF_TAX          0x00
 #define BPF_TXA          0x80
@@ -82,8 +80,14 @@ struct sock_fprog {
         struct sock_filter *filter;
 };
 
-#define BPF_STMT(code, k)         {(uint16_t)(code), 0, 0, (uint32_t)(k)}
-#define BPF_JUMP(code, k, jt, jf) {(uint16_t)(code), (uint8_t)(jt), (uint8_t)(jf), (uint32_t)(k)}
+#define BPF_STMT(code, k)                     \
+    {                                         \
+        (uint16_t)(code), 0, 0, (uint32_t)(k) \
+    }
+#define BPF_JUMP(code, k, jt, jf)                                     \
+    {                                                                 \
+        (uint16_t)(code), (uint8_t)(jt), (uint8_t)(jf), (uint32_t)(k) \
+    }
 
 #define SECCOMP_MODE_DISABLED 0
 #define SECCOMP_MODE_STRICT   1
@@ -94,10 +98,10 @@ struct sock_fprog {
 #define SECCOMP_GET_ACTION_AVAIL 2
 #define SECCOMP_GET_NOTIF_SIZES  3
 
-#define SECCOMP_FILTER_FLAG_TSYNC             (1UL << 0)
-#define SECCOMP_FILTER_FLAG_LOG               (1UL << 1)
-#define SECCOMP_FILTER_FLAG_SPEC_ALLOW        (1UL << 2)
-#define SECCOMP_FILTER_FLAG_NEW_LISTENER      (1UL << 3)
+#define SECCOMP_FILTER_FLAG_TSYNC              (1UL << 0)
+#define SECCOMP_FILTER_FLAG_LOG                (1UL << 1)
+#define SECCOMP_FILTER_FLAG_SPEC_ALLOW         (1UL << 2)
+#define SECCOMP_FILTER_FLAG_NEW_LISTENER       (1UL << 3)
 #define SECCOMP_FILTER_FLAG_TSYNC_ESRCH        (1UL << 4)
 #define SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV (1UL << 5)
 
@@ -115,9 +119,9 @@ struct sock_fprog {
 #define SECCOMP_RET_ACTION      0x7fff0000U
 #define SECCOMP_RET_DATA        0x0000ffffU
 
-#define SECCOMP_USER_NOTIF_FLAG_CONTINUE (1UL << 0)
-#define SECCOMP_ADDFD_FLAG_SETFD          (1UL << 0)
-#define SECCOMP_ADDFD_FLAG_SEND           (1UL << 1)
+#define SECCOMP_USER_NOTIF_FLAG_CONTINUE   (1UL << 0)
+#define SECCOMP_ADDFD_FLAG_SETFD           (1UL << 0)
+#define SECCOMP_ADDFD_FLAG_SEND            (1UL << 1)
 #define SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP (1UL << 0)
 
 #define AUDIT_ARCH_64BIT  0x80000000U
@@ -220,16 +224,16 @@ struct seccomp_notif_addfd {
 #    define _IOWR(type, nr, data_type) _IOC(_IOC_READ | _IOC_WRITE, (type), (nr), (uint32_t)sizeof(data_type))
 #endif
 
-#define SECCOMP_IOC_MAGIC              '!'
-#define SECCOMP_IO(nr)                 _IO(SECCOMP_IOC_MAGIC, nr)
-#define SECCOMP_IOR(nr, data_type)     _IOR(SECCOMP_IOC_MAGIC, nr, data_type)
-#define SECCOMP_IOW(nr, data_type)     _IOW(SECCOMP_IOC_MAGIC, nr, data_type)
-#define SECCOMP_IOWR(nr, data_type)    _IOWR(SECCOMP_IOC_MAGIC, nr, data_type)
-#define SECCOMP_IOCTL_NOTIF_RECV       _IOWR(SECCOMP_IOC_MAGIC, 0, struct seccomp_notif)
-#define SECCOMP_IOCTL_NOTIF_SEND       _IOWR(SECCOMP_IOC_MAGIC, 1, struct seccomp_notif_resp)
-#define SECCOMP_IOCTL_NOTIF_ID_VALID   _IOW(SECCOMP_IOC_MAGIC, 2, uint64_t)
-#define SECCOMP_IOCTL_NOTIF_ADDFD      _IOW(SECCOMP_IOC_MAGIC, 3, struct seccomp_notif_addfd)
-#define SECCOMP_IOCTL_NOTIF_SET_FLAGS  _IOW(SECCOMP_IOC_MAGIC, 4, uint64_t)
+#define SECCOMP_IOC_MAGIC             '!'
+#define SECCOMP_IO(nr)                _IO(SECCOMP_IOC_MAGIC, nr)
+#define SECCOMP_IOR(nr, data_type)    _IOR(SECCOMP_IOC_MAGIC, nr, data_type)
+#define SECCOMP_IOW(nr, data_type)    _IOW(SECCOMP_IOC_MAGIC, nr, data_type)
+#define SECCOMP_IOWR(nr, data_type)   _IOWR(SECCOMP_IOC_MAGIC, nr, data_type)
+#define SECCOMP_IOCTL_NOTIF_RECV      _IOWR(SECCOMP_IOC_MAGIC, 0, struct seccomp_notif)
+#define SECCOMP_IOCTL_NOTIF_SEND      _IOWR(SECCOMP_IOC_MAGIC, 1, struct seccomp_notif_resp)
+#define SECCOMP_IOCTL_NOTIF_ID_VALID  _IOW(SECCOMP_IOC_MAGIC, 2, uint64_t)
+#define SECCOMP_IOCTL_NOTIF_ADDFD     _IOW(SECCOMP_IOC_MAGIC, 3, struct seccomp_notif_addfd)
+#define SECCOMP_IOCTL_NOTIF_SET_FLAGS _IOW(SECCOMP_IOC_MAGIC, 4, uint64_t)
 
 struct seccomp_metadata {
         uint64_t filter_off;
@@ -244,20 +248,46 @@ typedef struct task          task_t;
 typedef struct syscall_frame syscall_frame_t;
 struct seccomp_filter;
 
-int      seccomp_bpf_validate(const struct sock_filter *program, size_t length);
+/* Validate a classic-BPF filter program before running it. */
+int seccomp_bpf_validate(const struct sock_filter *program, size_t length);
+
+/* Run a validated classic-BPF filter against a seccomp_data snapshot. */
 uint32_t seccomp_bpf_run(const struct sock_filter *program, size_t length, const struct seccomp_data *data);
 
-void    seccomp_init(void);
+/* Register the seccomp listener filesystem. */
+void seccomp_init(void);
+
+/* seccomp(2) syscall entry point. */
 int64_t sys_seccomp(uint64_t operation, uint64_t flags, uint64_t user_args, uint64_t unused3, uint64_t unused4, uint64_t unused5);
+
+/* prctl(PR_SET_SECCOMP) entry point. */
 int64_t seccomp_prctl_set(uint64_t mode, uint64_t user_filter);
+
+/* prctl(PR_GET_SECCOMP) entry point. */
 int64_t seccomp_prctl_get(void);
+
+/* prctl(PR_SET_NO_NEW_PRIVS) entry point. */
 int64_t seccomp_set_no_new_privs(uint64_t value, uint64_t arg3, uint64_t arg4, uint64_t arg5);
+
+/* prctl(PR_GET_NO_NEW_PRIVS) entry point. */
 int64_t seccomp_get_no_new_privs(uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
-bool    seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *result);
-void    seccomp_task_inherit(task_t *child, const task_t *parent);
-void    seccomp_task_release(task_t *task);
-void    seccomp_task_get_status(const task_t *task, bool *no_new_privs, uint8_t *mode, uint32_t *filter_count);
+
+/* Evaluate a syscall against the task's filters; false indicates the syscall was denied. */
+bool seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *result);
+
+/* Copy the parent's seccomp state into a newly forked task. */
+void seccomp_task_inherit(task_t *child, const task_t *parent);
+
+/* Drop a task's seccomp state at exit. */
+void seccomp_task_release(task_t *task);
+
+/* Report a task's seccomp status (mode, no_new_privs, filter count). */
+void seccomp_task_get_status(const task_t *task, bool *no_new_privs, uint8_t *mode, uint32_t *filter_count);
+
+/* PTRACE_SECCOMP_GET_FILTER: copy a filter program to user space. */
 int64_t seccomp_ptrace_get_filter(task_t *target, uint64_t filter_offset, void *user_program);
+
+/* PTRACE_SECCOMP_GET_METADATA: report a filter's flags. */
 int64_t seccomp_ptrace_get_metadata(task_t *target, size_t size, void *user_metadata);
 
-#endif // INCLUDE_SECURITY_SECCOMP_H_
+#endif // INCLUDE_SECCOMP_H_

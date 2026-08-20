@@ -217,7 +217,7 @@ typedef struct vfs_node {
         uint64_t             rdev;         // Real device number
         vfs_poll_source_t    poll_source;
         uint32_t             inotify_watch_count; // Direct inotify watches; avoids global scans for ordinary I/O
-        pagecache_mapping_t *mapping; // Unified cache for regular-file contents
+        pagecache_mapping_t *mapping;             // Unified cache for regular-file contents
 } *vfs_node_t;
 
 extern struct vfs_callback vfs_empty_callback;
@@ -264,6 +264,8 @@ vfs_node_t vfs_node_retain(vfs_node_t node);
 /* Check file access permissions against the current process */
 int vfs_access_check(vfs_node_t node, uint32_t access_mask);
 int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, struct process *proc);
+
+/* Change a file's mode or ownership using Linux permission semantics. */
 int vfs_chmod_process(vfs_node_t node, uint16_t mode, struct process *proc);
 int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, struct process *proc);
 
@@ -305,9 +307,12 @@ int vfs_symlink(const char *name, const char *target_name);
 int vfs_regist(vfs_callback_t callback);
 
 /* Register a vfs callback with a filesystem name */
-int    vfs_regist_fs(const char *name, vfs_callback_t callback);
-int    vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flags);
+int vfs_regist_fs(const char *name, vfs_callback_t callback);
+int vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flags);
+
+/* List the available filesystem names in /proc/filesystems format. */
 size_t vfs_format_filesystems(char *buffer, size_t capacity);
+
 /* Return the stable userspace filesystem type registered for an fsid. */
 const char *vfs_filesystem_name(uint16_t fsid);
 

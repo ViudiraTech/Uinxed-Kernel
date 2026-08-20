@@ -1,9 +1,7 @@
 /*
  *
  *      seccomp.c
- *      Secure-computing syscall, filter stack, enforcement and user notification.
- *      The implementation follows Linux ABI semantics while using Uinxed-native
- *      task, VFS and wait-queue primitives.
+ *      Secure-computing syscall, filter stack and enforcement (Linux ABI).
  *
  *      2026/8/20 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -30,7 +28,7 @@
 #include <syscall/syscall.h>
 #include <syscall/syscall_table.h>
 
-#define SECCOMP_MAX_ERRNO 4095U
+#define SECCOMP_MAX_ERRNO   4095U
 #define SECCOMP_SIGSYS_CODE 1
 
 typedef enum {
@@ -42,13 +40,13 @@ typedef enum {
 typedef struct seccomp_listener seccomp_listener_t;
 
 typedef struct seccomp_knotif {
-        struct seccomp_knotif *next;
-        task_t                *task;
-        struct seccomp_notif   message;
+        struct seccomp_knotif    *next;
+        task_t                   *task;
+        struct seccomp_notif      message;
         struct seccomp_notif_resp response;
-        seccomp_notify_state_t state;
-        uint32_t               active_ops;
-        wait_queue_t           wait;
+        seccomp_notify_state_t    state;
+        uint32_t                  active_ops;
+        wait_queue_t              wait;
 } seccomp_knotif_t;
 
 struct seccomp_listener {
@@ -74,16 +72,18 @@ struct seccomp_filter {
         seccomp_listener_t    *listener;
 };
 
-static int      seccomp_fsid = -1;
+static int      seccomp_fsid                 = -1;
 static uint64_t seccomp_next_notification_id = 1;
 
 #define SECCOMP_IOCTL_NOTIF_ID_VALID_WRONG_DIR _IOR(SECCOMP_IOC_MAGIC, 2, uint64_t)
 
+/* Take a reference on a seccomp listener. */
 static void seccomp_listener_get(seccomp_listener_t *listener)
 {
     if (listener) __atomic_add_fetch(&listener->refcount, 1, __ATOMIC_RELAXED);
 }
 
+/* Return true if a notification with the given state is queued. */
 static bool seccomp_listener_has_state(seccomp_listener_t *listener, seccomp_notify_state_t state)
 {
     for (seccomp_knotif_t *item = listener->head; item; item = item->next)
@@ -91,12 +91,14 @@ static bool seccomp_listener_has_state(seccomp_listener_t *listener, seccomp_not
     return false;
 }
 
+/* Wake the receiver and every task waiting on a notification. */
 static void seccomp_listener_wake_all_locked(seccomp_listener_t *listener)
 {
     wait_queue_wake_all(&listener->recv_wait);
     for (seccomp_knotif_t *item = listener->head; item; item = item->next) wait_queue_wake_all(&item->wait);
 }
 
+/* Wake the receiver, honoring SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP. */
 static void seccomp_listener_wake_receiver_locked(seccomp_listener_t *listener)
 {
     if (listener->fd_flags & SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP)
@@ -105,6 +107,7 @@ static void seccomp_listener_wake_receiver_locked(seccomp_listener_t *listener)
         wait_queue_wake_one(&listener->recv_wait);
 }
 
+/* Wake the task waiting on a specific notification. */
 static void seccomp_listener_wake_target_locked(seccomp_listener_t *listener, seccomp_knotif_t *item)
 {
     if (listener->fd_flags & SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP)
@@ -113,6 +116,7 @@ static void seccomp_listener_wake_target_locked(seccomp_listener_t *listener, se
         wait_queue_wake_one(&item->wait);
 }
 
+/* Detach the listener, waking all waiters and closing its poll source. */
 static void seccomp_listener_detach(seccomp_listener_t *listener)
 {
     if (!listener) return;
@@ -125,6 +129,7 @@ static void seccomp_listener_detach(seccomp_listener_t *listener)
     vfs_poll_source_close(&listener->poll_source, POLLHUP | POLLERR);
 }
 
+/* Orphan the listener once its last filter is released. */
 static void seccomp_listener_orphan(seccomp_listener_t *listener)
 {
     if (!listener) return;
@@ -135,6 +140,7 @@ static void seccomp_listener_orphan(seccomp_listener_t *listener)
     vfs_poll_source_close(&listener->poll_source, POLLHUP);
 }
 
+/* Drop a listener reference, freeing it with the last one. */
 static void seccomp_listener_put(seccomp_listener_t *listener)
 {
     if (!listener || __atomic_sub_fetch(&listener->refcount, 1, __ATOMIC_ACQ_REL)) return;
@@ -142,24 +148,27 @@ static void seccomp_listener_put(seccomp_listener_t *listener)
     free(listener);
 }
 
+/* Allocate a listener for a new filter. */
 static seccomp_listener_t *seccomp_listener_alloc(uint64_t flags)
 {
     seccomp_listener_t *listener = calloc(1, sizeof(*listener));
     if (!listener) return NULL;
-    listener->refcount   = 1; /* owning filter */
-    listener->lock.lock = 0;
-    listener->lock.rflags = 0;
+    listener->refcount     = 1; // owning filter
+    listener->lock.lock    = 0;
+    listener->lock.rflags  = 0;
     listener->filter_flags = flags & SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV;
     wait_queue_init(&listener->recv_wait);
     vfs_poll_source_init(&listener->poll_source);
     return listener;
 }
 
+/* Take a reference on a seccomp filter. */
 static void seccomp_filter_get(struct seccomp_filter *filter)
 {
     if (filter) __atomic_add_fetch(&filter->refcount, 1, __ATOMIC_RELAXED);
 }
 
+/* Drop a filter reference, freeing the chain when the last one goes. */
 static void seccomp_filter_put(struct seccomp_filter *filter)
 {
     while (filter && __atomic_sub_fetch(&filter->refcount, 1, __ATOMIC_ACQ_REL) == 0) {
@@ -172,6 +181,7 @@ static void seccomp_filter_put(struct seccomp_filter *filter)
     }
 }
 
+/* Copy the parent's seccomp state into a newly forked task. */
 void seccomp_task_inherit(task_t *child, const task_t *parent)
 {
     if (!child || !parent) return;
@@ -181,15 +191,17 @@ void seccomp_task_inherit(task_t *child, const task_t *parent)
     seccomp_filter_get(child->seccomp_filter);
 }
 
+/* Drop a task's seccomp state at exit. */
 void seccomp_task_release(task_t *task)
 {
     if (!task) return;
     struct seccomp_filter *filter = task->seccomp_filter;
-    task->seccomp_filter = NULL;
-    task->seccomp_mode   = SECCOMP_MODE_DISABLED;
+    task->seccomp_filter          = NULL;
+    task->seccomp_mode            = SECCOMP_MODE_DISABLED;
     seccomp_filter_put(filter);
 }
 
+/* Report a task's seccomp status to ptrace/libc callers. */
 void seccomp_task_get_status(const task_t *task, bool *no_new_privs, uint8_t *mode, uint32_t *filter_count)
 {
     if (no_new_privs) *no_new_privs = task ? __atomic_load_n(&task->no_new_privs, __ATOMIC_ACQUIRE) : false;
@@ -203,6 +215,7 @@ void seccomp_task_get_status(const task_t *task, bool *no_new_privs, uint8_t *mo
     spin_unlock(&proc->seccomp_lock);
 }
 
+/* Return true if a signal should interrupt a user-notif wait. */
 static bool seccomp_signal_pending(bool fatal_only)
 {
     task_t    *task = current_task();
@@ -219,6 +232,7 @@ static bool seccomp_signal_pending(bool fatal_only)
     return pending;
 }
 
+/* Unlink a notification from the listener queue. */
 static void seccomp_listener_remove_locked(seccomp_listener_t *listener, seccomp_knotif_t *target)
 {
     seccomp_knotif_t **link = &listener->head;
@@ -231,6 +245,7 @@ static void seccomp_listener_remove_locked(seccomp_listener_t *listener, seccomp
     target->next = NULL;
 }
 
+/* Find a queued notification by id and state. */
 static seccomp_knotif_t *seccomp_listener_find_locked(seccomp_listener_t *listener, uint64_t id, seccomp_notify_state_t state)
 {
     for (seccomp_knotif_t *item = listener->head; item; item = item->next)
@@ -238,6 +253,7 @@ static seccomp_knotif_t *seccomp_listener_find_locked(seccomp_listener_t *listen
     return NULL;
 }
 
+/* Find a queued notification by id in any state. */
 static seccomp_knotif_t *seccomp_listener_find_any_locked(seccomp_listener_t *listener, uint64_t id)
 {
     for (seccomp_knotif_t *item = listener->head; item; item = item->next)
@@ -255,11 +271,11 @@ static bool seccomp_notify_wait(seccomp_listener_t *listener, const struct secco
 
     seccomp_knotif_t notification;
     memset(&notification, 0, sizeof(notification));
-    notification.task        = current_task();
-    notification.message.id  = __atomic_add_fetch(&seccomp_next_notification_id, 1, __ATOMIC_RELAXED);
-    notification.message.pid = notification.task ? (uint32_t)notification.task->pid : 0;
+    notification.task         = current_task();
+    notification.message.id   = __atomic_add_fetch(&seccomp_next_notification_id, 1, __ATOMIC_RELAXED);
+    notification.message.pid  = notification.task ? (uint32_t)notification.task->pid : 0;
     notification.message.data = *data;
-    notification.state = SECCOMP_NOTIFY_INIT;
+    notification.state        = SECCOMP_NOTIFY_INIT;
     wait_queue_init(&notification.wait);
 
     spin_lock(&listener->lock);
@@ -318,6 +334,7 @@ static bool seccomp_notify_wait(seccomp_listener_t *listener, const struct secco
     }
 }
 
+/* Return true if the user buffer is entirely zeroed. */
 static bool seccomp_user_buffer_zero(const void *buffer, size_t length)
 {
     const uint8_t *bytes = buffer;
@@ -326,6 +343,7 @@ static bool seccomp_user_buffer_zero(const void *buffer, size_t length)
     return true;
 }
 
+/* Implement SECCOMP_IOCTL_NOTIF_RECV. */
 static int seccomp_listener_recv(seccomp_listener_t *listener, uint64_t file_flags, void *user_buffer)
 {
     struct seccomp_notif user_value;
@@ -338,7 +356,7 @@ static int seccomp_listener_recv(seccomp_listener_t *listener, uint64_t file_fla
         for (item = listener->head; item; item = item->next)
             if (item->state == SECCOMP_NOTIFY_INIT) break;
         if (item) {
-            item->state = SECCOMP_NOTIFY_SENT;
+            item->state                  = SECCOMP_NOTIFY_SENT;
             struct seccomp_notif message = item->message;
             spin_unlock(&listener->lock);
             if (copy_to_user(user_buffer, &message, sizeof(message))) {
@@ -378,6 +396,7 @@ static int seccomp_listener_recv(seccomp_listener_t *listener, uint64_t file_fla
     }
 }
 
+/* Validate a user response before accepting it. */
 static bool seccomp_response_valid(const struct seccomp_notif_resp *response)
 {
     if (response->flags & ~SECCOMP_USER_NOTIF_FLAG_CONTINUE) return false;
@@ -385,6 +404,7 @@ static bool seccomp_response_valid(const struct seccomp_notif_resp *response)
     return true;
 }
 
+/* Implement SECCOMP_IOCTL_NOTIF_SEND. */
 static int seccomp_listener_send(seccomp_listener_t *listener, void *user_buffer)
 {
     struct seccomp_notif_resp response;
@@ -413,6 +433,7 @@ static int seccomp_listener_send(seccomp_listener_t *listener, void *user_buffer
     return EOK;
 }
 
+/* Implement SECCOMP_IOCTL_NOTIF_ID_VALID. */
 static int seccomp_listener_id_valid(seccomp_listener_t *listener, void *user_buffer)
 {
     uint64_t id;
@@ -423,6 +444,7 @@ static int seccomp_listener_id_valid(seccomp_listener_t *listener, void *user_bu
     return valid ? EOK : -ENOENT;
 }
 
+/* Copy an addfd request, rejecting nonzero trailing padding. */
 static int seccomp_listener_copy_addfd(struct seccomp_notif_addfd *request, void *user_buffer, size_t user_size)
 {
     if (user_size < sizeof(*request) || user_size >= 4096U) return -EINVAL;
@@ -431,7 +453,7 @@ static int seccomp_listener_copy_addfd(struct seccomp_notif_addfd *request, void
     size_t offset = sizeof(*request);
     while (offset < user_size) {
         uint8_t bytes[32];
-        size_t chunk = user_size - offset;
+        size_t  chunk = user_size - offset;
         if (chunk > sizeof(bytes)) chunk = sizeof(bytes);
         if (copy_from_user(bytes, (uint8_t *)user_buffer + offset, chunk)) return -EFAULT;
         if (!seccomp_user_buffer_zero(bytes, chunk)) return -E2BIG;
@@ -440,17 +462,18 @@ static int seccomp_listener_copy_addfd(struct seccomp_notif_addfd *request, void
     return EOK;
 }
 
+/* Implement SECCOMP_IOCTL_NOTIF_ADDFD. */
 static int seccomp_listener_addfd(seccomp_listener_t *listener, void *user_buffer, size_t user_size)
 {
     struct seccomp_notif_addfd request;
-    int copy_status = seccomp_listener_copy_addfd(&request, user_buffer, user_size);
+    int                        copy_status = seccomp_listener_copy_addfd(&request, user_buffer, user_size);
     if (copy_status) return copy_status;
     if (request.flags & ~(SECCOMP_ADDFD_FLAG_SETFD | SECCOMP_ADDFD_FLAG_SEND)) return -EINVAL;
     if (request.newfd_flags & ~O_CLOEXEC) return -EINVAL;
     if (!(request.flags & SECCOMP_ADDFD_FLAG_SETFD) && request.newfd) return -EINVAL;
 
-    process_t *supervisor = process_current();
-    process_file_t *source = process_fd_get_for_transfer(supervisor, (int)request.srcfd);
+    process_t      *supervisor = process_current();
+    process_file_t *source     = process_fd_get_for_transfer(supervisor, (int)request.srcfd);
     if (!source) return -EBADF;
 
     spin_lock(&listener->lock);
@@ -510,6 +533,7 @@ static int seccomp_listener_addfd(seccomp_listener_t *listener, void *user_buffe
     return newfd;
 }
 
+/* Open the listener node: keep the node handle as private data. */
 static int seccomp_listener_file_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     (void)flags;
@@ -518,29 +542,36 @@ static int seccomp_listener_file_open(vfs_node_t node, uint64_t flags, void **pr
     return EOK;
 }
 
+/* No-op release; the node handle is owned by the listener. */
 static void seccomp_listener_file_release(vfs_node_t node, void *private_data)
 {
     (void)node;
     (void)private_data;
 }
 
+/* Detach the listener when its last descriptor closes. */
 static void seccomp_listener_descriptor_close(vfs_node_t node, void *private_data)
 {
     (void)node;
     seccomp_listener_detach(private_data);
 }
 
+/* Dispatch seccomp listener ioctls. */
 static int seccomp_listener_file_ioctl(vfs_node_t node, void *private_data, uint64_t flags, size_t request, void *argument)
 {
     (void)node;
     seccomp_listener_t *listener = private_data;
     if (!listener) return -ENODEV;
     switch (request) {
-        case SECCOMP_IOCTL_NOTIF_RECV : return seccomp_listener_recv(listener, flags, argument);
-        case SECCOMP_IOCTL_NOTIF_SEND : return seccomp_listener_send(listener, argument);
+        case SECCOMP_IOCTL_NOTIF_RECV :
+            return seccomp_listener_recv(listener, flags, argument);
+        case SECCOMP_IOCTL_NOTIF_SEND :
+            return seccomp_listener_send(listener, argument);
         case SECCOMP_IOCTL_NOTIF_ID_VALID_WRONG_DIR :
-        case SECCOMP_IOCTL_NOTIF_ID_VALID : return seccomp_listener_id_valid(listener, argument);
-        case SECCOMP_IOCTL_NOTIF_ADDFD : return seccomp_listener_addfd(listener, argument, sizeof(struct seccomp_notif_addfd));
+        case SECCOMP_IOCTL_NOTIF_ID_VALID :
+            return seccomp_listener_id_valid(listener, argument);
+        case SECCOMP_IOCTL_NOTIF_ADDFD :
+            return seccomp_listener_addfd(listener, argument, sizeof(struct seccomp_notif_addfd));
         case SECCOMP_IOCTL_NOTIF_SET_FLAGS : {
             uint64_t fd_flags = (uintptr_t)argument;
             if (fd_flags & ~SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP) return -EINVAL;
@@ -555,13 +586,13 @@ static int seccomp_listener_file_ioctl(vfs_node_t node, void *private_data, uint
         }
         default : {
             size_t size_mask = (size_t)_IOC_SIZEMASK << _IOC_SIZESHIFT;
-            if ((request & ~size_mask) == ((size_t)SECCOMP_IOCTL_NOTIF_ADDFD & ~size_mask))
-                return seccomp_listener_addfd(listener, argument, _IOC_SIZE(request));
+            if ((request & ~size_mask) == ((size_t)SECCOMP_IOCTL_NOTIF_ADDFD & ~size_mask)) return seccomp_listener_addfd(listener, argument, _IOC_SIZE(request));
             return -EINVAL;
         }
     }
 }
 
+/* Report poll readiness for the listener. */
 static int seccomp_listener_file_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
 {
     (void)node;
@@ -578,6 +609,7 @@ static int seccomp_listener_file_poll(vfs_node_t node, void *private_data, uint6
     return ready & (events | POLLHUP | POLLERR);
 }
 
+/* Return the listener's poll source for event registration. */
 static vfs_poll_source_t *seccomp_listener_file_poll_source(vfs_node_t node, void *private_data)
 {
     (void)node;
@@ -585,18 +617,20 @@ static vfs_poll_source_t *seccomp_listener_file_poll_source(vfs_node_t node, voi
     return listener ? &listener->poll_source : NULL;
 }
 
+/* VFS free callback: release the listener reference. */
 static int seccomp_listener_vfs_free(void *handle)
 {
     seccomp_listener_put(handle);
     return EOK;
 }
 
+/* Create a vfs node backing the listener fd. */
 static vfs_node_t seccomp_listener_node_create(seccomp_listener_t *listener)
 {
     if (!listener || seccomp_fsid < 0) return NULL;
     vfs_node_t node = vfs_node_alloc(NULL, "[seccomp]");
     if (!node) return NULL;
-    seccomp_listener_get(listener); /* node handle */
+    seccomp_listener_get(listener); // node handle
     node->type   = file_stream;
     node->handle = listener;
     node->fsid   = seccomp_fsid;
@@ -605,6 +639,7 @@ static vfs_node_t seccomp_listener_node_create(seccomp_listener_t *listener)
     return node;
 }
 
+/* Return true if the kernel can honor the given seccomp action. */
 static bool seccomp_action_supported(uint32_t action)
 {
     switch (action) {
@@ -615,11 +650,14 @@ static bool seccomp_action_supported(uint32_t action)
         case SECCOMP_RET_USER_NOTIF :
         case SECCOMP_RET_TRACE :
         case SECCOMP_RET_LOG :
-        case SECCOMP_RET_ALLOW : return true;
-        default : return false;
+        case SECCOMP_RET_ALLOW :
+            return true;
+        default :
+            return false;
     }
 }
 
+/* Copy a user BPF program into a validated kernel filter. */
 static int seccomp_prepare_filter(uint64_t flags, uint64_t user_filter, struct seccomp_filter **result)
 {
     struct sock_fprog user_program;
@@ -659,6 +697,7 @@ static int seccomp_prepare_filter(uint64_t flags, uint64_t user_filter, struct s
     return EOK;
 }
 
+/* Return true if ancestor is part of filter's previous chain. */
 static bool seccomp_filter_is_ancestor(struct seccomp_filter *ancestor, struct seccomp_filter *filter)
 {
     if (!ancestor) return true;
@@ -667,6 +706,7 @@ static bool seccomp_filter_is_ancestor(struct seccomp_filter *ancestor, struct s
     return false;
 }
 
+/* Return true if any filter in the chain owns a listener. */
 static bool seccomp_filter_chain_has_listener(struct seccomp_filter *filter)
 {
     for (; filter; filter = filter->prev)
@@ -674,10 +714,11 @@ static bool seccomp_filter_chain_has_listener(struct seccomp_filter *filter)
     return false;
 }
 
+/* Install a new filter on the current task (SECCOMP_SET_MODE_FILTER). */
 static int64_t seccomp_install_filter(uint64_t flags, uint64_t user_filter)
 {
-    const uint64_t valid_flags = SECCOMP_FILTER_FLAG_TSYNC | SECCOMP_FILTER_FLAG_LOG | SECCOMP_FILTER_FLAG_SPEC_ALLOW | SECCOMP_FILTER_FLAG_NEW_LISTENER
-                               | SECCOMP_FILTER_FLAG_TSYNC_ESRCH | SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV;
+    const uint64_t valid_flags = SECCOMP_FILTER_FLAG_TSYNC | SECCOMP_FILTER_FLAG_LOG | SECCOMP_FILTER_FLAG_SPEC_ALLOW | SECCOMP_FILTER_FLAG_NEW_LISTENER | SECCOMP_FILTER_FLAG_TSYNC_ESRCH
+                                 | SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV;
     if (flags & ~valid_flags) return -EINVAL;
     if ((flags & SECCOMP_FILTER_FLAG_NEW_LISTENER) && (flags & SECCOMP_FILTER_FLAG_TSYNC)) return -EINVAL;
     if ((flags & SECCOMP_FILTER_FLAG_TSYNC_ESRCH) && !(flags & SECCOMP_FILTER_FLAG_TSYNC)) return -EINVAL;
@@ -689,7 +730,7 @@ static int64_t seccomp_install_filter(uint64_t flags, uint64_t user_filter)
     if (!__atomic_load_n(&current->no_new_privs, __ATOMIC_ACQUIRE) && proc->uid != 0) return -EACCES;
 
     struct seccomp_filter *filter = NULL;
-    int status = seccomp_prepare_filter(flags, user_filter, &filter);
+    int                    status = seccomp_prepare_filter(flags, user_filter, &filter);
     if (status) return status;
 
     spin_lock(&proc->seccomp_lock);
@@ -737,7 +778,7 @@ static int64_t seccomp_install_filter(uint64_t flags, uint64_t user_filter)
     }
 
     filter->total_insns = total;
-    filter->prev        = current->seccomp_filter; /* transfer current's reference */
+    filter->prev        = current->seccomp_filter; // transfer current's reference
     __atomic_store_n(&current->seccomp_filter, filter, __ATOMIC_RELEASE);
     __atomic_store_n(&current->seccomp_mode, SECCOMP_MODE_FILTER, __ATOMIC_RELEASE);
     if (flags & SECCOMP_FILTER_FLAG_TSYNC) {
@@ -756,6 +797,7 @@ static int64_t seccomp_install_filter(uint64_t flags, uint64_t user_filter)
     return filter->listener ? listener_fd : EOK;
 }
 
+/* Put the current task in strict mode (SECCOMP_SET_MODE_STRICT). */
 static int64_t seccomp_install_strict(void)
 {
     task_t *task = current_task();
@@ -770,6 +812,7 @@ static int64_t seccomp_install_strict(void)
     return EOK;
 }
 
+/* seccomp(2): dispatch the requested operation. */
 int64_t sys_seccomp(uint64_t operation, uint64_t flags, uint64_t user_args, uint64_t unused3, uint64_t unused4, uint64_t unused5)
 {
     (void)unused3;
@@ -779,7 +822,8 @@ int64_t sys_seccomp(uint64_t operation, uint64_t flags, uint64_t user_args, uint
         case SECCOMP_SET_MODE_STRICT :
             if (flags || user_args) return -EINVAL;
             return seccomp_install_strict();
-        case SECCOMP_SET_MODE_FILTER : return seccomp_install_filter(flags, user_args);
+        case SECCOMP_SET_MODE_FILTER :
+            return seccomp_install_filter(flags, user_args);
         case SECCOMP_GET_ACTION_AVAIL : {
             if (flags) return -EINVAL;
             uint32_t action;
@@ -795,10 +839,12 @@ int64_t sys_seccomp(uint64_t operation, uint64_t flags, uint64_t user_args, uint
             };
             return copy_to_user((void *)user_args, &sizes, sizeof(sizes)) ? -EFAULT : EOK;
         }
-        default : return -EINVAL;
+        default :
+            return -EINVAL;
     }
 }
 
+/* prctl(PR_SET_SECCOMP) entry point. */
 int64_t seccomp_prctl_set(uint64_t mode, uint64_t user_filter)
 {
     if (mode == SECCOMP_MODE_STRICT) return seccomp_install_strict();
@@ -806,12 +852,14 @@ int64_t seccomp_prctl_set(uint64_t mode, uint64_t user_filter)
     return -EINVAL;
 }
 
+/* prctl(PR_GET_SECCOMP) entry point. */
 int64_t seccomp_prctl_get(void)
 {
     task_t *task = current_task();
     return task ? __atomic_load_n(&task->seccomp_mode, __ATOMIC_ACQUIRE) : -ESRCH;
 }
 
+/* prctl(PR_SET_NO_NEW_PRIVS) entry point. */
 int64_t seccomp_set_no_new_privs(uint64_t value, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     if (value != 1 || arg3 || arg4 || arg5) return -EINVAL;
@@ -821,6 +869,7 @@ int64_t seccomp_set_no_new_privs(uint64_t value, uint64_t arg3, uint64_t arg4, u
     return EOK;
 }
 
+/* prctl(PR_GET_NO_NEW_PRIVS) entry point. */
 int64_t seccomp_get_no_new_privs(uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     if (arg2 || arg3 || arg4 || arg5) return -EINVAL;
@@ -828,6 +877,7 @@ int64_t seccomp_get_no_new_privs(uint64_t arg2, uint64_t arg3, uint64_t arg4, ui
     return task ? (__atomic_load_n(&task->no_new_privs, __ATOMIC_ACQUIRE) ? 1 : 0) : -ESRCH;
 }
 
+/* Return a reference to the offset-th filter counting from the chain head. */
 static struct seccomp_filter *seccomp_get_nth_filter(task_t *target, uint64_t offset)
 {
     if (!target || !target->process) return NULL;
@@ -843,14 +893,15 @@ static struct seccomp_filter *seccomp_get_nth_filter(task_t *target, uint64_t of
         spin_unlock(&proc->seccomp_lock);
         return NULL;
     }
-    uint64_t from_head = count - offset - 1U;
-    struct seccomp_filter *filter = target->seccomp_filter;
+    uint64_t               from_head = count - offset - 1U;
+    struct seccomp_filter *filter    = target->seccomp_filter;
     while (from_head--) filter = filter->prev;
     seccomp_filter_get(filter);
     spin_unlock(&proc->seccomp_lock);
     return filter;
 }
 
+/* PTRACE_SECCOMP_GET_FILTER: copy a filter program to user space. */
 int64_t seccomp_ptrace_get_filter(task_t *target, uint64_t filter_offset, void *user_program)
 {
     task_t    *current = current_task();
@@ -865,6 +916,7 @@ int64_t seccomp_ptrace_get_filter(task_t *target, uint64_t filter_offset, void *
     return result;
 }
 
+/* PTRACE_SECCOMP_GET_METADATA: report a filter's flags. */
 int64_t seccomp_ptrace_get_metadata(task_t *target, size_t size, void *user_metadata)
 {
     task_t    *current = current_task();
@@ -884,21 +936,23 @@ int64_t seccomp_ptrace_get_metadata(task_t *target, size_t size, void *user_meta
     return copy_to_user(user_metadata, &metadata, size) ? -EFAULT : (int64_t)size;
 }
 
+/* Snapshot the syscall registers into seccomp_data. */
 static struct seccomp_data seccomp_build_data(syscall_frame_t *frame, uint64_t syscall_nr)
 {
     struct seccomp_data data = {
         .nr                  = (int32_t)syscall_nr,
         .arch                = AUDIT_ARCH_X86_64,
         .instruction_pointer = frame->rip,
-        .args                 = {frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9},
+        .args                = {frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9},
     };
     return data;
 }
 
+/* Run the whole filter chain and return the strongest action. */
 static uint32_t seccomp_run_stack(struct seccomp_filter *head, const struct seccomp_data *data, struct seccomp_filter **winner)
 {
     uint32_t result = SECCOMP_RET_ALLOW;
-    *winner = NULL;
+    *winner         = NULL;
     for (struct seccomp_filter *filter = head; filter; filter = filter->prev) {
         uint32_t current = seccomp_bpf_run(filter->program, filter->length, data);
         if ((int32_t)(current & SECCOMP_RET_ACTION_FULL) < (int32_t)(result & SECCOMP_RET_ACTION_FULL)) {
@@ -909,31 +963,33 @@ static uint32_t seccomp_run_stack(struct seccomp_filter *head, const struct secc
     return result;
 }
 
+/* Log a seccomp decision to the kernel log. */
 static void seccomp_log_action(task_t *task, const struct seccomp_data *data, uint32_t action)
 {
-    plogk("seccomp: pid=%llu syscall=%d arch=%x ip=%llx action=%x\n", task ? (unsigned long long)task->pid : 0, data->nr, data->arch,
-          (unsigned long long)data->instruction_pointer, action);
+    plogk("seccomp: pid=%llu syscall=%d arch=%x ip=%llx action=%x\n", task ? (unsigned long long)task->pid : 0, data->nr, data->arch, (unsigned long long)data->instruction_pointer, action);
 }
 
+/* Deliver SIGSYS for a SECCOMP_RET_TRAP decision. */
 static void seccomp_send_sigsys(task_t *task, const struct seccomp_data *data, uint16_t reason)
 {
     siginfo_t info;
     memset(&info, 0, sizeof(info));
-    info.si_signo    = SIGSYS;
-    info.si_errno    = reason;
-    info.si_code     = SECCOMP_SIGSYS_CODE;
+    info.si_signo     = SIGSYS;
+    info.si_errno     = reason;
+    info.si_code      = SECCOMP_SIGSYS_CODE;
     info.si_call_addr = (void *)(uintptr_t)data->instruction_pointer;
-    info.si_syscall  = data->nr;
-    info.si_arch     = data->arch;
+    info.si_syscall   = data->nr;
+    info.si_arch      = data->arch;
     signal_send_thread(task, SIGSYS, &info);
 }
 
+/* Evaluate one syscall against the task's seccomp filters. */
 bool seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *result)
 {
     task_t *task = current_task();
     if (!task || !frame || !syscall_nr || !result) return true;
-    /* A tracer may cancel a syscall at the normal entry stop by setting a
-     * negative syscall number.  Filtering is skipped in that case. */
+
+    /* A tracer may cancel a syscall at the normal entry stop by setting a negative syscall number.  Filtering is skipped in that case. */
     if ((int64_t)*syscall_nr < 0) return true;
     uint8_t mode = __atomic_load_n(&task->seccomp_mode, __ATOMIC_ACQUIRE);
     if (mode == SECCOMP_MODE_DISABLED || ptrace_seccomp_suspended(task)) return true;
@@ -945,19 +1001,21 @@ bool seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *resu
 
     bool trace_seen = false;
     for (;;) {
-        struct seccomp_data data = seccomp_build_data(frame, *syscall_nr);
+        struct seccomp_data    data = seccomp_build_data(frame, *syscall_nr);
         struct seccomp_filter *winner;
-        struct seccomp_filter *head = __atomic_load_n(&task->seccomp_filter, __ATOMIC_ACQUIRE);
-        uint32_t decision = seccomp_run_stack(head, &data, &winner);
-        uint32_t action   = decision & SECCOMP_RET_ACTION_FULL;
-        uint16_t payload  = decision & SECCOMP_RET_DATA;
-        if (!seccomp_action_supported(action)) action = SECCOMP_RET_KILL_PROCESS;
+        struct seccomp_filter *head     = __atomic_load_n(&task->seccomp_filter, __ATOMIC_ACQUIRE);
+        uint32_t               decision = seccomp_run_stack(head, &data, &winner);
+        uint32_t               action   = decision & SECCOMP_RET_ACTION_FULL;
+        uint16_t               payload  = decision & SECCOMP_RET_DATA;
 
+        if (!seccomp_action_supported(action)) action = SECCOMP_RET_KILL_PROCESS;
         if (action == SECCOMP_RET_LOG || (winner && (winner->flags & SECCOMP_FILTER_FLAG_LOG) && action != SECCOMP_RET_ALLOW)) seccomp_log_action(task, &data, action);
 
         switch (action) {
-            case SECCOMP_RET_ALLOW : return true;
-            case SECCOMP_RET_LOG : return true;
+            case SECCOMP_RET_ALLOW :
+                return true;
+            case SECCOMP_RET_LOG :
+                return true;
             case SECCOMP_RET_ERRNO :
                 *result = -(int64_t)(payload > SECCOMP_MAX_ERRNO ? SECCOMP_MAX_ERRNO : payload);
                 return false;
@@ -965,7 +1023,8 @@ bool seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *resu
                 *result = -ENOSYS;
                 seccomp_send_sigsys(task, &data, payload);
                 return false;
-            case SECCOMP_RET_USER_NOTIF : return seccomp_notify_wait(winner ? winner->listener : NULL, &data, result);
+            case SECCOMP_RET_USER_NOTIF :
+                return seccomp_notify_wait(winner ? winner->listener : NULL, &data, result);
             case SECCOMP_RET_TRACE : {
                 if (trace_seen || !ptrace_seccomp_event(frame, payload, result)) {
                     if (trace_seen) return true;
@@ -977,19 +1036,23 @@ bool seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *resu
                 if ((int64_t)*syscall_nr < 0) return false;
                 continue;
             }
-            case SECCOMP_RET_KILL_THREAD : process_exit(-SIGSYS);
-            case SECCOMP_RET_KILL_PROCESS : process_exit_group(-SIGSYS);
-            default : process_exit_group(-SIGSYS);
+            case SECCOMP_RET_KILL_THREAD :
+                process_exit(-SIGSYS);
+            case SECCOMP_RET_KILL_PROCESS :
+                process_exit_group(-SIGSYS);
+            default :
+                process_exit_group(-SIGSYS);
         }
     }
 }
 
+/* Register the seccomp listener filesystem. */
 void seccomp_init(void)
 {
     if (seccomp_fsid >= 0) return;
     vfs_callback_t callback = calloc(1, sizeof(struct vfs_callback));
     if (!callback) {
-        plogk("seccomp: failed to allocate listener callbacks\n");
+        plogk("seccomp: failed to allocate listener callbacks.\n");
         return;
     }
     callback->file_open             = seccomp_listener_file_open;
@@ -999,7 +1062,7 @@ void seccomp_init(void)
     callback->file_poll             = seccomp_listener_file_poll;
     callback->file_poll_source      = seccomp_listener_file_poll_source;
     callback->free                  = seccomp_listener_vfs_free;
-    seccomp_fsid = vfs_regist(callback);
+    seccomp_fsid                    = vfs_regist(callback);
     free(callback);
     if (seccomp_fsid < 0)
         plogk("seccomp: listener filesystem registration failed (%d)\n", seccomp_fsid);

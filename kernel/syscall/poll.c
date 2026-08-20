@@ -251,9 +251,8 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
         }
 
         wait_queue_prepare(&context.wq);
-        if (__atomic_load_n(&context.generation, __ATOMIC_ACQUIRE) != generation || poll_signal_pending(proc) || (!timeout->infinite && sched_ticks() >= timeout->deadline_tick)) {
+        if (__atomic_load_n(&context.generation, __ATOMIC_ACQUIRE) != generation || poll_signal_pending(proc) || (!timeout->infinite && sched_ticks() >= timeout->deadline_tick))
             wait_queue_wake_all(&context.wq);
-        }
 
         if (timeout->infinite)
             wait_queue_sleep();
@@ -281,7 +280,7 @@ static int poll_sigmask_install(process_t *proc, const sigset_t *new_mask, poll_
     spin_lock(&guard->state->lock);
     guard->old_mask             = guard->task->signal_blocked;
     guard->task->signal_blocked = mask;
-    guard->active         = true;
+    guard->active               = true;
     spin_unlock(&guard->state->lock);
     return EOK;
 }
@@ -337,7 +336,7 @@ static int64_t do_poll(uint64_t user_fds, uint64_t nfds, poll_timeout_t *timeout
     }
 
     poll_sigmask_guard_t guard;
-    int mask_result = poll_sigmask_install(proc, mask, &guard);
+    int                  mask_result = poll_sigmask_install(proc, mask, &guard);
     if (mask_result != EOK) {
         free(fds);
         return mask_result;
@@ -393,7 +392,7 @@ static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uin
     }
 
     poll_sigmask_guard_t guard;
-    int mask_result = poll_sigmask_install(proc, mask, &guard);
+    int                  mask_result = poll_sigmask_install(proc, mask, &guard);
     if (mask_result != EOK) {
         free(fds);
         return mask_result;

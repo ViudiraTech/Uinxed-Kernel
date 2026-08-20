@@ -747,9 +747,8 @@ static int64_t sys_close_range(uint64_t first, uint64_t last, uint64_t flags, ui
 
     if (flags & CLOSE_RANGE_CLOEXEC) {
         spin_lock(&proc->fd_lock);
-        for (uint64_t fd = first; fd <= end; fd++) {
+        for (uint64_t fd = first; fd <= end; fd++)
             if (proc->fds[fd]) proc->fd_flags[fd] |= FD_CLOEXEC;
-        }
         spin_unlock(&proc->fd_lock);
         return EOK;
     }
@@ -1049,6 +1048,7 @@ static int64_t sys_stat(uint64_t path, uint64_t statbuf, uint64_t arg2, uint64_t
     return stat_path_to_user(path, statbuf);
 }
 
+/* newfstatat syscall: stat a path relative to dirfd */
 static int64_t sys_newfstatat(uint64_t dirfd, uint64_t path, uint64_t statbuf, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -1675,24 +1675,21 @@ static int64_t sys_access_common(int dirfd, uint64_t path, uint64_t mode, uint64
     if (!node) return ret;
 
     /* R_OK=4, W_OK=2, X_OK=1, F_OK=0 */
-    if (mode & 4) { // R_OK
+    if (mode & 4) // R_OK
         if (vfs_access_check(node, VFS_ACCESS_R)) {
             vfs_close(node);
             return -EACCES;
         }
-    }
-    if (mode & 2) { // W_OK
+    if (mode & 2) // W_OK
         if (vfs_access_check(node, VFS_ACCESS_W)) {
             vfs_close(node);
             return -EACCES;
         }
-    }
-    if (mode & 1) { // X_OK
+    if (mode & 1) // X_OK
         if (vfs_access_check(node, VFS_ACCESS_X)) {
             vfs_close(node);
             return -EACCES;
         }
-    }
     vfs_close(node);
     return EOK;
 }
@@ -2018,12 +2015,11 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
             plogk("syscall: Reboot requested.\n");
             disable_intr();
             power_reset();
-            for (uint32_t i = 0; i < 100000; i++) {
+            for (uint32_t i = 0; i < 100000; i++)
                 if (!(inb(0x64) & 0x02)) {
                     outb(0x64, 0xFE);
                     break;
                 }
-            }
             outb(0xCF9, 0x06);
             break;
         case 0x4321FEDC : // RB_POWER_OFF
@@ -2380,6 +2376,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
 
 #define AT_EXECVE_CHECK 0x10000
 
+/* execveat implementation: exec a program by dirfd+path, with exec-only checks */
 static int64_t do_execveat(uint64_t dirfd, uint64_t path, uint64_t argv, uint64_t envp, uint64_t flags, syscall_frame_t *frame)
 {
     if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_EXECVE_CHECK)) return -EINVAL;
@@ -2456,11 +2453,11 @@ static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id
     (void)arg4;
     (void)arg5;
 
-    /* MEMBARRIER_CMD_QUERY = 0, MEMBARRIER_CMD_GLOBAL = 1. */
+    /* MEMBARRIER_CMD_QUERY = 0, MEMBARRIER_CMD_GLOBAL = 1 */
     if (flags) return -EINVAL;
     switch (cmd) {
         case 0 :
-            return 1; /* MEMBARRIER_CMD_GLOBAL */
+            return 1; // MEMBARRIER_CMD_GLOBAL
         case 1 :
             /* The synchronous shootdown provides a cross-CPU rendezvous. */
             flush_tlb_all();
@@ -2470,6 +2467,7 @@ static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id
     }
 }
 
+/* copy_file_range syscall: copy a byte range between two descriptors */
 static int64_t sys_copy_file_range_stub(uint64_t fd_in, uint64_t off_in, uint64_t fd_out, uint64_t off_out, uint64_t len, uint64_t flags)
 {
     if (flags) return -EINVAL;
@@ -2836,12 +2834,11 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
 
     uint64_t flags       = args.flags;
     uint64_t exit_signal = args.exit_signal;
-    bool     is_thread        = (flags & CLONE_THREAD) != 0;
-    bool     is_vfork         = (flags & CLONE_VFORK) != 0;
+    bool     is_thread   = (flags & CLONE_THREAD) != 0;
+    bool     is_vfork    = (flags & CLONE_VFORK) != 0;
 
     if (args.pidfd || args.set_tid || args.set_tid_size || args.cgroup || (args.stack && !args.stack_size) || (!args.stack && args.stack_size)) return -EINVAL;
     if (args.stack && UINT64_MAX - args.stack < args.stack_size) return -EINVAL;
-
     if (is_thread) {
         if ((flags & CLONE_PTHREAD_REQUIRED) != CLONE_PTHREAD_REQUIRED || (flags & ~CLONE_PTHREAD_ALLOWED) || exit_signal || !args.stack || !args.stack_size) return -EINVAL;
         if (((flags & CLONE_PARENT_SETTID) && !args.parent_tid) || ((flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !args.child_tid)) return -EFAULT;
@@ -2849,8 +2846,8 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
         if (!proc) return -ESRCH;
 
         uintptr_t child_stack = (uintptr_t)(args.stack + args.stack_size);
-        int     error = EOK;
-        task_t *child = process_clone_thread(frame, child_stack, (flags & CLONE_PARENT_SETTID) ? args.parent_tid : 0, (flags & CLONE_CHILD_SETTID) ? args.child_tid : 0,
+        int       error       = EOK;
+        task_t   *child       = process_clone_thread(frame, child_stack, (flags & CLONE_PARENT_SETTID) ? args.parent_tid : 0, (flags & CLONE_CHILD_SETTID) ? args.child_tid : 0,
                                              (flags & CLONE_CHILD_CLEARTID) ? args.child_tid : 0, (flags & CLONE_SETTLS) ? args.tls : current_task()->thread.fs_base, &error);
         if (!child) return error;
         ptrace_fork_event(frame, PTRACE_EVENT_CLONE, child->pid);
@@ -4313,7 +4310,7 @@ static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t 
 #define PR_SET_KEEPCAPS     8
 #define PR_SET_NAME         15
 #define PR_GET_NAME         16
-#define PR_GET_SECCOMP 21
+#define PR_GET_SECCOMP      21
 #define PR_SET_SECCOMP      22
 #define PR_SET_TIMERSLACK   29
 #define PR_GET_TIMERSLACK   30
@@ -4369,8 +4366,10 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             }
             return 0;
         }
-        case PR_SET_SECCOMP : return seccomp_prctl_set(arg2, arg3);
-        case PR_GET_SECCOMP : return (arg2 || arg3 || arg4 || arg5) ? -EINVAL : seccomp_prctl_get();
+        case PR_SET_SECCOMP :
+            return seccomp_prctl_set(arg2, arg3);
+        case PR_GET_SECCOMP :
+            return (arg2 || arg3 || arg4 || arg5) ? -EINVAL : seccomp_prctl_get();
         case PR_SET_TIMERSLACK :
         case PR_GET_TIMERSLACK : {
             /* Return default timer slack = 50000 ns */
@@ -4380,8 +4379,10 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             }
             return 0;
         }
-        case PR_SET_NO_NEW_PRIVS : return seccomp_set_no_new_privs(arg2, arg3, arg4, arg5);
-        case PR_GET_NO_NEW_PRIVS : return seccomp_get_no_new_privs(arg2, arg3, arg4, arg5);
+        case PR_SET_NO_NEW_PRIVS :
+            return seccomp_set_no_new_privs(arg2, arg3, arg4, arg5);
+        case PR_GET_NO_NEW_PRIVS :
+            return seccomp_get_no_new_privs(arg2, arg3, arg4, arg5);
         default :
             return -EINVAL;
     }
@@ -4977,7 +4978,7 @@ int syscall_dispatch(syscall_frame_t *frame)
                 child->task->clear_child_tid = frame->r10;
             }
         }
-        if (child) { process_fork_publish(child); }
+        if (child) process_fork_publish(child);
         retval     = child ? (int64_t)child->task->pid : (int64_t)error;
         frame->rax = (uint64_t)retval;
         if (child) ptrace_fork_event(frame, event, child->task->pid);

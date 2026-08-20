@@ -31,6 +31,7 @@
 
 static int eventfd_fsid = -1;
 
+/* Check whether an interrupting signal is pending for the current process */
 static bool eventfd_signal_pending(void)
 {
     process_t *proc = process_current();

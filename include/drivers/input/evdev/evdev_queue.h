@@ -29,7 +29,7 @@ bool evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int 
 /* True if a complete packet (ending in SYN_REPORT) is available. */
 bool evdev_queue_has_packet(const evdev_queue_t *queue);
 
-/* Append one event; returns false if the buffer overflows. */
+/* Append one event; returns true when a SYN_REPORT commits the frame. */
 bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event);
 
 /* Pop up to @max_events events, stopping at a packet boundary. */

@@ -156,11 +156,12 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
         mode->vsync_end                      = dm->height + 6;
         mode->vtotal                         = dm->height + 32;
         mode->vrefresh                       = dm->vrefresh ? dm->vrefresh : 60;
+
         /* Pixel clock includes blanking totals, so userspace derives 60 Hz. */
-        mode->clock = (int)((uint64_t)mode->htotal * (uint64_t)mode->vtotal * (uint64_t)mode->vrefresh / 1000ULL);
-        mode->flags                          = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
-        mode->type                           = DRM_MODE_TYPE_DRIVER;
-        mode->status                         = MODE_OK;
+        mode->clock  = (int)((uint64_t)mode->htotal * (uint64_t)mode->vtotal * (uint64_t)mode->vrefresh / 1000ULL);
+        mode->flags  = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
+        mode->type   = DRM_MODE_TYPE_DRIVER;
+        mode->status = MODE_OK;
 
         if (i == 0) mode->type |= DRM_MODE_TYPE_PREFERRED;
 
@@ -568,12 +569,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     memset(crtc, 0, sizeof(*crtc));
     vgdev->kms_crtc = crtc;
 
-    /*
-     * Define CRTC helper functions that the DRM core will call
-     * on modeset, page_flip, enable, and disable operations.
-     * These are stored in crtc->helper_private and cast back
-     * to drm_crtc_helper_funcs by the core when needed.
-     */
+    /* CRTC helpers the core calls on modeset/page-flip/enable/disable; kept in crtc->helper_private. */
     {
         static const struct drm_crtc_helper_funcs crtc_helpers = {
             .mode_set       = virtgpu_crtc_atomic_flush,

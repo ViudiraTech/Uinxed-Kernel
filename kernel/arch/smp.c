@@ -197,6 +197,7 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
     if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) send_ipi(cpus[cpu_id].lapic_id, vector);
 }
 
+/* Send an IPI to the current CPU */
 void send_ipi_self(uint8_t vector)
 {
     uint32_t cpu_id = get_current_cpu_id();

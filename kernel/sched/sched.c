@@ -1035,8 +1035,8 @@ void sched_ipi_reschedule(void)
         process_exit(__atomic_load_n(&current->process->signal.group_exit_code, __ATOMIC_RELAXED));
 
     spin_lock(&cpu_rqs[cpu_id].lock);
-    current       = cpu_rqs[cpu_id].curr;
-    bool ready    = has_ready_task() || (current && current->state != TASK_RUNNING && current != cpu_rqs[cpu_id].idle);
+    current    = cpu_rqs[cpu_id].curr;
+    bool ready = has_ready_task() || (current && current->state != TASK_RUNNING && current != cpu_rqs[cpu_id].idle);
     spin_unlock(&cpu_rqs[cpu_id].lock);
     if (ready) sched_yield();
 }
@@ -1084,8 +1084,8 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 /* Switch to the next runnable task on the current CPU */
 static void sched_switch(bool voluntary)
 {
-    eevdf_rq_t *rq = local_rq();
-    uint64_t entry_rflags = spin_lock_irqsave(&rq->lock);
+    eevdf_rq_t *rq           = local_rq();
+    uint64_t    entry_rflags = spin_lock_irqsave(&rq->lock);
 
     task_t *prev = rq->curr;
     task_t *next;
@@ -1609,6 +1609,7 @@ void sched_tick(bool user_mode)
             curr->system_ticks++;
             rq->system_ticks++;
         }
+
         /* Advance vruntime by one tick and test the next eligible deadline. */
         curr->time_slice++;
         update_curr(rq, 1);

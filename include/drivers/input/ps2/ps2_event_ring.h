@@ -1,8 +1,7 @@
 /*
  *
  *      ps2_event_ring.h
- *      Lock-free single-producer/single-consumer ring used by each PS/2 port.
- *      The i8042 controller lock serializes producers; each ring has one worker.
+ *      Each PS/2 port has a lock-free SPSC ring and one worker.
  *
  *      2026/8/20 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -19,7 +18,7 @@
 #define PS2_EVENT_QUEUE_SIZE 1024U
 #define PS2_EVENT_BATCH_SIZE 64U
 #define PS2_EVENT_QUEUE_MASK (PS2_EVENT_QUEUE_SIZE - 1U)
-#define PS2_CACHELINE_SIZE    64U
+#define PS2_CACHELINE_SIZE   64U
 
 #if (PS2_EVENT_QUEUE_SIZE & PS2_EVENT_QUEUE_MASK) != 0
 #    error "PS2_EVENT_QUEUE_SIZE must be a power of two"
@@ -47,6 +46,7 @@ struct ps2_event_ring {
         struct ps2_queued_byte         entries[PS2_EVENT_QUEUE_SIZE];
 } __attribute__((aligned(PS2_CACHELINE_SIZE)));
 
+/* Reset the ring to an empty state. */
 static inline void ps2_event_ring_init(struct ps2_event_ring *ring)
 {
     __atomic_store_n(&ring->producer.head, 0, __ATOMIC_RELAXED);

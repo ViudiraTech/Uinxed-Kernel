@@ -27,17 +27,18 @@
 #include <process/sched.h>
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
-#include <syscall/timerfd.h>
 #include <syscall/syscall.h>
+#include <syscall/timerfd.h>
 
-static int64_t  timer_realtime_base_ns;
-static uint64_t net_timer_last_tick;
-static uint64_t timer_monotonic_floor_ns;
+static int64_t      timer_realtime_base_ns;
+static uint64_t     net_timer_last_tick;
+static uint64_t     timer_monotonic_floor_ns;
 static wait_queue_t timer_deferred_wait;
 static spinlock_t   timer_deferred_lock;
 static bool         timer_deferred_pending;
 static bool         timer_deferred_registered;
 
+/* Run the deferred timer bottom-half: TTY/timerfd flush, interval timers, vblank and network ticks. */
 static void timer_deferred_service(void)
 {
     tty_deferred_flush();
@@ -55,6 +56,7 @@ static void timer_deferred_service(void)
     }
 }
 
+/* Kernel worker that services one queued deferred-timer pass per wakeup */
 static int timer_deferred_worker(void *arg)
 {
     (void)arg;
@@ -69,13 +71,12 @@ static int timer_deferred_worker(void *arg)
         }
         timer_deferred_pending = false;
         spin_unlock(&timer_deferred_lock);
-
         timer_deferred_service();
     }
-
     return 0;
 }
 
+/* Ask the deferred-timer worker to run once */
 static void timer_queue_deferred_work(void)
 {
     bool wake = false;
@@ -90,6 +91,7 @@ static void timer_queue_deferred_work(void)
     if (wake) (void)wait_queue_wake_one_sync(&timer_deferred_wait);
 }
 
+/* Register the deferred-timer kernel worker before kernel workers start. */
 void timer_deferred_init(void)
 {
     if (timer_deferred_registered) return;
@@ -180,11 +182,13 @@ void timer_handle_frame(syscall_frame_t *frame)
     if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, (frame->cs & 3U) == 3U);
     send_eoi();
     if (cpu_id == 0 && timer_deferred_registered) timer_queue_deferred_work();
+
     /* Keep CPU-local/global maintenance ahead of the possible context switch. */
     sched_tick((frame->cs & 3U) == 3U);
     if ((frame->cs & 3U) == 3U) (void)signal_deliver_if_pending(frame);
 }
 
+/* Assembly trampoline for timer_handle: saves all GPRs so signal delivery sees a complete frame. */
 __asm__(".text\n"
         ".global timer_handle\n"
         ".type timer_handle, @function\n"
@@ -244,13 +248,13 @@ void nsleep(uint64_t ns)
     while (timer_monotonic_ns() - start_time < ns) __asm__ volatile("pause");
 }
 
-/* Millisecond-based delay functions */
+/* Microsecond-based delay function */
 void usleep(uint64_t us)
 {
     nsleep(us * 1000);
 }
 
-/* Millisecond-based delay functions */
+/* Millisecond-based delay function */
 void msleep(uint64_t ms)
 {
     nsleep(ms * 1000000);

@@ -33,12 +33,12 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <net/socket.h>
-#include <process/process.h>
 #include <process/file_status.h>
+#include <process/process.h>
 #include <process/ptrace.h>
-#include <security/seccomp.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
+#include <security/seccomp.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
@@ -1555,10 +1555,10 @@ process_t *process_create(const char *name)
         return NULL;
     }
 
-    proc->task         = task;
-    task->process      = proc;
-    proc->refcount     = 1;
-    proc->thread_count = 1;
+    proc->task                = task;
+    task->process             = proc;
+    proc->refcount            = 1;
+    proc->thread_count        = 1;
     proc->seccomp_lock.lock   = 0;
     proc->seccomp_lock.rflags = 0;
     ilist_init(&proc->threads);
@@ -1632,8 +1632,8 @@ process_t *process_create_kthread(task_t *task, const char *name)
     proc->task    = task;
     task->process = proc;
     task->flags |= PF_KTHREAD;
-    proc->refcount     = 1;
-    proc->thread_count = 1;
+    proc->refcount            = 1;
+    proc->thread_count        = 1;
     proc->seccomp_lock.lock   = 0;
     proc->seccomp_lock.rflags = 0;
     ilist_init(&proc->threads);
@@ -1690,8 +1690,8 @@ void process_wake_threads(process_t *proc, bool resume_stopped)
 {
     if (!proc) return;
 
-    size_t   position    = 0;
-    uint32_t local_cpu   = get_current_cpu_id();
+    size_t   position     = 0;
+    uint32_t local_cpu    = get_current_cpu_id();
     uint64_t running_cpus = 0;
     bool     kick_self    = false;
     bool     broadcast    = false;
@@ -1836,16 +1836,13 @@ void process_exit(int exit_code)
 
     process_t *proc = current->process;
     if (proc == init_process) panic("init: Attempt to kill init!");
-
     if (__atomic_load_n(&proc->signal.group_exit, __ATOMIC_ACQUIRE)) exit_code = __atomic_load_n(&proc->signal.group_exit_code, __ATOMIC_RELAXED);
-
     if (!(current->flags & PF_KTHREAD)) {
         ptrace_exit_event(exit_code);
         ptrace_tracer_exit((int64_t)current->pid);
     }
 
     signal_flush_task(current);
-
     spin_lock(&process_table_lock);
     bool sibling_exit = proc->thread_count > 1;
     if (sibling_exit) {
@@ -2212,10 +2209,10 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         return NULL;
     }
 
-    child->task         = child_task;
-    child_task->process = child;
-    child->refcount     = 1;
-    child->thread_count = 1;
+    child->task                = child_task;
+    child_task->process        = child;
+    child->refcount            = 1;
+    child->thread_count        = 1;
     child->seccomp_lock.lock   = 0;
     child->seccomp_lock.rflags = 0;
     ilist_init(&child->threads);
@@ -2263,14 +2260,14 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     memcpy(child->rlimits, parent->rlimits, sizeof(child->rlimits));
     spin_unlock(&parent->rlimit_lock);
     signal_state_copy(&child->signal, &parent->signal);
-    child_task->signal_blocked       = current->signal_restore_mask ? current->signal_saved_mask : current->signal_blocked;
-    child_task->signal_saved_mask    = 0;
-    child_task->signal_pending       = 0;
-    child_task->signal_restore_mask  = false;
+    child_task->signal_blocked      = current->signal_restore_mask ? current->signal_saved_mask : current->signal_blocked;
+    child_task->signal_saved_mask   = 0;
+    child_task->signal_pending      = 0;
+    child_task->signal_restore_mask = false;
     spin_lock(&parent->seccomp_lock);
     seccomp_task_inherit(child_task, current);
     spin_unlock(&parent->seccomp_lock);
-    child_task->signal_altstack      = current->signal_altstack;
+    child_task->signal_altstack = current->signal_altstack;
     process_ctty_inherit(child, parent);
     slist_init(&child->children);
     wait_queue_init(&child->child_wait);
@@ -2513,13 +2510,13 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     memcpy(kstack, &child_frame, sizeof(child_frame));
     *(--kstack) = (uint64_t)syscall_return;
 
-    child->context.rsp    = (uint64_t)kstack;
-    child->thread.fs_base = tls;
-    child->thread.gs_base = current->thread.gs_base;
-    child->signal_blocked      = current->signal_restore_mask ? current->signal_saved_mask : current->signal_blocked;
-    child->signal_saved_mask   = 0;
-    child->signal_pending      = 0;
-    child->signal_restore_mask = false;
+    child->context.rsp              = (uint64_t)kstack;
+    child->thread.fs_base           = tls;
+    child->thread.gs_base           = current->thread.gs_base;
+    child->signal_blocked           = current->signal_restore_mask ? current->signal_saved_mask : current->signal_blocked;
+    child->signal_saved_mask        = 0;
+    child->signal_pending           = 0;
+    child->signal_restore_mask      = false;
     child->signal_altstack.ss_sp    = NULL;
     child->signal_altstack.ss_size  = 0;
     child->signal_altstack.ss_flags = SS_DISABLE;

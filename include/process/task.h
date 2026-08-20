@@ -126,18 +126,20 @@ struct task {
         uint64_t           system_ticks;
         uint64_t           voluntary_switches;
         uint64_t           involuntary_switches;
+
         /* POSIX signal mask, directed pending set and alternate stack are per-thread. */
-        sigset_t           signal_blocked;
-        sigset_t           signal_saved_mask;
-        sigset_t           signal_pending;
-        bool               signal_restore_mask;
-        stack_t            signal_altstack;
-        char               name[TASK_NAME_LEN];
-        process_t         *process;
-        uint64_t           clear_child_tid;
-        ilist_node_t       thread_node;
-        cgroup_t          *cgroup;
-        ilist_node_t       cgroup_node;
+        sigset_t     signal_blocked;
+        sigset_t     signal_saved_mask;
+        sigset_t     signal_pending;
+        bool         signal_restore_mask;
+        stack_t      signal_altstack;
+        char         name[TASK_NAME_LEN];
+        process_t   *process;
+        uint64_t     clear_child_tid;
+        ilist_node_t thread_node;
+        cgroup_t    *cgroup;
+        ilist_node_t cgroup_node;
+
         /* EEVDF scheduling fields */
         uint64_t vruntime;            // virtual runtime
         uint64_t deadline;            // virtual deadline
@@ -148,20 +150,22 @@ struct task {
         uint32_t         pi_weight;   // effective weight for PI waiter ordering
         rb_node_t        pi_node;     // rbtree node for pi_waiters
         struct rt_mutex *blocked_on;  // mutex this task is blocked on, or NULL
+
         /*
          * Active copy_{to,from}_user() exception fixup.  Keeping this in the
          * task (rather than a CPU global) makes it survive preemption and
          * keeps simultaneous uaccess operations on different CPUs separate.
          */
-        uintptr_t      uaccess_fault_resume;
-        uint8_t        uaccess_fault_nofault;
+        uintptr_t uaccess_fault_resume;
+        uint8_t   uaccess_fault_nofault;
+
         /* Linux seccomp and no_new_privs are per-thread and survive exec. */
         struct seccomp_filter *seccomp_filter;
         uint8_t                seccomp_mode;
         bool                   no_new_privs;
-        ptrace_state_t ptrace;  // Linux ptrace state is per-thread
-        uint64_t       flags;   // PF_KTHREAD etc.
-        kthread_info_t kthread; // kernel-thread lifecycle (PF_KTHREAD only)
+        ptrace_state_t         ptrace;  // Linux ptrace state is per-thread
+        uint64_t               flags;   // PF_KTHREAD etc.
+        kthread_info_t         kthread; // kernel-thread lifecycle (PF_KTHREAD only)
 };
 
 /* Initialize a wait queue */

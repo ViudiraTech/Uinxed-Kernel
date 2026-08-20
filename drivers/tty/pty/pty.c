@@ -78,6 +78,7 @@ static spinlock_t  pty_lifetime_lock;
 static uint64_t    pty_ids[(CONFIG_UNIX98_PTY_MAX + 63) / 64];
 static pty_pair_t *pty_pairs[CONFIG_UNIX98_PTY_MAX];
 
+/* True when the current process has an interrupting signal pending. */
 static bool pty_signal_pending(void)
 {
     process_t *proc = process_current();
@@ -169,9 +170,7 @@ static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint6
             wait_queue_prepare(&pair->master_space_wait);
             spin_unlock(&pair->lock);
             bool interrupted = pty_signal_pending();
-            if (copied || interrupted) {
-                wait_queue_cancel(&pair->master_space_wait);
-            }
+            if (copied || interrupted) wait_queue_cancel(&pair->master_space_wait);
             if (copied) {
                 wait_queue_wake_all(&pair->master_wait);
                 vfs_poll_source_notify(&pair->master_poll_source, POLLIN);

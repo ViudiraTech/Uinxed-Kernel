@@ -262,20 +262,49 @@ struct socket {
 
 /* Socket system call interface */
 
+/* Create a socket and install it as a new file descriptor. */
 int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol);
+
+/* Bind a socket to a local address. */
 int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen);
+
+/* Mark a socket as a listener with the given backlog. */
 int64_t sys_listen(int fd, int backlog);
+
+/* Accept a pending connection and return a new file descriptor. */
 int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags);
+
+/* Connect a socket to a remote address. */
 int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen);
+
+/* Send data to a socket, optionally to an explicit destination. */
 int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_t *addr, uint32_t addrlen);
+
+/* Receive data from a socket into a user buffer. */
 int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr, uint32_t *addrlen);
+
+/* Send a scatter-gather message with optional ancillary data. */
 int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags);
+
+/* Receive a scatter-gather message with ancillary data. */
 int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags);
+
+/* Disable future sends and/or receives on a socket. */
 int64_t sys_shutdown(int fd, int how);
+
+/* Create a connected socket pair sharing one descriptor array. */
 int64_t sys_socketpair(int domain, int type, int protocol, int sv[2]);
+
+/* Return the locally bound address of a socket. */
 int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen);
+
+/* Return the address of the connected peer. */
 int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen);
+
+/* Set a socket option. */
 int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t optlen);
+
+/* Get a socket option. */
 int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen);
 
 /* Socket initialization */

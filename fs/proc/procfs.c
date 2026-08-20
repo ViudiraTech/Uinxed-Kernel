@@ -36,8 +36,8 @@
 #include <net/core/netdev.h>
 #include <net/socket.h>
 #include <process/process.h>
-#include <security/seccomp.h>
 #include <process/sched.h>
+#include <security/seccomp.h>
 
 static int procfs_id;
 
@@ -161,6 +161,7 @@ static procfs_sysctl_t procfs_sysctl_kernel[] = {
     {.name = "panic", .kind = PROC_SYS_UINT, .values = {0}, .count = 1},
     {.name = "panic_on_oops", .kind = PROC_SYS_UINT, .values = {0}, .count = 1},
     {.name = "pid_max", .kind = PROC_SYS_UINT, .values = {32768}, .count = 1},
+
     /*
      * User-namespace helpers, including bubblewrap, read these before they
      * construct an id mapping.  Linux exposes both as writable unsigned
@@ -299,8 +300,8 @@ static void gen_info_stat(procfs_file_t *pf)
             uint64_t user   = __atomic_load_n(&cpu_rqs[i].user_ticks, __ATOMIC_RELAXED);
             uint64_t system = __atomic_load_n(&cpu_rqs[i].system_ticks, __ATOMIC_RELAXED);
             uint64_t idle   = __atomic_load_n(&cpu_rqs[i].idle_ticks, __ATOMIC_RELAXED);
-            n = snprintf(p, remaining, "cpu%u %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n", i, timer_ticks_to_user_ticks(user), 0ULL, timer_ticks_to_user_ticks(system),
-                         timer_ticks_to_user_ticks(idle), 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL);
+            n               = snprintf(p, remaining, "cpu%u %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n", i, timer_ticks_to_user_ticks(user), 0ULL, timer_ticks_to_user_ticks(system),
+                                       timer_ticks_to_user_ticks(idle), 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL);
             p += n;
             remaining -= n;
         }
@@ -582,12 +583,12 @@ static void gen_info_uptime(procfs_file_t *pf)
     char *buf = malloc(128);
     if (!buf) return;
 
-    uint64_t ns       = timer_monotonic_ns();
-    uint64_t seconds  = ns / 1000000000ULL;
-    uint64_t centisec = (ns % 1000000000ULL) / 10000000ULL;
+    uint64_t ns         = timer_monotonic_ns();
+    uint64_t seconds    = ns / 1000000000ULL;
+    uint64_t centisec   = (ns % 1000000000ULL) / 10000000ULL;
     uint64_t idle_ticks = 0;
     for (uint32_t cpu = 0; cpu < sched_cpu_count(); cpu++) idle_ticks += __atomic_load_n(&cpu_rqs[cpu].idle_ticks, __ATOMIC_RELAXED);
-    uint64_t idle         = idle_ticks / TIMER_HZ;
+    uint64_t idle          = idle_ticks / TIMER_HZ;
     uint64_t idle_centisec = (idle_ticks % TIMER_HZ) * 100 / TIMER_HZ;
 
     int n = snprintf(buf, 128, "%llu.%02llu %llu.%02llu\n", seconds, centisec, idle, idle_centisec);
@@ -610,6 +611,7 @@ static void gen_info_version(procfs_file_t *pf)
     pf->capacity = 256;
 }
 
+/* Compute a fixed-point decay factor for the load-average filter. */
 static uint64_t procfs_load_power(uint64_t base, uint64_t exponent)
 {
     uint64_t result = PROCFS_LOAD_ONE;
@@ -640,9 +642,8 @@ static void procfs_load_snapshot(uint64_t active, uint64_t values[3])
         uint64_t periods = (now - procfs_load_last) / PROCFS_LOAD_PERIOD;
         procfs_load_last += periods * PROCFS_LOAD_PERIOD;
         for (size_t i = 0; i < 3; i++) {
-            uint64_t factor = procfs_load_power(decay[i], periods);
-            procfs_load_values[i]
-                = (procfs_load_values[i] * factor + active_fixed * (PROCFS_LOAD_ONE - factor) + PROCFS_LOAD_ONE / 2) >> PROCFS_LOAD_FRAC_BITS;
+            uint64_t factor       = procfs_load_power(decay[i], periods);
+            procfs_load_values[i] = (procfs_load_values[i] * factor + active_fixed * (PROCFS_LOAD_ONE - factor) + PROCFS_LOAD_ONE / 2) >> PROCFS_LOAD_FRAC_BITS;
         }
     }
     memcpy(values, procfs_load_values, sizeof(procfs_load_values));
@@ -669,10 +670,9 @@ static void gen_info_loadavg(procfs_file_t *pf)
     uint64_t loads[3];
     procfs_load_snapshot(active, loads);
     uint64_t lastpid = scheduler.next_pid ? scheduler.next_pid - 1 : 0;
-    int      n       = snprintf(buf, 128, "%llu.%02llu %llu.%02llu %llu.%02llu %llu/%llu %llu\n", loads[0] >> PROCFS_LOAD_FRAC_BITS,
-                               ((loads[0] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS, loads[1] >> PROCFS_LOAD_FRAC_BITS,
-                               ((loads[1] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS, loads[2] >> PROCFS_LOAD_FRAC_BITS,
-                               ((loads[2] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS, active, total ? total : 1, lastpid);
+    int      n = snprintf(buf, 128, "%llu.%02llu %llu.%02llu %llu.%02llu %llu/%llu %llu\n", loads[0] >> PROCFS_LOAD_FRAC_BITS, ((loads[0] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS,
+                          loads[1] >> PROCFS_LOAD_FRAC_BITS, ((loads[1] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS, loads[2] >> PROCFS_LOAD_FRAC_BITS,
+                          ((loads[2] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS, active, total ? total : 1, lastpid);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -1150,7 +1150,6 @@ static void procfs_get_memory_stats(process_t *proc, procfs_memory_stats_t *stat
         stats->virtual_pages += pages;
         if (vma->type == VM_REGION_DATA || vma->type == VM_REGION_HEAP) stats->data_bytes += vma->end - vma->start;
         if (vma->type == VM_REGION_STACK) stats->stack_bytes += vma->end - vma->start;
-
         if (vma->type == VM_REGION_CODE) stats->text_bytes += vma->end - vma->start;
 
         uint64_t resident = page_count_present_range(proc->user_page_dir, vma->start, vma->end);
@@ -1254,8 +1253,8 @@ static void gen_pid_status(procfs_file_t *pf)
                                "nonvoluntary_ctxt_switches:\t%llu\n",
                           proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid, (uint64_t)ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->fsuid,
                           proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024, memory.data_bytes / 1024,
-                          memory.stack_bytes / 1024, memory.text_bytes / 1024, stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, (unsigned)seccomp_mode, seccomp_filters, cpu_mask,
-                          cpu_list, stats.voluntary_switches, stats.involuntary_switches);
+                          memory.stack_bytes / 1024, memory.text_bytes / 1024, stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, (unsigned)seccomp_mode, seccomp_filters, cpu_mask, cpu_list,
+                          stats.voluntary_switches, stats.involuntary_switches);
     process_put(proc);
 
     pf->content  = buf;
@@ -1433,8 +1432,8 @@ static void gen_pid_statm(procfs_file_t *pf)
 
     procfs_memory_stats_t memory;
     procfs_get_memory_stats(proc, &memory);
-    int n = snprintf(buf, 256, "%llu %llu %llu %llu %llu %llu %llu\n", (unsigned long long)memory.virtual_pages, (unsigned long long)memory.resident_pages,
-                     (unsigned long long)memory.shared_pages, (unsigned long long)memory.text_pages, 0ULL, (unsigned long long)memory.data_pages, 0ULL);
+    int n = snprintf(buf, 256, "%llu %llu %llu %llu %llu %llu %llu\n", (unsigned long long)memory.virtual_pages, (unsigned long long)memory.resident_pages, (unsigned long long)memory.shared_pages,
+                     (unsigned long long)memory.text_pages, 0ULL, (unsigned long long)memory.data_pages, 0ULL);
     process_put(proc);
 
     pf->content  = buf;
@@ -1607,13 +1606,13 @@ static void gen_pid_stat(procfs_file_t *pf)
     }
 
     char     name[PROCESS_NAME_LEN];
-    uint32_t cpu_id = proc->task->cpu_id;
-    pid_t    ppid         = proc->parent && proc->parent->task ? (pid_t)proc->parent->task->tgid : 0;
-    pid_t    pgid         = proc->pgid;
-    pid_t    sid          = proc->sid;
-    int64_t  tty_nr       = 0;
-    int64_t  tpgid        = -1;
-    int64_t  exit_code    = proc->task->state == TASK_ZOMBIE ? proc->exit_code : 0;
+    uint32_t cpu_id    = proc->task->cpu_id;
+    pid_t    ppid      = proc->parent && proc->parent->task ? (pid_t)proc->parent->task->tgid : 0;
+    pid_t    pgid      = proc->pgid;
+    pid_t    sid       = proc->sid;
+    int64_t  tty_nr    = 0;
+    int64_t  tpgid     = -1;
+    int64_t  exit_code = proc->task->state == TASK_ZOMBIE ? proc->exit_code : 0;
     memcpy(name, proc->task->name, sizeof(name));
     name[sizeof(name) - 1] = '\0';
 
@@ -1671,8 +1670,8 @@ static void gen_pid_stat(procfs_file_t *pf)
                      "%llu %llu %llu %llu %llu %llu %llu %lld\n",
                      (int64_t)pf->pid, name, state_char, (int64_t)ppid, (int64_t)pgid, (int64_t)sid, tty_nr, tpgid, 0U, 0ULL, 0ULL, 0ULL, 0ULL, timer_ticks_to_user_ticks(task_stats.user_ticks),
                      timer_ticks_to_user_ticks(task_stats.system_ticks), 0LL, 0LL, 20LL, 0LL, (int64_t)thread_count, 0LL, timer_ticks_to_user_ticks(task_stats.start_tick), vsize,
-                     (int64_t)memory_stats.resident_pages, rss_limit, start_code, end_code, (uint64_t)PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, (int64_t)SIGCHLD, (int64_t)cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL,
-                     start_data, end_data, start_brk, 0ULL, 0ULL, 0ULL, 0ULL, exit_code);
+                     (int64_t)memory_stats.resident_pages, rss_limit, start_code, end_code, (uint64_t)PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, (int64_t)SIGCHLD,
+                     (int64_t)cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL, start_data, end_data, start_brk, 0ULL, 0ULL, 0ULL, 0ULL, exit_code);
     process_put(proc);
 
     pf->content  = buf;

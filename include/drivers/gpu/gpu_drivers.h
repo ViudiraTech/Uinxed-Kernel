@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_DRIVERS_GPU_DRIVERS_H_
-#define INCLUDE_DRIVERS_GPU_DRIVERS_H_
+#ifndef INCLUDE_GPU_DRIVERS_H_
+#define INCLUDE_GPU_DRIVERS_H_
 
 /*
  * Probe every registered GPU driver: real hardware drivers first, and only
@@ -21,4 +21,4 @@ int gpu_drivers_probe(void);
 /* Register every built-in GPU driver with the bus. */
 void gpu_drivers_init(void);
 
-#endif // INCLUDE_DRIVERS_GPU_DRIVERS_H_
+#endif // INCLUDE_GPU_DRIVERS_H_

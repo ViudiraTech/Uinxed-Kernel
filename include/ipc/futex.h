@@ -59,6 +59,8 @@ struct futex_waitv {
 
 /* Classic futex syscall: wait/wake/requeue on a userspace word. */
 int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout, uint32_t *uaddr2, uint32_t val3);
+
+/* futex_waitv: block until one of a vector of 32-bit futexes is woken. */
 int64_t sys_futex_waitv(uint64_t waiters, uint64_t nr_waiters, uint64_t flags, uint64_t timeout, uint64_t clockid, uint64_t reserved);
 
 /* futex2 syscalls (Linux 6.7+): syscall numbers 454 / 455 / 456 */

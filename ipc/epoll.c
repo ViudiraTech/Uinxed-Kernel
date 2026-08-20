@@ -84,7 +84,6 @@ static uint32_t epoll_map_poll_result(int poll_result, uint32_t requested)
     if (poll_result & POLLERR) revents |= EPOLLERR;
     if (poll_result & POLLHUP) revents |= EPOLLHUP;
 
-    /* Always report EPOLLERR and EPOLLHUP regardless of request */
     revents |= (revents & (EPOLLERR | EPOLLHUP));
 
     /* Mask with requested events (plus error/hup which are always reported) */
@@ -99,6 +98,7 @@ static void epoll_item_notify(vfs_poll_subscription_t *subscription, uint32_t ev
         __atomic_fetch_or(&item->pending_events, events, __ATOMIC_RELEASE);
         __atomic_add_fetch(&item->epi->event_generation, 1, __ATOMIC_RELEASE);
         wait_queue_wake_all(&item->epi->wq);
+
         /*
          * An epoll fd is itself pollable.  libinput exposes its internal
          * epoll fd to Xorg, which then watches it from Xorg's outer epoll.
@@ -232,6 +232,7 @@ static int epoll_poll_all(epoll_instance_t *epi)
             item->last_revents &= ~changed;
             uint32_t new_ready = current & ~item->last_revents;
             item->last_revents = current;
+
             /*
              * Preserve an edge that was found by an earlier scan but could
              * not be returned because maxevents was already exhausted.
@@ -714,6 +715,7 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 
     for (;;) {
         uint64_t generation = __atomic_load_n(&epi->event_generation, __ATOMIC_ACQUIRE);
+
         /* Poll all registered fds */
         int ready = epoll_poll_all(epi);
 
@@ -755,9 +757,9 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 /* Syscall: epoll_pwait */
 int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int timeout, const void *sigmask, size_t sigsetsize)
 {
-    process_t      *proc = process_current();
-    task_t         *task = current_task();
-    sigset_t        old_blocked;
+    process_t *proc = process_current();
+    task_t    *task = current_task();
+    sigset_t   old_blocked;
     if (!proc || !task || task->process != proc) return -ESRCH;
     if (sigmask && sigsetsize != sizeof(sigset_t)) return -EINVAL;
     signal_state_t *sig = &proc->signal;
@@ -770,7 +772,7 @@ int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int time
         sigdelset(&new_blocked, SIGSTOP);
 
         spin_lock(&sig->lock);
-        old_blocked         = task->signal_blocked;
+        old_blocked          = task->signal_blocked;
         task->signal_blocked = new_blocked;
         spin_unlock(&sig->lock);
     }

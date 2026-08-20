@@ -51,6 +51,7 @@ static void virtgpu_cmd_gate_lock(volatile int *busy, wait_queue_t *wait)
     }
 }
 
+/* Release the command gate and wake one waiting submitter. */
 static void virtgpu_cmd_gate_unlock(volatile int *busy, wait_queue_t *wait)
 {
     __atomic_store_n(busy, 0, __ATOMIC_RELEASE);

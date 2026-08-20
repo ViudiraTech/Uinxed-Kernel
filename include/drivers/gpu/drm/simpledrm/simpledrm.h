@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_DRIVERS_GPU_DRM_SIMPLEDRM_SIMPLEDRM_H_
-#define INCLUDE_DRIVERS_GPU_DRM_SIMPLEDRM_SIMPLEDRM_H_
+#ifndef INCLUDE_SIMPLEDRM_H_
+#define INCLUDE_SIMPLEDRM_H_
 
 /*
  * Probe the bootloader-provided GOP framebuffer and, if no other DRM device
@@ -19,4 +19,4 @@
  */
 int simpledrm_probe(void);
 
-#endif // INCLUDE_DRIVERS_GPU_DRM_SIMPLEDRM_SIMPLEDRM_H_
+#endif // INCLUDE_SIMPLEDRM_H_

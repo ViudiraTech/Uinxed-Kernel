@@ -49,10 +49,10 @@ typedef struct {
 /* Global scheduler state */
 
 typedef struct {
-        eevdf_rq_t  *rqs;         // per-CPU runqueues
-        uint32_t     nr_cpus;     // number of CPUs
-        uint64_t     next_pid;    // next PID to assign
-        uint64_t     ticks;       // global tick counter
+        eevdf_rq_t  *rqs;      // per-CPU runqueues
+        uint32_t     nr_cpus;  // number of CPUs
+        uint64_t     next_pid; // next PID to assign
+        uint64_t     ticks;    // global tick counter
         uint64_t     tasks_created;
         uint64_t     processes_created;
         int          started;     // 1 once sched_start() has run

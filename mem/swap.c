@@ -213,9 +213,7 @@ static int swap_area_io(const swap_area_t *area, uint64_t slot, void *buffer, in
 {
     if (!area || !area->active || !slot || slot > area->slots.slots) return -EINVAL;
     uint64_t offset = slot * SWAP_PAGE_SIZE;
-    if (area->backend == SWAP_BACKEND_BLOCK) {
-        return write ? blockdev_write_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE) : blockdev_read_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE);
-    }
+    if (area->backend == SWAP_BACKEND_BLOCK) return write ? blockdev_write_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE) : blockdev_read_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE);
 
     size_t actual
         = write ? callbackof(area->file, write)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE) : callbackof(area->file, read)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE);
@@ -419,10 +417,10 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
     spin_unlock(&directory->lock);
     flush_tlb_all();
 
-    swap_area_t *area   = swap_area_for_type(swap_entry_type(entry));
-    uint64_t     frame  = area ? alloc_frames_noreclaim(1) : 0;
+    swap_area_t *area  = swap_area_for_type(swap_entry_type(entry));
+    uint64_t     frame = area ? alloc_frames_noreclaim(1) : 0;
     if (area && !frame && frame_reclaim_pages(1) > 0) frame = alloc_frames_noreclaim(1);
-    int          result = (!frame || !area) ? -ENOMEM : swap_area_io(area, swap_entry_offset(entry), phys_to_virt(frame), 0);
+    int result = (!frame || !area) ? -ENOMEM : swap_area_io(area, swap_entry_offset(entry), phys_to_virt(frame), 0);
 
     spin_lock(&directory->lock);
     pte = swap_pte_lookup(directory, address);
@@ -497,6 +495,7 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address, bool fo
     __atomic_store_n(&pte->value, entry, __ATOMIC_RELEASE);
     flush_tlb(address);
     spin_unlock(&directory->lock);
+
     /* No CPU may keep writing the frame while it is copied to swap. */
     flush_tlb_all();
 
@@ -520,7 +519,7 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address, bool fo
         }
     } else {
         release_slot = true;
-        result = -EAGAIN;
+        result       = -EAGAIN;
     }
     spin_unlock(&directory->lock);
 

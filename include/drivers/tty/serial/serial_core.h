@@ -43,9 +43,10 @@ struct uart_port {
         size_t      rx_head;
         size_t      rx_tail;
         size_t      rx_count;
+
         /* Serializes UART registers, driver callbacks, and open/close state. */
-        spinlock_t  lock;
-        spinlock_t  rx_lock;
+        spinlock_t   lock;
+        spinlock_t   rx_lock;
         unsigned int open_count;
         bool         hw_started;
         bool         console_started;
@@ -71,9 +72,9 @@ int uart_add_port(uart_driver_t *drv, uart_port_t *port);
 void uart_insert_char(uart_port_t *port, uint8_t ch);
 
 /* Start/stop a port with open-count and per-port locking. */
-int uart_port_open(uart_port_t *port);
+int  uart_port_open(uart_port_t *port);
 void uart_port_close(uart_port_t *port);
-int uart_port_console_startup(uart_port_t *port);
+int  uart_port_console_startup(uart_port_t *port);
 
 /* Output path: emit data through the port's uart_ops. */
 int uart_write(uart_port_t *port, const uint8_t *data, size_t len);

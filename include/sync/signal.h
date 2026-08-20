@@ -347,7 +347,7 @@ typedef struct {
 
 typedef struct sigqueue {
         siginfo_t        info;
-        uint64_t         target_tid; /* zero for process-directed signals */
+        uint64_t         target_tid; // zero for process-directed signals
         struct sigqueue *next;
 } sigqueue_t;
 

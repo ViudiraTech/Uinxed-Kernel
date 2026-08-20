@@ -606,8 +606,8 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
         vfs_close(node);
         return -ENOSPC;
     }
-    watch->node      = node;
-    watch->mask      = mask & (IN_ALL_EVENTS | IN_EXCL_UNLINK | IN_ONESHOT);
+    watch->node = node;
+    watch->mask = mask & (IN_ALL_EVENTS | IN_EXCL_UNLINK | IN_ONESHOT);
     inotify_watch_get(node);
     watch->next      = context->watches;
     context->watches = watch;

@@ -84,9 +84,8 @@ task_t *pid_find_task(uint64_t pid)
 /* Test whether a PID is still in use (called with pid_hash_lock held). */
 static bool pid_hash_contains_locked(uint64_t pid)
 {
-    for (pid_entry_t *entry = pid_hash[pid_hash_index(pid)]; entry; entry = entry->next) {
+    for (pid_entry_t *entry = pid_hash[pid_hash_index(pid)]; entry; entry = entry->next)
         if (entry->task && entry->task->pid == pid) return true;
-    }
     return false;
 }
 
@@ -173,13 +172,13 @@ task_t *task_alloc_status(const char *name, int *error)
     task->signal_altstack.ss_sp    = NULL;
     task->signal_altstack.ss_size  = 0;
     task->signal_altstack.ss_flags = SS_DISABLE;
-    task->process           = NULL;
-    task->weight            = SCHED_NICE_0_LOAD;
-    task->base_weight       = SCHED_NICE_0_LOAD;
-    task->pi_weight         = SCHED_NICE_0_LOAD;
-    task->blocked_on        = NULL;
-    task->thread.fs_base    = 0;
-    task->thread.gs_base    = 0;
+    task->process                  = NULL;
+    task->weight                   = SCHED_NICE_0_LOAD;
+    task->base_weight              = SCHED_NICE_0_LOAD;
+    task->pi_weight                = SCHED_NICE_0_LOAD;
+    task->blocked_on               = NULL;
+    task->thread.fs_base           = 0;
+    task->thread.gs_base           = 0;
     ptrace_state_init(&task->ptrace);
     task_name_copy(task, name);
     ilist_init(&task->sched_node);

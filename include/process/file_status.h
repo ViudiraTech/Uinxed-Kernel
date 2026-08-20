@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_PROCESS_FILE_STATUS_H_
-#define INCLUDE_PROCESS_FILE_STATUS_H_
+#ifndef INCLUDE_FILE_STATUS_H_
+#define INCLUDE_FILE_STATUS_H_
 
 #include <libs/std/stdint.h>
 
@@ -19,4 +19,4 @@ static inline uint64_t process_file_status_flags_merge(uint64_t current, uint64_
     return (current & ~mask) | (requested & mask);
 }
 
-#endif // INCLUDE_PROCESS_FILE_STATUS_H_
+#endif // INCLUDE_FILE_STATUS_H_

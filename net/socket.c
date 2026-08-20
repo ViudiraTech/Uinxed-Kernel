@@ -37,8 +37,6 @@
 #define SOCK_BOUND_MAX      256
 #define SOCK_SHUT_MASK(how) ((how) == SHUT_RDWR ? ((1U << SHUT_RD) | (1U << SHUT_WR)) : (1U << (uint32_t)(how)))
 
-/* Blocked-socket tracking - maps a blocked socket to its task */
-
 /* Bound-address registry - UNIX-domain namespace */
 
 typedef struct sock_bound {
@@ -81,6 +79,7 @@ static int       socket_fd_nonblock(int fd);
 static socket_t *inet_socket_alloc(uint16_t family, uint16_t type, uint16_t protocol, uint32_t flags, void *context);
 static int       socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen, const sockaddr_t *kaddr, uint32_t kaddrlen);
 
+/* Forward inet backend readiness events to the socket's poll waiters. */
 static void socket_inet_event(void *argument, uint32_t events)
 {
     socket_t *sk = argument;
@@ -174,11 +173,10 @@ static uint32_t sock_buf_write(sock_buf_t *buf, const void *data, uint32_t len)
          * Treating the empty case as tail < head produced chunk == 0 and an
          * infinite loop on the very first socket write.
          */
-        if (pos >= buf->head) {
+        if (pos >= buf->head)
             chunk = buf->capacity - pos;
-        } else {
+        else
             chunk = buf->head - pos;
-        }
         if (chunk > space) chunk = space;
         if (chunk > len - written) chunk = len - written;
 
@@ -206,12 +204,10 @@ static uint32_t sock_buf_read(sock_buf_t *buf, void *data, uint32_t len)
         uint32_t chunk;
         uint32_t pos = buf->head;
 
-        if (pos < buf->tail) {
+        if (pos < buf->tail)
             chunk = buf->tail - pos;
-        } else {
-            /* head is at or after tail, wrap */
-            chunk = buf->capacity - pos;
-        }
+        else
+            chunk = buf->capacity - pos; // head is at or after tail, wrap
         if (chunk > len - rd) chunk = len - rd;
 
         memcpy((uint8_t *)data + rd, buf->data + pos, chunk);
@@ -240,11 +236,10 @@ static uint32_t sock_buf_peek(sock_buf_t *buf, void *data, uint32_t len)
         uint32_t chunk;
         uint32_t pos = head;
 
-        if (pos < buf->tail) {
+        if (pos < buf->tail)
             chunk = buf->tail - pos;
-        } else {
+        else
             chunk = buf->capacity - pos;
-        }
         if (chunk > len - pk) chunk = len - pk;
 
         memcpy((uint8_t *)data + pk, buf->data + pos, chunk);
@@ -307,11 +302,13 @@ static void sock_blocked_unregister(socket_t *sk)
     (void)sk;
 }
 
+/* Wake a single task blocked on this socket. */
 static void sock_blocked_wake(socket_t *sk)
 {
     if (sk) wait_queue_wake_all(&sk->waitq);
 }
 
+/* Wake all tasks blocked on this socket. */
 static void sock_blocked_wake_all(socket_t *sk)
 {
     if (sk) wait_queue_wake_all(&sk->waitq);
@@ -455,8 +452,8 @@ size_t socket_format_unix_table(char *buffer, size_t capacity)
         uint32_t state = sk->state == SOCK_STATE_CONNECTED ? 3U : 1U;
         uint64_t inode = sk->bound_node ? sk->bound_node->inode : sk->node ? sk->node->inode : 0;
         uint32_t refs  = __atomic_load_n(&sk->refcount, __ATOMIC_ACQUIRE);
-        n              = snprintf(buffer + used, capacity - used, "%016llx: %08x %08x %08x %04x %02x %llu %s\n", (unsigned long long)(uintptr_t)sk, refs, 0U, flags, sk->type, state,
-                                  (unsigned long long)inode, path);
+        n = snprintf(buffer + used, capacity - used, "%016llx: %08x %08x %08x %04x %02x %llu %s\n", (unsigned long long)(uintptr_t)sk, refs, 0U, flags, sk->type, state, (unsigned long long)inode,
+                     path);
         if (n < 0) break;
         size_t appended = (size_t)n;
         if (appended >= capacity - used) {
@@ -485,11 +482,10 @@ static int unix_addr_parse(const sockaddr_un_t *addr, uint32_t addrlen, int *is_
         return EOK;
     }
 
-    if (addr->sun_path[0] == '\0') {
+    if (addr->sun_path[0] == '\0')
         *is_abstract = 1;
-    } else {
+    else
         *is_abstract = 0;
-    }
 
     return EOK;
 }
@@ -675,6 +671,7 @@ static void socket_pair_lock(socket_t *first, socket_t *second)
     }
 }
 
+/* Release a pair previously locked with socket_pair_lock(). */
 static void socket_pair_unlock(socket_t *first, socket_t *second)
 {
     if ((uintptr_t)first < (uintptr_t)second) {
@@ -699,19 +696,19 @@ static void socket_disconnect_peer(socket_t *sk)
     if (!sk) return;
     spin_lock(&sk->lock);
     peer = sk->peer;
-    if (peer) socket_ref(peer); /* transient pin while acquiring both locks */
+    if (peer) socket_ref(peer); // transient pin while acquiring both locks
     spin_unlock(&sk->lock);
     if (!peer) return;
 
     socket_pair_lock(sk, peer);
     if (sk->peer == peer) {
-        sk->peer = NULL;
-        sk->state = SOCK_STATE_DISCONNECTING;
+        sk->peer       = NULL;
+        sk->state      = SOCK_STATE_DISCONNECTING;
         drop_peer_link = true;
     }
     if (peer->peer == sk) {
-        peer->peer  = NULL;
-        peer->state = SOCK_STATE_DISCONNECTING;
+        peer->peer   = NULL;
+        peer->state  = SOCK_STATE_DISCONNECTING;
         drop_sk_link = true;
     }
     socket_pair_unlock(sk, peer);
@@ -811,6 +808,7 @@ int socket_fd_install(socket_t *sk)
     return socket_fd_install_flags(sk, 0);
 }
 
+/* Install a socket as a file descriptor with explicit open flags. */
 int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags)
 {
     process_t *proc;
@@ -852,6 +850,7 @@ int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags)
     return fd;
 }
 
+/* Report whether the fd's open file description is O_NONBLOCK. */
 static int socket_fd_nonblock(int fd)
 {
     process_t      *proc = process_current();
@@ -1232,7 +1231,7 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
 
     /* Install the client socket, then release the accept-queue reference. */
     client->flags = (uint32_t)(flags & SOCK_NONBLOCK);
-    int fd = socket_fd_install_flags(client, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
+    int fd        = socket_fd_install_flags(client, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
     if (fd < 0) socket_disconnect_peer(client);
     socket_unref(client);
     return fd;
@@ -1347,6 +1346,7 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
     return ret;
 }
 
+/* Plain stream send without ancillary descriptors. */
 static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags)
 {
     return unix_stream_send_rights(sk, buf, len, flags, NULL, 0);
@@ -1409,11 +1409,10 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
         if (chunk > avail) chunk = avail;
 
         uint32_t rd;
-        if (peek) {
+        if (peek)
             rd = sock_buf_peek(&sk->recv_buf, (uint8_t *)buf + total_read, chunk);
-        } else {
+        else
             rd = sock_buf_read(&sk->recv_buf, (uint8_t *)buf + total_read, chunk);
-        }
         total_read += rd;
 
         if (rd < chunk) break;
@@ -1507,6 +1506,7 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
     return (int)len;
 }
 
+/* Receive one SOCK_SEQPACKET record, preserving its length header. */
 static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, int *message_flags, size_t *record_size)
 {
     const uint32_t header_size = sizeof(uint32_t);
@@ -1941,7 +1941,7 @@ static int socket_vfs_free(void *handle)
     socket_disconnect_peer(sk);
 
     /* Backend, queues and buffers live until in-flight syscalls drop pins. */
-    socket_unref(sk); /* VFS-node ownership */
+    socket_unref(sk); // VFS-node ownership
     return EOK;
 }
 
@@ -2091,7 +2091,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
             socket_free(sk);
             return fd;
         }
-        socket_unref(sk); /* creator reference; VFS node owns the endpoint */
+        socket_unref(sk); // creator reference; VFS node owns the endpoint
         return fd;
     } else if (sock_family != AF_UNIX && sock_family != AF_LOCAL)
         return -EAFNOSUPPORT;
@@ -2113,7 +2113,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
         return fd;
     }
 
-    socket_unref(sk); /* creator reference; VFS node owns the endpoint */
+    socket_unref(sk); // creator reference; VFS node owns the endpoint
     return (int64_t)fd;
 }
 
@@ -2216,12 +2216,11 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
             return ret;
         }
         fd_new = socket_fd_install_flags(accepted, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
-        socket_unref(accepted); /* drop creator on both success and failure */
+        socket_unref(accepted); // drop creator on both success and failure
         return fd_new;
     }
 
     ret = unix_accept(sk, (sockaddr_un_t *)addr, addrlen, flags);
-
     return (int64_t)ret;
 }
 
@@ -2501,6 +2500,7 @@ static void socket_release_rights(process_file_t **rights, size_t rights_count)
     for (size_t i = 0; i < rights_count; i++) process_file_put_transfer(rights[i]);
 }
 
+/* Gather SCM_RIGHTS descriptors from a user msghdr into pinned files. */
 static int socket_collect_rights(socket_t *sk, const msghdr_t *kmsg, process_file_t **rights, size_t *rights_count)
 {
     enum { CONTROL_MAX = 4096 };
@@ -2578,6 +2578,7 @@ malformed:
     return -EINVAL;
 }
 
+/* Core sendmsg dispatch with kernel-side message buffers. */
 static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const iovec_t *iov, const void *kbuf, size_t total_len, int flags, process_file_t **rights, size_t rights_count)
 {
     int ret;
@@ -2637,6 +2638,7 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
     return (int64_t)ret;
 }
 
+/* Core recvmsg dispatch with kernel-side message buffers. */
 static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec_t *iov, void *kbuf, size_t total_len, int flags)
 {
     int    ret;
@@ -3079,7 +3081,7 @@ int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
 int64_t sys_shutdown(int fd, int how)
 {
     socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
-    socket_t *peer = NULL;
+    socket_t *peer                                             = NULL;
 
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
@@ -3521,7 +3523,6 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
             ival    = sk->passcred;
             koptlen = sizeof(int);
             break;
-
         case SO_PEERCRED : {
             ucred_t cred;
             if (sk->peer) {
@@ -3568,7 +3569,7 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
 {
     socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
-    int64_t   total = 0;
+    int64_t   total                                            = 0;
 
     if (!msgvec || vlen == 0) return -EINVAL;
 
@@ -3671,7 +3672,7 @@ int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
 int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeout)
 {
     socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
-    int64_t   total = 0;
+    int64_t   total                                            = 0;
 
     (void)timeout;
 

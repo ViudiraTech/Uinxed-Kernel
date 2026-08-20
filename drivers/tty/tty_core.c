@@ -162,7 +162,7 @@ static bool tty_prepare_interruptible_wait(tty_core_t *tty, wait_queue_t *queue)
 void tty_core_auto_acquire(tty_core_t *tty, uint64_t flags)
 {
     process_t *current = process_current();
-    if (!tty || !current || !current->task || (flags & (O_NOCTTY | O_PATH)) || (flags & O_ACCMODE) == O_WRONLY || current->sid <= 0 || current->sid != (pid_t)current->task->pid) { return; }
+    if (!tty || !current || !current->task || (flags & (O_NOCTTY | O_PATH)) || (flags & O_ACCMODE) == O_WRONLY || current->sid <= 0 || current->sid != (pid_t)current->task->pid) return;
 
     tty_core_t *ctty = process_ctty_get(current);
     if (ctty) {
@@ -375,6 +375,7 @@ retry_character:;
                     tty->edit_count = 0;
                 } else {
                     if (!(flags & O_NONBLOCK)) {
+                        /* Interrupted by a signal with no progress; return -ERESTARTSYS. */
                         if (!tty_prepare_interruptible_wait(tty, &tty->input_space_wait)) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                         wait_queue_sleep();
                         if (tty_signal_pending(process_current())) return accepted ? (int64_t)accepted : -ERESTARTSYS;
@@ -412,6 +413,7 @@ retry_character:;
             if (wake) wait_queue_wake_all(&tty->read_wait);
         } else {
             if (!(flags & O_NONBLOCK)) {
+                /* Interrupted by a signal with no progress; return -ERESTARTSYS. */
                 if (!tty_prepare_interruptible_wait(tty, &tty->input_space_wait)) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                 wait_queue_sleep();
                 if (tty_signal_pending(process_current())) return accepted ? (int64_t)accepted : -ERESTARTSYS;
@@ -540,13 +542,11 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
                 spin_unlock(&tty->lock);
                 return done ? (int64_t)done : -EAGAIN;
             }
-            if (!tty_prepare_interruptible_wait(tty, &tty->write_wait)) {
-                return done ? (int64_t)done : -ERESTARTSYS;
-            }
+
+            /* Interrupted by a signal with no progress; return -ERESTARTSYS. */
+            if (!tty_prepare_interruptible_wait(tty, &tty->write_wait)) return done ? (int64_t)done : -ERESTARTSYS;
             wait_queue_sleep();
-            if (tty_signal_pending(process_current())) {
-                return done ? (int64_t)done : -ERESTARTSYS;
-            }
+            if (tty_signal_pending(process_current())) return done ? (int64_t)done : -ERESTARTSYS;
             spin_lock(&tty->lock);
         }
         if (tty->hung_up) {
@@ -877,7 +877,7 @@ void tty_core_hangup(tty_core_t *tty)
 
     tty_core_retain(tty);
     spin_lock(&tty->lock);
-    already_hung_up     = tty->hung_up;
+    already_hung_up = tty->hung_up;
     if (already_hung_up) {
         spin_unlock(&tty->lock);
         tty_core_release(tty);

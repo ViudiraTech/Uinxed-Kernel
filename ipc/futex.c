@@ -95,6 +95,7 @@ typedef struct futex_waitv_registration {
 static spinlock_t                  futex_waitv_notify_lock;
 static futex_waitv_registration_t *futex_waitv_registrations;
 
+/* Return true if the current process has an interrupting signal pending. */
 static bool futex_signal_pending(void)
 {
     process_t *proc = process_current();
@@ -405,9 +406,7 @@ int futex_wake(uint32_t *uaddr, int nr_wake, uint64_t bitset)
      */
 
     spin_unlock(&bucket->lock);
-
     woken += futex_waitv_notify((uintptr_t)uaddr, nr_wake - woken);
-
     return woken;
 }
 
@@ -475,7 +474,6 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t 
     /* Find entry for uaddr */
     for (entry1 = bucket1->head; entry1; entry1 = entry1->next)
         if (entry1->key == (uintptr_t)uaddr) break;
-
     if (!entry1) {
         if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
         spin_unlock(&bucket1->lock);
@@ -491,7 +489,6 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t 
             spin_unlock(&bucket1->lock);
             return -EFAULT;
         }
-
         if (cur_val2 != val3) {
             if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
             spin_unlock(&bucket1->lock);
@@ -519,7 +516,6 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t 
             spin_unlock(&bucket1->lock);
             return woken > 0 ? woken : -ENOMEM;
         }
-
         while (requeued < nr_requeue) {
             if (!futex_move_waiter(&entry1->wq, &entry2->wq)) break;
             requeued++;
@@ -708,7 +704,6 @@ static int futex_lock_pi(uint32_t *uaddr)
     if (!self) return -ESRCH;
 
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
-
     spin_lock(&bucket->lock);
 
     rt_mutex_t *pi_mutex = futex_get_pi_mutex(bucket, uaddr);
@@ -772,9 +767,7 @@ static int futex_lock_pi(uint32_t *uaddr)
     spin_unlock(&bucket->lock);
 
     task_block();
-
     if (pi_mutex->owner_died) return -EOWNERDEAD;
-
     return EOK;
 }
 
@@ -789,13 +782,11 @@ static int futex_unlock_pi(uint32_t *uaddr)
     if (!self) return -ESRCH;
 
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
-
     spin_lock(&bucket->lock);
-
     futex_entry_t *entry;
+
     for (entry = bucket->head; entry; entry = entry->next)
         if (entry->key == (uintptr_t)uaddr) break;
-
     if (!entry || !entry->pi_mutex) {
         spin_unlock(&bucket->lock);
         return -EPERM;
@@ -808,27 +799,24 @@ static int futex_unlock_pi(uint32_t *uaddr)
         return -EPERM;
     }
 
-    pi_mutex->owner = NULL;
-
+    pi_mutex->owner     = NULL;
     rb_node_t *leftmost = rb_first(&pi_mutex->pi_waiters);
+
     if (leftmost) {
         task_t *next_owner = rb_entry(leftmost, task_t, pi_node);
         rb_erase_augmented(&pi_mutex->pi_waiters, leftmost, pi_waiter_augment, NULL);
         next_owner->blocked_on = NULL;
-
-        pi_mutex->owner = next_owner;
+        pi_mutex->owner        = next_owner;
 
         uint32_t new_val = (next_owner->pid & FUTEX_TID_MASK);
         if (!ilist_is_empty(&pi_mutex->wq.tasks)) new_val |= FUTEX_WAITERS;
         copy_to_user(uaddr, &new_val, sizeof(new_val));
-
         task_wakeup(next_owner);
     } else {
         uint32_t zero = 0;
         copy_to_user(uaddr, &zero, sizeof(zero));
         futex_try_cleanup(bucket, entry);
     }
-
     pi_propagate_chain(self);
     spin_unlock(&bucket->lock);
 
@@ -842,7 +830,6 @@ static int futex_trylock_pi(uint32_t *uaddr)
     if (!self) return -ESRCH;
 
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
-
     spin_lock(&bucket->lock);
 
     uint32_t cur_val;
@@ -850,7 +837,6 @@ static int futex_trylock_pi(uint32_t *uaddr)
         spin_unlock(&bucket->lock);
         return -EFAULT;
     }
-
     if ((cur_val & FUTEX_TID_MASK) != 0) {
         spin_unlock(&bucket->lock);
         return -EAGAIN;
@@ -898,7 +884,6 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
     } else {
         spin_lock(&bucket1->lock);
     }
-
     for (entry1 = bucket1->head; entry1; entry1 = entry1->next)
         if (entry1->key == (uintptr_t)uaddr) break;
 
@@ -915,7 +900,6 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
         spin_unlock(&bucket1->lock);
         return -EFAULT;
     }
-
     if (cur_val2 != cmpval) {
         if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
         spin_unlock(&bucket1->lock);
@@ -939,7 +923,6 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
             spin_unlock(&bucket1->lock);
             return woken > 0 ? woken : -ENOMEM;
         }
-
         if (!entry2->pi_mutex) {
             entry2->pi_mutex = malloc(sizeof(rt_mutex_t));
             if (!entry2->pi_mutex) {
@@ -994,50 +977,35 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
             /* Validate user address */
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
-
             return futex_wait(uaddr, val, timeout, FUTEX_BITSET_MATCH_ANY, 0, 0);
         }
-
         case FUTEX_WAIT_BITSET : {
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
-
             return futex_wait(uaddr, val, timeout, (uint64_t)val3, 1, (flags & FUTEX_CLOCK_REALTIME) != 0);
         }
-
         case FUTEX_WAKE : {
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
-
             return futex_wake(uaddr, (int)val, FUTEX_BITSET_MATCH_ANY);
         }
-
         case FUTEX_WAKE_BITSET : {
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
-
             return futex_wake(uaddr, (int)val, (uint64_t)val3);
         }
-
         case FUTEX_REQUEUE : {
             if (!uaddr || !uaddr2) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
             if (user_access_ok(uaddr2, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
             /*
-             * val   = nr_wake
-             * val3  = nr_requeue  (in Linux, val3 is actually the
-             *                      uaddr2 comparison value, but for
-             *                      plain REQUEUE, nr_requeue is in
-             *                      the upper bits of val.  Here we
-             *                      use val3 to carry nr_requeue.)
-             *
-             * Linux convention: val = nr_wake, utime = nr_requeue.
-             * In our syscall signature, timeout carries nr_requeue.
+             * val     = nr_wake
+             * timeout = nr_requeue  (Linux passes nr_requeue via utime)
+             * val3    = unused for plain REQUEUE
              */
             return futex_requeue(uaddr, (int)val, (int)timeout, uaddr2, val3, 0);
         }
-
         case FUTEX_CMP_REQUEUE : {
             if (!uaddr || !uaddr2) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
@@ -1050,7 +1018,6 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
              */
             return futex_requeue(uaddr, (int)val, (int)timeout, uaddr2, val3, 1);
         }
-
         case FUTEX_WAKE_OP : {
             if (!uaddr || !uaddr2) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
@@ -1065,48 +1032,36 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
         }
         case FUTEX_FD :
             return -ENOSYS; // FD-based futexes are not supported
-
         case FUTEX_LOCK_PI : {
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 1) == 0) return -EFAULT;
-
             return futex_lock_pi(uaddr);
         }
-
         case FUTEX_UNLOCK_PI : {
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 1) == 0) return -EFAULT;
-
             return futex_unlock_pi(uaddr);
         }
-
         case FUTEX_TRYLOCK_PI : {
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 1) == 0) return -EFAULT;
-
             return futex_trylock_pi(uaddr);
         }
-
         case FUTEX_CMP_REQUEUE_PI : {
             if (!uaddr || !uaddr2) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
             if (user_access_ok(uaddr2, sizeof(uint32_t), 1) == 0) return -EFAULT;
-
             return futex_cmp_requeue_pi(uaddr, (int)val, (int)timeout, uaddr2, val3);
         }
-
         case FUTEX_WAIT_REQUEUE_PI : {
             if (!uaddr || !uaddr2) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
             if (user_access_ok(uaddr2, sizeof(uint32_t), 1) == 0) return -EFAULT;
-
             return futex_cmp_requeue_pi(uaddr, 0, (int)val, uaddr2, val3);
         }
-
         case FUTEX_LOCK_PI2 : {
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 1) == 0) return -EFAULT;
-
             return futex_lock_pi(uaddr);
         }
         default :
@@ -1283,6 +1238,7 @@ static int futex2_wake_core(uintptr_t key, uintptr_t user_address, int nr_wake, 
             woken++;
         }
     }
+
     /* Cleanup is deferred to the final waiter, like classic futex_wake. */
     spin_unlock(&bucket->lock);
     woken += futex_waitv_notify(user_address, nr_wake - woken);
@@ -1314,14 +1270,14 @@ int64_t sys_futex_waitv(uint64_t waiters_ptr, uint64_t nr_waiters, uint64_t flag
     if (!nr_waiters || nr_waiters > FUTEX_WAITV_MAX || flags) return -EINVAL;
     if (clockid != 0 && clockid != 1) return -EINVAL;
 
-    size_t bytes = (size_t)nr_waiters * sizeof(struct futex_waitv);
+    size_t              bytes   = (size_t)nr_waiters * sizeof(struct futex_waitv);
     struct futex_waitv *waiters = malloc(bytes);
+
     if (!waiters) return -ENOMEM;
     if (copy_from_user(waiters, (const void *)(uintptr_t)waiters_ptr, bytes)) {
         free(waiters);
         return -EFAULT;
     }
-
     for (uint32_t i = 0; i < (uint32_t)nr_waiters; i++) {
         if (waiters[i].__reserved || (waiters[i].flags & ~(FUTEX2_SIZE_MASK | FUTEX_PRIVATE_FLAG)) || (waiters[i].flags & FUTEX2_SIZE_MASK) != FUTEX2_SIZE_U32 || waiters[i].val > UINT32_MAX) {
             free(waiters);
@@ -1351,7 +1307,6 @@ int64_t sys_futex_waitv(uint64_t waiters_ptr, uint64_t nr_waiters, uint64_t flag
         }
         deadline = futex_deadline(deadline, 1, clockid == 0);
     }
-
     for (;;) {
         futex_waitv_registration_t registration = {
             .owner       = process_current(),
@@ -1382,8 +1337,8 @@ int64_t sys_futex_waitv(uint64_t waiters_ptr, uint64_t nr_waiters, uint64_t flag
             }
         }
         if (!error && changed < 0) {
-            registration.next       = futex_waitv_registrations;
-            registration.registered = true;
+            registration.next         = futex_waitv_registrations;
+            registration.registered   = true;
             futex_waitv_registrations = &registration;
             wait_queue_prepare(&registration.wq);
         }
@@ -1397,14 +1352,12 @@ int64_t sys_futex_waitv(uint64_t waiters_ptr, uint64_t nr_waiters, uint64_t flag
             free(waiters);
             return changed;
         }
-
         if (futex_signal_pending()) {
             int index = futex_waitv_unregister(&registration);
             wait_queue_cancel(&registration.wq);
             free(waiters);
             return index >= 0 ? index : -ERESTARTSYS;
         }
-
         if (timeout) {
             if (sched_ticks() >= deadline) {
                 int index = futex_waitv_unregister(&registration);
@@ -1471,7 +1424,6 @@ static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1, uint64_t
     } else {
         spin_lock(&bucket1->lock);
     }
-
     if (futex2_read_word(uaddr, size_code1, &cur_val) != 0) {
         if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
         spin_unlock(&bucket1->lock);
@@ -1497,7 +1449,6 @@ static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1, uint64_t
     if (nr_requeue > 0) {
         for (entry = bucket1->head; entry && requeued < nr_requeue; entry = entry->next) {
             if (entry->key != key1) continue;
-
             while (requeued < nr_requeue) {
                 futex_entry_t *dst = futex_find_waiter(bucket2, (uint32_t *)(uintptr_t)key2, entry->bitset);
                 if (!dst) {

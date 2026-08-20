@@ -481,6 +481,7 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
             spin_lock(&ring->lock);
             continue;
         }
+
         /* prepare wait under lock, then block, re-acquire on wakeup */
         ring->read_waiters++;
         wait_queue_prepare(&ring->read_wq);
@@ -500,7 +501,6 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
 
     spin_unlock(&ring->lock);
 
-    /* Wake writers that may be waiting for buffer space */
     /*
      * Linux uses an exclusive writer wait: freeing one pipe-buffer slot
      * wakes one writer, which may cascade to the next writer if space
@@ -512,6 +512,7 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
     return (int64_t)chunk;
 }
 
+/* VFS read callback using a kernel-supplied buffer. */
 static size_t pipe_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -519,6 +520,7 @@ static size_t pipe_vfs_read(void *file, void *addr, size_t offset, size_t size)
     return result < 0 ? (size_t)-1 : (size_t)result;
 }
 
+/* Read from a pipe endpoint into a kernel buffer. */
 static int64_t pipe_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -527,6 +529,7 @@ static int64_t pipe_file_read(vfs_node_t node, void *private_data, uint64_t flag
     return pipe_read_common(node, endpoint->ring, flags, addr, size);
 }
 
+/* Read from a pipe endpoint, copying data to user space. */
 static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
 {
     (void)offset;
@@ -671,6 +674,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
     return (int64_t)total_written;
 }
 
+/* VFS write callback using a kernel-supplied buffer. */
 static size_t pipe_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -678,6 +682,7 @@ static size_t pipe_vfs_write(void *file, const void *addr, size_t offset, size_t
     return result < 0 ? (size_t)-1 : (size_t)result;
 }
 
+/* Write to a pipe endpoint from a kernel buffer. */
 static int64_t pipe_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -686,6 +691,7 @@ static int64_t pipe_file_write(vfs_node_t node, void *private_data, uint64_t fla
     return pipe_write_common(node, endpoint->ring, flags, addr, size);
 }
 
+/* Write to a pipe endpoint, copying data from user space. */
 static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
 {
     (void)offset;
@@ -784,6 +790,7 @@ static int pipe_vfs_poll(void *file, size_t events)
     return (revents & (int)events) | (revents & (POLLERR | POLLHUP));
 }
 
+/* Poll a pipe endpoint for readability and writability. */
 static int pipe_file_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
 {
     (void)node;
@@ -927,11 +934,13 @@ static vfs_node_t pipe_node_create(pipe_ring_t *ring)
 /* Forward declaration */
 int64_t sys_pipe2(int pipefd[2], int flags);
 
+/* Syscall: pipe - create an anonymous pipe. */
 int64_t sys_pipe(int pipefd[2])
 {
     return sys_pipe2(pipefd, 0);
 }
 
+/* Syscall: pipe2 - create an anonymous pipe with flags. */
 int64_t sys_pipe2(int pipefd[2], int flags)
 {
     process_t *proc = process_current();

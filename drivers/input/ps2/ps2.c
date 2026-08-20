@@ -31,13 +31,13 @@ static bool ps2_port2_ok;
 
 struct ps2_event_queue {
         struct ps2_event_ring ring;
-        wait_queue_t         wait;
-        spinlock_t           sleep_lock;
-        volatile bool        sleeping;
-        volatile uint64_t    dropped;
-        bool                 resync_pending;
-        bool                 second_port;
-        bool                 worker_registered;
+        wait_queue_t          wait;
+        spinlock_t            sleep_lock;
+        volatile bool         sleeping;
+        volatile uint64_t     dropped;
+        bool                  resync_pending;
+        bool                  second_port;
+        bool                  worker_registered;
 };
 
 static struct ps2_event_queue ps2_event_queues[PS2_PORT_COUNT];
@@ -51,8 +51,10 @@ static unsigned int ps2_queue_input_locked(uint8_t status, uint8_t data)
     unsigned int            port  = (status & PS2_STATUS_AUX_DATA) ? PS2_PORT_MOUSE : PS2_PORT_KEYBOARD;
     struct ps2_event_queue *queue = &ps2_event_queues[port];
 
-    /* Mark the first byte after overflow as unusable so the decoder resets at
-     * the exact stream gap instead of interpreting a stale prefix/packet. */
+    /*
+     * Mark the first byte after overflow as unusable so the decoder resets at
+     * the exact stream gap instead of interpreting a stale prefix/packet.
+     */
     if (queue->resync_pending) status |= PS2_STATUS_TIMEOUT;
     if (!ps2_event_ring_push(&queue->ring, (struct ps2_queued_byte) {.status = status, .data = data})) {
         __atomic_add_fetch(&queue->dropped, 1, __ATOMIC_RELAXED);
@@ -66,6 +68,7 @@ static unsigned int ps2_queue_input_locked(uint8_t status, uint8_t data)
     return 1U << port;
 }
 
+/* Wake the port worker that is sleeping in the wait queue. */
 static void ps2_wake_input_queue(struct ps2_event_queue *queue)
 {
     /* Pairs with the worker's arm/recheck/prepare sequence. */
@@ -74,12 +77,14 @@ static void ps2_wake_input_queue(struct ps2_event_queue *queue)
     spin_unlock(&queue->sleep_lock);
 }
 
+/* Wake the workers of the ports flagged in wake_mask. */
 static void ps2_wake_inputs(unsigned int wake_mask)
 {
     if (wake_mask & PS2_WAKE_KEYBOARD) ps2_wake_input_queue(&ps2_event_queues[PS2_PORT_KEYBOARD]);
     if (wake_mask & PS2_WAKE_MOUSE) ps2_wake_input_queue(&ps2_event_queues[PS2_PORT_MOUSE]);
 }
 
+/* Drain this port's event ring and feed bytes to its decoder. */
 static int ps2_input_worker(void *arg)
 {
     struct ps2_event_queue *queue = arg;
@@ -89,8 +94,10 @@ static int ps2_input_worker(void *arg)
         size_t count = ps2_event_ring_pop_batch(&queue->ring, events, PS2_EVENT_BATCH_SIZE);
 
         if (!count) {
-            /* Arm first, then recheck under sleep_lock: a producer can neither
-             * miss this sleeper nor wake it before prepare has published it. */
+            /*
+             * Arm first, then recheck under sleep_lock: a producer can neither
+             * miss this sleeper nor wake it before prepare has published it.
+             */
             spin_lock(&queue->sleep_lock);
             __atomic_store_n(&queue->sleeping, true, __ATOMIC_RELEASE);
             if (!ps2_event_ring_empty(&queue->ring) || kthread_should_stop()) {
@@ -119,7 +126,6 @@ static int ps2_input_worker(void *arg)
                 ps2_keyboard_handle_byte(events[i].data);
         }
     }
-
     return 0;
 }
 
@@ -271,7 +277,7 @@ INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
         uint8_t data;
 
         if (!(status & PS2_STATUS_OUTPUT_FULL)) break;
-        data       = inb(PS2_DATA_PORT);
+        data = inb(PS2_DATA_PORT);
         wake_mask |= ps2_queue_input_locked(status, data);
     }
     spin_unlock(&ps2_controller_lock);
@@ -281,9 +287,10 @@ INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Register per-port workers now that kernel workers are available. */
 void ps2_start_worker(void)
 {
-    static const char *names[PS2_PORT_COUNT] = {"ps2-keyboard", "ps2-mouse"};
+    static const char *names[PS2_PORT_COUNT]     = {"ps2-keyboard", "ps2-mouse"};
     bool               available[PS2_PORT_COUNT] = {ps2_port1_ok, ps2_port2_ok};
 
     for (size_t port = 0; port < PS2_PORT_COUNT; port++) {

@@ -490,9 +490,8 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, task_t *ta
     sigset_t *pending = target ? &target->signal_pending : &state->pending;
 
     /* Standard signals coalesce independently for the process and each thread. */
-    if (!sig_is_rt(sig)) {
+    if (!sig_is_rt(sig))
         if (sigismember(pending, sig)) return 0;
-    }
 
     /* Real-time signals: queue up to SIGQUEUE_MAX */
     if (sig_is_rt(sig) && state->sigqueue_count >= SIGQUEUE_MAX) {
@@ -615,10 +614,9 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
     task_t    *task = current_task();
     if (!proc || !task || !frame) return -ESRCH;
 
-    uintptr_t alt_base = (uintptr_t)task->signal_altstack.ss_sp;
-    uintptr_t alt_top  = 0;
-    bool alt_valid
-        = !(task->signal_altstack.ss_flags & SS_DISABLE) && task->signal_altstack.ss_size && alt_base <= UINT64_MAX - task->signal_altstack.ss_size;
+    uintptr_t alt_base  = (uintptr_t)task->signal_altstack.ss_sp;
+    uintptr_t alt_top   = 0;
+    bool      alt_valid = !(task->signal_altstack.ss_flags & SS_DISABLE) && task->signal_altstack.ss_size && alt_base <= UINT64_MAX - task->signal_altstack.ss_size;
     if (alt_valid) alt_top = alt_base + task->signal_altstack.ss_size;
 
     /*
@@ -628,10 +626,10 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
      * the main-stack lower bound here rejected every signal delivered to a
      * worker thread.  Alternate stacks retain their explicit overflow check.
      */
-    bool on_altstack = alt_valid && frame->rsp > alt_base && frame->rsp <= alt_top;
-    bool use_altstack = (sa->sa_flags & SA_ONSTACK) && alt_valid && !on_altstack;
-    uintptr_t sp = use_altstack ? alt_top : frame->rsp;
-    on_altstack  = on_altstack || use_altstack;
+    bool      on_altstack  = alt_valid && frame->rsp > alt_base && frame->rsp <= alt_top;
+    bool      use_altstack = (sa->sa_flags & SA_ONSTACK) && alt_valid && !on_altstack;
+    uintptr_t sp           = use_altstack ? alt_top : frame->rsp;
+    on_altstack            = on_altstack || use_altstack;
 
     if (!sp || sp >= PROCESS_USER_STACK_TOP || sp < 128) return -EFAULT;
 
@@ -1628,7 +1626,6 @@ int64_t sys_sigaltstack(const stack_t *ss, stack_t *oss)
     if (!proc || !task) return -ESRCH;
 
     signal_state_t *state = &proc->signal;
-
     spin_lock(&state->lock);
 
     if (oss) {
