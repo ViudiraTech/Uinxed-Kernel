@@ -29,6 +29,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <process/sched.h>
+#include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 
@@ -76,17 +77,74 @@ int smp_handle_nmi(void)
     return 1;
 }
 
-/* Rescheduling Requests */
-INTERRUPT_BEGIN static void ipi_reschedule_handler(interrupt_frame_t *frame)
+void ipi_reschedule_handle_frame(syscall_frame_t *frame) __attribute__((used, noinline));
+
+/* Reschedule and deliver signals with the complete interrupted register set. */
+void ipi_reschedule_handle_frame(syscall_frame_t *frame)
 {
-    irq_enter_gs(frame);
     disable_intr();
     send_eoi();
     sched_ipi_reschedule();
-    enable_intr();
-    irq_leave_gs(frame);
+    if ((frame->cs & 3U) == 3U) (void)signal_deliver_if_pending(frame);
 }
-INTERRUPT_END
+
+/*
+ * Compiler-generated interrupt prologues save only registers selected by the
+ * optimizer.  Signals need every GPR for sigreturn, so use one fixed frame.
+ */
+__asm__(".text\n"
+        ".global ipi_reschedule_entry\n"
+        ".type ipi_reschedule_entry, @function\n"
+        "ipi_reschedule_entry:\n"
+        "cld\n"
+        "testb $3, 8(%rsp)\n"
+        "jz 1f\n"
+        "swapgs\n"
+        "1:\n"
+        "pushq %rax\n"
+        "pushq %rbx\n"
+        "pushq %rcx\n"
+        "pushq %rdx\n"
+        "pushq %rbp\n"
+        "pushq %rsi\n"
+        "pushq %rdi\n"
+        "pushq %r8\n"
+        "pushq %r9\n"
+        "pushq %r10\n"
+        "pushq %r11\n"
+        "pushq %r12\n"
+        "pushq %r13\n"
+        "pushq %r14\n"
+        "pushq %r15\n"
+        "movq %rsp, %r12\n"
+        "movq %r12, %rdi\n"
+        "andq $-16, %rsp\n"
+        "call ipi_reschedule_handle_frame\n"
+        "movq %r12, %rsp\n"
+        "popq %r15\n"
+        "popq %r14\n"
+        "popq %r13\n"
+        "popq %r12\n"
+        "popq %r11\n"
+        "popq %r10\n"
+        "popq %r9\n"
+        "popq %r8\n"
+        "popq %rdi\n"
+        "popq %rsi\n"
+        "popq %rbp\n"
+        "popq %rdx\n"
+        "popq %rcx\n"
+        "popq %rbx\n"
+        "popq %rax\n"
+        "testb $3, 8(%rsp)\n"
+        "jz 2f\n"
+        "cli\n"
+        "swapgs\n"
+        "2:\n"
+        "iretq\n"
+        ".size ipi_reschedule_entry, .-ipi_reschedule_entry\n");
+
+void ipi_reschedule_entry(void);
 
 /* Downtime Request */
 INTERRUPT_BEGIN static void ipi_halt_handler(interrupt_frame_t *frame)
@@ -137,6 +195,13 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 {
     vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
     if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) send_ipi(cpus[cpu_id].lapic_id, vector);
+}
+
+void send_ipi_self(uint8_t vector)
+{
+    uint32_t cpu_id = get_current_cpu_id();
+    vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
+    if (cpu_id < cpu_count) send_ipi(cpus[cpu_id].lapic_id, vector);
 }
 
 /* Flush TLBs of all CPUs */
@@ -361,7 +426,7 @@ void smp_init(void)
     }
 
     /* Register IPI handler */
-    register_interrupt_handler(IPI_RESCHEDULE, (void *)ipi_reschedule_handler, 0, 0x8e);
+    register_interrupt_handler(IPI_RESCHEDULE, (void *)ipi_reschedule_entry, 0, 0x8e);
     register_interrupt_handler(IPI_HALT, (void *)ipi_halt_handler, 0, 0x8e);
     register_interrupt_handler(IPI_TLB_SHOOTDOWN, (void *)ipi_tlb_shootdown_handler, 0, 0x8e);
     register_interrupt_handler(IPI_PANIC, (void *)ipi_panic_handler, 0, 0x8e);

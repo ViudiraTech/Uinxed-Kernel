@@ -347,6 +347,7 @@ typedef struct {
 
 typedef struct sigqueue {
         siginfo_t        info;
+        uint64_t         target_tid; /* zero for process-directed signals */
         struct sigqueue *next;
 } sigqueue_t;
 
@@ -362,21 +363,15 @@ typedef struct syscall_frame syscall_frame_t;
 typedef struct signal_state {
         sigaction_t sighand[SIG_ACTION_NUM];
         sigset_t    pending;
-        sigset_t    blocked;
-        /*
-         * pselect6/ppoll keep their temporary mask installed until the
-         * return-to-userspace signal pass.  A handler frame must restore
-         * the mask that was active before the wait, not the temporary one.
-         */
-        sigset_t    saved_mask;
-        bool        restore_mask;
         sigqueue_t *sigqueue_head;
         sigqueue_t *sigqueue_tail;
         int         sigqueue_count;
         spinlock_t  lock;
 
-        /* Alternate signal stack */
-        stack_t altstack;
+        /* Shared fatal-exit decision for the complete thread group. */
+        bool group_exit;
+        int  group_exit_code;
+        bool group_stopped;
 
         /* Pending child exit for SIGCHLD */
         int     child_exit_code;
@@ -417,6 +412,9 @@ void signal_ignore_all(signal_state_t *state);
 
 /* Free signal state resources */
 void signal_state_free(signal_state_t *state);
+
+/* Remove thread-directed pending signals when a thread exits. */
+void signal_flush_task(task_t *task);
 
 /* Send a signal to a process */
 int signal_send(process_t *proc, int sig, const siginfo_t *info);

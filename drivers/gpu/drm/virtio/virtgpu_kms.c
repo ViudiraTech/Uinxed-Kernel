@@ -26,13 +26,13 @@ static struct virtio_gpu_device *vgdev_flush_ctx;
 static struct virtio_gpu_object *vgdev_flush_obj;
 static volatile uint64_t         vgdev_flush_active;
 
-/* Panic-time flush guard: skip if the current CPU already holds ctrlq_cmd_lock. */
+/* Panic-time flush guard: skip while an ordinary control submission is active. */
 static bool virtgpu_display_flush_guard(void)
 {
     struct virtio_gpu_device *vgdev = vgdev_flush_ctx;
 
     if (!vgdev) return true;
-    return vgdev->ctrlq_cmd_lock.lock == 0;
+    return __atomic_load_n(&vgdev->ctrlq_cmd_busy, __ATOMIC_ACQUIRE) == 0;
 }
 
 /* Report connection status: a VM GPU is present whenever scanouts exist. */
@@ -147,7 +147,6 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
 
         (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", dm->width, dm->height);
         mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
-        mode->clock                          = dm->width * dm->height * (dm->vrefresh ? dm->vrefresh : 60) / 1000;
         mode->hdisplay                       = dm->width;
         mode->hsync_start                    = dm->width + 80;
         mode->hsync_end                      = dm->width + 160;
@@ -157,6 +156,8 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
         mode->vsync_end                      = dm->height + 6;
         mode->vtotal                         = dm->height + 32;
         mode->vrefresh                       = dm->vrefresh ? dm->vrefresh : 60;
+        /* Pixel clock includes blanking totals, so userspace derives 60 Hz. */
+        mode->clock = (int)((uint64_t)mode->htotal * (uint64_t)mode->vtotal * (uint64_t)mode->vrefresh / 1000ULL);
         mode->flags                          = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
         mode->type                           = DRM_MODE_TYPE_DRIVER;
         mode->status                         = MODE_OK;
@@ -435,13 +436,13 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
 
     if (crtc) {
         crtc->enabled = true;
-        drm_crtc_vblank_on(crtc);
         memcpy(&crtc->mode, mode, sizeof(*mode));
         if (crtc->state) {
             crtc->state->active = true;
             crtc->state->enable = true;
             memcpy(&crtc->state->mode, mode, sizeof(*mode));
         }
+        drm_crtc_vblank_on(crtc);
     }
 
     if (primary) {

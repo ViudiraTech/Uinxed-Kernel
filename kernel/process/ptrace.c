@@ -21,9 +21,9 @@
 #include <process/sched.h>
 #include <process/task.h>
 #include <process/uaccess.h>
+#include <security/seccomp.h>
 #include <syscall/syscall.h>
 
-#define AUDIT_ARCH_X86_64   0xc000003eU
 #define PTRACE_WAIT_WNOHANG 0x00000001
 
 typedef struct ptrace_user_area {
@@ -451,7 +451,7 @@ static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t 
         plogk("ptrace: Attach invalid args (target=%p, options=%x)\n", (void *)target, (unsigned)options);
         return -EINVAL;
     }
-    if ((options & PTRACE_O_SUSPEND_SECCOMP) && current->uid != 0) {
+    if ((options & PTRACE_O_SUSPEND_SECCOMP) && (current->uid != 0 || self->seccomp_mode != SECCOMP_MODE_DISABLED)) {
         plogk("ptrace: Attach with SUSPEND_SECCOMP requires root (target=%d)\n", (int)target->pid);
         return -EPERM;
     }
@@ -759,7 +759,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         case PTRACE_SETOPTIONS :
             if (data & ~PTRACE_O_MASK) {
                 ret = -EINVAL;
-            } else if ((data & PTRACE_O_SUSPEND_SECCOMP) && current->uid != 0) {
+            } else if ((data & PTRACE_O_SUSPEND_SECCOMP) && (current->uid != 0 || self->seccomp_mode != SECCOMP_MODE_DISABLED)) {
                 ret = -EPERM;
             } else {
                 spin_lock(&state->lock);
@@ -781,7 +781,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
                 ret = -EINVAL;
             } else {
                 spin_lock(&owner->signal.lock);
-                sigset_t mask = owner->signal.blocked;
+                sigset_t mask = target->signal_blocked;
                 spin_unlock(&owner->signal.lock);
                 ret = copy_to_user((void *)data, &mask, sizeof(mask)) ? -EFAULT : 0;
             }
@@ -796,7 +796,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
                 sigdelset(&mask, SIGKILL);
                 sigdelset(&mask, SIGSTOP);
                 spin_lock(&owner->signal.lock);
-                owner->signal.blocked = mask;
+                target->signal_blocked = mask;
                 spin_unlock(&owner->signal.lock);
             }
             break;
@@ -807,11 +807,8 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         case PTRACE_GET_SYSCALL_INFO :
             ret = ptrace_get_syscall_info(target, addr, data);
             break;
-        case PTRACE_SECCOMP_GET_FILTER :
-        case PTRACE_SECCOMP_GET_METADATA :
-            plogk("ptrace: SECCOMP filter/metadata requests unsupported (pid=%lld)\n", (long long)pid);
-            ret = -EINVAL;
-            break;
+        case PTRACE_SECCOMP_GET_FILTER : ret = seccomp_ptrace_get_filter(target, addr, (void *)data); break;
+        case PTRACE_SECCOMP_GET_METADATA : ret = seccomp_ptrace_get_metadata(target, addr, (void *)data); break;
         default :
             plogk("ptrace: Unknown request %d (pid=%lld, addr=%lx)\n", request, (long long)pid, (unsigned long)addr);
             ret = -EIO;
@@ -972,6 +969,38 @@ void ptrace_syscall_exit(syscall_frame_t *frame, int64_t result)
         frame->rax = (uint64_t)result;
         ptrace_stop_current(frame, ptrace_syscall_stop_signal(options), PTRACE_STOP_SYSCALL_EXIT, 0, 0, NULL);
     }
+}
+
+/* Report a SECCOMP_RET_TRACE event and restore a tracer-edited syscall number. */
+bool ptrace_seccomp_event(syscall_frame_t *frame, uint16_t data, int64_t *skip_result)
+{
+    task_t *task = current_task();
+    if (!task || !frame || !ptrace_tracer_pid(task)) return false;
+    ptrace_state_t *state = &task->ptrace;
+    spin_lock(&state->lock);
+    bool enabled = state->tracer_pid && (state->options & PTRACE_O_TRACESECCOMP);
+    if (enabled) state->syscall_nr = frame->rax;
+    spin_unlock(&state->lock);
+    if (!enabled) return false;
+
+    int injected = ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, PTRACE_EVENT_SECCOMP, data, NULL);
+    spin_lock(&state->lock);
+    frame->rax = state->regs.orig_rax;
+    if (skip_result) *skip_result = (int64_t)state->regs.rax;
+    spin_unlock(&state->lock);
+    if (injected) signal_send_thread(task, injected, NULL);
+    return true;
+}
+
+/* Root tracers may temporarily suspend filtering through PTRACE_SETOPTIONS. */
+bool ptrace_seccomp_suspended(const task_t *task)
+{
+    if (!task || !ptrace_tracer_pid(task)) return false;
+    ptrace_state_t *state = (ptrace_state_t *)&task->ptrace;
+    spin_lock(&state->lock);
+    bool suspended = state->tracer_pid && (state->options & PTRACE_O_SUSPEND_SECCOMP);
+    spin_unlock(&state->lock);
+    return suspended;
 }
 
 /* Report an exec event to the tracer if PTRACE_O_TRACEEXEC is set */

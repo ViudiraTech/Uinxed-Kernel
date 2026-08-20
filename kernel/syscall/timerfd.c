@@ -426,8 +426,6 @@ int sys_timerfd_gettime(int fd, void *curr_value)
 /* Periodic tick: fire expired timers and publish readiness */
 void timerfd_tick(void)
 {
-    if (get_current_cpu_id() != 0) return;
-
     spin_lock(&timerfd_list_lock);
     for (ilist_node_t *node = timerfd_list.next; node != &timerfd_list; node = node->next) {
         timerfd_ctx_t *ctx = (timerfd_ctx_t *)((char *)node - offsetof(timerfd_ctx_t, timers));

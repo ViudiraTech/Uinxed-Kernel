@@ -281,6 +281,7 @@ int blockdev_open_ide(uint8_t drive, blockdev_device_t *device)
     device->base_lba     = 0;
     device->sector_count = ide_devices[drive].size;
     device->read_only    = false;
+    device->optical      = false;
     return EOK;
 #else
     (void)drive;
@@ -307,6 +308,7 @@ int blockdev_open_nvme(void *ns, blockdev_device_t *device)
     device->base_lba     = 0;
     device->sector_count = nvme_ns->total_sectors;
     device->read_only    = false;
+    device->optical      = false;
     return EOK;
 #else
     (void)ns;
@@ -330,6 +332,7 @@ int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device)
     device->base_lba     = 0;
     device->sector_count = atapi_devices[drive].lba_size;
     device->read_only    = true;
+    device->optical      = true;
     return EOK;
 #else
     (void)drive;
@@ -353,6 +356,7 @@ int blockdev_open_ahci(uint8_t drive, blockdev_device_t *device)
     device->base_lba     = 0;
     device->sector_count = ahci_devices[drive].size;
     device->read_only    = false;
+    device->optical      = false;
     return EOK;
 #else
     (void)drive;
@@ -376,6 +380,7 @@ int blockdev_open_ahci_atapi(uint8_t drive, blockdev_device_t *device)
     device->base_lba     = 0;
     device->sector_count = ahci_devices[drive].size;
     device->read_only    = true;
+    device->optical      = true;
     return EOK;
 #else
     (void)drive;

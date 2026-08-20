@@ -124,6 +124,12 @@ void ps2_keyboard_handle_byte(uint8_t byte)
     wait_queue_wake_one(&ps2kbd_event_wait);
 }
 
+/* Drop transport-dependent prefix state after a parity/timeout error. */
+void ps2_keyboard_reset_stream(void)
+{
+    ps2_keyboard_decoder_init(&ps2kbd_decoder);
+}
+
 /* Block until at least one keyboard event has been reported. */
 int ps2kbd_wait_events(void)
 {

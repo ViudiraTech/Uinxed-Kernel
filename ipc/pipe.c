@@ -13,6 +13,7 @@
 #include <ipc/pipe.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/termios.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -807,6 +808,25 @@ static int pipe_file_poll(vfs_node_t node, void *private_data, uint64_t flags, s
     return (revents & (int)events) | (revents & (POLLERR | POLLHUP));
 }
 
+/* VFS callback: report the number of bytes immediately readable from a pipe. */
+static int pipe_file_ioctl(vfs_node_t node, void *private_data, uint64_t flags, size_t request, void *argument)
+{
+    (void)node;
+    (void)flags;
+    if (request != FIONREAD) return -ENOTTY;
+    if (!argument) return -EFAULT;
+
+    pipe_endpoint_t *endpoint = private_data;
+    if (!endpoint || !endpoint->ring) return -EBADF;
+
+    pipe_ring_t *ring = endpoint->ring;
+    spin_lock(&ring->lock);
+    int bytes = (int)pipe_ring_readable(ring);
+    spin_unlock(&ring->lock);
+
+    return copy_to_user(argument, &bytes, sizeof(bytes)) ? -EFAULT : EOK;
+}
+
 /* VFS callback: free (release handle resources) */
 static int pipe_vfs_free(void *handle)
 {
@@ -865,7 +885,7 @@ static int pipe_stub_ioctl(void *file, size_t req, void *arg)
     (void)file;
     (void)req;
     (void)arg;
-    return -ENOSYS;
+    return -ENOTTY;
 }
 
 static vfs_node_t pipe_stub_dup(vfs_node_t node)
@@ -1083,6 +1103,7 @@ void pipe_init(void)
     cb->file_write      = pipe_file_write;
     cb->file_read_user  = pipe_file_read_user;
     cb->file_write_user = pipe_file_write_user;
+    cb->file_ioctl      = pipe_file_ioctl;
     cb->file_poll       = pipe_file_poll;
 
     pipe_fsid = vfs_regist(cb);

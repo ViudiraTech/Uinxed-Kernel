@@ -98,6 +98,12 @@ void ps2_mouse_handle_byte(uint8_t byte)
         plogk("ps2: Mouse packet decode error: %d\n", result);
 }
 
+/* Drop a partial packet after a parity/timeout error. */
+void ps2_mouse_reset_stream(void)
+{
+    ps2_mouse_stream_init(&ps2_mouse_stream, ps2_mouse_protocol);
+}
+
 /* Return whether a PS/2 mouse was detected on the aux port. */
 bool ps2_mouse_available(void)
 {

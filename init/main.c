@@ -97,6 +97,7 @@
 #include <process/elf_loader.h>
 #include <process/process.h>
 #include <process/sched.h>
+#include <security/seccomp.h>
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
@@ -336,8 +337,10 @@ void kernel_entry(void)
                                    //
     /* IPC & Event Notification */ //
     pipe_init();                   // Pipes
+    pidfd_init();                  // Process file descriptors
     epoll_init();                  // Epoll
     eventfd_init();                // Event File Descriptor
+    seccomp_init();                // Secure computing filters and notifications
     timerfd_init();                // Timer File Descriptor
     signalfd_init();               // Signal File Descriptor
     inotify_init();                // Filesystem Event Notification
@@ -412,6 +415,8 @@ void kernel_entry(void)
     rtl8139_start_workers();      // Register rtl8139 workers
     usb_host_start_workers();     // Register USB host workers
     video_start_refresh_worker(); // Register display refresh worker
+    ps2_start_worker();           // Register deferred PS/2 event processing
+    timer_deferred_init();        // Register timer bottom-half processing
     kernel_workers_start();       // Create every registered kernel worker
     swapper_enqueue_init();       // Finally make init runnable
                                   //

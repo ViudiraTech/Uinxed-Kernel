@@ -9,7 +9,7 @@
  */
 
 #include <drivers/input/evdev/evdev_queue.h>
-#include <kernel/printk.h>
+#include <libs/std/string.h>
 
 /* Ring masks require the buffer size to be a power of two. */
 static bool is_power_of_two(unsigned int value)
@@ -27,7 +27,6 @@ bool evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int 
     queue->packet_head       = 0;
     queue->size              = size;
     queue->buffer            = buffer;
-    queue->overflow_reported = false;
     return true;
 }
 
@@ -65,10 +64,6 @@ bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
             .value = 0,
         };
         queue->packet_head = queue->tail;
-        if (!queue->overflow_reported) {
-            queue->overflow_reported = true;
-            plogk("evdev: Client event queue overflow, events dropped.\n");
-        }
     }
 
     if (event->type == EV_SYN && event->code == SYN_REPORT) {
@@ -81,17 +76,21 @@ bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
 /* Drain committed packets into the caller's buffer, up to max_events. */
 size_t evdev_queue_read(evdev_queue_t *queue, input_event_t *events, size_t max_events)
 {
-    size_t       count = 0;
+    size_t       available;
+    size_t       count;
+    size_t       first;
     unsigned int mask;
 
     if (!queue || !queue->buffer || !events || !max_events) return 0;
 
-    mask = queue->size - 1;
-    while (count < max_events && evdev_queue_has_packet(queue)) {
-        events[count++] = queue->buffer[queue->tail];
-        queue->tail     = (queue->tail + 1) & mask;
-    }
-    if (queue->head == queue->tail) queue->overflow_reported = false;
+    mask      = queue->size - 1;
+    available = (queue->packet_head - queue->tail) & mask;
+    count     = available < max_events ? available : max_events;
+    first     = queue->size - queue->tail;
+    if (first > count) first = count;
+    if (first) memcpy(events, &queue->buffer[queue->tail], first * sizeof(*events));
+    if (count > first) memcpy(events + first, queue->buffer, (count - first) * sizeof(*events));
+    queue->tail = (queue->tail + (unsigned int)count) & mask;
     return count;
 }
 

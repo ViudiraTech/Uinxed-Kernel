@@ -29,6 +29,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
 /* Character-device registration table */
@@ -193,6 +194,37 @@ static size_t devtmpfs_block_write(void *context, const void *buffer, size_t off
     return blockdev_write_bytes(device, offset, buffer, size) == EOK ? size : 0;
 }
 
+/* Linux-compatible geometry queries for whole disks and partition nodes. */
+static int devtmpfs_block_ioctl(void *context, size_t request, void *argument)
+{
+    blockdev_device_t *device = context;
+    if (!device) return -ENODEV;
+    if (!device->sector_size || device->sector_count > UINT64_MAX / device->sector_size) return -EOVERFLOW;
+
+    uint64_t bytes = device->sector_count * device->sector_size;
+    switch (request) {
+        case BLKROGET : {
+            int value = device->read_only ? 1 : 0;
+            return copy_to_user(argument, &value, sizeof(value)) ? -EFAULT : EOK;
+        }
+        case BLKSSZGET :
+        case BLKPBSZGET : {
+            int value = (int)device->sector_size;
+            return copy_to_user(argument, &value, sizeof(value)) ? -EFAULT : EOK;
+        }
+        case BLKGETSIZE : {
+            unsigned long sectors = (unsigned long)(bytes / BLOCKDEV_SECTOR_SIZE);
+            return copy_to_user(argument, &sectors, sizeof(sectors)) ? -EFAULT : EOK;
+        }
+        case BLKGETSIZE64 :
+            return copy_to_user(argument, &bytes, sizeof(bytes)) ? -EFAULT : EOK;
+        case CDROM_GET_CAPABILITY :
+            return device->optical ? 0 : -ENOTTY;
+        default :
+            return -ENOTTY;
+    }
+}
+
 /* Release the retained device reference held by a block node. */
 static void devtmpfs_block_destroy(void *context)
 {
@@ -233,6 +265,7 @@ static int devtmpfs_register_one_block(const char *path, const blockdev_device_t
     tmpfs_device_ops_t ops = {
         .read    = devtmpfs_block_read,
         .write   = devtmpfs_block_write,
+        .ioctl   = devtmpfs_block_ioctl,
         .destroy = devtmpfs_block_destroy,
     };
     vfs_node_t node;

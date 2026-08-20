@@ -18,6 +18,7 @@
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
+#include <drivers/gpu/drm/virtio/virtgpu_format.h>
 #include <drivers/gpu/drm/virtio/virtgpu_gem.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -268,7 +269,7 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
      */
     if (obj != vgdev->current_scanout_obj) return 0;
 
-    if (fb->format != DRM_FORMAT_XRGB8888 && fb->format != DRM_FORMAT_ARGB8888) return -EINVAL;
+    if (!virtgpu_2d_formats_compatible(obj->format, fb->format)) return -EINVAL;
 
     if (!num_clips) {
         rect.x      = 0;
@@ -859,7 +860,10 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
     (void)old_fb;
 
     if (gem_obj) {
+        if (!vgdev) return -EINVAL;
         obj = to_virtio_gpu_object(gem_obj);
+
+        if (!obj) return -EINVAL;
 
         if (obj->created_blob) {
             obj->width  = fb->width;
@@ -874,12 +878,11 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
         }
 
         /*
-         * A 2D resource has an implicit packed row stride.  Accepting an FB
-         * view with a different pitch/offset/dimensions makes the host walk
-         * different rows than Xorg/Weston wrote, producing mode-dependent
-         * corruption (640-wide buffers happened to mask it).
+         * A 2D resource has an implicit packed row stride.  Userspace may
+         * expose a smaller top-left framebuffer view of an over-allocated
+         * resource, but the view must fit and preserve the resource layout.
          */
-        if (fb->width != obj->width || fb->height != obj->height || fb->pitches[0] != obj->stride || fb->offsets[0] || fb->format != obj->format) return -EINVAL;
+        if (fb->width > obj->width || fb->height > obj->height || fb->pitches[0] != obj->stride || fb->offsets[0] || !virtgpu_2d_formats_compatible(obj->format, fb->format)) return -EINVAL;
 
         /*
          * Submit the full flip as one ordered batch and avoid rebinding an
@@ -887,7 +890,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
          */
         bool layout_changed = !vgdev->current_fb || vgdev->current_fb->width != fb->width || vgdev->current_fb->height != fb->height || vgdev->current_fb->pitches[0] != fb->pitches[0]
                               || vgdev->current_fb->offsets[0] != fb->offsets[0];
-        ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
+        ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, fb->width, fb->height, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
         if (ret) {
             DRM_ERROR("Flip: batched update failed: %d\n", ret);
             return ret;
@@ -965,14 +968,16 @@ int virtio_gpu_driver_init(void)
 
     vgdev->resource_idr_lock.lock = 0;
     vgdev->context_idr_lock.lock  = 0;
-    vgdev->ctrlq_cmd_lock.lock    = 0;
-    vgdev->cursorq_cmd_lock.lock  = 0;
-    vgdev->fence_lock.lock        = 0;
-    vgdev->next_resource_id       = 1;
-    vgdev->next_context_id        = 1;
-    vgdev->next_fence_id          = 1;
-    vgdev->num_scanouts           = 0;
-    vgdev->capset_lock.lock       = 0;
+    vgdev->ctrlq_cmd_busy         = 0;
+    vgdev->cursorq_cmd_busy       = 0;
+    wait_queue_init(&vgdev->ctrlq_cmd_wait);
+    wait_queue_init(&vgdev->cursorq_cmd_wait);
+    vgdev->fence_lock.lock  = 0;
+    vgdev->next_resource_id = 1;
+    vgdev->next_context_id  = 1;
+    vgdev->next_fence_id    = 1;
+    vgdev->num_scanouts     = 0;
+    vgdev->capset_lock.lock = 0;
 
     /*
      * VirtIO spec 3.1.1: step 5 - set FEATURES_OK and verify.

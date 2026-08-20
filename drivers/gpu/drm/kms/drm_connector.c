@@ -464,7 +464,6 @@ int drm_connector_add_fallback_mode(struct drm_connector *connector)
 
     (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", w, h);
     mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
-    mode->clock                          = (int)((uint64_t)w * h * 60 / 1000);
     mode->hdisplay                       = w;
     mode->hsync_start                    = w + 80;
     mode->hsync_end                      = w + 160;
@@ -474,6 +473,7 @@ int drm_connector_add_fallback_mode(struct drm_connector *connector)
     mode->vsync_end                      = h + 6;
     mode->vtotal                         = h + 32;
     mode->vrefresh                       = 60;
+    mode->clock                          = (int)((uint64_t)mode->htotal * (uint64_t)mode->vtotal * (uint64_t)mode->vrefresh / 1000ULL);
     mode->flags                          = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
     mode->type                           = DRM_MODE_TYPE_PREFERRED | DRM_MODE_TYPE_DRIVER;
     mode->status                         = MODE_OK;

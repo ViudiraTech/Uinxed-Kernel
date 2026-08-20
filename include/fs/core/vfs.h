@@ -216,6 +216,7 @@ typedef struct vfs_node {
         uint64_t             dev;          // Device number
         uint64_t             rdev;         // Real device number
         vfs_poll_source_t    poll_source;
+        uint32_t             inotify_watch_count; // Direct inotify watches; avoids global scans for ordinary I/O
         pagecache_mapping_t *mapping; // Unified cache for regular-file contents
 } *vfs_node_t;
 

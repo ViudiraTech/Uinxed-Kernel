@@ -53,9 +53,17 @@ static struct drm_property *drm_signed_property(struct drm_device *dev, const ch
  */
 int drm_mode_config_init(struct drm_device *dev)
 {
+    int ret;
+
     if (!dev) {
         DRM_ERROR("Mode_config_init called with NULL device.\n");
         return -EINVAL;
+    }
+
+    ret = drm_atomic_worker_init();
+    if (ret) {
+        DRM_ERROR("Failed to initialise atomic commit worker: %d\n", ret);
+        return ret;
     }
 
     memset(&dev->mode_config.mutex, 0, sizeof(dev->mode_config.mutex));

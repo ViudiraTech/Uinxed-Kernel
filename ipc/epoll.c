@@ -58,6 +58,7 @@ typedef struct epoll_item {
 typedef struct epoll_instance {
         epoll_item_t    *items[EPOLL_MAX_FDS];
         int              fd_count;
+        int              max_fd;
         wait_queue_t     wq;
         spinlock_t       lock;
         struct vfs_node *node;
@@ -156,6 +157,7 @@ static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, process_file_
 
     epi->items[fd] = item;
     epi->fd_count++;
+    if (fd > epi->max_fd) epi->max_fd = fd;
 
     return item;
 }
@@ -173,6 +175,8 @@ static epoll_item_t *epoll_item_del(epoll_instance_t *epi, int fd)
 
     epi->items[fd] = NULL;
     epi->fd_count--;
+    if (fd == epi->max_fd)
+        while (epi->max_fd >= 0 && !epi->items[epi->max_fd]) epi->max_fd--;
     __atomic_store_n(&item->active, 0, __ATOMIC_RELEASE);
     return item;
 }
@@ -204,7 +208,7 @@ static int epoll_poll_all(epoll_instance_t *epi)
 {
     int ready = 0;
 
-    for (int fd = 0; fd < EPOLL_MAX_FDS; fd++) {
+    for (int fd = 0; fd <= epi->max_fd; fd++) {
         epoll_item_t *item = epi->items[fd];
         if (!item || !__atomic_load_n(&item->active, __ATOMIC_ACQUIRE)) continue;
         if (__atomic_load_n(&item->target_closed, __ATOMIC_ACQUIRE)) {
@@ -252,7 +256,7 @@ static int epoll_poll_all(epoll_instance_t *epi)
  */
 static bool epoll_has_ready(epoll_instance_t *epi)
 {
-    for (int fd = 0; fd < EPOLL_MAX_FDS; fd++) {
+    for (int fd = 0; fd <= epi->max_fd; fd++) {
         epoll_item_t *item = epi->items[fd];
         if (!item || !__atomic_load_n(&item->active, __ATOMIC_ACQUIRE) || item->oneshot_disabled) continue;
         if (__atomic_load_n(&item->target_closed, __ATOMIC_ACQUIRE) || item->revents) return true;
@@ -280,7 +284,7 @@ static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_event
 {
     int collected = 0;
 
-    for (int fd = 0; fd < EPOLL_MAX_FDS && collected < maxevents; fd++) {
+    for (int fd = 0; fd <= epi->max_fd && collected < maxevents; fd++) {
         epoll_item_t *item = epi->items[fd];
         if (!item || !item->active) continue;
         if (item->revents == 0) continue;
@@ -376,7 +380,7 @@ static int epoll_vfs_free(void *handle)
     epoll_instance_t *epi = (epoll_instance_t *)handle;
     if (!epi) return -EINVAL;
 
-    for (int fd = 0; fd < EPOLL_MAX_FDS; fd++) {
+    for (int fd = 0; fd <= epi->max_fd; fd++) {
         spin_lock(&epi->lock);
         epoll_item_t *item = epoll_item_del(epi, fd);
         spin_unlock(&epi->lock);
@@ -464,6 +468,7 @@ static vfs_node_t epoll_node_create(void)
     memset(epi, 0, sizeof(epoll_instance_t));
 
     epi->fd_count = 0;
+    epi->max_fd   = -1;
     epi->refcount = 1;
     wait_queue_init(&epi->wq);
 
@@ -751,10 +756,13 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int timeout, const void *sigmask, size_t sigsetsize)
 {
     process_t      *proc = process_current();
-    signal_state_t *sig  = &proc->signal;
+    task_t         *task = current_task();
     sigset_t        old_blocked;
+    if (!proc || !task || task->process != proc) return -ESRCH;
+    if (sigmask && sigsetsize != sizeof(sigset_t)) return -EINVAL;
+    signal_state_t *sig = &proc->signal;
 
-    if (sigmask && sigsetsize >= sizeof(sigset_t)) {
+    if (sigmask) {
         sigset_t new_blocked;
         if (copy_from_user(&new_blocked, sigmask, sizeof(sigset_t))) return -EFAULT;
 
@@ -762,16 +770,21 @@ int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int time
         sigdelset(&new_blocked, SIGSTOP);
 
         spin_lock(&sig->lock);
-        old_blocked  = sig->blocked;
-        sig->blocked = new_blocked;
+        old_blocked         = task->signal_blocked;
+        task->signal_blocked = new_blocked;
         spin_unlock(&sig->lock);
     }
 
     int64_t ret = sys_epoll_wait(epfd, events, maxevents, timeout);
 
-    if (sigmask && sigsetsize >= sizeof(sigset_t)) {
+    if (sigmask) {
         spin_lock(&sig->lock);
-        sig->blocked = old_blocked;
+        if (ret == -ERESTARTSYS && signal_has_pending(sig)) {
+            task->signal_saved_mask   = old_blocked;
+            task->signal_restore_mask = true;
+        } else {
+            task->signal_blocked = old_blocked;
+        }
         spin_unlock(&sig->lock);
     }
 

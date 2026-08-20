@@ -46,6 +46,12 @@ uint64_t alloc_frames(size_t count);
 /* Allocate frames without entering swap reclaim from a locked caller. */
 uint64_t alloc_frames_noreclaim(size_t count);
 
+/* Reclaim pages under the frame allocator's recursion guard. */
+int frame_reclaim_pages(size_t target);
+
+/* Refill the low-memory watermark from a caller that holds no VM locks. */
+void frame_reclaim_if_needed(size_t requested);
+
 /* Allocate 2M memory frames */
 uint64_t alloc_frames_2M(size_t count);
 

@@ -11,6 +11,7 @@
 #include <arch/common.h>
 #include <arch/fpu.h>
 #include <arch/smp.h>
+#include <drivers/firmware/apic.h>
 #include <drivers/tty/tty_core.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
@@ -22,6 +23,7 @@
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/termios.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -32,7 +34,9 @@
 #include <mem/page.h>
 #include <net/socket.h>
 #include <process/process.h>
+#include <process/file_status.h>
 #include <process/ptrace.h>
+#include <security/seccomp.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
@@ -529,6 +533,32 @@ int vm_area_insert(process_t *proc, vm_area_t *vma)
     return 0;
 }
 
+/* Find the first mmap-region gap large enough for a page-aligned mapping. */
+uintptr_t process_find_free_vma_range(process_t *proc, size_t length)
+{
+    if (!proc || !length || length > SIZE_MAX - (PAGE_4K_SIZE - 1)) return 0;
+
+    size_t    bytes = ALIGN_UP(length, PAGE_4K_SIZE);
+    uintptr_t addr  = PROCESS_MMAP_BASE;
+
+    spin_lock(&proc->mmap_lock);
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+        if (vma->end <= addr) continue;
+        if (vma->start > addr && bytes <= vma->start - addr) {
+            spin_unlock(&proc->mmap_lock);
+            return addr;
+        }
+        addr = ALIGN_UP(vma->end, PAGE_4K_SIZE);
+        if (addr >= PROCESS_USER_STACK_TOP || bytes > PROCESS_USER_STACK_TOP - addr) {
+            spin_unlock(&proc->mmap_lock);
+            return 0;
+        }
+    }
+    spin_unlock(&proc->mmap_lock);
+
+    return addr < PROCESS_USER_STACK_TOP && bytes <= PROCESS_USER_STACK_TOP - addr ? addr : 0;
+}
+
 /* Free a VMA list and its backing resources */
 static void vm_area_free(vm_area_t *vma, uint32_t pid)
 {
@@ -933,6 +963,31 @@ int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flag
     return -EMFILE;
 }
 
+/* Install an existing open-file description at an exact descriptor slot. */
+int process_fd_install_file_at(process_t *proc, process_file_t *file, int newfd, uint64_t flags, bool replace)
+{
+    if (!proc || !file || newfd < 0) return -EBADF;
+
+    spin_lock(&proc->fd_lock);
+    uint32_t limit = process_fd_limit(proc);
+    if ((uint32_t)newfd >= limit) {
+        spin_unlock(&proc->fd_lock);
+        return -EBADF;
+    }
+    process_file_t *old = proc->fds[newfd];
+    if (old && !replace) {
+        spin_unlock(&proc->fd_lock);
+        return -EBUSY;
+    }
+    process_file_fd_get(file);
+    proc->fds[newfd]      = file;
+    proc->fd_flags[newfd] = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+    spin_unlock(&proc->fd_lock);
+
+    if (old) process_file_fd_put(old);
+    return newfd;
+}
+
 /* Close a single descriptor */
 int process_fd_close(process_t *proc, int fd)
 {
@@ -1323,11 +1378,30 @@ int process_fd_ioctl(process_t *proc, int fd, size_t req, void *arg)
 {
     process_file_t *file = process_fd_get(proc, fd);
     if (!file) return -EBADF;
-    if (file->flags & O_PATH) {
+
+    spin_lock(&file->lock);
+    uint64_t flags = file->flags;
+    spin_unlock(&file->lock);
+    if (flags & O_PATH) {
         process_file_put(file);
         return -EBADF;
     }
-    int ret = vfs_file_ioctl(file->node, file->private_data, file->flags, req, arg);
+
+    int ret;
+    if (req == FIONBIO) {
+        int enabled;
+        if (!arg || copy_from_user(&enabled, arg, sizeof(enabled))) {
+            ret = -EFAULT;
+        } else {
+            /* f_flags belongs to the open-file description shared by dup/fork. */
+            spin_lock(&file->lock);
+            file->flags = process_file_status_flags_merge(file->flags, O_NONBLOCK, enabled ? O_NONBLOCK : 0);
+            spin_unlock(&file->lock);
+            ret = EOK;
+        }
+    } else {
+        ret = vfs_file_ioctl(file->node, file->private_data, flags, req, arg);
+    }
     process_file_put(file);
     return ret;
 }
@@ -1485,6 +1559,8 @@ process_t *process_create(const char *name)
     task->process      = proc;
     proc->refcount     = 1;
     proc->thread_count = 1;
+    proc->seccomp_lock.lock   = 0;
+    proc->seccomp_lock.rflags = 0;
     ilist_init(&proc->threads);
     ilist_insert_before(&proc->threads, &task->thread_node);
     proc->kernel_page_dir = get_kernel_pagedir();
@@ -1535,6 +1611,7 @@ process_t *process_create(const char *name)
     proc->name[PROCESS_NAME_LEN - 1] = '\0';
 
     pid_set(proc->task->pid, proc);
+    __atomic_add_fetch(&scheduler.processes_created, 1, __ATOMIC_RELAXED);
 
     if (proc->parent && proc->parent != proc) slist_insert_tail(&proc->parent->children, proc);
 
@@ -1557,6 +1634,8 @@ process_t *process_create_kthread(task_t *task, const char *name)
     task->flags |= PF_KTHREAD;
     proc->refcount     = 1;
     proc->thread_count = 1;
+    proc->seccomp_lock.lock   = 0;
+    proc->seccomp_lock.rflags = 0;
     ilist_init(&proc->threads);
     ilist_insert_before(&proc->threads, &task->thread_node);
     proc->kernel_page_dir = get_kernel_pagedir();
@@ -1599,10 +1678,151 @@ process_t *process_create_kthread(task_t *task, const char *name)
     proc->name[PROCESS_NAME_LEN - 1] = '\0';
 
     pid_set(proc->task->pid, proc);
+    __atomic_add_fetch(&scheduler.processes_created, 1, __ATOMIC_RELAXED);
 
     if (proc->parent && proc->parent != proc) slist_insert_tail(&proc->parent->children, proc);
 
     return proc;
+}
+
+/* Wake every live member of a thread group without holding process-table locks. */
+void process_wake_threads(process_t *proc, bool resume_stopped)
+{
+    if (!proc) return;
+
+    size_t   position    = 0;
+    uint32_t local_cpu   = get_current_cpu_id();
+    uint64_t running_cpus = 0;
+    bool     kick_self    = false;
+    bool     broadcast    = false;
+    for (;;) {
+        task_t *task = NULL;
+        spin_lock(&process_table_lock);
+        size_t index = 0;
+        for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
+            task_t *candidate = rb_entry(node, task_t, thread_node);
+            if (index++ == position) {
+                task = candidate;
+                break;
+            }
+        }
+        spin_unlock(&process_table_lock);
+        if (!task) break;
+        position++;
+        if (task->state == TASK_ZOMBIE) continue;
+        if (__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
+            if (task->cpu_id == local_cpu)
+                kick_self = true;
+            else if (task->cpu_id < 64)
+                running_cpus |= 1ULL << task->cpu_id;
+            else
+                broadcast = true;
+        }
+        if (resume_stopped) (void)task_continue(task);
+        (void)task_wakeup(task);
+    }
+
+    /*
+     * A running task is not made READY by task_wakeup(), so explicitly make
+     * every CPU executing this thread group pass through its full-register
+     * reschedule return path.  This makes fatal/group signals prompt even for
+     * CPU-bound userspace loops instead of waiting for a later timer tick.
+     */
+    if (broadcast) {
+        send_ipi_all(IPI_RESCHEDULE);
+    } else {
+        for (uint32_t cpu = 0; cpu < 64; cpu++) {
+            if (!(running_cpus & (1ULL << cpu))) continue;
+            send_ipi_cpu(cpu, IPI_RESCHEDULE);
+        }
+    }
+    if (kick_self) send_ipi_self(IPI_RESCHEDULE);
+}
+
+/* Apply a default job-control stop to the complete thread group. */
+void process_stop_threads(process_t *proc)
+{
+    if (!proc) return;
+
+    size_t position = 0;
+    for (;;) {
+        task_t *task = NULL;
+        spin_lock(&process_table_lock);
+        size_t index = 0;
+        for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
+            task_t *candidate = rb_entry(node, task_t, thread_node);
+            if (index++ == position) {
+                task = candidate;
+                break;
+            }
+        }
+        spin_unlock(&process_table_lock);
+        if (!task) break;
+        position++;
+        (void)task_stop(task);
+    }
+}
+
+/* Snapshot thread-group CPU and scheduling counters for procfs. */
+void process_get_stats(process_t *proc, process_stats_t *stats)
+{
+    if (!stats) return;
+    memset(stats, 0, sizeof(*stats));
+    if (!proc) return;
+
+    stats->start_tick = UINT64_MAX;
+    spin_lock(&process_table_lock);
+    stats->threads = proc->thread_count;
+    for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
+        task_t *task = rb_entry(node, task_t, thread_node);
+        stats->user_ticks += __atomic_load_n(&task->user_ticks, __ATOMIC_RELAXED);
+        stats->system_ticks += __atomic_load_n(&task->system_ticks, __ATOMIC_RELAXED);
+        stats->voluntary_switches += __atomic_load_n(&task->voluntary_switches, __ATOMIC_RELAXED);
+        stats->involuntary_switches += __atomic_load_n(&task->involuntary_switches, __ATOMIC_RELAXED);
+        if (task->start_tick < stats->start_tick) stats->start_tick = task->start_tick;
+        if (task->state == TASK_READY || task->state == TASK_RUNNING) stats->running++;
+        if (task->state == TASK_BLOCKED) stats->blocked++;
+    }
+    spin_unlock(&process_table_lock);
+    if (stats->start_tick == UINT64_MAX) stats->start_tick = 0;
+}
+
+/* Count runnable and uninterruptibly blocked tasks for /proc/stat. */
+void process_count_task_states(uint64_t *running, uint64_t *blocked)
+{
+    uint64_t nr_running = 0;
+    uint64_t nr_blocked = 0;
+    spin_lock(&process_table_lock);
+    for (size_t index = 1; index < PROCESS_TABLE_SIZE; index++) {
+        process_t *proc = process_table[index];
+        if (!proc) continue;
+        for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
+            task_t *task = rb_entry(node, task_t, thread_node);
+            if (task->state == TASK_READY || task->state == TASK_RUNNING) nr_running++;
+            if (task->state == TASK_BLOCKED) nr_blocked++;
+        }
+    }
+    spin_unlock(&process_table_lock);
+    if (running) *running = nr_running;
+    if (blocked) *blocked = nr_blocked;
+}
+
+/* Publish a group-exit decision before waking siblings out of kernel waits. */
+void process_exit_group(int exit_code)
+{
+    process_t *proc = process_current();
+    if (!proc) process_exit(exit_code);
+
+    spin_lock(&proc->signal.lock);
+    if (!proc->signal.group_exit) {
+        proc->signal.group_exit_code = exit_code;
+        __atomic_store_n(&proc->signal.group_exit, true, __ATOMIC_RELEASE);
+    }
+    exit_code = proc->signal.group_exit_code;
+    spin_unlock(&proc->signal.lock);
+
+    process_wake_threads(proc, true);
+    process_exit(exit_code);
 }
 
 /* Terminate the current process, reparenting its children */
@@ -1617,10 +1837,14 @@ void process_exit(int exit_code)
     process_t *proc = current->process;
     if (proc == init_process) panic("init: Attempt to kill init!");
 
+    if (__atomic_load_n(&proc->signal.group_exit, __ATOMIC_ACQUIRE)) exit_code = __atomic_load_n(&proc->signal.group_exit_code, __ATOMIC_RELAXED);
+
     if (!(current->flags & PF_KTHREAD)) {
         ptrace_exit_event(exit_code);
         ptrace_tracer_exit((int64_t)current->pid);
     }
+
+    signal_flush_task(current);
 
     spin_lock(&process_table_lock);
     bool sibling_exit = proc->thread_count > 1;
@@ -1914,7 +2138,7 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
         bool interrupted = signal_has_interrupting_pending(&parent->signal);
         spin_unlock(&parent->signal.lock);
         if (interrupted) {
-            task_wakeup(current_task());
+            wait_queue_cancel(&parent->child_wait);
             return -ERESTARTSYS;
         }
         wait_queue_sleep();
@@ -1961,6 +2185,9 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         return NULL;
     }
 
+    /* Fork allocates page-table frames while VM/scheduler locks are held. */
+    frame_reclaim_if_needed(16);
+
     disable_intr();
     spin_lock(&scheduler.lock);
     spin_lock(&parent->mmap_lock);
@@ -1989,6 +2216,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child_task->process = child;
     child->refcount     = 1;
     child->thread_count = 1;
+    child->seccomp_lock.lock   = 0;
+    child->seccomp_lock.rflags = 0;
     ilist_init(&child->threads);
     ilist_insert_before(&child->threads, &child_task->thread_node);
     child->task->state               = TASK_READY;
@@ -2034,6 +2263,14 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     memcpy(child->rlimits, parent->rlimits, sizeof(child->rlimits));
     spin_unlock(&parent->rlimit_lock);
     signal_state_copy(&child->signal, &parent->signal);
+    child_task->signal_blocked       = current->signal_restore_mask ? current->signal_saved_mask : current->signal_blocked;
+    child_task->signal_saved_mask    = 0;
+    child_task->signal_pending       = 0;
+    child_task->signal_restore_mask  = false;
+    spin_lock(&parent->seccomp_lock);
+    seccomp_task_inherit(child_task, current);
+    spin_unlock(&parent->seccomp_lock);
+    child_task->signal_altstack      = current->signal_altstack;
     process_ctty_inherit(child, parent);
     slist_init(&child->children);
     wait_queue_init(&child->child_wait);
@@ -2160,6 +2397,7 @@ void process_fork_publish(process_t *child)
         child->task->migration_count++;
     }
     enqueue_task_initial(child->task);
+    __atomic_add_fetch(&scheduler.processes_created, 1, __ATOMIC_RELAXED);
     spin_unlock(&scheduler.lock);
     request_task_cpu(child->task);
 }
@@ -2278,6 +2516,13 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     child->context.rsp    = (uint64_t)kstack;
     child->thread.fs_base = tls;
     child->thread.gs_base = current->thread.gs_base;
+    child->signal_blocked      = current->signal_restore_mask ? current->signal_saved_mask : current->signal_blocked;
+    child->signal_saved_mask   = 0;
+    child->signal_pending      = 0;
+    child->signal_restore_mask = false;
+    child->signal_altstack.ss_sp    = NULL;
+    child->signal_altstack.ss_size  = 0;
+    child->signal_altstack.ss_flags = SS_DISABLE;
     fpu_task_clone(current, child);
     child->page_directory  = proc->user_page_dir;
     child->process         = proc;
@@ -2288,6 +2533,8 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
 
     disable_intr();
     spin_lock(&scheduler.lock);
+    spin_lock(&proc->seccomp_lock);
+    seccomp_task_inherit(child, current);
     if (proc->kernel_stack) {
         proc->task->kernel_stack = proc->kernel_stack;
         proc->kernel_stack       = NULL;
@@ -2296,6 +2543,7 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     ilist_insert_before(&proc->threads, &child->thread_node);
     proc->thread_count++;
     spin_unlock(&process_table_lock);
+    spin_unlock(&proc->seccomp_lock);
     bool ptrace_stopped = ptrace_fork_child(current, child, PTRACE_EVENT_CLONE);
     if (!ptrace_stopped) {
         uint32_t old_cpu = child->cpu_id;
@@ -2357,6 +2605,8 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
         free(vma);
         return 1;
     }
+
+    frame_reclaim_if_needed(pages < 64 ? pages : 64);
 
     /*
      * Anonymous memory is required to read as zero on first use.  Allocate
@@ -2445,6 +2695,9 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     if (exec && !(flags & VM_EXEC)) goto fail;
     if (write && !(flags & VM_WRITE)) goto fail;
     if (!(flags & VM_READ)) goto fail;
+
+    /* Reclaim before allocating data/page-table frames, with mmap_lock free. */
+    frame_reclaim_if_needed(4);
 
     uint64_t frame = 0;
     size_t   index = page - vma_start;

@@ -35,7 +35,7 @@
 #    define SOCK_ACCEPT_QUEUE_MAX 1024
 #endif
 #define SOCK_BOUND_MAX      256
-#define SOCK_SHUT_MASK(how) (1U << (uint32_t)(how))
+#define SOCK_SHUT_MASK(how) ((how) == SHUT_RDWR ? ((1U << SHUT_RD) | (1U << SHUT_WR)) : (1U << (uint32_t)(how)))
 
 /* Blocked-socket tracking - maps a blocked socket to its task */
 
@@ -61,6 +61,10 @@ static void sock_blocked_register(socket_t *sk, task_t *task);
 static void sock_blocked_unregister(socket_t *sk);
 static void sock_blocked_wake(socket_t *sk);
 static void sock_blocked_wake_all(socket_t *sk);
+static void socket_ref(socket_t *sk);
+static void socket_unref(socket_t *sk);
+static void socket_poll_notify(socket_t *sk, uint32_t events);
+static void socket_disconnect_peer(socket_t *sk);
 
 static int  sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out);
 static int  sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen, int abstract);
@@ -80,7 +84,7 @@ static int       socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen
 static void socket_inet_event(void *argument, uint32_t events)
 {
     socket_t *sk = argument;
-    if (sk && sk->node) vfs_poll_notify(sk->node, events);
+    socket_poll_notify(sk, events);
 }
 
 static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags);
@@ -328,6 +332,7 @@ static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int ab
              */
             if (sock_bound_tab[i].addrlen == addrlen && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
                 *out = sock_bound_tab[i].sk;
+                socket_ref(*out);
                 spin_unlock(&sock_bound_lock);
                 return EOK;
             }
@@ -344,6 +349,7 @@ static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int ab
                 size_t b = strnlen_local(addr->sun_path, UNIX_PATH_MAX);
                 if (a == b) {
                     *out = sock_bound_tab[i].sk;
+                    socket_ref(*out);
                     spin_unlock(&sock_bound_lock);
                     return EOK;
                 }
@@ -448,7 +454,8 @@ size_t socket_format_unix_table(char *buffer, size_t capacity)
         uint32_t flags = sk->state == SOCK_STATE_LISTENING ? 0x00010000U : 0;
         uint32_t state = sk->state == SOCK_STATE_CONNECTED ? 3U : 1U;
         uint64_t inode = sk->bound_node ? sk->bound_node->inode : sk->node ? sk->node->inode : 0;
-        n              = snprintf(buffer + used, capacity - used, "%016llx: %08x %08x %08x %04x %02x %llu %s\n", (unsigned long long)(uintptr_t)sk, sk->refcount, 0U, flags, sk->type, state,
+        uint32_t refs  = __atomic_load_n(&sk->refcount, __ATOMIC_ACQUIRE);
+        n              = snprintf(buffer + used, capacity - used, "%016llx: %08x %08x %08x %04x %02x %llu %s\n", (unsigned long long)(uintptr_t)sk, refs, 0U, flags, sk->type, state,
                                   (unsigned long long)inode, path);
         if (n < 0) break;
         size_t appended = (size_t)n;
@@ -636,12 +643,92 @@ static size_t socket_take_rights(socket_t *sk, process_file_t **files, size_t ca
     return count;
 }
 
-static void socket_free(socket_t *sk)
+/*
+ * Deliver readiness while the socket lock pins sk->node.  The VFS close path
+ * takes the same lock before clearing the pointer, so the anonymous node
+ * cannot be finalized between the pointer load and vfs_poll_notify().
+ */
+static void socket_poll_notify(socket_t *sk, uint32_t events)
 {
     if (!sk) return;
 
-    sk->refcount--;
-    if (sk->refcount > 0) return;
+    spin_lock(&sk->lock);
+    if (sk->node) vfs_poll_notify(sk->node, events);
+    spin_unlock(&sk->lock);
+}
+
+/* Take a reference on a socket that is already protected by an owner/lock. */
+static void socket_ref(socket_t *sk)
+{
+    if (sk) (void)__atomic_add_fetch(&sk->refcount, 1, __ATOMIC_ACQ_REL);
+}
+
+/* Lock a connected pair in address order so simultaneous close cannot ABBA. */
+static void socket_pair_lock(socket_t *first, socket_t *second)
+{
+    if ((uintptr_t)first < (uintptr_t)second) {
+        spin_lock(&first->lock);
+        spin_lock(&second->lock);
+    } else {
+        spin_lock(&second->lock);
+        spin_lock(&first->lock);
+    }
+}
+
+static void socket_pair_unlock(socket_t *first, socket_t *second)
+{
+    if ((uintptr_t)first < (uintptr_t)second) {
+        spin_unlock(&second->lock);
+        spin_unlock(&first->lock);
+    } else {
+        spin_unlock(&first->lock);
+        spin_unlock(&second->lock);
+    }
+}
+
+/*
+ * Tear down both directions of a peer link.  Each pointer owns one reference
+ * to its target; releases are postponed until after both locks are dropped.
+ */
+static void socket_disconnect_peer(socket_t *sk)
+{
+    socket_t *peer;
+    bool      drop_peer_link = false;
+    bool      drop_sk_link   = false;
+
+    if (!sk) return;
+    spin_lock(&sk->lock);
+    peer = sk->peer;
+    if (peer) socket_ref(peer); /* transient pin while acquiring both locks */
+    spin_unlock(&sk->lock);
+    if (!peer) return;
+
+    socket_pair_lock(sk, peer);
+    if (sk->peer == peer) {
+        sk->peer = NULL;
+        sk->state = SOCK_STATE_DISCONNECTING;
+        drop_peer_link = true;
+    }
+    if (peer->peer == sk) {
+        peer->peer  = NULL;
+        peer->state = SOCK_STATE_DISCONNECTING;
+        drop_sk_link = true;
+    }
+    socket_pair_unlock(sk, peer);
+
+    sock_blocked_wake_all(sk);
+    sock_blocked_wake_all(peer);
+    socket_poll_notify(peer, 0x01d);
+
+    if (drop_peer_link) socket_unref(peer);
+    if (drop_sk_link) socket_unref(sk);
+    socket_unref(peer); /* transient pin */
+}
+
+/* Final destructor; all externally visible owners have already gone away. */
+static void socket_destroy(socket_t *sk)
+{
+    if (!sk) return;
 
     if ((sk->family == AF_INET || sk->family == AF_INET6) && sk->priv) {
         const struct inet_backend_ops *ops = inet_backend_get();
@@ -667,17 +754,20 @@ static void socket_free(socket_t *sk)
     /* Wake any blocked tasks */
     sock_blocked_wake_all(sk);
 
-    /* Free peer reference */
+    /* A one-way residual link can exist on an allocation-failure path. */
     if (sk->peer) {
-        sk->peer->peer = NULL;
-        sock_blocked_wake_all(sk->peer);
-        socket_free(sk->peer);
+        socket_t *peer = sk->peer;
+        sk->peer       = NULL;
+        socket_unref(peer);
     }
 
     /* Free accept queue */
     if (sk->accept_queue) {
         for (uint32_t i = 0; i < sk->accept_queue_len; i++) {
-            if (sk->accept_queue[i]) socket_free(sk->accept_queue[i]);
+            if (sk->accept_queue[i]) {
+                socket_disconnect_peer(sk->accept_queue[i]);
+                socket_unref(sk->accept_queue[i]);
+            }
         }
         free(sk->accept_queue);
         sk->accept_queue = NULL;
@@ -688,25 +778,31 @@ static void socket_free(socket_t *sk)
     sock_buf_free(&sk->recv_buf);
     sock_buf_free(&sk->send_buf);
 
-    /* Close VFS node if present */
-    if (sk->node) {
-        vfs_close(sk->node);
-        sk->node = NULL;
-    }
-
     free(sk);
-}
-
-/* Take a reference on a socket. */
-static void socket_ref(socket_t *sk)
-{
-    if (sk) sk->refcount++;
 }
 
 /* Drop a reference on a socket, freeing it when none remain. */
 static void socket_unref(socket_t *sk)
 {
-    if (sk) socket_free(sk);
+    if (!sk) return;
+    uint32_t old = __atomic_fetch_sub(&sk->refcount, 1, __ATOMIC_ACQ_REL);
+    if (old == 1) socket_destroy(sk);
+    if (old == 0) {
+        __atomic_store_n(&sk->refcount, 0, __ATOMIC_RELEASE);
+        plogk("socket: refcount underflow prevented\n");
+    }
+}
+
+/* Compatibility name for allocation/error paths. */
+static void socket_free(socket_t *sk)
+{
+    socket_unref(sk);
+}
+
+/* GCC/Clang scope guard used by fd-based syscalls. */
+static void socket_scoped_unref(socket_t **sk)
+{
+    if (sk && *sk) socket_unref(*sk);
 }
 
 /* Socket fd installation */
@@ -738,8 +834,10 @@ int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags)
     node->size   = 0;
     node->mode   = 0600;
 
+    spin_lock(&sk->lock);
     sk->node = node;
     socket_ref(sk);
+    spin_unlock(&sk->lock);
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         if (ops && ops->set_event_callback) ops->set_event_callback(sk->priv, socket_inet_event, sk);
@@ -747,7 +845,6 @@ int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags)
 
     fd = process_fd_install(proc, node, O_RDWR | fd_flags);
     if (fd < 0) {
-        sk->node = NULL;
         vfs_close(node);
         return fd;
     }
@@ -768,11 +865,11 @@ static int socket_fd_nonblock(int fd)
 }
 
 /*
- * socket_from_fd - find a socket by fd in the current process
- * NOTE: returns a weak pointer (no refcount bump).
- * The caller must ensure the socket stays alive during use.
+ * socket_from_fd - find and pin a socket by fd in the current process.
+ * Callers use socket_scoped_unref so close(2) on another thread cannot free
+ * the endpoint or its VFS handle in the middle of a socket syscall.
  */
-socket_t *socket_from_fd(int fd)
+static socket_t *socket_from_fd(int fd)
 {
     process_t      *proc;
     process_file_t *file;
@@ -791,6 +888,7 @@ socket_t *socket_from_fd(int fd)
     if (file->node->type != file_socket) goto out;
 
     sk = (socket_t *)file->node->handle;
+    if (sk) socket_ref(sk);
 out:
     spin_unlock(&proc->fd_lock);
     return sk;
@@ -962,7 +1060,7 @@ static int unix_listen(socket_t *sk, uint32_t backlog)
 /* UNIX stream connect */
 static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
 {
-    socket_t *listener = NULL;
+    socket_t *listener __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int       abstract;
     int       ret;
 
@@ -1031,7 +1129,19 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     server->uid = listener->uid;
     server->gid = listener->gid;
 
-    /* Link the two sockets */
+    /*
+     * close(2) may race this syscall after the pathname lookup.  Publish the
+     * bidirectional link only while holding the client lock and only if the
+     * endpoint is still connectable.
+     */
+    spin_lock(&sk->lock);
+    if (sk->state != SOCK_STATE_UNCONNECTED || sk->peer) {
+        int error = sk->state == SOCK_STATE_CONNECTED ? -EISCONN : -ECONNABORTED;
+        spin_unlock(&sk->lock);
+        spin_unlock(&listener->lock);
+        socket_unref(server);
+        return error;
+    }
     server->peer = sk;
     socket_ref(sk);
     sk->peer = server;
@@ -1053,10 +1163,14 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     listener->accept_queue_len++;
     socket_ref(server);
 
+    spin_unlock(&sk->lock);
     spin_unlock(&listener->lock);
 
     sock_blocked_wake(listener);
-    if (listener->node) vfs_poll_notify(listener->node, 0x001);
+    socket_poll_notify(listener, 0x001);
+
+    /* The peer link and accept queue now own the server endpoint. */
+    socket_unref(server);
 
     return EOK;
 }
@@ -1109,15 +1223,19 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
         if (client->peer_addr_len > 0) {
             int ret = socket_copy_address_to_user((sockaddr_t *)addr, addrlen, (sockaddr_t *)&client->peer_addr, client->peer_addr_len);
             if (ret < 0) {
+                socket_disconnect_peer(client);
                 socket_unref(client);
                 return ret;
             }
         }
     }
 
-    /* Install the client socket into the current process */
+    /* Install the client socket, then release the accept-queue reference. */
     client->flags = (uint32_t)(flags & SOCK_NONBLOCK);
-    return socket_fd_install_flags(client, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
+    int fd = socket_fd_install_flags(client, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
+    if (fd < 0) socket_disconnect_peer(client);
+    socket_unref(client);
+    return fd;
 }
 
 /* UNIX stream send */
@@ -1220,7 +1338,7 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
 
     /* Wake the peer if it's blocked on recv */
     sock_blocked_wake(peer);
-    if (peer->node) vfs_poll_notify(peer->node, 0x001);
+    socket_poll_notify(peer, 0x001);
 
     socket_unref(peer);
 
@@ -1242,6 +1360,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
     uint32_t  total_read = 0;
     socket_t *peer;
     int       ret;
+    bool      shutdown_read;
 
     if (sk->type != SOCK_STREAM && sk->type != SOCK_SEQPACKET) return -EOPNOTSUPP;
 
@@ -1273,7 +1392,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
                 return -EAGAIN;
             }
             /* Check if peer is still connected */
-            if (!peer || peer->state == SOCK_STATE_DISCONNECTING) {
+            if (!peer) {
                 spin_unlock(&sk->lock);
                 return 0;
             }
@@ -1300,15 +1419,23 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
         if (rd < chunk) break;
     }
 
+    if (!peek && total_read > 0) {
+        peer = sk->peer;
+        if (peer) socket_ref(peer);
+    } else {
+        peer = NULL;
+    }
+    shutdown_read = (sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD)) != 0;
     spin_unlock(&sk->lock);
 
-    if (!peek && total_read > 0 && peer) {
+    if (peer) {
         sock_blocked_wake(peer);
-        if (peer->node) vfs_poll_notify(peer->node, 0x004);
+        socket_poll_notify(peer, 0x004);
+        socket_unref(peer);
     }
 
     ret = (int)total_read;
-    if (ret == 0 && !(flags & MSG_PEEK) && !(sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD))) return 0;
+    if (ret == 0 && !(flags & MSG_PEEK) && !shutdown_read) return 0;
     return ret;
 }
 
@@ -1375,7 +1502,7 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
     spin_unlock(&peer->lock);
 
     sock_blocked_wake(peer);
-    if (peer->node) vfs_poll_notify(peer->node, 0x001);
+    socket_poll_notify(peer, 0x001);
     socket_unref(peer);
     return (int)len;
 }
@@ -1428,7 +1555,11 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
         return -EIO;
     }
     if (!peek) sock_buf_discard(&sk->recv_buf, header_size + packet_len);
-    peer = sk->peer;
+    peer = NULL;
+    if (!peek && sk->peer) {
+        peer = sk->peer;
+        socket_ref(peer);
+    }
     spin_unlock(&sk->lock);
 
     if (message_flags) {
@@ -1438,7 +1569,8 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
     if (record_size) *record_size = packet_len;
     if (!peek && peer) {
         sock_blocked_wake(peer);
-        if (peer->node) vfs_poll_notify(peer->node, 0x004);
+        socket_poll_notify(peer, 0x004);
+        socket_unref(peer);
     }
     return (int)copied;
 }
@@ -1446,7 +1578,7 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
 /* UNIX datagram send */
 static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags)
 {
-    socket_t *dest = NULL;
+    socket_t *dest __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int       abstract;
     int       ret;
     int       is_nonblock;
@@ -1465,10 +1597,13 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
 
         ret = sock_bound_lookup(addr, addrlen, abstract, &dest);
         if (ret != EOK || !dest) return -ECONNREFUSED;
-    } else if (sk->peer) {
+    } else {
+        spin_lock(&sk->lock);
         dest = sk->peer;
-    } else
-        return -EDESTADDRREQ;
+        if (dest) socket_ref(dest);
+        spin_unlock(&sk->lock);
+        if (!dest) return -EDESTADDRREQ;
+    }
 
     if (dest == sk) return -EINVAL;
 
@@ -1511,7 +1646,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
 
     /* Wake destination */
     sock_blocked_wake(dest);
-    if (dest->node) vfs_poll_notify(dest->node, 0x001);
+    socket_poll_notify(dest, 0x001);
 
     if (written < (uint32_t)len) {
         plogk("socket: Unix datagram send short write (%u of %u bytes)\n", (unsigned)written, (unsigned)len);
@@ -1597,7 +1732,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
 
     if (!peek) {
         sock_blocked_wake_all(sk);
-        if (sk->node) vfs_poll_notify(sk->node, 0x004);
+        socket_poll_notify(sk, 0x004);
     }
 
     return (int)rd;
@@ -1776,9 +1911,12 @@ static void socket_vfs_close(void *current)
     socket_t *sk = (socket_t *)current;
     if (!sk) return;
 
+    spin_lock(&sk->lock);
     sk->shutdown_mask |= SOCK_SHUT_MASK(SHUT_RD) | SOCK_SHUT_MASK(SHUT_WR);
-    sock_blocked_wake_all(sk);
+    sk->state = SOCK_STATE_DISCONNECTING;
     if (sk->node) vfs_poll_notify(sk->node, 0x01d);
+    spin_unlock(&sk->lock);
+    sock_blocked_wake_all(sk);
 }
 
 static int socket_vfs_free(void *handle)
@@ -1786,55 +1924,24 @@ static int socket_vfs_free(void *handle)
     socket_t *sk = (socket_t *)handle;
     if (!sk) return -EINVAL;
 
-    if ((sk->family == AF_INET || sk->family == AF_INET6) && sk->priv) {
-        const struct inet_backend_ops *ops = inet_backend_get();
-        if (ops && ops->close) ops->close(sk->priv);
-        sk->priv = NULL;
-    }
-
-    /* Netlink cleanup */
-    if (sk->family == AF_NETLINK && sk->priv) netlink_close(sk);
-
-    /* Remove from bound registry */
+    /* Stop new pathname lookups before releasing the VFS-owned reference. */
     sock_bound_remove(sk);
 
-    if (sk->bound_node) {
-        vfs_close(sk->bound_node);
-        sk->bound_node = NULL;
-    }
-
-    /* Wake all blocked tasks */
-    sock_blocked_wake_all(sk);
-
-    /* Disconnect from peer */
-    if (sk->peer) {
-        socket_t *peer = sk->peer;
-        sk->peer       = NULL;
-        peer->peer     = NULL;
-        peer->state    = SOCK_STATE_DISCONNECTING;
-        sock_blocked_wake_all(peer);
-        if (peer->node) vfs_poll_notify(peer->node, 0x01d);
-        socket_unref(peer);
-    }
-
-    /* Free accept queue */
-    if (sk->accept_queue) {
-        for (uint32_t i = 0; i < sk->accept_queue_len; i++) {
-            if (sk->accept_queue[i]) socket_unref(sk->accept_queue[i]);
-        }
-        free(sk->accept_queue);
-        sk->accept_queue = NULL;
-    }
-
-    /* Free buffers */
-    socket_drop_rights(sk);
-    sock_buf_free(&sk->recv_buf);
-    sock_buf_free(&sk->send_buf);
-
-    /* Clear VFS node reference */
+    /*
+     * The node is about to be freed by vfs_close().  Publish NULL under the
+     * same lock used by socket_poll_notify(), then sever the peer links while
+     * both endpoints are still reference-counted.
+     */
+    spin_lock(&sk->lock);
     sk->node = NULL;
+    sk->shutdown_mask |= SOCK_SHUT_MASK(SHUT_RD) | SOCK_SHUT_MASK(SHUT_WR);
+    sk->state = SOCK_STATE_DISCONNECTING;
+    spin_unlock(&sk->lock);
+    sock_blocked_wake_all(sk);
+    socket_disconnect_peer(sk);
 
-    free(sk);
+    /* Backend, queues and buffers live until in-flight syscalls drop pins. */
+    socket_unref(sk); /* VFS-node ownership */
     return EOK;
 }
 
@@ -1984,6 +2091,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
             socket_free(sk);
             return fd;
         }
+        socket_unref(sk); /* creator reference; VFS node owns the endpoint */
         return fd;
     } else if (sock_family != AF_UNIX && sock_family != AF_LOCAL)
         return -EAFNOSUPPORT;
@@ -2005,13 +2113,14 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
         return fd;
     }
 
+    socket_unref(sk); /* creator reference; VFS node owns the endpoint */
     return (int64_t)fd;
 }
 
 /* sys_bind */
 int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
-    socket_t     *sk;
+    socket_t     *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     sockaddr_un_t kaddr;
     int           ret;
 
@@ -2053,7 +2162,7 @@ int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 /* sys_listen */
 int64_t sys_listen(int fd, int backlog)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int       ret;
 
     sk = socket_from_fd(fd);
@@ -2074,7 +2183,7 @@ int64_t sys_listen(int fd, int backlog)
 /* sys_accept */
 int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int       ret;
 
     sk = socket_from_fd(fd);
@@ -2107,7 +2216,7 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
             return ret;
         }
         fd_new = socket_fd_install_flags(accepted, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
-        if (fd_new < 0) socket_free(accepted);
+        socket_unref(accepted); /* drop creator on both success and failure */
         return fd_new;
     }
 
@@ -2119,7 +2228,7 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 /* sys_connect */
 int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
-    socket_t     *sk;
+    socket_t     *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     sockaddr_un_t kaddr;
     int           ret;
 
@@ -2168,7 +2277,7 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 /* sys_sendto */
 int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_t *addr, uint32_t addrlen)
 {
-    socket_t     *sk;
+    socket_t     *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     sockaddr_un_t kaddr;
     void         *kbuf;
     int           ret;
@@ -2273,7 +2382,7 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
 /* sys_recvfrom */
 int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr, uint32_t *addrlen)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     void     *kbuf;
     int       ret;
 
@@ -2819,7 +2928,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 /* sys_sendmsg */
 int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
 {
-    socket_t       *sk;
+    socket_t       *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     msghdr_t        kmsg;
     iovec_t        *iov;
     void           *kbuf;
@@ -2904,7 +3013,7 @@ int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
 /* sys_recvmsg */
 int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     msghdr_t  kmsg;
     iovec_t  *iov;
     void     *kbuf;
@@ -2969,7 +3078,8 @@ int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
 /* sys_shutdown */
 int64_t sys_shutdown(int fd, int how)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
+    socket_t *peer = NULL;
 
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
@@ -2992,16 +3102,18 @@ int64_t sys_shutdown(int fd, int how)
     }
 
     sk->shutdown_mask |= SOCK_SHUT_MASK(how);
-
-    /* Wake blocked tasks */
-    sock_blocked_wake_all(sk);
-
-    if (sk->peer) sock_blocked_wake_all(sk->peer);
+    peer = sk->peer;
+    if (peer) socket_ref(peer);
 
     spin_unlock(&sk->lock);
 
-    if (sk->node) vfs_poll_notify(sk->node, 0x01d);
-    if (sk->peer && sk->peer->node) vfs_poll_notify(sk->peer->node, 0x01d);
+    sock_blocked_wake_all(sk);
+    socket_poll_notify(sk, 0x01d);
+    if (peer) {
+        sock_blocked_wake_all(peer);
+        socket_poll_notify(peer, 0x01d);
+        socket_unref(peer);
+    }
 
     return EOK;
 }
@@ -3053,7 +3165,9 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     uint64_t fd_flags = ((socket_flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((socket_flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0);
     fd1               = socket_fd_install_flags(sk1, fd_flags);
     if (fd1 < 0) {
-        socket_free(sk2);
+        socket_disconnect_peer(sk1);
+        socket_unref(sk1);
+        socket_unref(sk2);
         return (int64_t)fd1;
     }
 
@@ -3061,6 +3175,9 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     if (fd2 < 0) {
         process_t *proc = process_current();
         if (proc) process_fd_close(proc, fd1);
+        socket_disconnect_peer(sk1);
+        socket_unref(sk1);
+        socket_unref(sk2);
         return (int64_t)fd2;
     }
 
@@ -3085,7 +3202,7 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
 /* sys_getsockname */
 int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     uint32_t  kaddrlen;
 
     sk = socket_from_fd(fd);
@@ -3127,7 +3244,7 @@ int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 /* sys_getpeername */
 int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     uint32_t  kaddrlen;
 
     sk = socket_from_fd(fd);
@@ -3162,7 +3279,7 @@ int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 /* sys_setsockopt */
 int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t optlen)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int       ival;
     linger_t  linger;
 
@@ -3317,7 +3434,7 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
 /* sys_getsockopt */
 int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int       ival;
     uint32_t  koptlen;
     linger_t  linger;
@@ -3450,7 +3567,7 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 /* sys_sendmmsg */
 int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int64_t   total = 0;
 
     if (!msgvec || vlen == 0) return -EINVAL;
@@ -3553,7 +3670,7 @@ int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
 /* sys_recvmmsg */
 int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeout)
 {
-    socket_t *sk;
+    socket_t *sk __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int64_t   total = 0;
 
     (void)timeout;

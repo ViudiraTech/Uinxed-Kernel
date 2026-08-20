@@ -323,7 +323,7 @@ int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_obj
  * TRANSFER -> SET_SCANOUT -> FLUSH ordering; an already-bound resource
  * skips the redundant SET_SCANOUT command.
  */
-int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, bool set_scanout)
+int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, uint32_t width, uint32_t height, bool set_scanout)
 {
     struct virtio_gpu_transfer_to_host_2d transfer;
     struct virtio_gpu_set_scanout         scanout;
@@ -332,28 +332,28 @@ int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_i
     struct virtgpu_vq_command             commands[3];
     uint32_t                              count = 0;
 
-    if (!vgdev || !obj) {
+    if (!vgdev || !obj || !width || !height || width > obj->width || height > obj->height) {
         plogk("virtgpu: Update_scanout_2d: invalid argument.\n");
         return -EINVAL;
     }
 
     memset(&transfer, 0, sizeof(transfer));
     transfer.hdr.type    = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D;
-    transfer.r.width     = obj->width;
-    transfer.r.height    = obj->height;
+    transfer.r.width     = width;
+    transfer.r.height    = height;
     transfer.resource_id = obj->hw_res_handle;
 
     memset(&scanout, 0, sizeof(scanout));
     scanout.hdr.type    = VIRTIO_GPU_CMD_SET_SCANOUT;
-    scanout.r.width     = obj->width;
-    scanout.r.height    = obj->height;
+    scanout.r.width     = width;
+    scanout.r.height    = height;
     scanout.scanout_id  = scanout_id;
     scanout.resource_id = obj->hw_res_handle;
 
     memset(&flush, 0, sizeof(flush));
     flush.hdr.type    = VIRTIO_GPU_CMD_RESOURCE_FLUSH;
-    flush.r.width     = obj->width;
-    flush.r.height    = obj->height;
+    flush.r.width     = width;
+    flush.r.height    = height;
     flush.resource_id = obj->hw_res_handle;
 
     memset(responses, 0, sizeof(responses));

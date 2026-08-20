@@ -23,6 +23,7 @@
 #include <process/task.h>
 #include <process/uaccess.h>
 #include <sync/rt_mutex.h>
+#include <sync/signal.h>
 #include <sync/spin_lock.h>
 
 /* Constants */
@@ -78,6 +79,53 @@ typedef struct futex_bucket {
 /* Static state */
 
 static futex_bucket_t futex_hash[FUTEX_HASH_SIZE];
+
+#define FUTEX_WAITV_MAX 128U
+
+typedef struct futex_waitv_registration {
+        process_t                       *owner;
+        struct futex_waitv              *waiters;
+        uint32_t                         count;
+        int                              woken_index;
+        bool                             registered;
+        wait_queue_t                     wq;
+        struct futex_waitv_registration *next;
+} futex_waitv_registration_t;
+
+static spinlock_t                  futex_waitv_notify_lock;
+static futex_waitv_registration_t *futex_waitv_registrations;
+
+static bool futex_signal_pending(void)
+{
+    process_t *proc = process_current();
+    if (!proc) return false;
+    spin_lock(&proc->signal.lock);
+    bool pending = signal_has_interrupting_pending(&proc->signal);
+    spin_unlock(&proc->signal.lock);
+    return pending;
+}
+
+/* Wake registered vector waiters on this address, up to the caller's limit. */
+static int futex_waitv_notify(uintptr_t key, int max_wake)
+{
+    if (max_wake <= 0) return 0;
+
+    process_t *owner = process_current();
+    int        woken = 0;
+    spin_lock(&futex_waitv_notify_lock);
+    for (futex_waitv_registration_t *registration = futex_waitv_registrations; registration && woken < max_wake; registration = registration->next) {
+        if (!registration->registered || registration->woken_index >= 0 || registration->owner != owner) continue;
+        for (uint32_t i = 0; i < registration->count; i++) {
+            if ((uintptr_t)registration->waiters[i].uaddr != key) continue;
+            registration->woken_index = (int)i;
+            wait_queue_wake_all(&registration->wq);
+            woken++;
+            break;
+        }
+    }
+    spin_unlock(&futex_waitv_notify_lock);
+    return woken;
+}
 
 /* Hash a user address into a bucket index. */
 static inline uint32_t futex_hash_index(uint32_t *uaddr)
@@ -296,11 +344,17 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint64_t 
     wait_queue_prepare(&entry->wq);
     spin_unlock(&bucket->lock);
 
-    if (timeout)
-        ret = wait_queue_wait_timed(&entry->wq, deadline);
-    else {
-        wait_queue_sleep();
-        ret = 0;
+    if (futex_signal_pending()) {
+        wait_queue_cancel(&entry->wq);
+        ret = -ERESTARTSYS;
+    } else {
+        if (timeout)
+            ret = wait_queue_wait_timed(&entry->wq, deadline);
+        else {
+            wait_queue_sleep();
+            ret = 0;
+        }
+        if (futex_signal_pending()) ret = -ERESTARTSYS;
     }
 
     spin_lock(&bucket->lock);
@@ -351,6 +405,8 @@ int futex_wake(uint32_t *uaddr, int nr_wake, uint64_t bitset)
      */
 
     spin_unlock(&bucket->lock);
+
+    woken += futex_waitv_notify((uintptr_t)uaddr, nr_wake - woken);
 
     return woken;
 }
@@ -1184,11 +1240,17 @@ static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val
     wait_queue_prepare(&entry->wq);
     spin_unlock(&bucket->lock);
 
-    if (timeout)
-        ret = wait_queue_wait_timed(&entry->wq, deadline);
-    else {
-        wait_queue_sleep();
-        ret = 0;
+    if (futex_signal_pending()) {
+        wait_queue_cancel(&entry->wq);
+        ret = -ERESTARTSYS;
+    } else {
+        if (timeout)
+            ret = wait_queue_wait_timed(&entry->wq, deadline);
+        else {
+            wait_queue_sleep();
+            ret = 0;
+        }
+        if (futex_signal_pending()) ret = -ERESTARTSYS;
     }
 
     spin_lock(&bucket->lock);
@@ -1202,7 +1264,7 @@ static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val
  * Wake up to nr_wake waiters whose mask overlaps `mask` on the futex2
  * word identified by `key`.  Returns the number actually woken.
  */
-static int futex2_wake_core(uintptr_t key, int nr_wake, uint64_t mask)
+static int futex2_wake_core(uintptr_t key, uintptr_t user_address, int nr_wake, uint64_t mask)
 {
     futex_bucket_t *bucket = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key)];
     futex_entry_t  *entry;
@@ -1223,7 +1285,153 @@ static int futex2_wake_core(uintptr_t key, int nr_wake, uint64_t mask)
     }
     /* Cleanup is deferred to the final waiter, like classic futex_wake. */
     spin_unlock(&bucket->lock);
+    woken += futex_waitv_notify(user_address, nr_wake - woken);
     return woken;
+}
+
+/* Remove one vector registration and return the index selected by wake. */
+static int futex_waitv_unregister(futex_waitv_registration_t *registration)
+{
+    spin_lock(&futex_waitv_notify_lock);
+    if (registration->registered) {
+        futex_waitv_registration_t **link = &futex_waitv_registrations;
+        while (*link && *link != registration) link = &(*link)->next;
+        if (*link) {
+            *link                    = registration->next;
+            registration->registered = false;
+        }
+    }
+    int index = registration->woken_index;
+    spin_unlock(&futex_waitv_notify_lock);
+    return index;
+}
+
+/* Linux futex_waitv(2): wait until any one of a vector of 32-bit futexes wakes. */
+int64_t sys_futex_waitv(uint64_t waiters_ptr, uint64_t nr_waiters, uint64_t flags, uint64_t timeout, uint64_t clockid, uint64_t reserved)
+{
+    (void)reserved;
+    if (!waiters_ptr) return -EFAULT;
+    if (!nr_waiters || nr_waiters > FUTEX_WAITV_MAX || flags) return -EINVAL;
+    if (clockid != 0 && clockid != 1) return -EINVAL;
+
+    size_t bytes = (size_t)nr_waiters * sizeof(struct futex_waitv);
+    struct futex_waitv *waiters = malloc(bytes);
+    if (!waiters) return -ENOMEM;
+    if (copy_from_user(waiters, (const void *)(uintptr_t)waiters_ptr, bytes)) {
+        free(waiters);
+        return -EFAULT;
+    }
+
+    for (uint32_t i = 0; i < (uint32_t)nr_waiters; i++) {
+        if (waiters[i].__reserved || (waiters[i].flags & ~(FUTEX2_SIZE_MASK | FUTEX_PRIVATE_FLAG)) || (waiters[i].flags & FUTEX2_SIZE_MASK) != FUTEX2_SIZE_U32 || waiters[i].val > UINT32_MAX) {
+            free(waiters);
+            return -EINVAL;
+        }
+        if (!waiters[i].uaddr || !user_access_ok((void *)(uintptr_t)waiters[i].uaddr, sizeof(uint32_t), 0)) {
+            free(waiters);
+            return -EFAULT;
+        }
+        uint32_t value;
+        if (copy_from_user(&value, (const void *)(uintptr_t)waiters[i].uaddr, sizeof(value))) {
+            free(waiters);
+            return -EFAULT;
+        }
+        if (value != (uint32_t)waiters[i].val) {
+            free(waiters);
+            return -EAGAIN;
+        }
+    }
+
+    uint64_t deadline = 0;
+    if (timeout) {
+        int ret = futex_read_timespec(timeout, &deadline);
+        if (ret) {
+            free(waiters);
+            return ret;
+        }
+        deadline = futex_deadline(deadline, 1, clockid == 0);
+    }
+
+    for (;;) {
+        futex_waitv_registration_t registration = {
+            .owner       = process_current(),
+            .waiters     = waiters,
+            .count       = (uint32_t)nr_waiters,
+            .woken_index = -1,
+        };
+        int changed = -1;
+        int error   = 0;
+
+        wait_queue_init(&registration.wq);
+
+        /*
+         * Serialize the final value check with futex_wake's registration
+         * scan.  The task is on its registration's wait queue before this lock is
+         * released, closing both setup-before-wake and wake-before-sleep.
+         */
+        spin_lock(&futex_waitv_notify_lock);
+        for (uint32_t i = 0; i < (uint32_t)nr_waiters; i++) {
+            uint32_t value;
+            if (copy_from_user(&value, (const void *)(uintptr_t)waiters[i].uaddr, sizeof(value))) {
+                error = -EFAULT;
+                break;
+            }
+            if (value != (uint32_t)waiters[i].val) {
+                changed = (int)i;
+                break;
+            }
+        }
+        if (!error && changed < 0) {
+            registration.next       = futex_waitv_registrations;
+            registration.registered = true;
+            futex_waitv_registrations = &registration;
+            wait_queue_prepare(&registration.wq);
+        }
+        spin_unlock(&futex_waitv_notify_lock);
+
+        if (error) {
+            free(waiters);
+            return error;
+        }
+        if (changed >= 0) {
+            free(waiters);
+            return changed;
+        }
+
+        if (futex_signal_pending()) {
+            int index = futex_waitv_unregister(&registration);
+            wait_queue_cancel(&registration.wq);
+            free(waiters);
+            return index >= 0 ? index : -ERESTARTSYS;
+        }
+
+        if (timeout) {
+            if (sched_ticks() >= deadline) {
+                int index = futex_waitv_unregister(&registration);
+                wait_queue_cancel(&registration.wq);
+                free(waiters);
+                return index >= 0 ? index : -ETIMEDOUT;
+            }
+            (void)wait_queue_wait_timed(&registration.wq, deadline);
+        } else {
+            wait_queue_sleep();
+        }
+
+        int index = futex_waitv_unregister(&registration);
+        wait_queue_cancel(&registration.wq);
+        if (index >= 0) {
+            free(waiters);
+            return index;
+        }
+        if (futex_signal_pending()) {
+            free(waiters);
+            return -ERESTARTSYS;
+        }
+        if (timeout && sched_ticks() >= deadline) {
+            free(waiters);
+            return -ETIMEDOUT;
+        }
+    }
 }
 
 /* Find the first entry with the given key (bucket lock must be held). */
@@ -1330,7 +1538,7 @@ int64_t sys_futex_wake(uint64_t uaddr, uint64_t mask, uint64_t nr, uint64_t flag
     if (!uaddr) return -EFAULT;
     if (user_access_ok((void *)(uintptr_t)uaddr, futex2_size_bytes(size_code), 0) == 0) return -EFAULT;
 
-    return futex2_wake_core(futex2_key(uaddr, size_code), (int)nr, mask);
+    return futex2_wake_core(futex2_key(uaddr, size_code), (uintptr_t)uaddr, (int)nr, mask);
 }
 
 /*

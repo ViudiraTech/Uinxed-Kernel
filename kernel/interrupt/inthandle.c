@@ -42,8 +42,9 @@ static inline int user_exception(interrupt_frame_t *frame, int sig, int code, co
             info.si_code   = code;
             info.si_addr   = (void *)frame->rip;
 
-            if (msg) plogk("%s (pid=%llu): %s\n", name, proc->task->pid, msg);
-            signal_send_thread(proc->task, sig, &info);
+            task_t *fault_task = current_task();
+            if (msg) plogk("%s (pid=%llu): %s\n", name, fault_task ? fault_task->pid : proc->task->pid, msg);
+            signal_send_thread(fault_task ? fault_task : proc->task, sig, &info);
 
             syscall_frame_t sigframe = {0};
             sigframe.rip             = frame->rip;

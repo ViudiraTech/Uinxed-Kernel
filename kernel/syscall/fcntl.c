@@ -13,6 +13,7 @@
 #include <kernel/printk.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
+#include <process/file_status.h>
 #include <process/process.h>
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
@@ -137,8 +138,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             /* Only O_NONBLOCK and O_APPEND can be changed */
             uint64_t settable = O_NONBLOCK | O_APPEND;
             spin_lock(&file->lock);
-            uint64_t current = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
-            __atomic_store_n(&file->flags, (current & ~settable) | (arg & settable), __ATOMIC_RELAXED);
+            file->flags = process_file_status_flags_merge(file->flags, settable, arg);
             spin_unlock(&file->lock);
             result = 0;
             break;

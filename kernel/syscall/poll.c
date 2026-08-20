@@ -72,6 +72,7 @@ typedef struct {
 
 typedef struct {
         signal_state_t *state;
+        task_t         *task;
         sigset_t        old_mask;
         bool            active;
 } poll_sigmask_guard_t;
@@ -275,9 +276,11 @@ static int poll_sigmask_install(process_t *proc, const sigset_t *new_mask, poll_
     sigdelset(&mask, SIGSTOP);
 
     guard->state = &proc->signal;
+    guard->task  = current_task();
+    if (!guard->task || guard->task->process != proc) return -ESRCH;
     spin_lock(&guard->state->lock);
-    guard->old_mask       = guard->state->blocked;
-    guard->state->blocked = mask;
+    guard->old_mask             = guard->task->signal_blocked;
+    guard->task->signal_blocked = mask;
     guard->active         = true;
     spin_unlock(&guard->state->lock);
     return EOK;
@@ -289,10 +292,10 @@ static void poll_sigmask_finish(poll_sigmask_guard_t *guard, bool interrupted)
     if (!guard->active) return;
     spin_lock(&guard->state->lock);
     if (interrupted && signal_has_pending(guard->state)) {
-        guard->state->saved_mask   = guard->old_mask;
-        guard->state->restore_mask = true;
+        guard->task->signal_saved_mask   = guard->old_mask;
+        guard->task->signal_restore_mask = true;
     } else {
-        guard->state->blocked = guard->old_mask;
+        guard->task->signal_blocked = guard->old_mask;
     }
     spin_unlock(&guard->state->lock);
 }
@@ -334,7 +337,11 @@ static int64_t do_poll(uint64_t user_fds, uint64_t nfds, poll_timeout_t *timeout
     }
 
     poll_sigmask_guard_t guard;
-    poll_sigmask_install(proc, mask, &guard);
+    int mask_result = poll_sigmask_install(proc, mask, &guard);
+    if (mask_result != EOK) {
+        free(fds);
+        return mask_result;
+    }
     int  ret         = poll_wait(proc, fds, nfds, timeout, false);
     bool interrupted = ret == -EINTR;
 
@@ -386,7 +393,11 @@ static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uin
     }
 
     poll_sigmask_guard_t guard;
-    poll_sigmask_install(proc, mask, &guard);
+    int mask_result = poll_sigmask_install(proc, mask, &guard);
+    if (mask_result != EOK) {
+        free(fds);
+        return mask_result;
+    }
     int  ret         = poll_wait(proc, fds, nfds, timeout, true);
     bool interrupted = ret == -EINTR;
 

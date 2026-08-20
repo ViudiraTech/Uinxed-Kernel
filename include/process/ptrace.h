@@ -186,6 +186,8 @@ int64_t ptrace_wait_event(int64_t pid, int *status, int options);
 int     ptrace_signal_delivery(syscall_frame_t *frame, int sig, siginfo_t *info);
 void    ptrace_syscall_enter(syscall_frame_t *frame, uint64_t syscall_nr);
 void    ptrace_syscall_exit(syscall_frame_t *frame, int64_t result);
+bool    ptrace_seccomp_event(syscall_frame_t *frame, uint16_t data, int64_t *skip_result);
+bool    ptrace_seccomp_suspended(const task_t *task);
 void    ptrace_exec_event(syscall_frame_t *frame);
 void    ptrace_exit_event(int exit_code);
 void    ptrace_exit_notify(int exit_code);

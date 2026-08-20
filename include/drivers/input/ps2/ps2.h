@@ -32,6 +32,8 @@
 #define PS2_STATUS_OUTPUT_FULL 0x01
 #define PS2_STATUS_INPUT_FULL  0x02
 #define PS2_STATUS_AUX_DATA    0x20
+#define PS2_STATUS_TIMEOUT     0x40
+#define PS2_STATUS_PARITY      0x80
 
 #define PS2_CONFIG_PORT1_IRQ   0x01
 #define PS2_CONFIG_PORT2_IRQ   0x02
@@ -41,6 +43,9 @@
 
 #define PS2_RESPONSE_TEST     0x00
 #define PS2_RESPONSE_OK       0xfa
+#define PS2_RESPONSE_RESEND   0xfe
+#define PS2_RESPONSE_ERROR1   0xfc
+#define PS2_RESPONSE_ERROR2   0xfd
 #define PS2_RESPONSE_SELFTEST 0x55
 #define PS2_RESPONSE_RESET_OK 0xaa
 
@@ -90,11 +95,17 @@ bool ps2_port_available(bool second_port);
 /* Probe and initialize the i8042 controller and attached devices. */
 void init_ps2(void);
 
+/* Register the deferred PS/2 event worker once kernel workers are available. */
+void ps2_start_worker(void);
+
 /* Initialize the PS/2 keyboard and register its evdev device. */
 void ps2_keyboard_init(void);
 
 /* Feed one scancode byte to the keyboard decoder. */
 void ps2_keyboard_handle_byte(uint8_t scancode);
+
+/* Discard a partial keyboard sequence after a transport error. */
+void ps2_keyboard_reset_stream(void);
 
 /* Block until keyboard events are ready (worker loop helper). */
 int             ps2kbd_wait_events(void);
@@ -105,6 +116,9 @@ void ps2_mouse_init(void);
 
 /* Feed one PS/2 packet byte to the mouse decoder. */
 void ps2_mouse_handle_byte(uint8_t byte);
+
+/* Discard a partial mouse packet after a transport error. */
+void ps2_mouse_reset_stream(void);
 
 /* True if a PS/2 mouse was detected on the aux port. */
 bool            ps2_mouse_available(void);

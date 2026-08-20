@@ -24,6 +24,50 @@
 log_buffer_t      frame_log;
 frame_allocator_t frame_allocator;
 uint64_t          memory_size = 0;
+static volatile int      frame_reclaim_active;
+static volatile uint32_t frame_reclaim_backoff;
+
+/* Serialize reclaim so swap I/O cannot recursively enter reclaim allocation. */
+static int frame_try_reclaim(size_t target)
+{
+    int expected = 0;
+    if (!__atomic_compare_exchange_n(&frame_reclaim_active, &expected, 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return 0;
+    int reclaimed = swap_reclaim(target);
+    __atomic_store_n(&frame_reclaim_active, 0, __ATOMIC_RELEASE);
+    return reclaimed;
+}
+
+int frame_reclaim_pages(size_t target)
+{
+    return target ? frame_try_reclaim(target) : 0;
+}
+
+/* Start reclaim at a low watermark from a VM-safe allocation boundary. */
+void frame_reclaim_if_needed(size_t requested)
+{
+    size_t total = frame_allocator.origin_frames;
+    size_t free  = __atomic_load_n(&frame_allocator.usable_frames, __ATOMIC_RELAXED);
+    size_t low   = total / 32;
+    size_t high  = total / 16;
+    if (low < 128) low = 128;
+    if (high < low + 64) high = low + 64;
+    if (free > low || !swap_has_free_space()) return;
+
+    uint32_t backoff = __atomic_load_n(&frame_reclaim_backoff, __ATOMIC_RELAXED);
+    bool urgent = free <= requested;
+    if (backoff && !urgent) {
+        (void)__atomic_compare_exchange_n(&frame_reclaim_backoff, &backoff, backoff - 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+        return;
+    }
+
+    size_t target = high > free ? high - free : requested;
+    if (target < requested) target = requested;
+    if (target > 64) target = 64;
+    if (frame_try_reclaim(target) == 0)
+        __atomic_store_n(&frame_reclaim_backoff, 64, __ATOMIC_RELAXED);
+    else
+        __atomic_store_n(&frame_reclaim_backoff, 0, __ATOMIC_RELAXED);
+}
 
 /* Initialize memory frame */
 void init_frame(void)
@@ -115,18 +159,16 @@ void init_frame(void)
 }
 
 /* Allocate count frames aligned to 2^alignment_order pages. */
-static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order, bool reclaim)
+static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
 {
     if (!count) return 0;
     unsigned order = buddy_order_for_units(count);
     if (order > BUDDY_MAX_ORDER) return 0;
     if (alignment_order > order) order = alignment_order;
-retry:
     spin_lock(&frame_allocator.lock);
     size_t frame_index = buddy_alloc(&frame_allocator.buddy, order);
     if (frame_index == SIZE_MAX) {
         spin_unlock(&frame_allocator.lock);
-        if (reclaim && count == 1 && swap_reclaim(1) > 0) goto retry;
         return 0;
     }
     if (buddy_trim_allocation(&frame_allocator.buddy, frame_index, order, count)) {
@@ -141,30 +183,30 @@ retry:
     return frame_index * PAGE_4K_SIZE;
 }
 
-/* Allocate memory frames */
+/* Allocate memory frames; reclaim I/O is initiated only at explicit safe points. */
 uint64_t alloc_frames(size_t count)
 {
-    return alloc_frames_aligned(count, 0, true);
+    return alloc_frames_aligned(count, 0);
 }
 
-/* Allocate frames without attempting swap reclaim. */
+/* Compatibility spelling for lock-held callers; allocation itself never reclaims. */
 uint64_t alloc_frames_noreclaim(size_t count)
 {
-    return alloc_frames_aligned(count, 0, false);
+    return alloc_frames_aligned(count, 0);
 }
 
 /* Allocate 2M memory frames */
 uint64_t alloc_frames_2M(size_t count)
 {
     if (!count || count > SIZE_MAX / 512) return 0;
-    return alloc_frames_aligned(count * 512, 9, true);
+    return alloc_frames_aligned(count * 512, 9);
 }
 
 /* Allocate 1G memory frames */
 uint64_t alloc_frames_1G(size_t count)
 {
     if (!count || count > SIZE_MAX / 262144) return 0;
-    return alloc_frames_aligned(count * 262144, 18, true);
+    return alloc_frames_aligned(count * 262144, 18);
 }
 
 /* Bump the reference count of an allocated frame range. */

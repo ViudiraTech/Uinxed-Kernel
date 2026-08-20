@@ -95,6 +95,9 @@ void send_ipi_all(uint8_t vector);
 /* Send an IPI to the specified CPU */
 void send_ipi_cpu(uint32_t cpu_id, uint8_t vector);
 
+/* Queue an IPI to this CPU for delivery after the current critical section. */
+void send_ipi_self(uint8_t vector);
+
 /* Flush TLBs of all CPUs */
 void flush_tlb_all(void);
 

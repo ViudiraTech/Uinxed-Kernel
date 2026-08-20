@@ -38,6 +38,10 @@ typedef struct {
         uint64_t         nr_steals;       // tasks pulled while this CPU was idle
         uint64_t         nr_wakeups;      // wakeups targeted at this rq
         uint64_t         last_balance;    // last global tick this rq balanced
+        uint64_t         user_ticks;
+        uint64_t         system_ticks;
+        uint64_t         idle_ticks;
+        uint64_t         context_switches;
         volatile uint8_t resched_pending; // coalesce remote reschedule IPIs
         uint8_t          online;          // CPU is online
 } eevdf_rq_t;
@@ -49,6 +53,8 @@ typedef struct {
         uint32_t     nr_cpus;     // number of CPUs
         uint64_t     next_pid;    // next PID to assign
         uint64_t     ticks;       // global tick counter
+        uint64_t     tasks_created;
+        uint64_t     processes_created;
         int          started;     // 1 once sched_start() has run
         spinlock_t   lock;        // global scheduler lock
         ilist_node_t sleep_queue; // sleeping tasks (ordered by wake_tick)
@@ -88,8 +94,11 @@ int task_wakeup(task_t *task);
 /* Resume a task held in the job-control stopped state. */
 int task_continue(task_t *task);
 
+/* Move a task into the job-control stopped state. */
+int task_stop(task_t *task);
+
 /* Account one scheduler tick and preempt the current task if needed */
-void sched_tick(void);
+void sched_tick(bool user_mode);
 
 /* Return the scheduler tick count */
 uint64_t sched_ticks(void);

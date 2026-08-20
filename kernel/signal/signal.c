@@ -190,7 +190,7 @@ static void sigqueue_free(sigqueue_t *q)
 }
 
 /* Append a queued signal to the signal state */
-static int sigqueue_push(signal_state_t *state, const siginfo_t *info)
+static int sigqueue_push(signal_state_t *state, const siginfo_t *info, uint64_t target_tid)
 {
     sigqueue_t *q = sigqueue_alloc();
     if (!q) {
@@ -199,7 +199,8 @@ static int sigqueue_push(signal_state_t *state, const siginfo_t *info)
     }
 
     memcpy(&q->info, info, sizeof(siginfo_t));
-    q->next = NULL;
+    q->target_tid = target_tid;
+    q->next       = NULL;
 
     if (!state->sigqueue_head) {
         state->sigqueue_head = q;
@@ -225,11 +226,38 @@ static void sigqueue_flush(signal_state_t *state)
 }
 
 /* Caller holds state->lock. */
-static bool sigqueue_contains(const signal_state_t *state, int sig)
+static bool sigqueue_contains(const signal_state_t *state, int sig, uint64_t target_tid)
 {
     for (const sigqueue_t *entry = state->sigqueue_head; entry; entry = entry->next)
-        if (entry->info.si_signo == sig) return true;
+        if (entry->info.si_signo == sig && entry->target_tid == target_tid) return true;
     return false;
+}
+
+/* Drop queued signals directed to a thread that is leaving the group. */
+void signal_flush_task(task_t *task)
+{
+    if (!task || !task->process) return;
+    signal_state_t *state = &task->process->signal;
+    spin_lock(&state->lock);
+    sigqueue_t *entry = state->sigqueue_head;
+    sigqueue_t *prev  = NULL;
+    while (entry) {
+        sigqueue_t *next = entry->next;
+        if (entry->target_tid == task->pid) {
+            if (prev)
+                prev->next = next;
+            else
+                state->sigqueue_head = next;
+            if (state->sigqueue_tail == entry) state->sigqueue_tail = prev;
+            state->sigqueue_count--;
+            sigqueue_free(entry);
+        } else {
+            prev = entry;
+        }
+        entry = next;
+    }
+    sigemptyset(&task->signal_pending);
+    spin_unlock(&state->lock);
 }
 
 /* Signal state management */
@@ -258,13 +286,9 @@ void signal_state_init(signal_state_t *state)
     }
 
     sigemptyset(&state->pending);
-    sigemptyset(&state->blocked);
     state->sigqueue_head      = NULL;
     state->sigqueue_tail      = NULL;
     state->sigqueue_count     = 0;
-    state->altstack.ss_sp     = NULL;
-    state->altstack.ss_size   = 0;
-    state->altstack.ss_flags  = SS_DISABLE;
     state->child_exit_pending = 0;
 }
 
@@ -305,13 +329,8 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
      * helpers spuriously interrupt their first blocking syscall.
      */
     sigemptyset(&dst->pending);
-    dst->blocked      = src->restore_mask ? src->saved_mask : src->blocked;
-    dst->saved_mask   = 0;
-    dst->restore_mask = false;
-
     sigqueue_flush(dst);
 
-    dst->altstack           = src->altstack;
     dst->child_exit_code    = 0;
     dst->child_exit_pending = 0;
     dst->child_exit_pid     = 0;
@@ -330,6 +349,10 @@ void signal_flush(process_t *proc)
     spin_lock(&state->lock);
     sigemptyset(&state->pending);
     sigqueue_flush(state);
+    for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
+        task_t *task = rb_entry(node, task_t, thread_node);
+        sigemptyset(&task->signal_pending);
+    }
     spin_unlock(&state->lock);
 }
 
@@ -344,12 +367,13 @@ void signal_exec_reset(process_t *proc)
 {
     if (!proc) return;
     signal_state_t *state = &proc->signal;
+    task_t         *task  = current_task();
 
     spin_lock(&state->lock);
 
-    if (state->restore_mask) {
-        state->blocked      = state->saved_mask;
-        state->restore_mask = false;
+    if (task && task->signal_restore_mask) {
+        task->signal_blocked      = task->signal_saved_mask;
+        task->signal_restore_mask = false;
     }
 
     sigemptyset(&state->pending);
@@ -365,9 +389,11 @@ void signal_exec_reset(process_t *proc)
         }
     }
 
-    state->altstack.ss_sp    = NULL;
-    state->altstack.ss_size  = 0;
-    state->altstack.ss_flags = SS_DISABLE;
+    if (task) {
+        task->signal_altstack.ss_sp    = NULL;
+        task->signal_altstack.ss_size  = 0;
+        task->signal_altstack.ss_flags = SS_DISABLE;
+    }
 
     spin_unlock(&state->lock);
 }
@@ -401,13 +427,14 @@ int signal_check_perm(const process_t *from, const process_t *to)
  * Caller holds state->lock (state == &proc->signal), so the disposition and
  * blocked mask are stable.
  */
-static bool signal_task_ignored(const process_t *proc, int sig)
+static bool signal_task_ignored(const process_t *proc, const task_t *target, int sig)
 {
     /*
      * Linux sig_ignored(): a blocked signal is never ignored, since its
      * disposition may change before it is unblocked.
      */
-    if (sigismember(&proc->signal.blocked, sig)) return false;
+    const task_t *mask_owner = target ? target : proc->task;
+    if (mask_owner && sigismember(&mask_owner->signal_blocked, sig)) return false;
 
     /* SIGKILL and SIGSTOP may not be sent to the global init (PID 1). */
     if (is_global_init(proc) && (sig == SIGKILL || sig == SIGSTOP)) return true;
@@ -449,20 +476,22 @@ static bool signal_task_ignored(const process_t *proc, int sig)
  * disposition, or SIG_DFL/SIGKILL/SIGSTOP targeting the global init).
  * Returns 0 on success or a negative errno.
  */
-static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, const siginfo_t *info, bool *newly_pending, bool *ignored)
+static int signal_send_locked(signal_state_t *state, process_t *proc, task_t *target, int sig, const siginfo_t *info, bool *newly_pending, bool *ignored)
 {
     if (newly_pending) *newly_pending = false;
     if (ignored) *ignored = false;
 
     /* Drop signals ignored for this task before enqueueing (Linux prepare_signal). */
-    if (signal_task_ignored(proc, sig)) {
+    if (signal_task_ignored(proc, target, sig)) {
         if (ignored) *ignored = true;
         return 0;
     }
 
-    /* Standard signals coalesce, but Linux retains the first siginfo. */
+    sigset_t *pending = target ? &target->signal_pending : &state->pending;
+
+    /* Standard signals coalesce independently for the process and each thread. */
     if (!sig_is_rt(sig)) {
-        if (sigismember(&state->pending, sig)) return 0;
+        if (sigismember(pending, sig)) return 0;
     }
 
     /* Real-time signals: queue up to SIGQUEUE_MAX */
@@ -487,9 +516,9 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, c
     }
     queue_info.si_signo = sig;
 
-    int queued = state->sigqueue_count < SIGQUEUE_MAX ? sigqueue_push(state, &queue_info) : -ENOMEM;
+    int queued = state->sigqueue_count < SIGQUEUE_MAX ? sigqueue_push(state, &queue_info, target ? target->pid : 0) : -ENOMEM;
     if (queued && sig_is_rt(sig)) return -EAGAIN;
-    sigaddset(&state->pending, sig);
+    sigaddset(pending, sig);
     if (newly_pending) *newly_pending = true;
     return 0;
 }
@@ -506,7 +535,8 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
 
     bool newly_pending;
     bool ignored;
-    int  ret = signal_send_locked(state, proc, sig, info, &newly_pending, &ignored);
+    int  ret = signal_send_locked(state, proc, NULL, sig, info, &newly_pending, &ignored);
+    if (ret == 0 && sig == SIGCONT) __atomic_store_n(&state->group_stopped, false, __ATOMIC_RELEASE);
 
     spin_unlock(&state->lock);
 
@@ -520,13 +550,10 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
      */
     if (ret == 0 && newly_pending) signalfd_deliver(proc, sig, info);
 
-    bool resumed = false;
-    if (ret == 0 && (sig == SIGCONT || sig == SIGKILL) && proc->task) resumed = task_continue(proc->task) == 0;
-    if (resumed && sig == SIGCONT) process_child_continued(proc);
-
-    if (ret == 0 && !resumed) {
-        /* Wake the task if it's blocked */
-        if (proc->task) task_wakeup(proc->task);
+    if (ret == 0) {
+        /* Any unblocked member may consume a process-directed signal. */
+        process_wake_threads(proc, sig == SIGCONT || sig == SIGKILL);
+        if (sig == SIGCONT) process_child_continued(proc);
     }
     return ret;
 }
@@ -544,17 +571,20 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
 
     bool newly_pending;
     bool ignored;
-    int  ret = signal_send_locked(state, proc, sig, info, &newly_pending, &ignored);
+    int  ret = signal_send_locked(state, proc, task, sig, info, &newly_pending, &ignored);
+    if (ret == 0 && sig == SIGCONT) __atomic_store_n(&state->group_stopped, false, __ATOMIC_RELEASE);
 
     spin_unlock(&state->lock);
 
     if (ignored) return 0;
-    if (ret == 0 && newly_pending) signalfd_deliver(proc, sig, info);
-
-    bool resumed = false;
-    if (ret == 0 && (sig == SIGCONT || sig == SIGKILL)) resumed = task_continue(task) == 0;
-    if (resumed && sig == SIGCONT) process_child_continued(proc);
-    if (ret == 0 && !resumed) task_wakeup(task);
+    if (ret == 0 && sig == SIGCONT) {
+        /* SIGCONT's resume side effect is process-wide even when thread-directed. */
+        process_wake_threads(proc, true);
+        process_child_continued(proc);
+    } else if (ret == 0) {
+        if (sig == SIGKILL) (void)task_continue(task);
+        (void)task_wakeup(task);
+    }
 
     return ret;
 }
@@ -582,21 +612,33 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
 static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t *sa, const siginfo_t *info, sigset_t old_mask)
 {
     process_t *proc = process_current();
-    if (!proc || !frame) return -ESRCH;
+    task_t    *task = current_task();
+    if (!proc || !task || !frame) return -ESRCH;
 
-    uintptr_t sp, stack_limit;
+    uintptr_t alt_base = (uintptr_t)task->signal_altstack.ss_sp;
+    uintptr_t alt_top  = 0;
+    bool alt_valid
+        = !(task->signal_altstack.ss_flags & SS_DISABLE) && task->signal_altstack.ss_size && alt_base <= UINT64_MAX - task->signal_altstack.ss_size;
+    if (alt_valid) alt_top = alt_base + task->signal_altstack.ss_size;
 
-    if ((sa->sa_flags & SA_ONSTACK) && !(proc->signal.altstack.ss_flags & SS_DISABLE) && !(proc->signal.altstack.ss_flags & SS_ONSTACK)) {
-        sp          = (uintptr_t)proc->signal.altstack.ss_sp + proc->signal.altstack.ss_size;
-        stack_limit = (uintptr_t)proc->signal.altstack.ss_sp;
-    } else {
-        sp          = frame->rsp;
-        stack_limit = proc->stack_brk;
-    }
+    /*
+     * A pthread stack is an ordinary writable mmap and is not bounded by the
+     * main thread's proc->stack_brk.  Linux x86 derives the frame from the
+     * interrupted RSP and lets the user-copy/VMA checks validate it; applying
+     * the main-stack lower bound here rejected every signal delivered to a
+     * worker thread.  Alternate stacks retain their explicit overflow check.
+     */
+    bool on_altstack = alt_valid && frame->rsp > alt_base && frame->rsp <= alt_top;
+    bool use_altstack = (sa->sa_flags & SA_ONSTACK) && alt_valid && !on_altstack;
+    uintptr_t sp = use_altstack ? alt_top : frame->rsp;
+    on_altstack  = on_altstack || use_altstack;
+
+    if (!sp || sp >= PROCESS_USER_STACK_TOP || sp < 128) return -EFAULT;
 
     /* Leave the interrupted context's 128-byte red zone intact. */
     sp = (sp - 128) & ~(uint64_t)0xF;
 
+    if (sp < sizeof(signal_user_frame_t)) return -EFAULT;
     sp -= sizeof(signal_user_frame_t);
     sp &= ~(uint64_t)0xF;
 
@@ -608,9 +650,10 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
      * every aligned local by eight bytes; musl's vfprintf then faults on its
      * first movaps store.
      */
+    if (sp < sizeof(uint64_t)) return -EFAULT;
     sp -= sizeof(uint64_t);
 
-    if (sp < stack_limit) return -EFAULT;
+    if (on_altstack && (sp < alt_base || sp > alt_top || sizeof(signal_user_frame_t) > alt_top - sp)) return -EFAULT;
 
     /* Build the signal frame on the kernel stack first */
     signal_user_frame_t sig_frame;
@@ -689,10 +732,9 @@ static int signal_handle_default(process_t *proc, int sig)
             return 0;
         case SIG_DFL_STOP :
             if (proc->task) {
-                spin_lock(&scheduler.lock);
-                bool stopped      = proc->task->state != TASK_STOPPED;
-                proc->task->state = TASK_STOPPED;
-                spin_unlock(&scheduler.lock);
+                bool stopped = proc->task->state != TASK_STOPPED;
+                __atomic_store_n(&proc->signal.group_stopped, true, __ATOMIC_RELEASE);
+                process_stop_threads(proc);
                 if (stopped) process_child_stopped(proc, sig);
             }
             return 0;
@@ -718,7 +760,8 @@ static int signal_handle_default(process_t *proc, int sig)
 static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
 {
     process_t *proc = process_current();
-    if (!proc) return SIG_DELIV_HANDLED;
+    task_t    *task = current_task();
+    if (!proc || !task) return SIG_DELIV_HANDLED;
 
     signal_state_t *state = &proc->signal;
     sigaction_t    *sa    = &state->sighand[sig];
@@ -753,13 +796,13 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     sigaction_t action = *sa;
 
     /* User handler: save old mask before modifying */
-    sigset_t old_mask = state->restore_mask ? state->saved_mask : state->blocked;
+    sigset_t old_mask = task->signal_restore_mask ? task->signal_saved_mask : task->signal_blocked;
 
     /* Block the signal itself unless SA_NODEFER */
-    if (!(action.sa_flags & SA_NODEFER)) sigaddset(&state->blocked, sig);
+    if (!(action.sa_flags & SA_NODEFER)) sigaddset(&task->signal_blocked, sig);
 
     /* Block additional signals in sa_mask */
-    sigorset(&state->blocked, &state->blocked, &action.sa_mask);
+    sigorset(&task->signal_blocked, &task->signal_blocked, &action.sa_mask);
 
     /*
      * SA_RESETHAND affects future deliveries.  Keep using the snapshot above
@@ -773,11 +816,12 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     }
 
     /* Set up the signal frame on the user stack (saves old_mask for sigreturn) */
-    if (signal_setup_frame(frame, sig, &action, info, old_mask) < 0) {
-        plogk("signal: Failed to set up frame for sig %d pid %llu\n", sig, proc->task ? proc->task->pid : 0);
+    int frame_status = signal_setup_frame(frame, sig, &action, info, old_mask);
+    if (frame_status < 0) {
+        plogk("signal: Failed to set up frame for sig %d tgid %llu tid %llu rsp %p: %d\n", sig, proc->task ? proc->task->pid : 0, task->pid, (void *)frame->rsp, frame_status);
         return SIG_DELIV_TERM;
     }
-    state->restore_mask = false;
+    task->signal_restore_mask = false;
 
     return SIG_DELIV_HANDLER;
 }
@@ -789,9 +833,13 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
 int signal_has_pending(signal_state_t *state)
 {
     if (!state) return 0;
+    if (__atomic_load_n(&state->group_exit, __ATOMIC_ACQUIRE)) return 1;
 
-    /* pending & ~blocked */
-    sigset_t ready = state->pending & ~state->blocked;
+    task_t  *task    = current_task();
+    bool     current = task && task->process && &task->process->signal == state;
+    sigset_t blocked = current ? task->signal_blocked : 0;
+    sigset_t pending = state->pending | (current ? task->signal_pending : 0);
+    sigset_t ready   = pending & ~blocked;
 
     return !sigisemptyset(&ready);
 }
@@ -800,8 +848,13 @@ int signal_has_pending(signal_state_t *state)
 int signal_has_interrupting_pending(signal_state_t *state)
 {
     if (!state) return 0;
+    if (__atomic_load_n(&state->group_exit, __ATOMIC_ACQUIRE)) return 1;
 
-    sigset_t ready = state->pending & ~state->blocked;
+    task_t  *task    = current_task();
+    bool     current = task && task->process && &task->process->signal == state;
+    sigset_t blocked = current ? task->signal_blocked : 0;
+    sigset_t pending = state->pending | (current ? task->signal_pending : 0);
+    sigset_t ready   = pending & ~blocked;
     for (int sig = 1; sig < NSIG; sig++) {
         if (!sigismember(&ready, sig)) continue;
 
@@ -822,7 +875,9 @@ bool signal_is_blocked_or_ignored(process_t *proc, int sig)
 
     signal_state_t *state = &proc->signal;
     spin_lock(&state->lock);
-    bool blocked_or_ignored = sigismember(&state->blocked, sig) || state->sighand[sig].sa_handler == SIG_IGN;
+    task_t *task = current_task();
+    if (!task || task->process != proc) task = proc->task;
+    bool blocked_or_ignored = (task && sigismember(&task->signal_blocked, sig)) || state->sighand[sig].sa_handler == SIG_IGN;
     spin_unlock(&state->lock);
     return blocked_or_ignored;
 }
@@ -832,60 +887,74 @@ bool signal_is_blocked_or_ignored(process_t *proc, int sig)
  * Real-time signals are dequeued from the queue; standard signals
  * are found by scanning the pending bitmap.
  */
-static int signal_dequeue(signal_state_t *state, siginfo_t *info)
+static int signal_dequeue(signal_state_t *state, task_t *task, siginfo_t *info)
 {
-    /* First, check real-time queue */
-    if (state->sigqueue_head) {
-        sigqueue_t *cur  = state->sigqueue_head;
-        sigqueue_t *prev = NULL;
-        while (cur) {
-            int sig = cur->info.si_signo;
-            if (sig_is_rt(sig) && !sigismember(&state->blocked, sig)) {
-                /* Found a deliverable RT signal */
-                memcpy(info, &cur->info, sizeof(siginfo_t));
-                if (prev) {
-                    prev->next = cur->next;
-                } else {
-                    state->sigqueue_head = cur->next;
-                }
-                if (cur == state->sigqueue_tail) state->sigqueue_tail = prev;
-                state->sigqueue_count--;
-                sigqueue_free(cur);
-                if (!sigqueue_contains(state, sig)) sigdelset(&state->pending, sig);
-                return sig;
+    if (!task) return -1;
+    sigset_t blocked = task->signal_blocked;
+
+    /* Real-time signals retain queue order, but thread-directed entries are private. */
+    sigqueue_t *cur  = state->sigqueue_head;
+    sigqueue_t *prev = NULL;
+    while (cur) {
+        int  sig            = cur->info.si_signo;
+        bool target_matches = cur->target_tid == 0 || cur->target_tid == task->pid;
+        if (sig_is_rt(sig) && target_matches && !sigismember(&blocked, sig)) {
+            uint64_t target_tid = cur->target_tid;
+            memcpy(info, &cur->info, sizeof(*info));
+            if (prev)
+                prev->next = cur->next;
+            else
+                state->sigqueue_head = cur->next;
+            if (cur == state->sigqueue_tail) state->sigqueue_tail = prev;
+            state->sigqueue_count--;
+            sigqueue_free(cur);
+            if (!sigqueue_contains(state, sig, target_tid)) {
+                if (target_tid)
+                    sigdelset(&task->signal_pending, sig);
+                else
+                    sigdelset(&state->pending, sig);
             }
+            return sig;
+        }
+        prev = cur;
+        cur  = cur->next;
+    }
+
+    /* Standard signals are delivered in numeric priority order. */
+    sigset_t ready = (state->pending | task->signal_pending) & ~blocked;
+    for (int sig = 1; sig < SIGRTMIN; sig++) {
+        if (!sigismember(&ready, sig)) continue;
+
+        cur  = state->sigqueue_head;
+        prev = NULL;
+        while (cur && (cur->info.si_signo != sig || (cur->target_tid && cur->target_tid != task->pid))) {
             prev = cur;
             cur  = cur->next;
         }
-    }
 
-    /* Check standard signals in priority order (lowest first) */
-    sigset_t ready = state->pending & ~state->blocked;
-    for (int sig = 1; sig < SIGRTMIN; sig++) {
-        if (sigismember(&ready, sig)) {
-            sigqueue_t *cur  = state->sigqueue_head;
-            sigqueue_t *prev = NULL;
-            while (cur && cur->info.si_signo != sig) {
-                prev = cur;
-                cur  = cur->next;
-            }
-            if (cur) {
-                memcpy(info, &cur->info, sizeof(*info));
-                if (prev)
-                    prev->next = cur->next;
-                else
-                    state->sigqueue_head = cur->next;
-                if (state->sigqueue_tail == cur) state->sigqueue_tail = prev;
-                state->sigqueue_count--;
-                sigqueue_free(cur);
-            } else {
-                memset(info, 0, sizeof(*info));
-                info->si_signo = sig;
-                info->si_code  = SI_USER;
-            }
-            if (!sigqueue_contains(state, sig)) sigdelset(&state->pending, sig);
-            return sig;
+        uint64_t target_tid = sigismember(&task->signal_pending, sig) ? task->pid : 0;
+        if (cur) {
+            target_tid = cur->target_tid;
+            memcpy(info, &cur->info, sizeof(*info));
+            if (prev)
+                prev->next = cur->next;
+            else
+                state->sigqueue_head = cur->next;
+            if (state->sigqueue_tail == cur) state->sigqueue_tail = prev;
+            state->sigqueue_count--;
+            sigqueue_free(cur);
+        } else {
+            memset(info, 0, sizeof(*info));
+            info->si_signo = sig;
+            info->si_code  = SI_USER;
         }
+        if (!sigqueue_contains(state, sig, target_tid)) {
+            if (target_tid)
+                sigdelset(&task->signal_pending, sig);
+            else
+                sigdelset(&state->pending, sig);
+        }
+        return sig;
     }
 
     return -1;
@@ -917,22 +986,26 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
 {
     if (!proc) return 0;
 
-    signal_state_t *state = &proc->signal;
+    signal_state_t *state   = &proc->signal;
+    task_t         *current = current_task();
+    if (!current || current->process != proc) return 0;
+
+    if (__atomic_load_n(&state->group_exit, __ATOMIC_ACQUIRE)) process_exit(__atomic_load_n(&state->group_exit_code, __ATOMIC_RELAXED));
 
     /*
      * The overwhelmingly common return-to-user path has neither pending
      * signals nor a temporary mask to restore.  Avoid disabling interrupts
      * and taking signal.lock for every syscall in that case.
      */
-    sigset_t pending = __atomic_load_n(&state->pending, __ATOMIC_ACQUIRE);
-    sigset_t blocked = __atomic_load_n(&state->blocked, __ATOMIC_RELAXED);
-    if (!(pending & ~blocked) && !__atomic_load_n(&state->restore_mask, __ATOMIC_ACQUIRE)) return 0;
+    sigset_t pending = __atomic_load_n(&state->pending, __ATOMIC_ACQUIRE) | __atomic_load_n(&current->signal_pending, __ATOMIC_ACQUIRE);
+    sigset_t blocked = __atomic_load_n(&current->signal_blocked, __ATOMIC_RELAXED);
+    if (!(pending & ~blocked) && !__atomic_load_n(&current->signal_restore_mask, __ATOMIC_ACQUIRE)) return 0;
 
     spin_lock(&state->lock);
 
     while (signal_has_pending(state)) {
         siginfo_t info;
-        int       sig = signal_dequeue(state, &info);
+        int       sig = signal_dequeue(state, current, &info);
 
         if (sig < 0) break;
 
@@ -953,9 +1026,9 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
         int ret = signal_deliver_one(frame, sig, &info);
 
         if (ret == SIG_DELIV_TERM) {
-            /* Default action terminates process */
+            /* Fatal default actions terminate the complete thread group. */
             spin_unlock(&state->lock);
-            process_exit(-sig);
+            process_exit_group(-sig);
             return 1; // Never reached
         }
 
@@ -978,12 +1051,12 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
      * No user handler consumed the deferred mask (for example, the signal
      * was ignored or used a non-terminating default action).
      */
-    if (state->restore_mask) {
-        state->blocked      = state->saved_mask;
-        state->restore_mask = false;
+    if (current->signal_restore_mask) {
+        current->signal_blocked      = current->signal_saved_mask;
+        current->signal_restore_mask = false;
     }
 
-    bool stopped = proc->task && proc->task->state == TASK_STOPPED;
+    bool stopped = current->state == TASK_STOPPED;
     spin_unlock(&state->lock);
     if (stopped) sched_yield();
     return 0;
@@ -1025,7 +1098,7 @@ void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_cod
     info.si_status = exit_code;
 
     bool newly_pending;
-    signal_send_locked(state, parent, SIGCHLD, &info, &newly_pending, NULL);
+    signal_send_locked(state, parent, NULL, SIGCHLD, &info, &newly_pending, NULL);
 
     spin_unlock(&state->lock);
 
@@ -1050,7 +1123,7 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
         info.si_code   = code;
         info.si_pid    = child_pid;
         info.si_status = status;
-        signal_send_locked(state, parent, SIGCHLD, &info, &newly_pending, NULL);
+        signal_send_locked(state, parent, NULL, SIGCHLD, &info, &newly_pending, NULL);
     }
     spin_unlock(&state->lock);
     if (newly_pending) signalfd_deliver(parent, SIGCHLD, &info);
@@ -1150,8 +1223,9 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
 {
     if (sig < 0 || sig >= NSIG) return -EINVAL;
 
-    process_t *target = process_find_get(tid);
-    if (!target) return -ESRCH;
+    process_t *target = NULL;
+    task_t    *task   = process_task_find_get(tid, &target);
+    if (!task || !target) return -ESRCH;
 
     process_t *cur = process_current();
     if (!cur) {
@@ -1174,7 +1248,7 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
     info.si_pid   = cur->task->pid;
     info.si_uid   = cur->uid;
 
-    int ret = signal_send_thread(target->task, sig, &info);
+    int ret = signal_send_thread(task, sig, &info);
     process_put(target);
     return ret;
 }
@@ -1184,10 +1258,9 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
 {
     if (sig < 0 || sig >= NSIG) return -EINVAL;
 
-    process_t *target = process_find_get(tgid);
-    if (!target) return -ESRCH;
-
-    if (!target->task || target->task->pid != (uint64_t)tid) {
+    process_t *target = NULL;
+    task_t    *task   = process_task_find_get(tid, &target);
+    if (!task || !target || (pid_t)task->tgid != tgid) {
         process_put(target);
         return -ESRCH;
     }
@@ -1213,7 +1286,7 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
     info.si_pid   = cur->task->pid;
     info.si_uid   = cur->uid;
 
-    int ret = signal_send_thread(target->task, sig, &info);
+    int ret = signal_send_thread(task, sig, &info);
     process_put(target);
     return ret;
 }
@@ -1268,14 +1341,15 @@ int64_t sys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oset, size_t 
     if (sigsetsize != sizeof(sigset_t)) return -EINVAL;
 
     process_t *proc = process_current();
-    if (!proc) return -ESRCH;
+    task_t    *task = current_task();
+    if (!proc || !task) return -ESRCH;
 
     signal_state_t *state = &proc->signal;
 
     spin_lock(&state->lock);
 
     if (oset) {
-        if (copy_to_user(oset, &state->blocked, sizeof(sigset_t))) {
+        if (copy_to_user(oset, &task->signal_blocked, sizeof(sigset_t))) {
             spin_unlock(&state->lock);
             return -EFAULT;
         }
@@ -1290,13 +1364,13 @@ int64_t sys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oset, size_t 
 
         switch (how) {
             case SIG_BLOCK :
-                sigorset(&state->blocked, &state->blocked, &new_set);
+                sigorset(&task->signal_blocked, &task->signal_blocked, &new_set);
                 break;
             case SIG_UNBLOCK :
-                state->blocked &= ~new_set;
+                task->signal_blocked &= ~new_set;
                 break;
             case SIG_SETMASK :
-                state->blocked = new_set;
+                task->signal_blocked = new_set;
                 break;
             default :
                 spin_unlock(&state->lock);
@@ -1304,8 +1378,8 @@ int64_t sys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oset, size_t 
         }
 
         /* SIGKILL and SIGSTOP cannot be blocked */
-        sigdelset(&state->blocked, SIGKILL);
-        sigdelset(&state->blocked, SIGSTOP);
+        sigdelset(&task->signal_blocked, SIGKILL);
+        sigdelset(&task->signal_blocked, SIGSTOP);
     }
 
     spin_unlock(&state->lock);
@@ -1319,12 +1393,13 @@ int64_t sys_rt_sigpending(sigset_t *set, size_t sigsetsize)
     if (!set) return -EFAULT;
 
     process_t *proc = process_current();
-    if (!proc) return -ESRCH;
+    task_t    *task = current_task();
+    if (!proc || !task) return -ESRCH;
 
     signal_state_t *state = &proc->signal;
 
     spin_lock(&state->lock);
-    sigset_t pending = state->pending;
+    sigset_t pending = (state->pending | task->signal_pending) & task->signal_blocked;
     spin_unlock(&state->lock);
 
     if (copy_to_user(set, &pending, sizeof(sigset_t))) return -EFAULT;
@@ -1344,7 +1419,8 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
     if (sigsetsize != sizeof(sigset_t)) return -EINVAL;
 
     process_t *proc = process_current();
-    if (!proc) return -ESRCH;
+    task_t    *task = current_task();
+    if (!proc || !task) return -ESRCH;
 
     signal_state_t *state = &proc->signal;
 
@@ -1354,12 +1430,12 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
     spin_lock(&state->lock);
 
     /* Save old blocked */
-    sigset_t old_blocked = state->blocked;
+    sigset_t old_blocked = task->signal_blocked;
 
     /* Set new blocked mask */
-    state->blocked = new_mask;
-    sigdelset(&state->blocked, SIGKILL);
-    sigdelset(&state->blocked, SIGSTOP);
+    task->signal_blocked = new_mask;
+    sigdelset(&task->signal_blocked, SIGKILL);
+    sigdelset(&task->signal_blocked, SIGSTOP);
 
     /*
      * Check and enqueue while holding the same lock used by signal_send().
@@ -1380,8 +1456,8 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
      * A handler frame must restore old_blocked after signal delivery, not
      * before it.  This is the same deferred-mask rule used by ppoll/pselect.
      */
-    state->saved_mask   = old_blocked;
-    state->restore_mask = true;
+    task->signal_saved_mask   = old_blocked;
+    task->signal_restore_mask = true;
     spin_unlock(&state->lock);
 
     return -EINTR;
@@ -1392,7 +1468,7 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
  * Returns the signal number and fills `info`, or 0 if nothing matches.
  * Caller must hold state->lock.
  */
-static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filter, siginfo_t *info)
+static int sigqueue_dequeue_filtered(signal_state_t *state, task_t *task, const sigset_t *filter, siginfo_t *info)
 {
     sigqueue_t *cur  = state->sigqueue_head;
     sigqueue_t *prev = NULL;
@@ -1406,7 +1482,9 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filt
          * sigtimedwait() sequence impossible: BusyBox init consequently
          * never observed SIGUSR2/SIGTERM from poweroff/reboot.
          */
-        if (sigismember(filter, sig)) {
+        bool target_matches = cur->target_tid == 0 || (task && cur->target_tid == task->pid);
+        if (target_matches && sigismember(filter, sig)) {
+            uint64_t target_tid = cur->target_tid;
             memcpy(info, &cur->info, sizeof(siginfo_t));
             if (prev)
                 prev->next = cur->next;
@@ -1415,7 +1493,12 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filt
             if (cur == state->sigqueue_tail) state->sigqueue_tail = prev;
             state->sigqueue_count--;
             sigqueue_free(cur);
-            if (!sigqueue_contains(state, sig)) sigdelset(&state->pending, sig);
+            if (!sigqueue_contains(state, sig, target_tid)) {
+                if (target_tid && task)
+                    sigdelset(&task->signal_pending, sig);
+                else
+                    sigdelset(&state->pending, sig);
+            }
             return sig;
         }
         prev = cur;
@@ -1425,13 +1508,16 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filt
      * A standard signal can still be represented only by the pending bitmap
      * if allocating its optional siginfo queue entry failed.
      */
-    sigset_t ready = state->pending & *filter;
+    sigset_t ready = (state->pending | (task ? task->signal_pending : 0)) & *filter;
     for (int sig = 1; sig < NSIG; sig++) {
         if (!sigismember(&ready, sig)) continue;
         memset(info, 0, sizeof(*info));
         info->si_signo = sig;
         info->si_code  = SI_USER;
-        sigdelset(&state->pending, sig);
+        if (task && sigismember(&task->signal_pending, sig))
+            sigdelset(&task->signal_pending, sig);
+        else
+            sigdelset(&state->pending, sig);
         return sig;
     }
     return 0;
@@ -1442,8 +1528,10 @@ int signal_dequeue_masked(process_t *proc, const sigset_t *mask, siginfo_t *info
 {
     if (!proc || !mask || !info) return 0;
     signal_state_t *state = &proc->signal;
+    task_t         *task  = current_task();
+    if (!task || task->process != proc) task = NULL;
     spin_lock(&state->lock);
-    int sig = sigqueue_dequeue_filtered(state, mask, info);
+    int sig = sigqueue_dequeue_filtered(state, task, mask, info);
     spin_unlock(&state->lock);
     return sig;
 }
@@ -1453,8 +1541,10 @@ bool signal_has_pending_masked(process_t *proc, const sigset_t *mask)
 {
     if (!proc || !mask) return false;
     signal_state_t *state = &proc->signal;
+    task_t         *task  = current_task();
+    if (!task || task->process != proc) task = NULL;
     spin_lock(&state->lock);
-    sigset_t ready   = state->pending & *mask;
+    sigset_t ready   = (state->pending | (task ? task->signal_pending : 0)) & *mask;
     bool     pending = !sigisemptyset(&ready);
     spin_unlock(&state->lock);
     return pending;
@@ -1469,6 +1559,7 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
     if (!proc) return -ESRCH;
 
     signal_state_t *state = &proc->signal;
+    task_t         *task  = current_task();
 
     sigset_t wait_set;
     if (copy_from_user(&wait_set, set, sizeof(sigset_t))) return -EFAULT;
@@ -1494,7 +1585,7 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
         memset(&found, 0, sizeof(found));
 
         spin_lock(&state->lock);
-        int sig = sigqueue_dequeue_filtered(state, &wait_set, &found);
+        int sig = sigqueue_dequeue_filtered(state, task, &wait_set, &found);
         if (sig) {
             spin_unlock(&state->lock);
             if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
@@ -1533,14 +1624,15 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
 int64_t sys_sigaltstack(const stack_t *ss, stack_t *oss)
 {
     process_t *proc = process_current();
-    if (!proc) return -ESRCH;
+    task_t    *task = current_task();
+    if (!proc || !task) return -ESRCH;
 
     signal_state_t *state = &proc->signal;
 
     spin_lock(&state->lock);
 
     if (oss) {
-        if (copy_to_user(oss, &state->altstack, sizeof(stack_t))) {
+        if (copy_to_user(oss, &task->signal_altstack, sizeof(stack_t))) {
             spin_unlock(&state->lock);
             return -EFAULT;
         }
@@ -1554,15 +1646,15 @@ int64_t sys_sigaltstack(const stack_t *ss, stack_t *oss)
         }
 
         if (new_ss.ss_flags & SS_DISABLE) {
-            state->altstack.ss_flags = SS_DISABLE;
-            state->altstack.ss_sp    = NULL;
-            state->altstack.ss_size  = 0;
+            task->signal_altstack.ss_flags = SS_DISABLE;
+            task->signal_altstack.ss_sp    = NULL;
+            task->signal_altstack.ss_size  = 0;
         } else {
             if (new_ss.ss_size < (size_t)4096) {
                 spin_unlock(&state->lock);
                 return -ENOMEM;
             }
-            state->altstack = new_ss;
+            task->signal_altstack = new_ss;
         }
     }
 
@@ -1631,10 +1723,9 @@ int64_t sys_rt_tgsigqueueinfo(int64_t tgid, int64_t tid, int sig, siginfo_t *inf
     if (!sig_valid(sig)) return -EINVAL;
     if (sig == SIGKILL || sig == SIGSTOP) return -EINVAL;
 
-    process_t *proc = process_find_get(tgid);
-    if (!proc) return -ESRCH;
-
-    if (!proc->task || (int64_t)proc->task->pid != tid) {
+    process_t *proc = NULL;
+    task_t    *task = process_task_find_get(tid, &proc);
+    if (!task || !proc || (int64_t)task->tgid != tgid) {
         process_put(proc);
         return -ESRCH;
     }
@@ -1657,7 +1748,7 @@ int64_t sys_rt_tgsigqueueinfo(int64_t tgid, int64_t tid, int sig, siginfo_t *inf
         return -EPERM;
     }
 
-    int ret = signal_send_thread(proc->task, sig, &user_info);
+    int ret = signal_send_thread(task, sig, &user_info);
     process_put(proc);
     return ret;
 }
@@ -1709,8 +1800,12 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
 
     /* Restore blocked signal mask */
     signal_state_t *state = &proc->signal;
+    task_t         *task  = current_task();
+    if (!task) return -ESRCH;
     spin_lock(&state->lock);
-    state->blocked = sig_frame.old_mask;
+    task->signal_blocked = sig_frame.old_mask;
+    sigdelset(&task->signal_blocked, SIGKILL);
+    sigdelset(&task->signal_blocked, SIGSTOP);
     spin_unlock(&state->lock);
 
     /* Restore all saved registers */

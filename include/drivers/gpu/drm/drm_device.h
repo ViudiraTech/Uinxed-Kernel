@@ -619,7 +619,8 @@ struct drm_mode_config {
 #define DRIVER_GEM_GPUVA        BIT7_
 /*
  * The driver's page-flip callback returns only after scanout has been
- * updated, so completion events do not need a later hardware vblank.
+ * updated.  The atomic core may run that callback on its commit worker;
+ * normal completion events are still paced by vblank.
  */
 #define DRIVER_SYNCHRONOUS_FLIP BIT8_
 
@@ -893,6 +894,7 @@ struct drm_plane_state     *drm_atomic_get_plane_state(struct drm_atomic_state *
 struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_state *state, struct drm_connector *connector);
 int                         drm_atomic_commit(struct drm_atomic_state *state);
 int                         drm_atomic_nonblocking_commit(struct drm_atomic_state *state);
+int                         drm_atomic_worker_init(void);
 int                         drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, const struct drm_framebuffer_funcs *funcs);

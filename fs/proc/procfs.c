@@ -36,9 +36,17 @@
 #include <net/core/netdev.h>
 #include <net/socket.h>
 #include <process/process.h>
+#include <security/seccomp.h>
 #include <process/sched.h>
 
 static int procfs_id;
+
+#define PROCFS_LOAD_FRAC_BITS 11U
+#define PROCFS_LOAD_ONE       (1ULL << PROCFS_LOAD_FRAC_BITS)
+#define PROCFS_LOAD_PERIOD    (5ULL * TIMER_HZ)
+static spinlock_t procfs_load_lock;
+static uint64_t   procfs_load_last;
+static uint64_t   procfs_load_values[3];
 
 /* Internal types */
 
@@ -137,7 +145,10 @@ typedef struct procfs_sysctl {
         uint8_t     kind;
         uint8_t     readonly;
         uint8_t     count;
+        uint8_t     has_range;
         uint64_t    values[4];
+        uint64_t    minimum;
+        uint64_t    maximum;
         char        string[64];
 } procfs_sysctl_t;
 
@@ -150,6 +161,13 @@ static procfs_sysctl_t procfs_sysctl_kernel[] = {
     {.name = "panic", .kind = PROC_SYS_UINT, .values = {0}, .count = 1},
     {.name = "panic_on_oops", .kind = PROC_SYS_UINT, .values = {0}, .count = 1},
     {.name = "pid_max", .kind = PROC_SYS_UINT, .values = {32768}, .count = 1},
+    /*
+     * User-namespace helpers, including bubblewrap, read these before they
+     * construct an id mapping.  Linux exposes both as writable unsigned
+     * 16-bit values and defaults them to the conventional nobody id.
+     */
+    {.name = "overflowuid", .kind = PROC_SYS_UINT, .values = {65534}, .count = 1, .has_range = 1, .minimum = 0, .maximum = 65535},
+    {.name = "overflowgid", .kind = PROC_SYS_UINT, .values = {65534}, .count = 1, .has_range = 1, .minimum = 0, .maximum = 65535},
     {.name = "threads-max", .kind = PROC_SYS_UINT, .values = {65536}, .readonly = 1, .count = 1},
     {.name = "randomize_va_space", .kind = PROC_SYS_UINT, .values = {2}, .readonly = 1, .count = 1},
     {.name = "perf_event_paranoid", .kind = PROC_SYS_UINT, .values = {3}, .readonly = 1, .count = 1},
@@ -265,12 +283,24 @@ static void gen_info_stat(procfs_file_t *pf)
     int   remaining = (int)buf_size;
     int   n;
 
-    n = snprintf(p, remaining, "cpu  %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n", 0ULL, 0ULL, scheduler.ticks * cpu_count, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL);
+    uint64_t total_user = 0, total_system = 0, total_idle = 0, total_context = 0;
+    for (uint32_t i = 0; i < cpu_count; i++) {
+        total_user += __atomic_load_n(&cpu_rqs[i].user_ticks, __ATOMIC_RELAXED);
+        total_system += __atomic_load_n(&cpu_rqs[i].system_ticks, __ATOMIC_RELAXED);
+        total_idle += __atomic_load_n(&cpu_rqs[i].idle_ticks, __ATOMIC_RELAXED);
+        total_context += __atomic_load_n(&cpu_rqs[i].context_switches, __ATOMIC_RELAXED);
+    }
+    n = snprintf(p, remaining, "cpu  %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n", timer_ticks_to_user_ticks(total_user), 0ULL, timer_ticks_to_user_ticks(total_system),
+                 timer_ticks_to_user_ticks(total_idle), 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL);
     p += n;
     remaining -= n;
     if (remaining > 0) {
         for (uint32_t i = 0; i < cpu_count && remaining > 0; i++) {
-            n = snprintf(p, remaining, "cpu%u %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n", i, 0ULL, 0ULL, scheduler.ticks, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL);
+            uint64_t user   = __atomic_load_n(&cpu_rqs[i].user_ticks, __ATOMIC_RELAXED);
+            uint64_t system = __atomic_load_n(&cpu_rqs[i].system_ticks, __ATOMIC_RELAXED);
+            uint64_t idle   = __atomic_load_n(&cpu_rqs[i].idle_ticks, __ATOMIC_RELAXED);
+            n = snprintf(p, remaining, "cpu%u %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n", i, timer_ticks_to_user_ticks(user), 0ULL, timer_ticks_to_user_ticks(system),
+                         timer_ticks_to_user_ticks(idle), 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL);
             p += n;
             remaining -= n;
         }
@@ -279,8 +309,10 @@ static void gen_info_stat(procfs_file_t *pf)
         uint64_t uptime_seconds = timer_monotonic_ns() / TIMER_NSEC_PER_SEC;
         int64_t  realtime       = timer_realtime_ns();
         uint64_t boot_time      = realtime > 0 && (uint64_t)realtime / TIMER_NSEC_PER_SEC >= uptime_seconds ? (uint64_t)realtime / TIMER_NSEC_PER_SEC - uptime_seconds : 0;
-        n                       = snprintf(p, remaining, "intr %llu\nctxt %llu\nbtime %llu\nprocesses %llu\nprocs_running %u\nprocs_blocked %u\n", 0ULL, 0ULL, boot_time, scheduler.next_pid,
-                                           (unsigned)__atomic_load_n(&cpu_rqs[0].nr_running, __ATOMIC_RELAXED) + 1, 0U);
+        uint64_t running, blocked;
+        process_count_task_states(&running, &blocked);
+        n = snprintf(p, remaining, "intr %llu\nctxt %llu\nbtime %llu\nprocesses %llu\nprocs_running %llu\nprocs_blocked %llu\n", 0ULL, total_context, boot_time,
+                     __atomic_load_n(&scheduler.processes_created, __ATOMIC_RELAXED), running, 0ULL);
         p += n;
     }
 
@@ -553,9 +585,12 @@ static void gen_info_uptime(procfs_file_t *pf)
     uint64_t ns       = timer_monotonic_ns();
     uint64_t seconds  = ns / 1000000000ULL;
     uint64_t centisec = (ns % 1000000000ULL) / 10000000ULL;
-    uint64_t idle     = seconds;
+    uint64_t idle_ticks = 0;
+    for (uint32_t cpu = 0; cpu < sched_cpu_count(); cpu++) idle_ticks += __atomic_load_n(&cpu_rqs[cpu].idle_ticks, __ATOMIC_RELAXED);
+    uint64_t idle         = idle_ticks / TIMER_HZ;
+    uint64_t idle_centisec = (idle_ticks % TIMER_HZ) * 100 / TIMER_HZ;
 
-    int n = snprintf(buf, 128, "%llu.%02llu %llu.%02llu\n", seconds, centisec, idle, 0ULL);
+    int n = snprintf(buf, 128, "%llu.%02llu %llu.%02llu\n", seconds, centisec, idle, idle_centisec);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -575,21 +610,69 @@ static void gen_info_version(procfs_file_t *pf)
     pf->capacity = 256;
 }
 
+static uint64_t procfs_load_power(uint64_t base, uint64_t exponent)
+{
+    uint64_t result = PROCFS_LOAD_ONE;
+    while (exponent) {
+        if (exponent & 1U) result = (result * base + PROCFS_LOAD_ONE / 2) >> PROCFS_LOAD_FRAC_BITS;
+        exponent >>= 1;
+        if (exponent) base = (base * base + PROCFS_LOAD_ONE / 2) >> PROCFS_LOAD_FRAC_BITS;
+    }
+    return result;
+}
+
+/* Update Linux-shaped 1/5/15 minute load averages at five-second intervals. */
+static void procfs_load_snapshot(uint64_t active, uint64_t values[3])
+{
+    static const uint64_t decay[3] = {1884, 2014, 2037};
+    uint64_t              now      = sched_ticks();
+    uint64_t              active_fixed;
+    if (active > UINT64_MAX / PROCFS_LOAD_ONE)
+        active_fixed = UINT64_MAX;
+    else
+        active_fixed = active * PROCFS_LOAD_ONE;
+
+    spin_lock(&procfs_load_lock);
+    if (!procfs_load_last) {
+        procfs_load_last = now ? now : 1;
+        for (size_t i = 0; i < 3; i++) procfs_load_values[i] = active_fixed;
+    } else if (now >= procfs_load_last + PROCFS_LOAD_PERIOD) {
+        uint64_t periods = (now - procfs_load_last) / PROCFS_LOAD_PERIOD;
+        procfs_load_last += periods * PROCFS_LOAD_PERIOD;
+        for (size_t i = 0; i < 3; i++) {
+            uint64_t factor = procfs_load_power(decay[i], periods);
+            procfs_load_values[i]
+                = (procfs_load_values[i] * factor + active_fixed * (PROCFS_LOAD_ONE - factor) + PROCFS_LOAD_ONE / 2) >> PROCFS_LOAD_FRAC_BITS;
+        }
+    }
+    memcpy(values, procfs_load_values, sizeof(procfs_load_values));
+    spin_unlock(&procfs_load_lock);
+}
+
 /* Generate /proc/loadavg content. */
 static void gen_info_loadavg(procfs_file_t *pf)
 {
     char *buf = malloc(128);
     if (!buf) return;
 
-    uint64_t running   = 0;
-    uint32_t cpu_count = sched_cpu_count();
-    for (uint32_t i = 0; i < cpu_count; i++) running += __atomic_load_n(&cpu_rqs[i].nr_running, __ATOMIC_RELAXED);
-
-    /* active threads = currently running (one per CPU) + on ready queues */
-    uint64_t active  = cpu_count + running;
-    uint64_t total   = scheduler.next_pid ? scheduler.next_pid - 1 : 0;
+    uint64_t active = 0, blocked = 0, total = 0;
+    process_count_task_states(&active, &blocked);
+    (void)blocked;
+    size_t     cursor = 0;
+    process_t *proc;
+    while ((proc = process_iterate_get(&cursor)) != NULL) {
+        process_stats_t stats;
+        process_get_stats(proc, &stats);
+        total += stats.threads;
+        process_put(proc);
+    }
+    uint64_t loads[3];
+    procfs_load_snapshot(active, loads);
     uint64_t lastpid = scheduler.next_pid ? scheduler.next_pid - 1 : 0;
-    int      n       = snprintf(buf, 128, "0.00 0.00 0.00 %llu/%llu %llu\n", active, total ? total : 1, lastpid);
+    int      n       = snprintf(buf, 128, "%llu.%02llu %llu.%02llu %llu.%02llu %llu/%llu %llu\n", loads[0] >> PROCFS_LOAD_FRAC_BITS,
+                               ((loads[0] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS, loads[1] >> PROCFS_LOAD_FRAC_BITS,
+                               ((loads[1] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS, loads[2] >> PROCFS_LOAD_FRAC_BITS,
+                               ((loads[2] & (PROCFS_LOAD_ONE - 1)) * 100) >> PROCFS_LOAD_FRAC_BITS, active, total ? total : 1, lastpid);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -943,6 +1026,7 @@ static int procfs_sysctl_apply(procfs_sysctl_t *sc, const char *data, size_t siz
 
     if (sc->kind == PROC_SYS_UINT) {
         if (count != 1) return -EINVAL;
+        if (sc->has_range && (values[0] < sc->minimum || values[0] > sc->maximum)) return -EINVAL;
         sc->values[0] = values[0];
         return EOK;
     }
@@ -1043,14 +1127,55 @@ static void gen_net_file(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+typedef struct procfs_memory_stats {
+        uint64_t virtual_pages;
+        uint64_t resident_pages;
+        uint64_t shared_pages;
+        uint64_t text_pages;
+        uint64_t data_pages;
+        uint64_t data_bytes;
+        uint64_t stack_bytes;
+        uint64_t text_bytes;
+} procfs_memory_stats_t;
+
+/* Count resident leaves rather than treating every lazy VMA page as present. */
+static void procfs_get_memory_stats(process_t *proc, procfs_memory_stats_t *stats)
+{
+    memset(stats, 0, sizeof(*stats));
+    if (!proc || !proc->user_page_dir) return;
+
+    spin_lock(&proc->mmap_lock);
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+        uint64_t pages = (vma->end - vma->start) / PAGE_4K_SIZE;
+        stats->virtual_pages += pages;
+        if (vma->type == VM_REGION_DATA || vma->type == VM_REGION_HEAP) stats->data_bytes += vma->end - vma->start;
+        if (vma->type == VM_REGION_STACK) stats->stack_bytes += vma->end - vma->start;
+
+        if (vma->type == VM_REGION_CODE) stats->text_bytes += vma->end - vma->start;
+
+        uint64_t resident = page_count_present_range(proc->user_page_dir, vma->start, vma->end);
+        stats->resident_pages += resident;
+        if (vma->flags & VM_SHARED) stats->shared_pages += resident;
+        if (vma->type == VM_REGION_CODE) stats->text_pages += pages;
+        if (vma->type == VM_REGION_DATA || vma->type == VM_REGION_HEAP || vma->type == VM_REGION_STACK) stats->data_pages += pages;
+    }
+    spin_unlock(&proc->mmap_lock);
+}
+
 /* Generate /proc/<pid>/status content. */
 static void gen_pid_status(procfs_file_t *pf)
 {
-    process_t *proc = process_find(pf->pid);
-    if (!proc) return;
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc || !proc->task) {
+        process_put(proc);
+        return;
+    }
 
     char *buf = malloc(PROCFS_BUF_SIZE);
-    if (!buf) return;
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
 
     const char *state_str;
     switch (proc->task->state) {
@@ -1076,15 +1201,22 @@ static void gen_pid_status(procfs_file_t *pf)
             break;
     }
 
-    uint64_t   vmsize = 0, vmrss = 0, vmdata = 0, vmstack = 0;
-    vm_area_t *vma = proc->mmap_list;
-    while (vma) {
-        vmsize += vma->end - vma->start;
-        if (vma->type == VM_REGION_DATA) vmdata += vma->end - vma->start;
-        if (vma->type == VM_REGION_STACK) vmstack += vma->end - vma->start;
-        if (vma->flags & VM_WRITE) vmrss += vma->end - vma->start;
-        vma = vma->next;
-    }
+    procfs_memory_stats_t memory;
+    process_stats_t       stats;
+    procfs_get_memory_stats(proc, &memory);
+    process_get_stats(proc, &stats);
+    bool     no_new_privs;
+    uint8_t  seccomp_mode;
+    uint32_t seccomp_filters;
+    seccomp_task_get_status(proc->task, &no_new_privs, &seccomp_mode, &seccomp_filters);
+
+    uint32_t cpu_count = sched_cpu_count();
+    uint64_t cpu_mask  = cpu_count >= 64 ? UINT64_MAX : cpu_count ? (1ULL << cpu_count) - 1 : 1;
+    char     cpu_list[32];
+    if (cpu_count > 1)
+        (void)snprintf(cpu_list, sizeof(cpu_list), "0-%u", cpu_count - 1);
+    else
+        strcpy(cpu_list, "0");
 
     pid_t ppid = proc->parent ? proc->parent->task->pid : 0;
     int   n    = snprintf(buf, PROCFS_BUF_SIZE,
@@ -1102,23 +1234,29 @@ static void gen_pid_status(procfs_file_t *pf)
                                "VmRSS:\t%8llu kB\n"
                                "VmData:\t%8llu kB\n"
                                "VmStk:\t%8llu kB\n"
-                               "VmExe:\t0 kB\n"
+                               "VmExe:\t%8llu kB\n"
                                "VmLib:\t0 kB\n"
                                "VmPTE:\t0 kB\n"
-                               "Threads:\t1\n"
+                               "Threads:\t%u\n"
+                               "NoNewPrivs:\t%u\n"
+                               "Seccomp:\t%u\n"
+                               "Seccomp_filters:\t%u\n"
                                "SigQ:\t0/0\n"
                                "CapInh:\t0000000000000000\n"
                                "CapPrm:\t0000000000000000\n"
                                "CapEff:\t0000000000000000\n"
                                "CapBnd:\t0000000000000000\n"
-                               "Cpus_allowed:\t1\n"
-                               "Cpus_allowed_list:\t0\n"
+                               "Cpus_allowed:\t%llx\n"
+                               "Cpus_allowed_list:\t%s\n"
                                "Mems_allowed:\t1\n"
                                "Mems_allowed_list:\t0\n"
-                               "voluntary_ctxt_switches:\t0\n"
-                               "nonvoluntary_ctxt_switches:\t0\n",
+                               "voluntary_ctxt_switches:\t%llu\n"
+                               "nonvoluntary_ctxt_switches:\t%llu\n",
                           proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid, (uint64_t)ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->fsuid,
-                          proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, vmsize / 1024, vmrss / 1024, vmdata / 1024, vmstack / 1024);
+                          proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024, memory.data_bytes / 1024,
+                          memory.stack_bytes / 1024, memory.text_bytes / 1024, stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, (unsigned)seccomp_mode, seccomp_filters, cpu_mask,
+                          cpu_list, stats.voluntary_switches, stats.involuntary_switches);
+    process_put(proc);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -1293,20 +1431,10 @@ static void gen_pid_statm(procfs_file_t *pf)
         return;
     }
 
-    uint64_t   size = 0, resident = 0, shared = 0, text = 0, lib = 0, data = 0;
-    vm_area_t *vma;
-    spin_lock(&proc->mmap_lock);
-    for (vma = proc->mmap_list; vma; vma = vma->next) {
-        uint64_t pages = (vma->end - vma->start) / PAGE_4K_SIZE;
-        size += pages;
-        resident += pages;
-        if (vma->type == VM_REGION_CODE) text += pages;
-        if (vma->type == VM_REGION_DATA || vma->type == VM_REGION_HEAP) data += pages;
-        if (vma->flags & VM_SHARED) shared += pages;
-    }
-    spin_unlock(&proc->mmap_lock);
-    int n = snprintf(buf, 256, "%llu %llu %llu %llu %llu %llu %llu\n", (unsigned long long)size, (unsigned long long)resident, (unsigned long long)shared, (unsigned long long)text,
-                     (unsigned long long)lib, (unsigned long long)data, 0ULL);
+    procfs_memory_stats_t memory;
+    procfs_get_memory_stats(proc, &memory);
+    int n = snprintf(buf, 256, "%llu %llu %llu %llu %llu %llu %llu\n", (unsigned long long)memory.virtual_pages, (unsigned long long)memory.resident_pages,
+                     (unsigned long long)memory.shared_pages, (unsigned long long)memory.text_pages, 0ULL, (unsigned long long)memory.data_pages, 0ULL);
     process_put(proc);
 
     pf->content  = buf;
@@ -1417,25 +1545,25 @@ static void procfs_fd_target(process_t *proc, int fd, char *target, size_t capac
 /* Generate /proc/<pid>/mem content. */
 static void gen_pid_mem(procfs_file_t *pf)
 {
-    process_t *proc = process_find(pf->pid);
+    process_t *proc = process_find_get(pf->pid);
     if (!proc) return;
 
     char *buf = malloc(256);
-    if (!buf) return;
-
-    uint64_t   total = 0;
-    vm_area_t *vma   = proc->mmap_list;
-    while (vma) {
-        total += vma->end - vma->start;
-        vma = vma->next;
+    if (!buf) {
+        process_put(proc);
+        return;
     }
+
+    procfs_memory_stats_t memory;
+    procfs_get_memory_stats(proc, &memory);
 
     int n = snprintf(buf, 256,
                      "VmaTotal:\t%llu kB\n"
                      "RssTotal:\t%llu kB\n"
                      "HeapBrk:\t%016lx\n"
                      "StackBrk:\t%016lx\n",
-                     total / 1024, total / 1024, proc->heap_brk, proc->stack_brk);
+                     memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024, proc->heap_brk, proc->stack_brk);
+    process_put(proc);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -1479,8 +1607,7 @@ static void gen_pid_stat(procfs_file_t *pf)
     }
 
     char     name[PROCESS_NAME_LEN];
-    uint32_t cpu_id       = proc->task->cpu_id;
-    uint32_t thread_count = proc->thread_count ? proc->thread_count : 1;
+    uint32_t cpu_id = proc->task->cpu_id;
     pid_t    ppid         = proc->parent && proc->parent->task ? (pid_t)proc->parent->task->tgid : 0;
     pid_t    pgid         = proc->pgid;
     pid_t    sid          = proc->sid;
@@ -1517,6 +1644,12 @@ static void gen_pid_stat(procfs_file_t *pf)
     }
     spin_unlock(&proc->mmap_lock);
 
+    process_stats_t       task_stats;
+    procfs_memory_stats_t memory_stats;
+    process_get_stats(proc, &task_stats);
+    procfs_get_memory_stats(proc, &memory_stats);
+    uint32_t thread_count = task_stats.threads ? task_stats.threads : 1;
+
     uint64_t rss_limit;
     spin_lock(&proc->rlimit_lock);
     rss_limit = proc->rlimits[PROCESS_RLIMIT_RSS].current;
@@ -1536,8 +1669,9 @@ static void gen_pid_stat(procfs_file_t *pf)
                      "%llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu "
                      "%lld %lld %u %u %llu %llu %lld "
                      "%llu %llu %llu %llu %llu %llu %llu %lld\n",
-                     (int64_t)pf->pid, name, state_char, (int64_t)ppid, (int64_t)pgid, (int64_t)sid, tty_nr, tpgid, 0U, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0LL, 0LL, 20LL, 0LL, (int64_t)thread_count,
-                     0LL, 0ULL, vsize, 0LL, rss_limit, start_code, end_code, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, (int64_t)SIGCHLD, (int64_t)cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL,
+                     (int64_t)pf->pid, name, state_char, (int64_t)ppid, (int64_t)pgid, (int64_t)sid, tty_nr, tpgid, 0U, 0ULL, 0ULL, 0ULL, 0ULL, timer_ticks_to_user_ticks(task_stats.user_ticks),
+                     timer_ticks_to_user_ticks(task_stats.system_ticks), 0LL, 0LL, 20LL, 0LL, (int64_t)thread_count, 0LL, timer_ticks_to_user_ticks(task_stats.start_tick), vsize,
+                     (int64_t)memory_stats.resident_pages, rss_limit, start_code, end_code, (uint64_t)PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, (int64_t)SIGCHLD, (int64_t)cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL,
                      start_data, end_data, start_brk, 0ULL, 0ULL, 0ULL, 0ULL, exit_code);
     process_put(proc);
 

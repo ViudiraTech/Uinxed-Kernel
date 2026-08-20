@@ -22,6 +22,7 @@
 
 typedef struct process process_t;
 typedef struct cgroup  cgroup_t;
+struct seccomp_filter;
 
 #define TASK_NAME_LEN      32
 #define TASK_KERNEL_STACK  0x10000
@@ -120,6 +121,17 @@ struct task {
         uint64_t           last_wake_tick;    // scheduler tick of last wakeup
         uint64_t           last_migrate_tick; // anti-ping-pong migration stamp
         uint32_t           migration_count;   // scheduler migration statistic
+        uint64_t           start_tick;        // scheduler tick at creation
+        uint64_t           user_ticks;
+        uint64_t           system_ticks;
+        uint64_t           voluntary_switches;
+        uint64_t           involuntary_switches;
+        /* POSIX signal mask, directed pending set and alternate stack are per-thread. */
+        sigset_t           signal_blocked;
+        sigset_t           signal_saved_mask;
+        sigset_t           signal_pending;
+        bool               signal_restore_mask;
+        stack_t            signal_altstack;
         char               name[TASK_NAME_LEN];
         process_t         *process;
         uint64_t           clear_child_tid;
@@ -143,6 +155,10 @@ struct task {
          */
         uintptr_t      uaccess_fault_resume;
         uint8_t        uaccess_fault_nofault;
+        /* Linux seccomp and no_new_privs are per-thread and survive exec. */
+        struct seccomp_filter *seccomp_filter;
+        uint8_t                seccomp_mode;
+        bool                   no_new_privs;
         ptrace_state_t ptrace;  // Linux ptrace state is per-thread
         uint64_t       flags;   // PF_KTHREAD etc.
         kthread_info_t kthread; // kernel-thread lifecycle (PF_KTHREAD only)
@@ -169,6 +185,9 @@ void wait_queue_wait(wait_queue_t *queue);
  */
 void wait_queue_prepare(wait_queue_t *queue);
 void wait_queue_sleep(void);
+
+/* Remove a prepared-but-not-yet-slept current task from this queue. */
+void wait_queue_cancel(wait_queue_t *queue);
 
 /*
  * Two-phase wait with timeout: prepare under lock, then sleep with

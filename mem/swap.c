@@ -15,11 +15,13 @@
 #    define PTE_PRESENT    (1ULL << 0)
 #    define PTE_WRITEABLE  (1ULL << 1)
 #    define PTE_USER       (1ULL << 2)
+#    define PTE_ACCESSED   (1ULL << 5)
 #    define PTE_COW        (1ULL << 9)
 #    define PTE_SHARED     (1ULL << 10)
 #    define PTE_NO_EXECUTE (1ULL << 63)
 #else
 #    include <arch/common.h>
+#    include <arch/smp.h>
 #    include <drivers/block/core/blockdev.h>
 #    include <fs/core/vfs.h>
 #    include <kernel/errno.h>
@@ -129,6 +131,7 @@ int swap_slot_map_init(swap_slot_map_t *map, uint64_t *bitmap, uint32_t *refs, u
     map->refs         = refs;
     map->slots        = slots;
     map->cluster_next = 1;
+    map->free_slots   = slots;
     memset(bitmap, 0, (size_t)((slots + 64) / 64) * sizeof(*bitmap));
     memset(refs, 0, (size_t)(slots + 1) * sizeof(*refs));
     return 0;
@@ -148,6 +151,7 @@ uint64_t swap_slot_alloc(swap_slot_map_t *map)
             swap_slot_set(map, slot, 1);
             map->refs[slot]   = 1;
             map->cluster_next = slot == map->slots ? 1 : slot + 1;
+            map->free_slots--;
             return slot;
         }
     }
@@ -166,7 +170,10 @@ int swap_slot_retain(swap_slot_map_t *map, uint64_t slot)
 int swap_slot_release(swap_slot_map_t *map, uint64_t slot)
 {
     if (!swap_slot_valid(map, slot) || !swap_slot_used(map, slot) || !map->refs[slot]) return -1;
-    if (!--map->refs[slot]) swap_slot_set(map, slot, 0);
+    if (!--map->refs[slot]) {
+        swap_slot_set(map, slot, 0);
+        map->free_slots++;
+    }
     return 0;
 }
 
@@ -410,9 +417,11 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
     __atomic_store_n(&pte->value, entry | PTE_SWAP_BUSY, __ATOMIC_RELEASE);
     flush_tlb(address);
     spin_unlock(&directory->lock);
+    flush_tlb_all();
 
     swap_area_t *area   = swap_area_for_type(swap_entry_type(entry));
-    uint64_t     frame  = area ? alloc_frames(1) : 0;
+    uint64_t     frame  = area ? alloc_frames_noreclaim(1) : 0;
+    if (area && !frame && frame_reclaim_pages(1) > 0) frame = alloc_frames_noreclaim(1);
     int          result = (!frame || !area) ? -ENOMEM : swap_area_io(area, swap_entry_offset(entry), phys_to_virt(frame), 0);
 
     spin_lock(&directory->lock);
@@ -435,11 +444,21 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
         if (frame) (void)frame_release_range(frame, 1);
     }
     spin_unlock(&directory->lock);
+    flush_tlb_all();
     return result;
 }
 
-/* Page out a single user frame to the highest-priority active area. */
-static int swap_out_page(page_directory_t *directory, uintptr_t address)
+/* Release a slot while obeying the swap-area locking contract. */
+static void swap_release_slot(swap_area_t *area, uint64_t slot)
+{
+    if (!area || !slot) return;
+    spin_lock(&area->lock);
+    (void)swap_slot_release(&area->slots, slot);
+    spin_unlock(&area->lock);
+}
+
+/* Page out one user frame, giving recently accessed pages a second chance. */
+static int swap_out_page(page_directory_t *directory, uintptr_t address, bool force)
 {
     swap_area_t *best = NULL;
     spin_lock(&swap_lock);
@@ -448,12 +467,13 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address)
         if (!area->active || area->draining) continue;
         if (!best || area->priority > best->priority) best = area;
     }
+    uint64_t slot = 0;
+    if (best) {
+        spin_lock(&best->lock);
+        slot = swap_slot_alloc(&best->slots);
+        spin_unlock(&best->lock);
+    }
     spin_unlock(&swap_lock);
-    if (!best) return -ENOSPC;
-
-    spin_lock(&best->lock);
-    uint64_t slot = swap_slot_alloc(&best->slots);
-    spin_unlock(&best->lock);
     if (!slot) return -ENOSPC;
 
     spin_lock(&directory->lock);
@@ -461,7 +481,15 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address)
     uint64_t            value = pte ? __atomic_load_n(&pte->value, __ATOMIC_ACQUIRE) : 0;
     if (!pte || !(value & PTE_PRESENT) || !(value & PTE_USER) || (value & (PTE_SHARED | PTE_HUGE)) || frame_refcount(value & PAGE_4K_MASK) != 1) {
         spin_unlock(&directory->lock);
-        (void)swap_slot_release(&best->slots, slot);
+        swap_release_slot(best, slot);
+        return -EAGAIN;
+    }
+    if (!force && (value & PTE_ACCESSED)) {
+        __atomic_store_n(&pte->value, value & ~PTE_ACCESSED, __ATOMIC_RELEASE);
+        flush_tlb(address);
+        spin_unlock(&directory->lock);
+        flush_tlb_all();
+        swap_release_slot(best, slot);
         return -EAGAIN;
     }
 
@@ -469,50 +497,93 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address)
     __atomic_store_n(&pte->value, entry, __ATOMIC_RELEASE);
     flush_tlb(address);
     spin_unlock(&directory->lock);
+    /* No CPU may keep writing the frame while it is copied to swap. */
+    flush_tlb_all();
 
     int result = swap_area_io(best, slot, phys_to_virt(value & PAGE_4K_MASK), 1);
 
+    bool release_frame = false;
+    bool release_slot  = false;
     spin_lock(&directory->lock);
     pte = swap_pte_lookup(directory, address);
     if (pte && __atomic_load_n(&pte->value, __ATOMIC_ACQUIRE) == entry) {
         if (result == EOK) {
+            __atomic_add_fetch(&best->pages_out, 1, __ATOMIC_RELAXED);
             __atomic_store_n(&pte->value, entry & ~PTE_SWAP_BUSY, __ATOMIC_RELEASE);
             flush_tlb(address);
-            (void)frame_release_range(value & PAGE_4K_MASK, 1);
-            best->pages_out++;
+            release_frame = true;
         } else {
             plogk("swap: Swap-out failed type=%u slot=%llu addr=0x%016llx err=%d\n", best->type, slot, (uint64_t)address, result);
             __atomic_store_n(&pte->value, value, __ATOMIC_RELEASE);
             flush_tlb(address);
-            (void)swap_slot_release(&best->slots, slot);
+            release_slot = true;
         }
-    } else if (result == EOK) {
-        (void)swap_slot_release(&best->slots, slot);
+    } else {
+        release_slot = true;
         result = -EAGAIN;
     }
     spin_unlock(&directory->lock);
+
+    if (release_frame) {
+        flush_tlb_all();
+        (void)frame_release_range(value & PAGE_4K_MASK, 1);
+    }
+    if (release_slot) {
+        flush_tlb_all();
+        swap_release_slot(best, slot);
+    }
     return result;
 }
 
-/* Reclaim up to target anonymous frames by paging them out. */
-int swap_reclaim(size_t target)
+/* One bounded anonymous-page scan. */
+static size_t swap_reclaim_pass(size_t target, bool force)
 {
     size_t     reclaimed = 0;
+    size_t     scanned   = 0;
+    size_t     budget    = target > SIZE_MAX / 32 ? SIZE_MAX : target * 32;
     size_t     cursor    = 0;
     process_t *proc;
-    while (reclaimed < target && (proc = process_iterate_get(&cursor)) != NULL) {
+    if (budget < 256) budget = 256;
+    while (reclaimed < target && scanned < budget && (proc = process_iterate_get(&cursor)) != NULL) {
         if (proc->user_page_dir) {
             spin_lock(&proc->mmap_lock);
-            for (vm_area_t *vma = proc->mmap_list; vma && reclaimed < target; vma = vma->next) {
+            for (vm_area_t *vma = proc->mmap_list; vma && reclaimed < target && scanned < budget; vma = vma->next) {
                 if (vma->vm_file || (vma->flags & VM_SHARED)) continue;
-                for (uintptr_t va = vma->start; va < vma->end && reclaimed < target; va += SWAP_PAGE_SIZE)
-                    if (swap_out_page(proc->user_page_dir, va) == EOK) reclaimed++;
+                for (uintptr_t va = vma->start; va < vma->end && reclaimed < target && scanned < budget; va += SWAP_PAGE_SIZE) {
+                    scanned++;
+                    if (swap_out_page(proc->user_page_dir, va, force) == EOK) reclaimed++;
+                }
             }
             spin_unlock(&proc->mmap_lock);
         }
         process_put(proc);
     }
+    return reclaimed;
+}
+
+/* Reclaim up to target pages; the first pass preserves recently used pages. */
+int swap_reclaim(size_t target)
+{
+    if (!target) return 0;
+    size_t reclaimed = swap_reclaim_pass(target, false);
+    if (reclaimed < target) reclaimed += swap_reclaim_pass(target - reclaimed, true);
     return (int)reclaimed;
+}
+
+/* Report whether an active swap area can accept at least one more page. */
+bool swap_has_free_space(void)
+{
+    bool available = false;
+    spin_lock(&swap_lock);
+    for (uint32_t i = 0; i < SWAP_MAX_AREAS && !available; i++) {
+        swap_area_t *area = &swap_areas[i];
+        if (!area->active || area->draining) continue;
+        spin_lock(&area->lock);
+        available = area->slots.free_slots != 0;
+        spin_unlock(&area->lock);
+    }
+    spin_unlock(&swap_lock);
+    return available;
 }
 
 /* Page in every frame of type held by one address-space subtree. */
@@ -599,8 +670,9 @@ void swap_get_stats(swap_stats_t *stats)
         stats->total_pages += area->slots.slots;
         stats->pages_in += area->pages_in;
         stats->pages_out += area->pages_out;
-        for (uint64_t slot = 1; slot <= area->slots.slots; slot++)
-            if (swap_slot_refs(&area->slots, slot)) stats->used_pages++;
+        spin_lock(&area->lock);
+        stats->used_pages += area->slots.slots - area->slots.free_slots;
+        spin_unlock(&area->lock);
     }
     spin_unlock(&swap_lock);
     stats->free_pages = stats->total_pages - stats->used_pages;
@@ -617,9 +689,9 @@ int swap_format_proc_swaps(char *buf, size_t cap)
     for (uint32_t i = 0; i < SWAP_MAX_AREAS; i++) {
         swap_area_t *area = &swap_areas[i];
         if (!area->active) continue;
-        uint64_t used = 0;
-        for (uint64_t slot = 1; slot <= area->slots.slots; slot++)
-            if (swap_slot_refs(&area->slots, slot)) used++;
+        spin_lock(&area->lock);
+        uint64_t used = area->slots.slots - area->slots.free_slots;
+        spin_unlock(&area->lock);
         int n = snprintf(buf + off, cap - off, "%s\t\t\t\t%s\t\t%llu\t%llu\t%d\n", area->path, area->backend == SWAP_BACKEND_BLOCK ? "partition" : "file", (unsigned long long)area->slots.slots,
                          (unsigned long long)used, area->priority);
         if (n <= 0 || off + (size_t)n >= cap) break;

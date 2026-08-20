@@ -283,6 +283,8 @@ void drm_crtc_vblank_on(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
+    int                     refresh;
+    uint64_t                period_ns;
 
     if (!crtc || !crtc->dev) {
         DRM_ERROR("Vblank_on with invalid crtc (crtc=%p)\n", crtc);
@@ -298,15 +300,29 @@ void drm_crtc_vblank_on(struct drm_crtc *crtc)
 
     vblank = &dev->vblank_array[crtc->index];
 
+    /*
+     * Software-emulated vblank must follow the active mode.  Weston derives
+     * repaint timing from the same clock/totals, so keeping the old hard-coded
+     * period after a modeset causes frame pacing drift and event bursts.
+     */
+    refresh = drm_mode_vrefresh(&crtc->mode);
+    if (refresh <= 0) refresh = crtc->mode.vrefresh;
+    if (refresh <= 0 || refresh > 1000) refresh = 60;
+    period_ns = (TIMER_NSEC_PER_SEC + (uint64_t)refresh / 2ULL) / (uint64_t)refresh;
+
     spin_lock(&vblank->lock);
     vblank->crtc = crtc;
+    if (vblank->period_ns != period_ns) {
+        vblank->period_ns      = period_ns;
+        vblank->next_vblank_ns = timer_monotonic_ns() + period_ns;
+    }
     if (!vblank->enabled) {
         vblank->enabled = true;
         spin_lock(&drm_vblank_enabled_lock);
         drm_vblank_enabled_total++;
         spin_unlock(&drm_vblank_enabled_lock);
     }
-    if (!vblank->next_vblank_ns) vblank->next_vblank_ns = timer_monotonic_ns() + vblank->period_ns;
+    if (!vblank->next_vblank_ns) vblank->next_vblank_ns = timer_monotonic_ns() + period_ns;
     spin_unlock(&vblank->lock);
 }
 

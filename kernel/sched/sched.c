@@ -523,6 +523,11 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
     }
 
     if (remove_linked_node) ilist_remove(&task->sched_node);
+    if (task->process && __atomic_load_n(&task->process->signal.group_stopped, __ATOMIC_ACQUIRE)) {
+        task->state     = TASK_STOPPED;
+        task->wake_tick = 0;
+        return;
+    }
     enqueue_task(task);
 }
 
@@ -1024,8 +1029,14 @@ void sched_ipi_reschedule(void)
     __atomic_store_n(&cpu_rqs[cpu_id].resched_pending, 0, __ATOMIC_RELEASE);
     if (!scheduler.started) return;
 
+    /* A group-exit IPI must also retire a CPU-bound thread in userspace. */
+    task_t *current = current_task();
+    if (current && current->process && __atomic_load_n(&current->process->signal.group_exit, __ATOMIC_ACQUIRE))
+        process_exit(__atomic_load_n(&current->process->signal.group_exit_code, __ATOMIC_RELAXED));
+
     spin_lock(&cpu_rqs[cpu_id].lock);
-    bool ready = has_ready_task();
+    current       = cpu_rqs[cpu_id].curr;
+    bool ready    = has_ready_task() || (current && current->state != TASK_RUNNING && current != cpu_rqs[cpu_id].idle);
     spin_unlock(&cpu_rqs[cpu_id].lock);
     if (ready) sched_yield();
 }
@@ -1071,17 +1082,16 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 }
 
 /* Switch to the next runnable task on the current CPU */
-static void sched_switch(bool account_runtime)
+static void sched_switch(bool voluntary)
 {
     eevdf_rq_t *rq = local_rq();
-    spin_lock(&rq->lock);
+    uint64_t entry_rflags = spin_lock_irqsave(&rq->lock);
 
     task_t *prev = rq->curr;
     task_t *next;
 
     /* Advance vruntime and re-enqueue the current task if it was running */
     if (prev && prev->state == TASK_RUNNING && prev != rq->idle) {
-        if (account_runtime) update_curr(rq, 1);
         update_deadline(rq, prev);
         prev->vlag  = (int64_t)(avg_vruntime(rq) - prev->vruntime);
         prev->state = TASK_READY;
@@ -1098,10 +1108,10 @@ static void sched_switch(bool account_runtime)
      * the running task.
      */
     if (next == rq->idle && rq->nr_running == 0) {
-        spin_unlock(&rq->lock);
-        disable_intr();
+        /* Keep IRQs disabled while rq->curr is between scheduling states. */
+        spin_unlock_irqrestore(&rq->lock, entry_rflags & ~(1ULL << 9));
         task_t *stolen = newidle_balance(get_current_cpu_id());
-        spin_lock(&rq->lock);
+        (void)spin_lock_irqsave(&rq->lock);
         next = stolen ? stolen : pick_eevdf(rq);
     }
 
@@ -1116,7 +1126,7 @@ static void sched_switch(bool account_runtime)
             next->time_slice = 0;
             advance_min_vruntime(rq);
         }
-        spin_unlock(&rq->lock);
+        spin_unlock_irqrestore(&rq->lock, entry_rflags);
         return;
     }
 
@@ -1155,15 +1165,21 @@ static void sched_switch(bool account_runtime)
      * the same address space (and for kernel threads).
      */
     if (!prev || prev->page_directory != next->page_directory) switch_page_directory(next->page_directory);
-    spin_unlock(&rq->lock);
+    rq->context_switches++;
+    if (prev && prev != rq->idle) {
+        if (voluntary)
+            prev->voluntary_switches++;
+        else
+            prev->involuntary_switches++;
+    }
 
     /*
-     * Re-disable interrupts: between the unlock and context_switch a timer
-     * interrupt could fire and re-enter the scheduler, corrupting the
-     * runqueue and rb-tree.  Interrupts stay off until the next task's
-     * saved RFLAGS is restored by context_switch().
+     * Release the runqueue without reopening the timer-interrupt window.
+     * The old code restored IF here and disabled it again afterwards; a tick
+     * in that gap could enter sched_switch() after rq->curr had changed but
+     * before the CPU had changed stacks.
      */
-    disable_intr();
+    spin_unlock_irqrestore(&rq->lock, entry_rflags & ~(1ULL << 9));
 
     /*
      * arch_prctl keeps the software values authoritative, so avoid two
@@ -1178,6 +1194,12 @@ static void sched_switch(bool account_runtime)
 
     fpu_switch(prev, next);
     context_switch(&prev->context, &next->context, &prev->on_cpu);
+
+    /* Restore the IRQ state of the call site when this task is scheduled in. */
+    if (entry_rflags & (1ULL << 9))
+        enable_intr();
+    else
+        disable_intr();
 }
 
 /* Yield the current task to the scheduler */
@@ -1285,10 +1307,34 @@ int task_continue(task_t *task)
 
     spin_lock(&scheduler.lock);
     bool continued = task->state == TASK_STOPPED;
-    if (continued) enqueue_task(task);
+    if (continued) {
+        if (__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE))
+            task->state = TASK_RUNNING;
+        else
+            enqueue_task(task);
+    }
     spin_unlock(&scheduler.lock);
     if (continued) request_task_cpu(task);
     return continued ? 0 : 1;
+}
+
+/* Stop a task without leaving a READY entity behind in its runqueue tree. */
+int task_stop(task_t *task)
+{
+    if (!task) return 1;
+
+    spin_lock(&scheduler.lock);
+    bool stopped = task->state == TASK_READY || task->state == TASK_RUNNING;
+    if (stopped) {
+        eevdf_rq_t *rq = task->cpu_id < cpu_scheduler_count ? &cpu_rqs[task->cpu_id] : &cpu_rqs[0];
+        spin_lock(&rq->lock);
+        if (task->state == TASK_READY) dequeue_entity(rq, task);
+        task->state = TASK_STOPPED;
+        spin_unlock(&rq->lock);
+    }
+    spin_unlock(&scheduler.lock);
+    if (stopped) request_task_cpu(task);
+    return stopped ? 0 : 1;
 }
 
 /* Wait queue implementation */
@@ -1360,6 +1406,17 @@ void wait_queue_sleep(void)
     spin_unlock(&scheduler.lock);
 
     if (sleep) sched_yield();
+}
+
+/* Cancel the current task's two-phase wait before it becomes blocked. */
+void wait_queue_cancel(wait_queue_t *queue)
+{
+    if (!queue) return;
+
+    task_t *curr = local_current();
+    spin_lock(&scheduler.lock);
+    if (curr->wait_queue == queue && curr->wake_reason == TASK_WAKE_NONE) finish_wait_locked(curr, TASK_WAKE_NORMAL);
+    spin_unlock(&scheduler.lock);
 }
 
 /*
@@ -1523,7 +1580,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
 }
 
 /* sched_tick - periodic tick accounting and preemption */
-void sched_tick(void)
+void sched_tick(bool user_mode)
 {
     if (!scheduler.started || !cpu_rqs) return;
 
@@ -1542,8 +1599,16 @@ void sched_tick(void)
 
     /* Idle task: yield if there is real work */
     if (curr == rq->idle) {
+        rq->idle_ticks++;
         preempt = __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0;
     } else if (curr->state == TASK_RUNNING) {
+        if (user_mode) {
+            curr->user_ticks++;
+            rq->user_ticks++;
+        } else {
+            curr->system_ticks++;
+            rq->system_ticks++;
+        }
         /* Advance vruntime by one tick and test the next eligible deadline. */
         curr->time_slice++;
         update_curr(rq, 1);

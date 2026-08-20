@@ -11,6 +11,7 @@
 #include <ipc/sysv_ipc.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -31,8 +32,6 @@
 #define SEM_MAX_SETS  128
 
 #define SHM_MAX_SEGS  128
-#define SHM_MMAP_BASE 0x00007f0000000000ULL
-#define SHM_MMAP_STEP 0x0000000010000000ULL
 #define SHMLBA        PAGE_4K_SIZE
 
 #define MSG_MAX_QUEUES 128
@@ -123,6 +122,13 @@ static spinlock_t   msg_global_lock;
 static sem_undo_t *sem_undo_list;
 static spinlock_t  sem_undo_lock;
 
+/* System V IPC timestamps are realtime seconds, not scheduler ticks. */
+static uint64_t ipc_now_seconds(void)
+{
+    int64_t nanoseconds = timer_realtime_ns();
+    return nanoseconds > 0 ? (uint64_t)nanoseconds / TIMER_NSEC_PER_SEC : 0;
+}
+
 /* Check the current process's permission to access the IPC object. */
 static int ipc_perm_check(const ipc_perm_t *perm, int mode)
 {
@@ -132,14 +138,28 @@ static int ipc_perm_check(const ipc_perm_t *perm, int mode)
     /* Superuser bypass */
     if (proc->uid == 0) return 0;
 
-    if (proc->uid == perm->uid) {
-        mode >>= 6;
-    } else if (proc->gid == perm->gid) {
-        mode >>= 3;
-    }
+    uint32_t granted;
+    if (proc->uid == perm->uid)
+        granted = (perm->mode >> 6) & 07;
+    else if (proc->gid == perm->gid || process_in_group(proc, perm->gid))
+        granted = (perm->mode >> 3) & 07;
+    else
+        granted = perm->mode & 07;
 
-    if ((perm->mode & 0777 & mode) == (mode & 0777)) return 0;
+    uint32_t requested = 0;
+    if (mode & 0444) requested |= 04;
+    if (mode & 0222) requested |= 02;
+    if (mode & 0111) requested |= 01;
+    if ((granted & requested) == requested) return 0;
     return -EACCES;
+}
+
+/* Administrative IPC operations require the owner, creator, or superuser. */
+static int ipc_owner_check(const ipc_perm_t *perm)
+{
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return proc->uid == 0 || proc->uid == perm->uid || proc->uid == perm->cuid ? 0 : -EPERM;
 }
 
 /* Allocate an IPC id from a free table slot, with a rotating sequence. */
@@ -345,7 +365,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
     for (uint32_t i = 0; i < (uint32_t)nsems; i++) wait_queue_init(&sem->waitq[i]);
 
     sem->nsems = (uint32_t)nsems;
-    sem->ctime = sched_ticks();
+    sem->ctime = ipc_now_seconds();
     sem->otime = 0;
 
     process_t *proc = process_current();
@@ -540,7 +560,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
             if (ksops[i].sem_flg & SEM_UNDO) undo_adj[snum] = (int16_t)(undo_adj[snum] - ksops[i].sem_op);
         }
 
-        sem->otime = sched_ticks();
+        sem->otime = ipc_now_seconds();
         spin_unlock(&sem->lock);
 
         /* Record undo adjustments */
@@ -587,12 +607,13 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
 /* sys_semctl - semaphore control operations */
 int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 {
+    cmd &= ~IPC_64;
     sem_array_t *sem = (sem_array_t *)ipc_id_lookup((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, semid);
     if (sem == NULL) return -EINVAL;
 
     switch (cmd) {
         case IPC_RMID : {
-            int ret = ipc_perm_check(&sem->perm, 0);
+            int ret = ipc_owner_check(&sem->perm);
             if (ret < 0) return ret;
 
             int rem = ipc_id_remove((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, semid);
@@ -615,7 +636,7 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
         }
 
         case IPC_SET : {
-            int ret = ipc_perm_check(&sem->perm, 0);
+            int ret = ipc_owner_check(&sem->perm);
             if (ret < 0) return ret;
             if (arg == 0) return -EFAULT;
 
@@ -626,7 +647,7 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             sem->perm.uid  = ds.sem_perm.uid;
             sem->perm.gid  = ds.sem_perm.gid;
             sem->perm.mode = (ds.sem_perm.mode & 0777) | (sem->perm.mode & ~0777U);
-            sem->ctime     = sched_ticks();
+            sem->ctime     = ipc_now_seconds();
             spin_unlock(&sem->lock);
             return 0;
         }
@@ -669,7 +690,7 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             spin_lock(&sem->lock);
             sem->values[semnum] = (uint16_t)val;
             sem->sempid[semnum] = process_current() ? (uint32_t)process_current()->task->pid : 0;
-            sem->ctime          = sched_ticks();
+            sem->ctime          = ipc_now_seconds();
             spin_unlock(&sem->lock);
 
             wait_queue_wake_all(&sem->waitq[semnum]);
@@ -711,7 +732,7 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 
             spin_lock(&sem->lock);
             memcpy(sem->values, vals, sizeof(uint16_t) * sem->nsems);
-            sem->ctime = sched_ticks();
+            sem->ctime = ipc_now_seconds();
             spin_unlock(&sem->lock);
 
             for (uint32_t i = 0; i < sem->nsems; i++) wait_queue_wake_all(&sem->waitq[i]);
@@ -814,7 +835,7 @@ int sysv_shm_vma_get(void *identity, uint32_t pid)
         return -ENOMEM;
     }
     seg->nattch++;
-    seg->atime = sched_ticks();
+    seg->atime = ipc_now_seconds();
     seg->lpid  = pid;
     spin_unlock(&seg->lock);
     return EOK;
@@ -853,7 +874,7 @@ static shm_seg_t *shm_attach_get(int shmid, int mode, uint32_t pid, int *error)
         return NULL;
     }
     seg->nattch++;
-    seg->atime = sched_ticks();
+    seg->atime = ipc_now_seconds();
     seg->lpid  = pid;
     spin_unlock(&seg->lock);
     spin_unlock(&shm_global_lock);
@@ -870,7 +891,7 @@ void sysv_shm_vma_put(void *identity, uint32_t pid)
     int destroy = 0;
     spin_lock(&seg->lock);
     if (seg->nattch) seg->nattch--;
-    seg->dtime = sched_ticks();
+    seg->dtime = ipc_now_seconds();
     seg->lpid  = pid;
     destroy    = seg->deleted && seg->nattch == 0;
     spin_unlock(&seg->lock);
@@ -934,10 +955,10 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     }
     memset(seg, 0, sizeof(shm_seg_t));
 
-    seg->size      = pages * PAGE_4K_SIZE;
+    seg->size      = size;
     seg->phys_addr = (uintptr_t)phys;
     seg->npages    = (uint32_t)pages;
-    seg->ctime     = sched_ticks();
+    seg->ctime     = ipc_now_seconds();
     seg->atime     = 0;
     seg->dtime     = 0;
     seg->nattch    = 0;
@@ -968,12 +989,16 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 {
     process_t *proc = process_current();
     if (proc == NULL) return -ESRCH;
+    if (shmflg & ~(SHM_RDONLY | SHM_RND | SHM_REMAP | SHM_EXEC)) return -EINVAL;
+    if ((shmflg & SHM_REMAP) && shmaddr == NULL) return -EINVAL;
 
     int        attach_error = EOK;
     shm_seg_t *seg          = shm_attach_get(shmid, (shmflg & SHM_RDONLY) ? 0444 : 0666, (uint32_t)proc->task->pid, &attach_error);
     if (!seg) return attach_error;
 
-    /* Determine the virtual address for the mapping */
+    size_t mapping_size = (size_t)seg->npages * PAGE_4K_SIZE;
+
+    /* Determine the virtual address for the mapping. */
     uintptr_t vaddr;
     if (shmaddr != NULL && (shmflg & SHM_REMAP)) {
         vaddr = (uintptr_t)shmaddr;
@@ -981,15 +1006,13 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
         vaddr = (uintptr_t)shmaddr;
         if (shmflg & SHM_RND) vaddr &= ~(SHMLBA - 1);
     } else {
-        /* Find a free address: use a simple incrementing allocator */
-        static uintptr_t next_shm_addr = SHM_MMAP_BASE;
-        spin_lock(&shm_global_lock);
-        vaddr = next_shm_addr;
-        next_shm_addr += SHM_MMAP_STEP;
-        if (next_shm_addr < SHM_MMAP_BASE) next_shm_addr = SHM_MMAP_BASE;
-        spin_unlock(&shm_global_lock);
+        vaddr = process_find_free_vma_range(proc, mapping_size);
+        if (!vaddr) {
+            sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
+            return -ENOMEM;
+        }
     }
-    if ((vaddr & (PAGE_4K_SIZE - 1)) || vaddr > UINT64_MAX - seg->size || vaddr + seg->size > PROCESS_USER_STACK_TOP) {
+    if ((vaddr & (PAGE_4K_SIZE - 1)) || vaddr > UINT64_MAX - mapping_size || vaddr + mapping_size > PROCESS_USER_STACK_TOP) {
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
         return -EINVAL;
     }
@@ -999,7 +1022,7 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
     if (shmflg & SHM_EXEC) flags |= VM_EXEC;
     flags |= VM_READ;
 
-    vm_area_t *vma = vm_area_alloc(vaddr, vaddr + seg->size, flags);
+    vm_area_t *vma = vm_area_alloc(vaddr, vaddr + mapping_size, flags);
     if (!vma) {
         plogk("sysv_ipc: Shmat VMA allocation failed (shmid %d)\n", shmid);
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
@@ -1008,7 +1031,7 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
     vma->type            = VM_REGION_SHM;
     vma->vm_private_data = seg;
 
-    if ((shmflg & SHM_REMAP) && process_unmap_complete_range(proc, vaddr, seg->size)) {
+    if ((shmflg & SHM_REMAP) && process_unmap_complete_range(proc, vaddr, mapping_size)) {
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
         free(vma);
         return -EINVAL;
@@ -1076,12 +1099,13 @@ int64_t sys_shmdt(const void *shmaddr)
 /* sys_shmctl - shared memory control operations */
 int64_t sys_shmctl(int shmid, int cmd, void *buf)
 {
+    cmd &= ~IPC_64;
     shm_seg_t *seg = (shm_seg_t *)ipc_id_lookup((void **)shm_segs, shm_seq, SHM_MAX_SEGS, &shm_global_lock, shmid);
     if (seg == NULL) return -EINVAL;
 
     switch (cmd) {
         case IPC_RMID : {
-            int ret = ipc_perm_check(&seg->perm, 0);
+            int ret = ipc_owner_check(&seg->perm);
             if (ret < 0) return ret;
 
             int rem = ipc_id_remove((void **)shm_segs, shm_seq, SHM_MAX_SEGS, &shm_global_lock, shmid);
@@ -1100,7 +1124,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
         }
 
         case IPC_SET : {
-            int ret = ipc_perm_check(&seg->perm, 0);
+            int ret = ipc_owner_check(&seg->perm);
             if (ret < 0) return ret;
             if (buf == NULL) return -EFAULT;
 
@@ -1111,7 +1135,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             seg->perm.uid  = ds.shm_perm.uid;
             seg->perm.gid  = ds.shm_perm.gid;
             seg->perm.mode = (ds.shm_perm.mode & 0777) | (seg->perm.mode & ~0777U);
-            seg->ctime     = sched_ticks();
+            seg->ctime     = ipc_now_seconds();
             spin_unlock(&seg->lock);
             return 0;
         }
@@ -1139,7 +1163,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
         }
 
         case SHM_LOCK : {
-            int ret = ipc_perm_check(&seg->perm, 0);
+            int ret = ipc_owner_check(&seg->perm);
             if (ret < 0) return ret;
             spin_lock(&seg->lock);
             seg->locked = 1;
@@ -1148,7 +1172,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
         }
 
         case SHM_UNLOCK : {
-            int ret = ipc_perm_check(&seg->perm, 0);
+            int ret = ipc_owner_check(&seg->perm);
             if (ret < 0) return ret;
             spin_lock(&seg->lock);
             seg->locked = 0;
@@ -1243,7 +1267,7 @@ int64_t sys_msgget(key_t key, int msgflg)
     memset(q, 0, sizeof(msg_queue_t));
 
     q->qbytes = MSGMNB;
-    q->ctime  = sched_ticks();
+    q->ctime  = ipc_now_seconds();
     wait_queue_init(&q->recv_wq);
     wait_queue_init(&q->send_wq);
 
@@ -1339,7 +1363,7 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
 
     q->qnum++;
     q->cbytes += msgsz;
-    q->stime = sched_ticks();
+    q->stime = ipc_now_seconds();
     q->lspid = process_current() ? (uint32_t)process_current()->task->pid : 0;
 
     spin_unlock(&q->lock);
@@ -1434,7 +1458,7 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
     if (msg == q->tail) q->tail = prev_node;
     q->qnum--;
     q->cbytes -= msg->size;
-    q->rtime = sched_ticks();
+    q->rtime = ipc_now_seconds();
     q->lrpid = process_current() ? (uint32_t)process_current()->task->pid : 0;
 
     spin_unlock(&q->lock);
@@ -1472,12 +1496,13 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
 /* sys_msgctl - message queue control operations */
 int64_t sys_msgctl(int msqid, int cmd, void *buf)
 {
+    cmd &= ~IPC_64;
     msg_queue_t *q = (msg_queue_t *)ipc_id_lookup((void **)msg_queues, msg_seq, MSG_MAX_QUEUES, &msg_global_lock, msqid);
     if (q == NULL) return -EINVAL;
 
     switch (cmd) {
         case IPC_RMID : {
-            int ret = ipc_perm_check(&q->perm, 0);
+            int ret = ipc_owner_check(&q->perm);
             if (ret < 0) return ret;
 
             int rem = ipc_id_remove((void **)msg_queues, msg_seq, MSG_MAX_QUEUES, &msg_global_lock, msqid);
@@ -1503,7 +1528,7 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
         }
 
         case IPC_SET : {
-            int ret = ipc_perm_check(&q->perm, 0);
+            int ret = ipc_owner_check(&q->perm);
             if (ret < 0) return ret;
             if (buf == NULL) return -EFAULT;
 
@@ -1515,7 +1540,7 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             q->perm.gid  = ds.msg_perm.gid;
             q->perm.mode = (ds.msg_perm.mode & 0777) | (q->perm.mode & ~0777U);
             q->qbytes    = ds.msg_qbytes;
-            q->ctime     = sched_ticks();
+            q->ctime     = ipc_now_seconds();
             spin_unlock(&q->lock);
 
             /* Wake senders if queue capacity increased */

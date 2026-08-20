@@ -95,7 +95,7 @@ static const uart_ops_t uart8250_ops = {
 static void serial_console_write(console_t *c, const uint8_t *buf, size_t len)
 {
     uart_port_t *port = c->data;
-    if (port) uart8250_console_write(port, buf, len);
+    if (port) uart_console_write(port, buf, len);
 }
 
 /* Resolve the serial tty core for /dev/console without opening ttyS<N>. */
@@ -119,7 +119,7 @@ static tty_core_t *serial_console_get_tty(console_t *c)
      * console would print but never accept a byte typed on the serial line.
      * Enable RX here (startup() is idempotent) to match the ttyS<N> open path.
      */
-    if (port->ops && port->ops->startup) port->ops->startup(port);
+    if (uart_port_console_startup(port)) return NULL;
     return tty;
 }
 
@@ -159,9 +159,17 @@ static void uart8250_service(int line_irq)
 
         if (!port->present || uart8250_irq_of(i) != line_irq) continue;
         base = uart8250_base(port);
-        while (!(inb(base + UART8250_REG_IIR) & 0x01)) {
-            if (!(inb(base + UART8250_REG_LSR) & 0x01)) break;
-            uart_insert_char(port, (uint8_t)inb(base + UART8250_REG_DATA));
+        for (;;) {
+            uint8_t ch;
+            uint64_t flags = spin_lock_irqsave(&port->lock);
+            if (inb(base + UART8250_REG_IIR) & 0x01 || !(inb(base + UART8250_REG_LSR) & 0x01)) {
+                spin_unlock_irqrestore(&port->lock, flags);
+                break;
+            }
+            ch = (uint8_t)inb(base + UART8250_REG_DATA);
+            spin_unlock_irqrestore(&port->lock, flags);
+            /* The line discipline may echo or wait; never call it locked. */
+            uart_insert_char(port, ch);
         }
     }
 }
@@ -202,8 +210,11 @@ void init_serial(void)
         port->number       = i;
         port->ops          = &uart8250_ops;
         port->private_data = (void *)(uintptr_t)legacy_bases[i];
-        if (uart8250_detect(legacy_bases[i])) {
-            port->present = true;
+        uint64_t flags = spin_lock_irqsave(&port->lock);
+        int present = uart8250_detect(legacy_bases[i]);
+        port->present = present != 0;
+        spin_unlock_irqrestore(&port->lock, flags);
+        if (present) {
             detected++;
             log_buffer_write(&serial_log, "serial: Port COM%d detected.\n", i + 1);
         }

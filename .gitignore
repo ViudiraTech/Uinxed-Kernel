@@ -74,4 +74,8 @@ make.log
 *.img
 *.log
 initramfs.cpio
+*.cpio
+*.cpio.*
+/build/
+scripts/build-alpine-xfce-initramfs.sh
 scripts/1.sh

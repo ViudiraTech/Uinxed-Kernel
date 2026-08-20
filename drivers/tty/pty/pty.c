@@ -39,6 +39,7 @@
 #define PTS_MAJOR       136
 
 typedef struct pty_pair {
+        /* Protects all pair state; with lifetime lock, lifetime is acquired first. */
         spinlock_t        lock;
         wait_queue_t      master_wait;
         wait_queue_t      master_space_wait;
@@ -76,6 +77,16 @@ static spinlock_t  pty_id_lock;
 static spinlock_t  pty_lifetime_lock;
 static uint64_t    pty_ids[(CONFIG_UNIX98_PTY_MAX + 63) / 64];
 static pty_pair_t *pty_pairs[CONFIG_UNIX98_PTY_MAX];
+
+static bool pty_signal_pending(void)
+{
+    process_t *proc = process_current();
+    if (!proc) return false;
+    spin_lock(&proc->signal.lock);
+    bool pending = signal_has_interrupting_pending(&proc->signal);
+    spin_unlock(&proc->signal.lock);
+    return pending;
+}
 
 /* Increment the pair's reference count (both endpoints hold a reference) */
 static void pty_get(pty_pair_t *pair)
@@ -151,12 +162,22 @@ static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint6
                 }
                 return copied ? (int)copied : -EAGAIN;
             }
+            if (pty_signal_pending()) {
+                spin_unlock(&pair->lock);
+                return copied ? (int)copied : -ERESTARTSYS;
+            }
             wait_queue_prepare(&pair->master_space_wait);
             spin_unlock(&pair->lock);
+            bool interrupted = pty_signal_pending();
+            if (copied || interrupted) {
+                wait_queue_cancel(&pair->master_space_wait);
+            }
             if (copied) {
                 wait_queue_wake_all(&pair->master_wait);
                 vfs_poll_source_notify(&pair->master_poll_source, POLLIN);
+                return (int)copied;
             }
+            if (interrupted) return -ERESTARTSYS;
             wait_queue_sleep();
             spin_lock(&pair->lock);
         }
@@ -230,8 +251,16 @@ static int64_t pty_master_read(pty_pair_t *pair, uint64_t flags, void *buffer, s
             spin_unlock(&pair->lock);
             return -EAGAIN;
         }
+        if (pty_signal_pending()) {
+            spin_unlock(&pair->lock);
+            return -ERESTARTSYS;
+        }
         wait_queue_prepare(&pair->master_wait);
         spin_unlock(&pair->lock);
+        if (pty_signal_pending()) {
+            wait_queue_cancel(&pair->master_wait);
+            return -ERESTARTSYS;
+        }
         wait_queue_sleep();
         spin_lock(&pair->lock);
     }
@@ -283,7 +312,9 @@ static int pty_create_slave(pty_pair_t *pair)
     node->mode         = 0620;
     node->owner        = current ? current->uid : 0;
     node->group        = current ? current->gid : 0;
-    pair->slave_node   = node;
+    spin_lock(&pair->lock);
+    pair->slave_node = node;
+    spin_unlock(&pair->lock);
     return 0;
 }
 
@@ -564,11 +595,14 @@ static int pty_master_ioctl(pty_pair_t *pair, uint64_t flags, size_t request, vo
             uint64_t allowed    = O_ACCMODE | O_NOCTTY | O_NONBLOCK | O_CLOEXEC;
             uint64_t peer_flags = (uint64_t)(uintptr_t)argument;
             if ((peer_flags & ~allowed) || (peer_flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
-            if (!pair->slave_node) return -EIO;
+            spin_lock(&pair->lock);
+            vfs_node_t slave_node = pair->slave_node;
+            spin_unlock(&pair->lock);
+            if (!slave_node) return -EIO;
             uint32_t access        = (peer_flags & O_ACCMODE) == O_WRONLY ? VFS_ACCESS_W : (peer_flags & O_ACCMODE) == O_RDWR ? VFS_ACCESS_R | VFS_ACCESS_W : VFS_ACCESS_R;
-            int      access_result = vfs_access_check(pair->slave_node, access);
+            int      access_result = vfs_access_check(slave_node, access);
             if (access_result) return access_result;
-            vfs_node_t slave = vfs_node_retain(pair->slave_node);
+            vfs_node_t slave = vfs_node_retain(slave_node);
             if (!slave) return -EIO;
             process_t *current = process_current();
             int        fd      = current ? process_fd_install(current, slave, peer_flags) : -ESRCH;

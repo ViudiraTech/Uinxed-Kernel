@@ -45,6 +45,22 @@ static uint32_t           inotify_cookie;
 static int inotify_fsid = -1;
 #endif
 
+/* A direct node count lets hot I/O avoid scanning unrelated watches. */
+static bool inotify_node_watched(vfs_node_t node)
+{
+    return node && __atomic_load_n(&node->inotify_watch_count, __ATOMIC_ACQUIRE) != 0;
+}
+
+static void inotify_watch_get(vfs_node_t node)
+{
+    if (node) __atomic_add_fetch(&node->inotify_watch_count, 1, __ATOMIC_RELEASE);
+}
+
+static void inotify_watch_put(vfs_node_t node)
+{
+    if (node) __atomic_sub_fetch(&node->inotify_watch_count, 1, __ATOMIC_RELEASE);
+}
+
 /* Length of a name field, padded to 4-byte alignment. */
 static size_t inotify_name_size(const char *name)
 {
@@ -182,6 +198,7 @@ static void inotify_release_watches(inotify_watch_t *watches)
 {
     while (watches) {
         inotify_watch_t *next = watches->release_next;
+        inotify_watch_put(watches->node);
         vfs_close(watches->node);
         free(watches);
         watches = next;
@@ -200,6 +217,7 @@ static void inotify_emit(vfs_node_t target, uint32_t mask, uint32_t cookie, cons
 {
     if (!target || !(mask & INOTIFY_EVENT_MASK)) return;
     if (!__atomic_load_n(&inotify_contexts, __ATOMIC_ACQUIRE)) return;
+    if (!inotify_node_watched(target)) return;
 
     inotify_watch_t *release = NULL;
     spin_lock(&inotify_global_lock);
@@ -231,8 +249,14 @@ void inotify_notify(vfs_node_t node, uint32_t mask)
 {
     if (!node) return;
 
-    /* The normal data path has no watches; skip both node and parent walks. */
+    /*
+     * Most data nodes, especially anonymous pipes, have no direct watch.
+     * Once a desktop service owns an unrelated inotify fd, scanning every
+     * watch under the global lock for each stream transfer is prohibitively
+     * expensive. Check the node and its only possible parent target first.
+     */
     if (!__atomic_load_n(&inotify_contexts, __ATOMIC_ACQUIRE)) return;
+    if (!inotify_node_watched(node) && !inotify_node_watched(node->parent)) return;
     uint32_t type_mask = (node->type & file_dir) ? IN_ISDIR : 0;
     inotify_emit(node, mask | type_mask, 0, NULL, false);
     if (node->parent && !(node->flags & VFS_NODE_UNLINKED)) {
@@ -584,6 +608,7 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
     }
     watch->node      = node;
     watch->mask      = mask & (IN_ALL_EVENTS | IN_EXCL_UNLINK | IN_ONESHOT);
+    inotify_watch_get(node);
     watch->next      = context->watches;
     context->watches = watch;
     result           = watch->wd;
@@ -610,6 +635,7 @@ int sys_inotify_rm_watch(int fd, int wd)
     inotify_watch_t *watch = *link;
     *link                  = watch->next;
     (void)inotify_queue_event(context, watch->wd, IN_IGNORED, 0, NULL);
+    inotify_watch_put(watch->node);
     spin_unlock(&inotify_global_lock);
     vfs_close(watch->node);
     free(watch);

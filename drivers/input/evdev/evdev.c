@@ -88,6 +88,13 @@ static size_t             evdev_led_notify_count;
 
 static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client);
 
+struct evdev_frame_time {
+        uint64_t realtime_sec;
+        uint64_t realtime_usec;
+        uint64_t monotonic_sec;
+        uint64_t monotonic_usec;
+};
+
 /* Return the current timestamp in nanoseconds for the given clock type. */
 static uint64_t evdev_clock_ns(int clock_type)
 {
@@ -101,6 +108,24 @@ static uint64_t evdev_clock_ns(int clock_type)
      * monotonic timebase, matching clock_gettime() and timerfd.
      */
     return timer_monotonic_ns();
+}
+
+/* Capture each distinct clock once per injected frame, not once per client. */
+static struct evdev_frame_time evdev_capture_frame_time(void)
+{
+    struct evdev_frame_time time;
+    int64_t                 realtime;
+    uint64_t                monotonic_ns;
+    uint64_t                realtime_ns;
+
+    monotonic_ns        = timer_monotonic_ns();
+    realtime            = timer_realtime_ns();
+    realtime_ns         = realtime > 0 ? (uint64_t)realtime : 0;
+    time.monotonic_sec  = monotonic_ns / 1000000000ULL;
+    time.monotonic_usec = (monotonic_ns / 1000ULL) % 1000000ULL;
+    time.realtime_sec   = realtime_ns / 1000000000ULL;
+    time.realtime_usec  = (realtime_ns / 1000ULL) % 1000000ULL;
+    return time;
 }
 
 /* VFS open callback: create a client for the evdev device. */
@@ -246,42 +271,37 @@ static void __evdev_flush_queue(evdev_client_t *client, unsigned int type)
     evdev_queue_flush_type(&client->queue, type);
 }
 
-/* __pass_event */
-static bool __pass_event(evdev_client_t *client, const input_event_t *event)
-{
-    return evdev_queue_push(&client->queue, event);
-}
-
 /* evdev_pass_values */
-static void evdev_pass_values(evdev_client_t *client, const input_event_t *values, unsigned int count)
+static void evdev_pass_values(evdev_client_t *client, const input_event_t *values, unsigned int count, const struct evdev_frame_time *frame_time)
 {
     unsigned int  i;
     bool          wake = false;
     input_event_t event;
-    uint64_t      time_ns;
+    uint64_t      sec;
+    uint64_t      usec;
 
     spin_lock(&client->buffer_lock);
     if (client->revoked) {
         spin_unlock(&client->buffer_lock);
         return;
     }
-    time_ns = evdev_clock_ns(client->clk_type);
+    if (client->clk_type == CLOCK_REALTIME) {
+        sec  = frame_time->realtime_sec;
+        usec = frame_time->realtime_usec;
+    } else {
+        sec  = frame_time->monotonic_sec;
+        usec = frame_time->monotonic_usec;
+    }
     for (i = 0; i < count; i++) {
         event = values[i];
 
         /* Timestamp the event */
-        event.sec  = time_ns / 1000000000ULL;
-        event.usec = (time_ns / 1000ULL) % 1000000ULL;
+        event.sec  = sec;
+        event.usec = usec;
 
         /* Filter check */
         if (__evdev_is_filtered(client, event.type, event.code)) continue;
-
-        /* A client becomes readable only when a non-empty frame is committed. */
-        if (event.type == EV_SYN && event.code == SYN_REPORT) {
-            if (client->queue.packet_head == client->queue.head) continue;
-            wake = true;
-        }
-        (void)__pass_event(client, &event);
+        wake |= evdev_queue_push(&client->queue, &event);
     }
     spin_unlock(&client->buffer_lock);
 
@@ -298,8 +318,10 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
     evdev_client_t *client;
     evdev_client_t *grab;
     ilist_node_t   *node;
+    struct evdev_frame_time frame_time;
 
     if (!evdev || !evdev->exist) return;
+    frame_time = evdev_capture_frame_time();
 
     spin_lock(&evdev->client_lock);
 
@@ -311,7 +333,7 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
          * client from being freed (by evdev_fop_release) while
          * we are writing to it.
          */
-        evdev_pass_values(grab, values, count);
+        evdev_pass_values(grab, values, count, &frame_time);
         spin_unlock(&evdev->client_lock);
         return;
     }
@@ -319,7 +341,7 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
     /* Distribute to all clients */
     for (node = evdev->client_list.next; node != &evdev->client_list; node = node->next) {
         client = (evdev_client_t *)((uintptr_t)node - offsetof(evdev_client_t, node));
-        evdev_pass_values(client, values, count);
+        evdev_pass_values(client, values, count, &frame_time);
     }
 
     spin_unlock(&evdev->client_lock);
@@ -895,8 +917,8 @@ void evdev_fop_release(evdev_client_t *client)
 
     evdev = client->evdev;
 
-    vfs_poll_source_close(&client->poll_source, POLLHUP);
     evdev_detach_client(evdev, client);
+    vfs_poll_source_close(&client->poll_source, POLLHUP);
 
     /* Free event filter masks */
     for (i = 0; i < EV_CNT; i++) {

@@ -599,8 +599,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
         e->next              = NULL;
     }
 
-    bool synchronous_flip = dev->driver && (dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP);
-    if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) {
+    if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) {
         ret = drm_crtc_vblank_get(crtc);
         if (ret) {
             DRM_ERROR("Failed to get vblank for crtc %u (ret=%d)\n", page_flip->crtc_id, ret);
@@ -622,23 +621,23 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
             ret = h->page_flip(crtc, fb, e, page_flip->flags);
             if (ret) {
                 DRM_ERROR("Crtc %u page_flip failed (ret=%d)\n", page_flip->crtc_id, ret);
-                if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
+                if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) drm_crtc_vblank_put(crtc);
                 goto err_flip;
             }
         } else {
             DRM_ERROR("Crtc %u has no page_flip helper.\n", page_flip->crtc_id);
             ret = -ENOSYS;
-            if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
+            if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) drm_crtc_vblank_put(crtc);
             goto err_flip;
         }
     } else {
         DRM_ERROR("Crtc %u has no helper funcs.\n", page_flip->crtc_id);
         ret = -ENOSYS;
-        if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
+        if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) drm_crtc_vblank_put(crtc);
         goto err_flip;
     }
 
-    if ((page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) || synchronous_flip) {
+    if (page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) {
         spin_lock(&crtc->commit_lock);
         crtc->page_flip_pending = false;
         spin_unlock(&crtc->commit_lock);

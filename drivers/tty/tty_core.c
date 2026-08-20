@@ -127,12 +127,12 @@ static int tty_job_control_check(tty_core_t *tty, int signal)
     return -ERESTARTSYS;
 }
 
-/* True when the process has a pending (unblocked) signal. */
+/* True when an unblocked signal can actually interrupt this tty operation. */
 static bool tty_signal_pending(process_t *current)
 {
     if (!current) return false;
     spin_lock(&current->signal.lock);
-    bool pending = signal_has_pending(&current->signal);
+    bool pending = signal_has_interrupting_pending(&current->signal);
     spin_unlock(&current->signal.lock);
     return pending;
 }
@@ -212,14 +212,19 @@ static void tty_echo(tty_core_t *tty, uint8_t ch, tcflag_t lflag)
         out[1] = (uint8_t)(ch + '@');
         count  = 2;
     }
-    tty->ops.emit(tty->context, out, count, O_NONBLOCK);
+    spin_lock(&tty->output_lock);
+    (void)tty->ops.emit(tty->context, out, count, O_NONBLOCK);
+    spin_unlock(&tty->output_lock);
 }
 
 /* Echo the backspace-space-backspace erase sequence (ECHOE). */
 static void tty_echo_erase(tty_core_t *tty)
 {
     static const uint8_t erase[] = {'\b', ' ', '\b'};
-    if (tty->ops.emit) tty->ops.emit(tty->context, erase, sizeof(erase), O_NONBLOCK);
+    if (!tty->ops.emit) return;
+    spin_lock(&tty->output_lock);
+    (void)tty->ops.emit(tty->context, erase, sizeof(erase), O_NONBLOCK);
+    spin_unlock(&tty->output_lock);
 }
 
 /* Reset all input-buffer state; caller must hold the tty lock. */
@@ -535,9 +540,13 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
                 spin_unlock(&tty->lock);
                 return done ? (int64_t)done : -EAGAIN;
             }
-            if (!tty_prepare_interruptible_wait(tty, &tty->write_wait)) return done ? (int64_t)done : -ERESTARTSYS;
+            if (!tty_prepare_interruptible_wait(tty, &tty->write_wait)) {
+                return done ? (int64_t)done : -ERESTARTSYS;
+            }
             wait_queue_sleep();
-            if (tty_signal_pending(process_current())) return done ? (int64_t)done : -ERESTARTSYS;
+            if (tty_signal_pending(process_current())) {
+                return done ? (int64_t)done : -ERESTARTSYS;
+            }
             spin_lock(&tty->lock);
         }
         if (tty->hung_up) {
@@ -552,7 +561,9 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
             out[1] = '\n';
             count  = 2;
         }
+        spin_lock(&tty->output_lock);
         int emitted = tty->ops.emit(tty->context, out, count, flags);
+        spin_unlock(&tty->output_lock);
         if (emitted < 0) return done ? (int64_t)done : emitted;
         if (emitted < (int)count) break;
         done++;
@@ -746,7 +757,12 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             spin_unlock(&tty->lock);
             if (flow && tty->ops.event) tty->ops.event(tty->context, flow);
             if (value == TCOON) wait_queue_wake_all(&tty->write_wait);
-            if ((value == TCIOFF || value == TCION) && tty->ops.emit) return tty->ops.emit(tty->context, &flow_char, 1, 0) == 1 ? 0 : -EIO;
+            if ((value == TCIOFF || value == TCION) && tty->ops.emit) {
+                spin_lock(&tty->output_lock);
+                int emitted = tty->ops.emit(tty->context, &flow_char, 1, 0);
+                spin_unlock(&tty->output_lock);
+                return emitted == 1 ? 0 : -EIO;
+            }
             return 0;
         case TIOCGETD :
             value = N_TTY;
@@ -857,8 +873,16 @@ int tty_core_poll(tty_core_t *tty, size_t events)
 /* Hang up the tty: detach processes, signal SIGHUP/SIGCONT, wake all. */
 void tty_core_hangup(tty_core_t *tty)
 {
+    bool already_hung_up;
+
     tty_core_retain(tty);
     spin_lock(&tty->lock);
+    already_hung_up     = tty->hung_up;
+    if (already_hung_up) {
+        spin_unlock(&tty->lock);
+        tty_core_release(tty);
+        return;
+    }
     tty->hung_up         = true;
     int64_t pgid         = tty->foreground_pgid;
     int64_t session      = tty->session;

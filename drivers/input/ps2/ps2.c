@@ -12,12 +12,116 @@
 #include <drivers/firmware/apic.h>
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/input/ps2/ps2.h>
+#include <drivers/input/ps2/ps2_event_ring.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
+#include <process/kthread.h>
+#include <sync/spin_lock.h>
 
 static bool ps2_port1_ok;
 static bool ps2_port2_ok;
+
+#define PS2_PORT_KEYBOARD    0U
+#define PS2_PORT_MOUSE       1U
+#define PS2_PORT_COUNT       2U
+#define PS2_IRQ_DRAIN_BUDGET 64U
+#define PS2_WAKE_KEYBOARD    (1U << PS2_PORT_KEYBOARD)
+#define PS2_WAKE_MOUSE       (1U << PS2_PORT_MOUSE)
+
+struct ps2_event_queue {
+        struct ps2_event_ring ring;
+        wait_queue_t         wait;
+        spinlock_t           sleep_lock;
+        volatile bool        sleeping;
+        volatile uint64_t    dropped;
+        bool                 resync_pending;
+        bool                 second_port;
+        bool                 worker_registered;
+};
+
+static struct ps2_event_queue ps2_event_queues[PS2_PORT_COUNT];
+
+/* Serializes the shared status/data registers across IRQ1, IRQ12 and commands. */
+static spinlock_t ps2_controller_lock;
+
+/* Publish after the data-port read; the caller holds ps2_controller_lock. */
+static unsigned int ps2_queue_input_locked(uint8_t status, uint8_t data)
+{
+    unsigned int            port  = (status & PS2_STATUS_AUX_DATA) ? PS2_PORT_MOUSE : PS2_PORT_KEYBOARD;
+    struct ps2_event_queue *queue = &ps2_event_queues[port];
+
+    /* Mark the first byte after overflow as unusable so the decoder resets at
+     * the exact stream gap instead of interpreting a stale prefix/packet. */
+    if (queue->resync_pending) status |= PS2_STATUS_TIMEOUT;
+    if (!ps2_event_ring_push(&queue->ring, (struct ps2_queued_byte) {.status = status, .data = data})) {
+        __atomic_add_fetch(&queue->dropped, 1, __ATOMIC_RELAXED);
+        queue->resync_pending = true;
+        return 0;
+    }
+    queue->resync_pending = false;
+
+    /* Exchange coalesces a burst into at most one scheduler wakeup. */
+    if (!__atomic_exchange_n(&queue->sleeping, false, __ATOMIC_ACQ_REL)) return 0;
+    return 1U << port;
+}
+
+static void ps2_wake_input_queue(struct ps2_event_queue *queue)
+{
+    /* Pairs with the worker's arm/recheck/prepare sequence. */
+    spin_lock(&queue->sleep_lock);
+    (void)wait_queue_wake_one_sync(&queue->wait);
+    spin_unlock(&queue->sleep_lock);
+}
+
+static void ps2_wake_inputs(unsigned int wake_mask)
+{
+    if (wake_mask & PS2_WAKE_KEYBOARD) ps2_wake_input_queue(&ps2_event_queues[PS2_PORT_KEYBOARD]);
+    if (wake_mask & PS2_WAKE_MOUSE) ps2_wake_input_queue(&ps2_event_queues[PS2_PORT_MOUSE]);
+}
+
+static int ps2_input_worker(void *arg)
+{
+    struct ps2_event_queue *queue = arg;
+    struct ps2_queued_byte  events[PS2_EVENT_BATCH_SIZE];
+
+    while (!kthread_should_stop()) {
+        size_t count = ps2_event_ring_pop_batch(&queue->ring, events, PS2_EVENT_BATCH_SIZE);
+
+        if (!count) {
+            /* Arm first, then recheck under sleep_lock: a producer can neither
+             * miss this sleeper nor wake it before prepare has published it. */
+            spin_lock(&queue->sleep_lock);
+            __atomic_store_n(&queue->sleeping, true, __ATOMIC_RELEASE);
+            if (!ps2_event_ring_empty(&queue->ring) || kthread_should_stop()) {
+                __atomic_store_n(&queue->sleeping, false, __ATOMIC_RELEASE);
+                spin_unlock(&queue->sleep_lock);
+                continue;
+            }
+            wait_queue_prepare(&queue->wait);
+            spin_unlock(&queue->sleep_lock);
+            wait_queue_sleep();
+            __atomic_store_n(&queue->sleeping, false, __ATOMIC_RELEASE);
+            continue;
+        }
+
+        for (size_t i = 0; i < count; i++) {
+            if (events[i].status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY)) {
+                if (queue->second_port)
+                    ps2_mouse_reset_stream();
+                else
+                    ps2_keyboard_reset_stream();
+                continue;
+            }
+            if (queue->second_port)
+                ps2_mouse_handle_byte(events[i].data);
+            else
+                ps2_keyboard_handle_byte(events[i].data);
+        }
+    }
+
+    return 0;
+}
 
 /* Poll the status register until the controller has data for us. */
 int wait_ps2_read(void)
@@ -99,19 +203,48 @@ static int ps2_write_device_byte(bool second_port, uint8_t byte)
 /* Send a command and wait for the device ACK, retrying on 0xfe. */
 int ps2_send_device_command(bool second_port, uint8_t command)
 {
-    uint8_t response;
+    uint8_t      response;
+    unsigned int wake_mask = 0;
+    int          result    = -EIO;
 
+    spin_lock(&ps2_controller_lock);
     for (int attempt = 0; attempt < 3; attempt++) {
-        int result = ps2_write_device_byte(second_port, command);
-        if (result != EOK) return result;
+        result = ps2_write_device_byte(second_port, command);
+        if (result != EOK) break;
+        result = -EIO;
         for (int byte = 0; byte < 16; byte++) {
-            result = ps2_read_data_timeout(&response);
-            if (result != EOK) return result;
-            if (response == PS2_RESPONSE_OK) return EOK;
-            if (response == 0xfe) break;
+            uint8_t status;
+
+            if (wait_ps2_read() != EOK) {
+                result = -ETIMEDOUT;
+                goto out;
+            }
+            status   = ps2_read_status();
+            response = inb(PS2_DATA_PORT);
+            if (status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY)) {
+                wake_mask |= ps2_queue_input_locked(status, response);
+                continue;
+            }
+            if (((status & PS2_STATUS_AUX_DATA) != 0) != second_port) {
+                wake_mask |= ps2_queue_input_locked(status, response);
+                continue;
+            }
+            if (response == PS2_RESPONSE_OK) {
+                result = EOK;
+                goto out;
+            }
+            if (response == PS2_RESPONSE_RESEND) break;
+            if (response == PS2_RESPONSE_ERROR1 || response == PS2_RESPONSE_ERROR2) {
+                result = -EIO;
+                goto out;
+            }
+            wake_mask |= ps2_queue_input_locked(status, response);
         }
     }
-    return -EIO;
+out:
+    spin_unlock(&ps2_controller_lock);
+    ps2_wake_inputs(wake_mask);
+    return result;
 }
 
 /* Send raw data to the selected PS/2 port. */
@@ -126,27 +259,43 @@ bool ps2_port_available(bool second_port)
     return second_port ? ps2_port2_ok : ps2_port1_ok;
 }
 
-/* IRQ handler: dispatch incoming bytes to the keyboard or mouse driver. */
+/* IRQ handler: drain the shared output buffer and defer protocol work. */
 INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
 {
-    uint8_t status;
-    uint8_t data;
+    unsigned int wake_mask = 0;
 
     irq_enter_gs(frame);
-    (void)frame;
-    status = ps2_read_status();
-    if (status & (0x40 | 0x80)) plogk("ps2: %s receive error (status=0x%02x)\n", (status & PS2_STATUS_AUX_DATA) ? "mouse" : "keyboard", status);
-    if (status & PS2_STATUS_OUTPUT_FULL) {
-        data = inb(PS2_DATA_PORT);
-        if (status & PS2_STATUS_AUX_DATA)
-            ps2_mouse_handle_byte(data);
-        else
-            ps2_keyboard_handle_byte(data);
+    spin_lock(&ps2_controller_lock);
+    for (size_t drained = 0; drained < PS2_IRQ_DRAIN_BUDGET; drained++) {
+        uint8_t status = ps2_read_status();
+        uint8_t data;
+
+        if (!(status & PS2_STATUS_OUTPUT_FULL)) break;
+        data       = inb(PS2_DATA_PORT);
+        wake_mask |= ps2_queue_input_locked(status, data);
     }
+    spin_unlock(&ps2_controller_lock);
     send_eoi();
+    ps2_wake_inputs(wake_mask);
     irq_leave_gs(frame);
 }
 INTERRUPT_END
+
+void ps2_start_worker(void)
+{
+    static const char *names[PS2_PORT_COUNT] = {"ps2-keyboard", "ps2-mouse"};
+    bool               available[PS2_PORT_COUNT] = {ps2_port1_ok, ps2_port2_ok};
+
+    for (size_t port = 0; port < PS2_PORT_COUNT; port++) {
+        struct ps2_event_queue *queue = &ps2_event_queues[port];
+        if (!available[port] || queue->worker_registered) continue;
+        if (kernel_worker_register(names[port], ps2_input_worker, queue, NULL) != EOK) {
+            plogk("ps2: Unable to register deferred %s worker.\n", port == PS2_PORT_MOUSE ? "mouse" : "keyboard");
+            continue;
+        }
+        queue->worker_registered = true;
+    }
+}
 
 /* Probe and initialize the i8042 controller and its ports. */
 void init_ps2(void)
@@ -159,6 +308,19 @@ void init_ps2(void)
     bool    dual_channel;
 
     evdev_init();
+    ps2_controller_lock = (spinlock_t) {0};
+    for (size_t port = 0; port < PS2_PORT_COUNT; port++) {
+        struct ps2_event_queue *queue = &ps2_event_queues[port];
+
+        ps2_event_ring_init(&queue->ring);
+        wait_queue_init(&queue->wait);
+        queue->sleep_lock        = (spinlock_t) {0};
+        queue->sleeping          = false;
+        queue->dropped           = 0;
+        queue->resync_pending    = false;
+        queue->second_port       = port == PS2_PORT_MOUSE;
+        queue->worker_registered = false;
+    }
     ps2_write_cmd(PS2_CMD_DISABLE_PORT1);
     ps2_write_cmd(PS2_CMD_DISABLE_PORT2);
     while (ps2_read_status() & PS2_STATUS_OUTPUT_FULL) (void)inb(PS2_DATA_PORT);

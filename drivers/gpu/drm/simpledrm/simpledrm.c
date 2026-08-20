@@ -57,7 +57,6 @@ static int simpledrm_connector_get_modes(struct drm_connector *connector)
 
     (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%ux%u", sdev->width, sdev->height);
     mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
-    mode->clock                          = (int)((uint64_t)sdev->width * sdev->height * 60 / 1000);
     mode->hdisplay                       = sdev->width;
     mode->hsync_start                    = sdev->width + 80;
     mode->hsync_end                      = sdev->width + 160;
@@ -67,6 +66,7 @@ static int simpledrm_connector_get_modes(struct drm_connector *connector)
     mode->vsync_end                      = sdev->height + 6;
     mode->vtotal                         = sdev->height + 32;
     mode->vrefresh                       = 60;
+    mode->clock                          = (int)((uint64_t)mode->htotal * (uint64_t)mode->vtotal * (uint64_t)mode->vrefresh / 1000ULL);
     mode->flags                          = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
     mode->type                           = DRM_MODE_TYPE_PREFERRED | DRM_MODE_TYPE_DRIVER;
     mode->status                         = MODE_OK;

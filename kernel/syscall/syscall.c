@@ -45,6 +45,7 @@
 #include <process/sched.h>
 #include <process/task.h>
 #include <process/uaccess.h>
+#include <security/seccomp.h>
 #include <sync/signal.h>
 #include <syscall/eventfd.h>
 #include <syscall/fcntl.h>
@@ -1036,7 +1037,7 @@ static int64_t sys_exit_group(uint64_t status, uint64_t arg1, uint64_t arg2, uin
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return sys_exit(status, 0, 0, 0, 0, 0);
+    process_exit_group((int)status);
 }
 
 static int64_t sys_stat(uint64_t path, uint64_t statbuf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2455,14 +2456,14 @@ static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id
     (void)arg4;
     (void)arg5;
 
-    /* MEMBARRIER_CMD_QUERY = 0, MEMBARRIER_CMD_GLOBAL = 1 */
+    /* MEMBARRIER_CMD_QUERY = 0, MEMBARRIER_CMD_GLOBAL = 1. */
     if (flags) return -EINVAL;
     switch (cmd) {
-        case 0 : // QUERY: return supported commands bitmap
-                 /* We support GLOBAL (1 << 1) = 2 on SMP, plus the basic bits */
-            return (1 << 0) | (1 << 1);
-        case 1 : // GLOBAL: issue memory barrier on all CPUs
-            __asm__ volatile("mfence" ::: "memory");
+        case 0 :
+            return 1; /* MEMBARRIER_CMD_GLOBAL */
+        case 1 :
+            /* The synchronous shootdown provides a cross-CPU rendezvous. */
+            flush_tlb_all();
             return 0;
         default :
             return -EINVAL;
@@ -2707,12 +2708,15 @@ static void pidfd_stub_unmount(void *root)
     (void)root;
 }
 
-/* Lazily register the pidfd filesystem callbacks */
-static void pidfd_ensure_init(void)
+/* Register pidfs during boot, before userspace can issue concurrent opens. */
+void pidfd_init(void)
 {
     if (pidfd_fsid >= 0) return;
     vfs_callback_t cb = calloc(1, sizeof(struct vfs_callback));
-    if (!cb) return;
+    if (!cb) {
+        plogk("pidfd: Failed to allocate VFS callbacks.\n");
+        return;
+    }
     cb->mount    = pidfd_stub_mount;
     cb->unmount  = pidfd_stub_unmount;
     cb->open     = pidfd_vfs_open;
@@ -2730,6 +2734,7 @@ static void pidfd_ensure_init(void)
     cb->delete   = pidfd_stub_del;
     cb->rename   = pidfd_stub_rename;
     pidfd_fsid   = vfs_regist(cb);
+    free(cb);
     if (pidfd_fsid < 0)
         plogk("pidfd: Failed to register VFS callbacks (%d)\n", pidfd_fsid);
     else
@@ -2755,10 +2760,9 @@ static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t ar
         return -ESRCH;
     }
 
-    pidfd_ensure_init();
     if (pidfd_fsid < 0) {
         process_put(target);
-        return -ENOMEM;
+        return -ENODEV;
     }
 
     vfs_node_t node = vfs_node_alloc(NULL, "[pidfd]");
@@ -2808,43 +2812,60 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
     (void)arg4;
     (void)arg5;
 
-    if (size < sizeof(clone3_args_t)) return -EINVAL;
-    if (size > sizeof(clone3_args_t)) return -E2BIG;
+    /* Linux clone_args version 0 ends at tls (64 bytes). */
+    if (size < 64) return -EINVAL;
+    if (!cl_args || cl_args > UINT64_MAX - size) return -EFAULT;
 
-    clone3_args_t args;
-    if (copy_from_user(&args, (const void *)cl_args, sizeof(args))) return -EFAULT;
-
-    /* Validate flags */
-    uint64_t flags       = args.flags;
-    uint64_t exit_signal = args.exit_signal;
-
-    /* Combine exit_signal into flags (low byte) */
-    if (exit_signal) {
-        if (exit_signal > 0xff) return -EINVAL;
-        flags = (flags & ~0xffULL) | (exit_signal & 0xff);
+    /* Future-sized structures are accepted only when their unknown tail is zero. */
+    if (size > sizeof(clone3_args_t)) {
+        uint8_t  tail[64];
+        uint64_t offset = sizeof(clone3_args_t);
+        while (offset < size) {
+            size_t chunk = size - offset < sizeof(tail) ? (size_t)(size - offset) : sizeof(tail);
+            if (copy_from_user(tail, (const void *)(uintptr_t)(cl_args + offset), chunk)) return -EFAULT;
+            for (size_t i = 0; i < chunk; i++)
+                if (tail[i]) return -E2BIG;
+            offset += chunk;
+        }
+        size = sizeof(clone3_args_t);
     }
 
-    uint64_t supported_thread = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM;
+    clone3_args_t args;
+    memset(&args, 0, sizeof(args));
+    if (copy_from_user(&args, (const void *)cl_args, (size_t)size)) return -EFAULT;
+
+    uint64_t flags       = args.flags;
+    uint64_t exit_signal = args.exit_signal;
     bool     is_thread        = (flags & CLONE_THREAD) != 0;
     bool     is_vfork         = (flags & CLONE_VFORK) != 0;
 
-    if (is_thread) {
-        if ((flags & supported_thread) != flags) return -EINVAL;
-    }
+    if (args.pidfd || args.set_tid || args.set_tid_size || args.cgroup || (args.stack && !args.stack_size) || (!args.stack && args.stack_size)) return -EINVAL;
+    if (args.stack && UINT64_MAX - args.stack < args.stack_size) return -EINVAL;
 
     if (is_thread) {
+        if ((flags & CLONE_PTHREAD_REQUIRED) != CLONE_PTHREAD_REQUIRED || (flags & ~CLONE_PTHREAD_ALLOWED) || exit_signal || !args.stack || !args.stack_size) return -EINVAL;
+        if (((flags & CLONE_PARENT_SETTID) && !args.parent_tid) || ((flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !args.child_tid)) return -EFAULT;
         process_t *proc = process_current();
         if (!proc) return -ESRCH;
 
+        uintptr_t child_stack = (uintptr_t)(args.stack + args.stack_size);
         int     error = EOK;
-        task_t *child = process_clone_thread(frame, args.stack, args.parent_tid, args.child_tid, args.child_tid, args.tls, &error);
+        task_t *child = process_clone_thread(frame, child_stack, (flags & CLONE_PARENT_SETTID) ? args.parent_tid : 0, (flags & CLONE_CHILD_SETTID) ? args.child_tid : 0,
+                                             (flags & CLONE_CHILD_CLEARTID) ? args.child_tid : 0, (flags & CLONE_SETTLS) ? args.tls : current_task()->thread.fs_base, &error);
         if (!child) return error;
+        ptrace_fork_event(frame, PTRACE_EVENT_CLONE, child->pid);
         return (int64_t)child->pid;
     }
 
     /* Fork / vfork */
+    uint64_t supported_fork = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED;
+    if (is_vfork) supported_fork |= CLONE_VM | CLONE_VFORK;
+    if ((flags & ~supported_fork) || (is_vfork && !(flags & CLONE_VM)) || (exit_signal && exit_signal != SIGCHLD)) return -EINVAL;
+    if (((flags & CLONE_PARENT_SETTID) && !args.parent_tid) || ((flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !args.child_tid)) return -EFAULT;
+
     int        error = EOK;
-    process_t *child = process_fork_status_event_mode(&error, is_vfork ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK, is_vfork);
+    uint32_t   event = is_vfork ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK;
+    process_t *child = process_fork_status_event_mode(&error, event, is_vfork);
     if (!child) return error;
 
     /*
@@ -2857,11 +2878,12 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
         syscall_frame_t child_frame = *frame;
         child_frame.rax             = 0;
         if (args.stack && args.stack_size) {
-            if (!user_access_ok((void *)args.stack, 1, 1)) {
+            uintptr_t child_stack = (uintptr_t)(args.stack + args.stack_size);
+            if (!user_access_ok((void *)(child_stack - 1), 1, 1)) {
                 process_fork_discard(child);
-                return -EINVAL;
+                return -EFAULT;
             }
-            child_frame.rsp = args.stack;
+            child_frame.rsp = child_stack;
         }
         uint64_t  kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
         uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
@@ -2869,10 +2891,26 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
         memcpy(kstack, &child_frame, sizeof(child_frame));
         *(--kstack)     = (uint64_t)syscall_return;
         ct->context.rsp = (uint64_t)kstack;
+
+        uint32_t tid       = (uint32_t)ct->pid;
+        int      tid_error = 0;
+        if ((flags & CLONE_PARENT_SETTID) && copy_to_user((void *)args.parent_tid, &tid, sizeof(tid))) tid_error = -EFAULT;
+        if (!tid_error && (flags & CLONE_CHILD_SETTID)
+            && (!user_access_ok_process(child, (void *)args.child_tid, sizeof(tid), 1) || copy_to_user_process_nofault(child, (void *)args.child_tid, &tid, sizeof(tid))))
+            tid_error = -EFAULT;
+        if (tid_error) {
+            process_fork_discard(child);
+            return tid_error;
+        }
+        if (flags & CLONE_CHILD_CLEARTID) ct->clear_child_tid = args.child_tid;
     }
 
     process_fork_publish(child);
-    if (is_vfork) process_vfork_wait(child);
+    ptrace_fork_event(frame, event, child->task->pid);
+    if (is_vfork) {
+        process_vfork_wait(child);
+        ptrace_fork_event(frame, PTRACE_EVENT_VFORK_DONE, child->task->pid);
+    }
     return (int64_t)child->task->pid;
 }
 
@@ -4275,19 +4313,16 @@ static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t 
 #define PR_SET_KEEPCAPS     8
 #define PR_SET_NAME         15
 #define PR_GET_NAME         16
+#define PR_GET_SECCOMP 21
 #define PR_SET_SECCOMP      22
-#define PR_GET_SECCOMP      23
 #define PR_SET_TIMERSLACK   29
 #define PR_GET_TIMERSLACK   30
-#define PR_SET_NO_NEW_PRIVS 36
-#define PR_GET_NO_NEW_PRIVS 37
+#define PR_SET_NO_NEW_PRIVS 38
+#define PR_GET_NO_NEW_PRIVS 39
 
 /* prctl syscall: process control operations */
 static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6)
 {
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
     (void)arg6;
 
     switch ((int)option) {
@@ -4334,10 +4369,8 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             }
             return 0;
         }
-        case PR_SET_SECCOMP :
-        case PR_GET_SECCOMP :
-            /* No seccomp support */
-            return -EINVAL;
+        case PR_SET_SECCOMP : return seccomp_prctl_set(arg2, arg3);
+        case PR_GET_SECCOMP : return (arg2 || arg3 || arg4 || arg5) ? -EINVAL : seccomp_prctl_get();
         case PR_SET_TIMERSLACK :
         case PR_GET_TIMERSLACK : {
             /* Return default timer slack = 50000 ns */
@@ -4347,9 +4380,8 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             }
             return 0;
         }
-        case PR_SET_NO_NEW_PRIVS :
-        case PR_GET_NO_NEW_PRIVS :
-            return 0;
+        case PR_SET_NO_NEW_PRIVS : return seccomp_set_no_new_privs(arg2, arg3, arg4, arg5);
+        case PR_GET_NO_NEW_PRIVS : return seccomp_get_no_new_privs(arg2, arg3, arg4, arg5);
         default :
             return -EINVAL;
     }
@@ -4818,7 +4850,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SCHED_SETATTR]          = sys_sched_setattr_impl,
     [SYS_SCHED_GETATTR]          = sys_sched_getattr_impl,
     [SYS_RENAMEAT2]              = sys_renameat2_impl,
-    [SYS_SECCOMP]                = sys_stub,
+    [SYS_SECCOMP]                = sys_seccomp,
     [SYS_GETRANDOM]              = sys_getrandom_impl,
     [SYS_MEMFD_CREATE]           = sys_memfd_create,
     [SYS_KEXEC_FILE_LOAD]        = sys_stub,
@@ -4854,6 +4886,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FACCESSAT2]             = sys_faccessat2_impl,
     [SYS_PROCESS_MADVISE]        = sys_process_madvise_impl,
     [SYS_EPOLL_PWAIT2]           = sys_epoll_pwait2_impl,
+    [SYS_FUTEX_WAITV]            = sys_futex_waitv,
     [SYS_FUTEX_WAKE]             = sys_futex_wake,
     [SYS_FUTEX_WAIT]             = sys_futex_wait,
     [SYS_FUTEX_REQUEUE]          = sys_futex_requeue,
@@ -4877,6 +4910,11 @@ int syscall_dispatch(syscall_frame_t *frame)
 
     if (traced) ptrace_syscall_enter(frame, num);
     num = frame->rax;
+    if (!seccomp_enforce(frame, &num, &retval)) {
+        frame->rax = (uint64_t)retval;
+        goto check_signals;
+    }
+    frame->rax = num;
     if (num == SYS_CLONE && (frame->rdi & CLONE_THREAD)) {
         uint64_t flags = frame->rdi;
         if ((flags & CLONE_PTHREAD_REQUIRED) != CLONE_PTHREAD_REQUIRED || (flags & ~CLONE_PTHREAD_ALLOWED)) {
@@ -5027,7 +5065,7 @@ int syscall_dispatch(syscall_frame_t *frame)
              * whatever bytes follow its syscall stub and commonly raises
              * the misleading user #GP seen after Ctrl+C.
              */
-            process_exit(-SIGSEGV);
+            process_exit_group(-SIGSEGV);
             return 0;
         }
         /*

@@ -30,15 +30,23 @@
 
 typedef int32_t key_t;
 
+/* Linux x86_64 ipc64_perm userspace ABI. */
 typedef struct ipc_perm {
+        key_t    key;
         uint32_t uid;
         uint32_t gid;
         uint32_t cuid;
         uint32_t cgid;
         uint32_t mode;
-        uint32_t seq;
-        key_t    key;
+        uint16_t seq;
+        uint16_t __pad2;
+        uint64_t __unused1;
+        uint64_t __unused2;
 } ipc_perm_t;
+
+_Static_assert(sizeof(ipc_perm_t) == 48, "Linux x86_64 ipc64_perm ABI size");
+_Static_assert(__builtin_offsetof(ipc_perm_t, mode) == 20, "Linux x86_64 ipc64_perm.mode offset");
+_Static_assert(__builtin_offsetof(ipc_perm_t, seq) == 24, "Linux x86_64 ipc64_perm.seq offset");
 
 /* Semaphores */
 
@@ -65,10 +73,15 @@ typedef struct sembuf {
 typedef struct semid_ds {
         ipc_perm_t sem_perm;
         uint64_t   sem_otime;
+        uint64_t   __unused1;
         uint64_t   sem_ctime;
-        uint32_t   sem_nsems;
-        uint32_t   __pad;
+        uint64_t   __unused2;
+        uint64_t   sem_nsems;
+        uint64_t   __unused3;
+        uint64_t   __unused4;
 } semid_ds_t;
+
+_Static_assert(sizeof(semid_ds_t) == 104, "Linux x86_64 semid64_ds ABI size");
 
 typedef struct seminfo {
         int32_t semmap;
@@ -108,9 +121,14 @@ typedef struct shmid_ds {
         uint64_t   shm_ctime;
         uint32_t   shm_cpid;
         uint32_t   shm_lpid;
-        uint32_t   shm_nattch;
-        uint32_t   __pad;
+        uint64_t   shm_nattch;
+        uint64_t   __unused4;
+        uint64_t   __unused5;
 } shmid_ds_t;
+
+_Static_assert(sizeof(shmid_ds_t) == 112, "Linux x86_64 shmid64_ds ABI size");
+_Static_assert(__builtin_offsetof(shmid_ds_t, shm_segsz) == 48, "Linux x86_64 shmid64_ds.shm_segsz offset");
+_Static_assert(__builtin_offsetof(shmid_ds_t, shm_nattch) == 88, "Linux x86_64 shmid64_ds.shm_nattch offset");
 
 typedef struct shminfo {
         uint64_t shmmax;
@@ -118,7 +136,13 @@ typedef struct shminfo {
         uint64_t shmmni;
         uint64_t shmseg;
         uint64_t shmall;
+        uint64_t __unused1;
+        uint64_t __unused2;
+        uint64_t __unused3;
+        uint64_t __unused4;
 } shminfo_t;
+
+_Static_assert(sizeof(shminfo_t) == 72, "Linux x86_64 shminfo64 ABI size");
 
 /* Message queues */
 
@@ -134,8 +158,8 @@ typedef struct shminfo {
 #define MSGMNB 16384
 #define MSGMNI 32000
 
-typedef uint32_t msgqnum_t;
-typedef uint32_t msglen_t;
+typedef uint64_t msgqnum_t;
+typedef uint64_t msglen_t;
 
 typedef struct msgbuf {
         int64_t mtype;
@@ -152,8 +176,11 @@ typedef struct msqid_ds {
         msglen_t   msg_qbytes;
         uint32_t   msg_lspid;
         uint32_t   msg_lrpid;
-        uint32_t   __pad;
+        uint64_t   __unused4;
+        uint64_t   __unused5;
 } msqid_ds_t;
+
+_Static_assert(sizeof(msqid_ds_t) == 120, "Linux x86_64 msqid64_ds ABI size");
 
 typedef struct msginfo {
         int32_t msgpool;

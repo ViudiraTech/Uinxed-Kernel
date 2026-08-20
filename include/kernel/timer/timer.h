@@ -118,7 +118,10 @@ uint64_t timer_monotonic_resolution_ns(void);
 void     timer_realtime_set_ns(int64_t nanoseconds);
 uint32_t timer_realtime_seconds32(void);
 
-/* Periodic timer interrupt handler. */
-INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame);
+/* Periodic timer interrupt entry (fixed full-register assembly frame). */
+void timer_handle(void);
+
+/* Register timer bottom-half processing before kernel workers start. */
+void timer_deferred_init(void);
 
 #endif // INCLUDE_TIMER_H_

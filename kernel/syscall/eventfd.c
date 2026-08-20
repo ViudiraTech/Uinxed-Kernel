@@ -20,14 +20,26 @@
 #include <process/sched.h>
 #include <process/task.h>
 #include <process/uaccess.h>
+#include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
+#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
 #define EVENTFD_MAX_VAL    (0xfffffffffffffffeULL)
 #define EVENTFD_UINT64_MAX (0xffffffffffffffffULL)
 
 static int eventfd_fsid = -1;
+
+static bool eventfd_signal_pending(void)
+{
+    process_t *proc = process_current();
+    if (!proc) return false;
+    spin_lock(&proc->signal.lock);
+    bool pending = signal_has_interrupting_pending(&proc->signal);
+    spin_unlock(&proc->signal.lock);
+    return pending;
+}
 
 /* VFS open callback (no-op) */
 static void eventfd_vfs_open(void *parent, const char *name, vfs_node_t node)
@@ -48,30 +60,30 @@ static void eventfd_vfs_close(void *current)
     wait_queue_wake_all(&ctx->wq);
 }
 
-/* VFS read callback: consume the counter value, blocking on empty */
-static size_t eventfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
+/* Consume the counter value, blocking interruptibly while it is empty. */
+static int64_t eventfd_read_common(eventfd_ctx_t *ctx, void *addr, size_t size, uint64_t flags)
 {
-    (void)offset;
-    eventfd_ctx_t *ctx = (eventfd_ctx_t *)file;
-    if (!ctx) return (size_t)-1;
-    if (size < sizeof(uint64_t)) return (size_t)-1;
+    if (!ctx) return -EIO;
+    if (size != sizeof(uint64_t)) return -EINVAL;
 
     spin_lock(&ctx->lock);
-
-    if (ctx->count == 0) {
-        if (ctx->flags & EFD_NONBLOCK) {
+    while (ctx->count == 0) {
+        if ((ctx->flags | flags) & EFD_NONBLOCK) {
             spin_unlock(&ctx->lock);
-            return (size_t)-1;
+            return -EAGAIN;
+        }
+        if (eventfd_signal_pending()) {
+            spin_unlock(&ctx->lock);
+            return -ERESTARTSYS;
         }
         wait_queue_prepare(&ctx->wq);
         spin_unlock(&ctx->lock);
+        if (eventfd_signal_pending()) {
+            wait_queue_cancel(&ctx->wq);
+            return -ERESTARTSYS;
+        }
         wait_queue_sleep();
         spin_lock(&ctx->lock);
-
-        if (ctx->count == 0) {
-            spin_unlock(&ctx->lock);
-            return (size_t)-1;
-        }
     }
 
     uint64_t val;
@@ -87,31 +99,37 @@ static size_t eventfd_vfs_read(void *file, void *addr, size_t offset, size_t siz
     spin_unlock(&ctx->lock);
 
     wait_queue_wake_all(&ctx->wq);
-    return sizeof(uint64_t);
+    return (int64_t)sizeof(uint64_t);
 }
 
-/* VFS write callback: add to the counter, blocking on overflow */
-static size_t eventfd_vfs_write(void *file, const void *addr, size_t offset, size_t size)
+/* Add to the counter, blocking interruptibly while it would overflow. */
+static int64_t eventfd_write_common(eventfd_ctx_t *ctx, const void *addr, size_t size, uint64_t flags)
 {
-    (void)offset;
-    eventfd_ctx_t *ctx = (eventfd_ctx_t *)file;
-    if (!ctx) return (size_t)-1;
-    if (size < sizeof(uint64_t)) return (size_t)-1;
+    if (!ctx) return -EIO;
+    if (size != sizeof(uint64_t)) return -EINVAL;
 
     uint64_t val;
     memcpy(&val, addr, sizeof(val));
-    if (val == EVENTFD_UINT64_MAX) return (size_t)-1;
+    if (val == EVENTFD_UINT64_MAX) return -EINVAL;
 
     spin_lock(&ctx->lock);
 
     for (;;) {
         if (ctx->count > EVENTFD_MAX_VAL - val) {
-            if (ctx->flags & EFD_NONBLOCK) {
+            if ((ctx->flags | flags) & EFD_NONBLOCK) {
                 spin_unlock(&ctx->lock);
-                return (size_t)-1;
+                return -EAGAIN;
+            }
+            if (eventfd_signal_pending()) {
+                spin_unlock(&ctx->lock);
+                return -ERESTARTSYS;
             }
             wait_queue_prepare(&ctx->wq);
             spin_unlock(&ctx->lock);
+            if (eventfd_signal_pending()) {
+                wait_queue_cancel(&ctx->wq);
+                return -ERESTARTSYS;
+            }
             wait_queue_sleep();
             spin_lock(&ctx->lock);
             continue;
@@ -123,7 +141,22 @@ static size_t eventfd_vfs_write(void *file, const void *addr, size_t offset, siz
     spin_unlock(&ctx->lock);
 
     wait_queue_wake_all(&ctx->wq);
-    return sizeof(uint64_t);
+    return (int64_t)sizeof(uint64_t);
+}
+
+/* Legacy node callbacks used outside the per-open descriptor path. */
+static size_t eventfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
+{
+    (void)offset;
+    int64_t ret = eventfd_read_common(file, addr, size, 0);
+    return ret < 0 ? (size_t)-1 : (size_t)ret;
+}
+
+static size_t eventfd_vfs_write(void *file, const void *addr, size_t offset, size_t size)
+{
+    (void)offset;
+    int64_t ret = eventfd_write_common(file, addr, size, 0);
+    return ret < 0 ? (size_t)-1 : (size_t)ret;
 }
 
 /* VFS poll callback: report readability and writability */
@@ -146,23 +179,20 @@ static int eventfd_vfs_poll(void *file, size_t events)
 static int64_t eventfd_vfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)private_data;
-    (void)flags;
-    if (size < sizeof(uint64_t)) return -EINVAL;
-    size_t ret = eventfd_vfs_read(node->handle, addr, offset, size);
-    return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
+    (void)offset;
+    int64_t ret = eventfd_read_common(node->handle, addr, size, flags);
+    if (ret > 0) vfs_poll_notify(node, POLLOUT);
+    return ret;
 }
 
 /* File write entry: validate size and value then delegate to the write callback */
 static int64_t eventfd_vfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)private_data;
-    (void)flags;
-    if (size < sizeof(uint64_t)) return -EINVAL;
-    uint64_t value;
-    memcpy(&value, addr, sizeof(value));
-    if (value == EVENTFD_UINT64_MAX) return -EINVAL;
-    size_t ret = eventfd_vfs_write(node->handle, addr, offset, size);
-    return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
+    (void)offset;
+    int64_t ret = eventfd_write_common(node->handle, addr, size, flags);
+    if (ret > 0) vfs_poll_notify(node, POLLIN);
+    return ret;
 }
 
 /* VFS free callback: release the eventfd context */

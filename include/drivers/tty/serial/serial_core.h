@@ -23,6 +23,7 @@
 typedef struct uart_port uart_port_t;
 
 typedef struct uart_ops {
+        /* All callbacks are invoked with uart_port.lock held. */
         int (*startup)(uart_port_t *port);
         void (*shutdown)(uart_port_t *port);
         void (*set_termios)(uart_port_t *port);
@@ -42,7 +43,13 @@ struct uart_port {
         size_t      rx_head;
         size_t      rx_tail;
         size_t      rx_count;
+        /* Serializes UART registers, driver callbacks, and open/close state. */
+        spinlock_t  lock;
         spinlock_t  rx_lock;
+        unsigned int open_count;
+        bool         hw_started;
+        bool         console_started;
+        bool         tty_initialized;
 };
 
 typedef struct uart_driver {
@@ -63,8 +70,16 @@ int uart_add_port(uart_driver_t *drv, uart_port_t *port);
 /* RX path: called from the hardware IRQ handler for every received byte. */
 void uart_insert_char(uart_port_t *port, uint8_t ch);
 
+/* Start/stop a port with open-count and per-port locking. */
+int uart_port_open(uart_port_t *port);
+void uart_port_close(uart_port_t *port);
+int uart_port_console_startup(uart_port_t *port);
+
 /* Output path: emit data through the port's uart_ops. */
 int uart_write(uart_port_t *port, const uint8_t *data, size_t len);
+
+/* Console output path: invoke the driver console callback under the port lock. */
+void uart_console_write(uart_port_t *port, const uint8_t *data, size_t len);
 
 /* Resolve the tty core backing a serial port (for /dev/console). */
 int serial_tty_core(int index, tty_core_t **core);

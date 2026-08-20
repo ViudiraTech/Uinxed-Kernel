@@ -1135,12 +1135,7 @@ int64_t sys_tkill_real(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_t arg3,
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    /* Send signal directly to the thread */
-    process_t *proc = process_find_get((pid_t)tid);
-    if (!proc) return -ESRCH;
-    int ret = signal_send(proc, (int)sig, NULL);
-    process_put(proc);
-    return ret;
+    return sys_tkill_impl((int64_t)tid, (int)sig);
 }
 
 /* pread64 syscall */

@@ -16,8 +16,26 @@
 
 static uart_driver_t *serial_uart_driver;
 static bool           serial_cores_inited;
+static spinlock_t     serial_core_lock;
 
 static tty_file_endpoint_t serial_endpoints[UART_MAX_PORTS];
+
+static int serial_tty_emit(void *context, const uint8_t *data, size_t size, uint64_t flags);
+
+static const tty_core_ops_t serial_operations = {.emit = serial_tty_emit, .event = NULL};
+
+static void serial_core_init_port_locked(uart_port_t *port)
+{
+    if (!port) return;
+    if (!port->tty) port->tty = &port->tty_core;
+    if (port->tty_initialized) return;
+    port->lock.lock     = 0;
+    port->lock.rflags   = 0;
+    port->rx_lock.lock  = 0;
+    port->rx_lock.rflags = 0;
+    tty_core_init(port->tty, &serial_operations, port);
+    port->tty_initialized = true;
+}
 
 /* tty_core emit callback: push bytes out through the UART. */
 static int serial_tty_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
@@ -25,22 +43,71 @@ static int serial_tty_emit(void *context, const uint8_t *data, size_t size, uint
     uart_port_t *port = context;
     (void)flags;
     if (!port || !port->ops || !port->ops->tx_write) return -EIO;
-    return port->ops->tx_write(port, data, size);
+    return uart_write(port, data, size);
 }
 
 /* Initialize the tty cores of all present serial ports (once). */
 static void serial_cores_init(void)
 {
-    if (serial_cores_inited || !serial_uart_driver) return;
-    static const tty_core_ops_t serial_operations = {.emit = serial_tty_emit, .event = NULL};
+    spin_lock(&serial_core_lock);
+    if (serial_cores_inited || !serial_uart_driver) {
+        spin_unlock(&serial_core_lock);
+        return;
+    }
     for (int i = 0; i < serial_uart_driver->nr; i++) {
         uart_port_t *port = &serial_uart_driver->ports[i];
         if (!port->present) continue;
-        tty_core_init(port->tty, &serial_operations, port);
+        serial_core_init_port_locked(port);
         serial_endpoints[i].core            = port->tty;
         serial_endpoints[i].virtual_console = false;
     }
     serial_cores_inited = true;
+    spin_unlock(&serial_core_lock);
+}
+
+/* Open one file reference without shutting down a port used by another CPU. */
+int uart_port_open(uart_port_t *port)
+{
+    int result = 0;
+
+    if (!port) return -EINVAL;
+    uint64_t flags = spin_lock_irqsave(&port->lock);
+    if (!port->hw_started) {
+        if (port->ops && port->ops->startup) result = port->ops->startup(port);
+        if (!result) port->hw_started = true;
+    }
+    if (!result) port->open_count++;
+    spin_unlock_irqrestore(&port->lock, flags);
+    return result;
+}
+
+/* Release one file reference; the last close shuts down an unshared port. */
+void uart_port_close(uart_port_t *port)
+{
+    if (!port) return;
+    uint64_t flags = spin_lock_irqsave(&port->lock);
+    if (port->open_count) port->open_count--;
+    if (!port->open_count && port->hw_started && !port->console_started) {
+        if (port->ops && port->ops->shutdown) port->ops->shutdown(port);
+        port->hw_started = false;
+    }
+    spin_unlock_irqrestore(&port->lock, flags);
+}
+
+/* The console is a persistent user of the port and shares the same lock. */
+int uart_port_console_startup(uart_port_t *port)
+{
+    int result = 0;
+
+    if (!port) return -EINVAL;
+    uint64_t flags = spin_lock_irqsave(&port->lock);
+    if (!port->hw_started) {
+        if (port->ops && port->ops->startup) result = port->ops->startup(port);
+        if (!result) port->hw_started = true;
+    }
+    if (!result) port->console_started = true;
+    spin_unlock_irqrestore(&port->lock, flags);
+    return result;
 }
 
 /* tty open: start the port and acquire the tty core. */
@@ -53,7 +120,8 @@ static int serial_tty_open(tty_driver_t *drv, int index, uint64_t flags, void **
     port = &serial_uart_driver->ports[index];
     serial_cores_init();
     if (!port->present || !port->tty) return -ENXIO;
-    if (port->ops && port->ops->startup) port->ops->startup(port);
+    int startup = uart_port_open(port);
+    if (startup) return startup;
     tty_core_auto_acquire(port->tty, flags);
     *private_data = &serial_endpoints[index];
     return 0;
@@ -67,7 +135,7 @@ static int serial_tty_release(tty_driver_t *drv, int index, void *private_data)
     (void)private_data;
     if (!serial_uart_driver || index < 0 || index >= serial_uart_driver->nr) return -EINVAL;
     port = &serial_uart_driver->ports[index];
-    if (port->ops && port->ops->shutdown) port->ops->shutdown(port);
+    uart_port_close(port);
     return 0;
 }
 
@@ -126,7 +194,9 @@ void uart_register_driver(uart_driver_t *drv)
     drv->tty_drv.ioctl       = serial_tty_ioctl;
     drv->tty_drv.poll        = serial_tty_poll;
 
+    spin_lock(&serial_core_lock);
     serial_uart_driver = drv;
+    spin_unlock(&serial_core_lock);
     tty_register_driver(&drv->tty_drv);
 }
 
@@ -135,8 +205,12 @@ int uart_add_port(uart_driver_t *drv, uart_port_t *port)
 {
     char name[16];
 
-    if (!drv || !port || port->number < 0 || port->number >= drv->nr) return -EINVAL;
-    port->tty = &port->tty_core;
+    if (!drv || !port || port->number < 0 || port->number >= drv->nr || drv->nr > UART_MAX_PORTS) return -EINVAL;
+    spin_lock(&serial_core_lock);
+    serial_core_init_port_locked(port);
+    serial_endpoints[port->number].core            = port->tty;
+    serial_endpoints[port->number].virtual_console = false;
+    spin_unlock(&serial_core_lock);
     if (!port->present) return 0;
     (void)snprintf(name, sizeof(name), "ttyS%d", port->number);
     return tty_register_device(&drv->tty_drv, port->number, name);
@@ -153,14 +227,27 @@ void uart_insert_char(uart_port_t *port, uint8_t ch)
         port->rx_count++;
     }
     spin_unlock(&port->rx_lock);
-    if (port->tty) tty_core_receive(port->tty, &ch, 1, O_NONBLOCK);
+    tty_core_t *tty = port->tty;
+    if (tty) tty_core_receive(tty, &ch, 1, O_NONBLOCK);
 }
 
 /* Transmit bytes through the port's hardware ops. */
 int uart_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
     if (!port || !port->ops || !port->ops->tx_write) return -EIO;
-    return port->ops->tx_write(port, data, len);
+    uint64_t flags = spin_lock_irqsave(&port->lock);
+    int result = port->ops->tx_write(port, data, len);
+    spin_unlock_irqrestore(&port->lock, flags);
+    return result;
+}
+
+/* Invoke a low-level console callback without racing tty or IRQ output. */
+void uart_console_write(uart_port_t *port, const uint8_t *data, size_t len)
+{
+    if (!port || !port->ops || !port->ops->console_write) return;
+    uint64_t flags = spin_lock_irqsave(&port->lock);
+    port->ops->console_write(port, data, len);
+    spin_unlock_irqrestore(&port->lock, flags);
 }
 
 /* Look up the tty core for a serial port without opening it. */

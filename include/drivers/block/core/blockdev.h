@@ -17,6 +17,14 @@
 
 #define BLOCKDEV_SECTOR_SIZE 512
 
+/* Linux block-device ioctls used by storage probing tools and QEMU. */
+#define BLKROGET             0x125e
+#define BLKGETSIZE           0x1260
+#define BLKSSZGET            0x1268
+#define BLKGETSIZE64         0x80081272
+#define BLKPBSZGET           0x127b
+#define CDROM_GET_CAPABILITY 0x5331
+
 /* Ops dispatch macro - mirrors VFS callbackof() */
 #define blk_ops(dev, _name_) (blk_ops_table[(dev)->ops_id]->_name_)
 
@@ -46,6 +54,7 @@ typedef struct blockdev_device {
         uint64_t base_lba;
         uint64_t sector_count;
         bool     read_only;
+        bool     optical;
 } blockdev_device_t;
 
 /* Global ops table - populated by driver init */

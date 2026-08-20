@@ -30,8 +30,6 @@
 #include <syscall/mmap.h>
 #include <syscall/syscall.h>
 
-#define MMAP_BASE_ADDR     0x00007f0000000000ULL
-#define MMAP_END_ADDR      PROCESS_USER_STACK_TOP
 #define MMAP_DEFAULT_ALIGN PAGE_4K_SIZE
 
 /* Convert mmap protection flags to internal VM flags */
@@ -52,29 +50,6 @@ static uint64_t vm_flags_to_pte(vm_flags_t flags)
     if (flags & VM_SHARED) pte |= PTE_SHARED;
     if (!(flags & VM_EXEC)) pte |= PTE_NO_EXECUTE;
     return pte;
-}
-
-/* Find a free virtual address range for mmap */
-static uintptr_t find_free_vma_range(process_t *proc, size_t length)
-{
-    uintptr_t addr  = MMAP_BASE_ADDR;
-    size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
-
-    spin_lock(&proc->mmap_lock);
-
-    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
-        if (addr + pages <= vma->start) {
-            spin_unlock(&proc->mmap_lock);
-            return addr;
-        }
-        if (vma->end > addr) addr = vma->end;
-        addr = ALIGN_UP(addr, PAGE_4K_SIZE);
-    }
-
-    spin_unlock(&proc->mmap_lock);
-
-    if (addr + pages <= MMAP_END_ADDR) return addr;
-    return 0;
 }
 
 /* Check if a VMA range overlaps with any existing VMA */
@@ -259,7 +234,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         if (hint < PROCESS_USER_STACK_TOP && pages <= PROCESS_USER_STACK_TOP - hint && !vma_range_overlaps(proc, hint, hint + pages)) {
             mmap_addr = hint;
         } else {
-            mmap_addr = find_free_vma_range(proc, pages);
+            mmap_addr = process_find_free_vma_range(proc, pages);
             if (!mmap_addr) return -ENOMEM;
         }
     } else if (flags & MAP_FIXED) {
@@ -272,7 +247,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         int ret = vma_remove_range(proc, mmap_addr, mmap_addr + pages);
         if (ret) return ret;
     } else {
-        mmap_addr = find_free_vma_range(proc, pages);
+        mmap_addr = process_find_free_vma_range(proc, pages);
         if (!mmap_addr) return -ENOMEM;
     }
     vm_flags_t vm_flags = prot_to_vm_flags(prot);
@@ -775,7 +750,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
         uint64_t   vm_pgoff = vma->vm_pgoff;
         spin_unlock(&proc->mmap_lock);
 
-        uintptr_t target = find_free_vma_range(proc, new_pages);
+        uintptr_t target = process_find_free_vma_range(proc, new_pages);
         if (!target) return -ENOMEM;
         int result = memfd_map(vm_file, proc, target, new_pages, vm_pgoff * PAGE_4K_SIZE, vm_flags);
         if (result) return result;

@@ -26,7 +26,7 @@ uint64_t KERNEL_HEAP_SIZE  = 0;
 
 #define KERNEL_HEAP_SEARCH_BASE 0xffffc00000000000ULL
 #ifndef KERNEL_HEAP_MAX_MIB
-#    define KERNEL_HEAP_MAX_MIB 256
+#    define KERNEL_HEAP_MAX_MIB 128
 #endif
 #define KERNEL_HEAP_MAX_SIZE ((uint64_t)(KERNEL_HEAP_MAX_MIB) * 1024ULL * 1024ULL)
 
@@ -43,7 +43,11 @@ void init_heap(void)
     }
 
     if (!KERNEL_HEAP_SIZE && !KERNEL_HEAP_START) {
-        KERNEL_HEAP_SIZE = usable_ram / 4;
+        /* Keep most RAM reclaimable without shrinking low-memory heaps below their old size. */
+        KERNEL_HEAP_SIZE = usable_ram / 8;
+        uint64_t low_memory_floor = usable_ram / 4;
+        if (low_memory_floor > 32ULL * 1024 * 1024) low_memory_floor = 32ULL * 1024 * 1024;
+        if (KERNEL_HEAP_SIZE < low_memory_floor) KERNEL_HEAP_SIZE = low_memory_floor;
         if (KERNEL_HEAP_SIZE > KERNEL_HEAP_MAX_SIZE) KERNEL_HEAP_SIZE = KERNEL_HEAP_MAX_SIZE;
         KERNEL_HEAP_SIZE  = ALIGN_UP(KERNEL_HEAP_SIZE, PAGE_4K_SIZE);
         KERNEL_HEAP_START = walk_page_tables_find_free(get_kernel_pagedir(), KERNEL_HEAP_SEARCH_BASE, KERNEL_HEAP_SIZE, PAGE_2M_SIZE);

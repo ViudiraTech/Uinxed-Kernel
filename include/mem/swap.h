@@ -15,6 +15,7 @@
 #    include <stddef.h>
 #    include <stdint.h>
 #else
+#    include <libs/std/stdbool.h>
 #    include <libs/std/stddef.h>
 #    include <libs/std/stdint.h>
 #endif
@@ -48,6 +49,7 @@ typedef struct swap_slot_map {
         uint32_t *refs;
         uint64_t  slots;
         uint64_t  cluster_next;
+        uint64_t  free_slots;
 } swap_slot_map_t;
 
 typedef struct swap_stats {
@@ -83,6 +85,7 @@ void swap_init(void);
 int  swap_activate_path(const char *path, uint32_t flags);
 int  swap_deactivate_path(const char *path);
 int  swap_reclaim(size_t target);
+bool swap_has_free_space(void);
 int  swap_fault(page_directory_t *directory, uintptr_t address);
 int  swap_entry_retain_pte(uint64_t pte);
 int  swap_entry_release_pte(uint64_t pte);

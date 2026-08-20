@@ -21,8 +21,46 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/kthread.h>
+#include <process/sched.h>
 #include <process/task.h>
 #include <sync/spin_lock.h>
+
+/*
+ * All devices share one long-lived atomic commit worker.  Atomic commits are
+ * serialized per device already, and a permanent queue avoids allocating and
+ * tearing down a kernel thread for every compositor frame.
+ */
+static spinlock_t               drm_atomic_work_lock = {.lock = 0, .rflags = 0};
+static wait_queue_t             drm_atomic_work_wait;
+static struct drm_atomic_state *drm_atomic_work_head;
+static struct drm_atomic_state *drm_atomic_work_tail;
+static volatile int             drm_atomic_worker_state;
+static task_t                  *drm_atomic_worker_task;
+
+static int drm_atomic_worker_main(void *arg);
+
+/* Register the global worker once; mode-config initialization is serialized. */
+int drm_atomic_worker_init(void)
+{
+    int expected = 0;
+    int ret;
+
+    if (__atomic_load_n(&drm_atomic_worker_state, __ATOMIC_ACQUIRE) == 2) return 0;
+    if (!__atomic_compare_exchange_n(&drm_atomic_worker_state, &expected, 1, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        while (__atomic_load_n(&drm_atomic_worker_state, __ATOMIC_ACQUIRE) == 1) {
+            if (scheduler.started)
+                sched_yield();
+            else
+                __asm__ volatile("pause");
+        }
+        return __atomic_load_n(&drm_atomic_worker_state, __ATOMIC_ACQUIRE) == 2 ? 0 : -ENOMEM;
+    }
+
+    wait_queue_init(&drm_atomic_work_wait);
+    ret = kernel_worker_register("drm-atomic", drm_atomic_worker_main, NULL, &drm_atomic_worker_task);
+    __atomic_store_n(&drm_atomic_worker_state, ret ? -1 : 2, __ATOMIC_RELEASE);
+    return ret;
+}
 
 /* drm_atomic_state_alloc: allocate and initialize an atomic state */
 struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
@@ -521,15 +559,12 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 
         if (!crtc_state || !crtc_entry->ptr) continue;
 
-        if (crtc_state->active_changed) {
-            crtc_entry->ptr->enabled = crtc_state->active;
-            if (crtc_state->active)
-                drm_crtc_vblank_on(crtc_entry->ptr);
-            else
-                drm_crtc_vblank_off(crtc_entry->ptr);
-        }
-
         if (crtc_state->mode_changed && crtc_state->active) memcpy(&crtc_entry->ptr->mode, &crtc_state->mode, sizeof(crtc_state->mode));
+        if (crtc_state->active_changed) crtc_entry->ptr->enabled = crtc_state->active;
+        if (!crtc_state->active && crtc_state->active_changed)
+            drm_crtc_vblank_off(crtc_entry->ptr);
+        else if (crtc_state->active && (crtc_state->active_changed || crtc_state->mode_changed))
+            drm_crtc_vblank_on(crtc_entry->ptr);
         if (crtc_entry->ptr->state) {
             struct drm_pending_vblank_event *event = crtc_state->event;
             memcpy(crtc_entry->ptr->state, crtc_state, sizeof(*crtc_state));
@@ -594,16 +629,12 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
         }
         if (s->event) {
             /*
-             * A DRIVER_SYNCHRONOUS_FLIP driver waits for scanout to be
-             * updated inside its page-flip callback.  For such a driver the
-             * commit is already complete here; delaying the event until a
-             * synthetic vblank leaves compositors stuck on their first
-             * pending flip if no timer-driven vblank arrives.
+             * Host command completion is not presentation timing.  Even a
+             * synchronous software scanout must report flip completion on
+             * the next emulated vblank, otherwise compositors immediately
+             * repaint and saturate the full-frame transfer path.
              */
-            if (dev->driver && (dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) {
-                s->event->sequence = drm_crtc_vblank_count(crtc);
-                drm_crtc_send_vblank_event(crtc, s->event);
-            } else if (crtc->enabled && drm_crtc_vblank_get(crtc) == 0) {
+            if (crtc->enabled && drm_crtc_vblank_get(crtc) == 0) {
                 s->event->vblank_ref = true;
                 s->event->sequence   = (uint64_t)drm_crtc_vblank_count(crtc) + 1;
                 drm_crtc_arm_vblank_event(crtc, s->event);
@@ -703,12 +734,38 @@ static int drm_atomic_nonblock_worker(void *arg)
     return 0;
 }
 
-/* Queue a nonblocking commit, or complete it synchronously for sync-flip drivers. */
+/* Drain queued nonblocking commits without per-frame task creation. */
+static int drm_atomic_worker_main(void *arg)
+{
+    (void)arg;
+
+    for (;;) {
+        struct drm_atomic_state *state;
+
+        spin_lock(&drm_atomic_work_lock);
+        while (!drm_atomic_work_head) {
+            wait_queue_prepare(&drm_atomic_work_wait);
+            spin_unlock(&drm_atomic_work_lock);
+            wait_queue_sleep();
+            spin_lock(&drm_atomic_work_lock);
+        }
+        state                = drm_atomic_work_head;
+        drm_atomic_work_head = (struct drm_atomic_state *)state->commit_list;
+        if (!drm_atomic_work_head) drm_atomic_work_tail = NULL;
+        state->commit_list = NULL;
+        spin_unlock(&drm_atomic_work_lock);
+
+        (void)drm_atomic_nonblock_worker(state);
+    }
+
+    return 0;
+}
+
+/* Queue a nonblocking commit. */
 int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
 {
     struct drm_mode_config *config;
     struct drm_file        *file_priv;
-    task_t                 *worker;
 
     if (!state || !state->dev) {
         DRM_ERROR("Nonblocking commit called with NULL state.\n");
@@ -718,17 +775,6 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
         int ret = drm_atomic_check_only(state);
         if (ret) return ret;
     }
-
-    /*
-     * A DRIVER_SYNCHRONOUS_FLIP driver's command path is synchronous already:
-     * it waits for every scanout update before its page-flip callback
-     * returns.  Running that work in another task adds no hardware
-     * concurrency and creates a lost-wakeup window between the compositor's
-     * NONBLOCK ioctl and its subsequent epoll_wait.  Complete it here so the
-     * flip event is queued before the ioctl returns; epoll's initial level
-     * scan then observes it even without depending on notification timing.
-     */
-    if (state->dev->driver && (state->dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) return drm_atomic_commit(state);
 
     config    = &state->dev->mode_config;
     file_priv = state->file_priv;
@@ -766,19 +812,16 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
         return -EBUSY;
     }
     state->commit_seq = ++config->commit_queue_next;
-    worker            = kthread_run("drm-atomic", drm_atomic_nonblock_worker, state);
-    if (!worker) config->commit_queue_next--;
     spin_unlock(&config->commit_queue_lock);
-    if (!worker) {
-        DRM_ERROR("Failed to create commit worker thread.\n");
-        drm_dev_put(state->dev);
-        if (file_priv) {
-            spin_lock(&file_priv->event_lock);
-            file_priv->event_refs--;
-            spin_unlock(&file_priv->event_lock);
-            wait_queue_wake_all(&file_priv->event_wait);
-        }
-        return -ENOMEM;
-    }
+
+    state->commit_list = NULL;
+    spin_lock(&drm_atomic_work_lock);
+    if (drm_atomic_work_tail)
+        drm_atomic_work_tail->commit_list = state;
+    else
+        drm_atomic_work_head = state;
+    drm_atomic_work_tail = state;
+    spin_unlock(&drm_atomic_work_lock);
+    (void)wait_queue_wake_one_sync(&drm_atomic_work_wait);
     return 0;
 }

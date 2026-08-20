@@ -25,6 +25,7 @@ struct process;
 #define PTE_USER         (0x1 << 2)
 #define PTE_PWT          (0x1 << 3) // Page Write-Through
 #define PTE_PCD          (0x1 << 4) // Page Cache Disable
+#define PTE_ACCESSED     (0x1 << 5) // Hardware accessed/young bit
 #define PTE_HUGE         (0x1 << 7)
 #define PTE_GLOBAL       (0x1 << 8)  // Retain kernel leaf across CR3 switches
 #define PTE_COW          (0x1 << 9)  // Software: private copy-on-write leaf
@@ -103,6 +104,9 @@ int page_map_new_to(page_directory_t *directory, uint64_t addr, uint64_t frame, 
 /* Test whether a present user leaf permits the requested access. */
 int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write, int exec);
 
+/* Count present user pages in a virtual range, skipping empty page-table spans. */
+uint64_t page_count_present_range(page_directory_t *directory, uintptr_t start, uintptr_t end);
+
 /* Unmap a 4KB page and return its physical frame, or zero if unmapped */
 uint64_t page_unmap(page_directory_t *directory, uint64_t addr);
 
@@ -139,7 +143,10 @@ void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64
 /* Clone the lower user half into an empty directory using COW leaves. */
 int page_clone_user_cow(page_directory_t *child, page_directory_t *parent);
 
-/* Resolve a write protection fault on a COW leaf in a writable VMA. */
+/* Reconcile a protection fault with a writable VMA, including COW and stale TLBs. */
+int page_resolve_write_fault(struct process *proc, uintptr_t addr);
+
+/* Historical name retained for uaccess and ptrace callers. */
 int page_resolve_cow_fault(struct process *proc, uintptr_t addr);
 
 /* Release all user leaves/tables and the PML4 frame, preserving kernel mappings. */

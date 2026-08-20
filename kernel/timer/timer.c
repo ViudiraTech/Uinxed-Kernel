@@ -15,20 +15,94 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/tty.h>
+#include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/math.h>
 #include <libs/std/stdint.h>
 #include <net/core/netdev.h>
+#include <process/kthread.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <sync/signal.h>
+#include <sync/spin_lock.h>
 #include <syscall/timerfd.h>
+#include <syscall/syscall.h>
 
 static int64_t  timer_realtime_base_ns;
 static uint64_t net_timer_last_tick;
 static uint64_t timer_monotonic_floor_ns;
+static wait_queue_t timer_deferred_wait;
+static spinlock_t   timer_deferred_lock;
+static bool         timer_deferred_pending;
+static bool         timer_deferred_registered;
+
+static void timer_deferred_service(void)
+{
+    tty_deferred_flush();
+    timerfd_tick();
+
+    uint64_t now = sched_ticks();
+    signal_itimer_real_tick(now);
+    drm_vblank_tick();
+
+    uint64_t interval = TIMER_HZ / 100U;
+    if (!interval) interval = 1;
+    if (now - net_timer_last_tick >= interval) {
+        net_timer_last_tick = now;
+        net_timer(now);
+    }
+}
+
+static int timer_deferred_worker(void *arg)
+{
+    (void)arg;
+
+    while (!kthread_should_stop()) {
+        spin_lock(&timer_deferred_lock);
+        if (!timer_deferred_pending) {
+            wait_queue_prepare(&timer_deferred_wait);
+            spin_unlock(&timer_deferred_lock);
+            wait_queue_sleep();
+            continue;
+        }
+        timer_deferred_pending = false;
+        spin_unlock(&timer_deferred_lock);
+
+        timer_deferred_service();
+    }
+
+    return 0;
+}
+
+static void timer_queue_deferred_work(void)
+{
+    bool wake = false;
+
+    spin_lock(&timer_deferred_lock);
+    if (!timer_deferred_pending) {
+        timer_deferred_pending = true;
+        wake                   = true;
+    }
+    spin_unlock(&timer_deferred_lock);
+
+    if (wake) (void)wait_queue_wake_one_sync(&timer_deferred_wait);
+}
+
+void timer_deferred_init(void)
+{
+    if (timer_deferred_registered) return;
+
+    wait_queue_init(&timer_deferred_wait);
+    timer_deferred_lock    = (spinlock_t) {0};
+    timer_deferred_pending = false;
+    if (kernel_worker_register("timer-deferred", timer_deferred_worker, NULL, NULL) != EOK) {
+        plogk("timer: Unable to register deferred worker.\n");
+        return;
+    }
+    timer_deferred_registered = true;
+}
 
 /*
  * Return one unified boot-relative monotonic timeline.  Prefer a calibrated
@@ -95,38 +169,73 @@ uint32_t timer_realtime_seconds32(void)
     return seconds > UINT32_MAX ? UINT32_MAX : (uint32_t)seconds;
 }
 
-/* Timer interrupt */
-INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
+void timer_handle_frame(syscall_frame_t *frame) __attribute__((used, noinline));
+
+/* Timer interrupt body operating on a stable, complete user register frame. */
+void timer_handle_frame(syscall_frame_t *frame)
 {
-    irq_enter_gs(frame);
     disable_intr();
     uint32_t cpu_id      = get_current_cpu_id();
     task_t  *interrupted = current_task();
     if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, (frame->cs & 3U) == 3U);
-    if (cpu_id == 0) tty_deferred_flush();
     send_eoi();
-    sched_tick();
-    timerfd_tick();
-    if (cpu_id == 0) {
-        signal_itimer_real_tick(sched_ticks());
-        drm_vblank_tick();
-
-        /*
-         * Protocol timers only need 10 ms service resolution.  Keep them on
-         * the TIMER_HZ time base, but do not scan every socket at 1000 Hz.
-         */
-        uint64_t now      = sched_ticks();
-        uint64_t interval = TIMER_HZ / 100U;
-        if (!interval) interval = 1;
-        if (now - net_timer_last_tick >= interval) {
-            net_timer_last_tick = now;
-            net_timer(now);
-        }
-    }
-    /* iretq restores IF; enabling it here would make the saved frame re-entrant. */
-    irq_leave_gs(frame);
+    if (cpu_id == 0 && timer_deferred_registered) timer_queue_deferred_work();
+    /* Keep CPU-local/global maintenance ahead of the possible context switch. */
+    sched_tick((frame->cs & 3U) == 3U);
+    if ((frame->cs & 3U) == 3U) (void)signal_deliver_if_pending(frame);
 }
-INTERRUPT_END
+
+__asm__(".text\n"
+        ".global timer_handle\n"
+        ".type timer_handle, @function\n"
+        "timer_handle:\n"
+        "cld\n"
+        "testb $3, 8(%rsp)\n"
+        "jz 1f\n"
+        "swapgs\n"
+        "1:\n"
+        "pushq %rax\n"
+        "pushq %rbx\n"
+        "pushq %rcx\n"
+        "pushq %rdx\n"
+        "pushq %rbp\n"
+        "pushq %rsi\n"
+        "pushq %rdi\n"
+        "pushq %r8\n"
+        "pushq %r9\n"
+        "pushq %r10\n"
+        "pushq %r11\n"
+        "pushq %r12\n"
+        "pushq %r13\n"
+        "pushq %r14\n"
+        "pushq %r15\n"
+        "movq %rsp, %r12\n"
+        "movq %r12, %rdi\n"
+        "andq $-16, %rsp\n"
+        "call timer_handle_frame\n"
+        "movq %r12, %rsp\n"
+        "popq %r15\n"
+        "popq %r14\n"
+        "popq %r13\n"
+        "popq %r12\n"
+        "popq %r11\n"
+        "popq %r10\n"
+        "popq %r9\n"
+        "popq %r8\n"
+        "popq %rdi\n"
+        "popq %rsi\n"
+        "popq %rbp\n"
+        "popq %rdx\n"
+        "popq %rcx\n"
+        "popq %rbx\n"
+        "popq %rax\n"
+        "testb $3, 8(%rsp)\n"
+        "jz 2f\n"
+        "cli\n"
+        "swapgs\n"
+        "2:\n"
+        "iretq\n"
+        ".size timer_handle, .-timer_handle\n");
 
 /* Nanosecond-based delay function */
 void nsleep(uint64_t ns)

@@ -22,6 +22,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 /* VirtIO GPU feature bits */
@@ -631,14 +632,18 @@ struct virtio_gpu_device {
         /* Virtqueues: ctrlq (0), cursorq (1) */
         struct vp_virtqueue ctrlq;
         struct vp_virtqueue cursorq;
-        spinlock_t          ctrlq_cmd_lock; // serialises synchronous batches
-        spinlock_t          cursorq_cmd_lock;
+        volatile int        ctrlq_cmd_busy; // sleepable gates for synchronous commands
+        volatile int        cursorq_cmd_busy;
+        wait_queue_t        ctrlq_cmd_wait;
+        wait_queue_t        cursorq_cmd_wait;
 
-        /* Reusable DMA staging buffers; serialised by ctrlq_cmd_lock. */
+        /* Reusable DMA staging buffers; serialised by the command gates. */
         uint64_t ctrlq_dma_cmd_phys[VIRTGPU_CTRLQ_MAX_BATCH];
         uint64_t ctrlq_dma_resp_phys[VIRTGPU_CTRLQ_MAX_BATCH];
         void    *ctrlq_dma_cmd[VIRTGPU_CTRLQ_MAX_BATCH];
         void    *ctrlq_dma_resp[VIRTGPU_CTRLQ_MAX_BATCH];
+        uint64_t cursorq_dma_cmd_phys;
+        void    *cursorq_dma_cmd;
 
         /* Feature flags negotiated */
         bool                           has_virgl;
@@ -700,7 +705,7 @@ int virtgpu_cmd_detach_backing(struct virtio_gpu_device *vgdev, uint32_t res_id)
 int virtgpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint64_t offset);
 int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_3d_transfer *xf);
 int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rect, uint64_t offset);
-int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, bool set_scanout);
+int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, uint32_t width, uint32_t height, bool set_scanout);
 int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id, const struct drm_virtgpu_3d_transfer *xf, bool to_host);
 int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, struct virtio_gpu_rect *rect);
 int virtgpu_cmd_set_scanout(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj);

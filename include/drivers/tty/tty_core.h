@@ -37,6 +37,8 @@ typedef struct tty_core_ops {
 
 struct tty_core {
         spinlock_t     lock;
+        /* Serializes output callbacks without holding the line-discipline lock. */
+        spinlock_t     output_lock;
         wait_queue_t   read_wait;
         wait_queue_t   input_space_wait;
         wait_queue_t   write_wait;

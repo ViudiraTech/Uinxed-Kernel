@@ -21,6 +21,41 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <process/sched.h>
+
+/*
+ * Serialize synchronous queue users without keeping interrupts disabled while
+ * the host processes a command.  A regular spin_lock() is irq-saving in this
+ * kernel; holding it across the used-ring wait delayed the timer and PS/2 IRQs
+ * by the full host round-trip and was directly visible as libinput lag.
+ */
+static void virtgpu_cmd_gate_lock(volatile int *busy, wait_queue_t *wait)
+{
+    for (;;) {
+        int expected = 0;
+        if (__atomic_compare_exchange_n(busy, &expected, 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return;
+
+        /* Driver probing can submit before the first schedulable task exists. */
+        if (!scheduler.started) {
+            __asm__ volatile("pause");
+            continue;
+        }
+
+        wait_queue_prepare(wait);
+        expected = 0;
+        if (__atomic_compare_exchange_n(busy, &expected, 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            wait_queue_cancel(wait);
+            return;
+        }
+        wait_queue_sleep();
+    }
+}
+
+static void virtgpu_cmd_gate_unlock(volatile int *busy, wait_queue_t *wait)
+{
+    __atomic_store_n(busy, 0, __ATOMIC_RELEASE);
+    (void)wait_queue_wake_one_sync(wait);
+}
 
 /* Virtqueue initialisation / teardown */
 int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
@@ -71,6 +106,14 @@ int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
         }
     }
 
+    /* Cursor moves are input-hot; never allocate a frame for each motion. */
+    vgdev->cursorq_dma_cmd_phys = alloc_frames(1);
+    vgdev->cursorq_dma_cmd      = vgdev->cursorq_dma_cmd_phys ? phys_to_virt(vgdev->cursorq_dma_cmd_phys) : NULL;
+    if (!vgdev->cursorq_dma_cmd) {
+        if (vgdev->cursorq_dma_cmd_phys) free_frames(vgdev->cursorq_dma_cmd_phys, 1);
+        vgdev->cursorq_dma_cmd_phys = 0;
+    }
+
     plogk("virtgpu: Virtqueues initialised (ctrlq=%d, cursorq=%d)\n", vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
     return 0;
 }
@@ -97,6 +140,11 @@ void virtgpu_vq_fini(struct virtio_gpu_device *vgdev)
         vgdev->ctrlq_dma_cmd[i]  = NULL;
         vgdev->ctrlq_dma_resp[i] = NULL;
     }
+    if (vgdev->cursorq_dma_cmd_phys) {
+        free_frames(vgdev->cursorq_dma_cmd_phys, 1);
+        vgdev->cursorq_dma_cmd_phys = 0;
+    }
+    vgdev->cursorq_dma_cmd = NULL;
 }
 
 /* CPU hint for spin-wait loops - improves performance and memory ordering */
@@ -116,7 +164,7 @@ struct virtgpu_dma_command {
 };
 
 /* Free the DMA staging buffers allocated for a command batch. */
-static void virtgpu_dma_commands_free(struct virtgpu_dma_command *dma, uint32_t count)
+static void virtgpu_dma_commands_release(struct virtgpu_dma_command *dma, uint32_t count)
 {
     if (!dma) return;
     for (uint32_t i = 0; i < count; i++) {
@@ -124,7 +172,6 @@ static void virtgpu_dma_commands_free(struct virtgpu_dma_command *dma, uint32_t 
         if (dma[i].cmd_phys && dma[i].cmd_pages) free_frames(dma[i].cmd_phys, dma[i].cmd_pages);
         if (dma[i].resp_phys && dma[i].resp_pages) free_frames(dma[i].resp_phys, dma[i].resp_pages);
     }
-    free(dma);
 }
 
 /* Mark both queues dead and reset the device after a fatal error. */
@@ -167,7 +214,9 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     uint32_t                    log_expected = 0;
     int                         log_error    = 0;
     int                         ret          = 0;
-    struct virtgpu_dma_command *dma;
+    struct virtgpu_dma_command  dma_stack[VIRTGPU_CTRLQ_MAX_BATCH];
+    struct virtgpu_dma_command *dma         = dma_stack;
+    bool                        dma_dynamic = false;
 
     if (!vgdev || !commands || count == 0) {
         plogk("virtgpu: Ctrl_cmd_batch: invalid argument (count=%u)\n", (unsigned)count);
@@ -185,10 +234,14 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
             return -EINVAL;
         }
 
-    dma = calloc(count, sizeof(*dma));
-    if (!dma) {
-        plogk("virtgpu: Ctrl_cmd_batch: dma descriptor allocation failed (count=%u)\n", (unsigned)count);
-        return -ENOMEM;
+    memset(dma_stack, 0, sizeof(dma_stack));
+    if (count > VIRTGPU_CTRLQ_MAX_BATCH) {
+        dma = calloc(count, sizeof(*dma));
+        if (!dma) {
+            plogk("virtgpu: Ctrl_cmd_batch: dma descriptor allocation failed (count=%u)\n", (unsigned)count);
+            return -ENOMEM;
+        }
+        dma_dynamic = true;
     }
     for (uint32_t i = 0; i < count; i++) {
         /* Small commands reuse the pooled staging pages; oversized ones still allocate transiently. */
@@ -208,20 +261,16 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         dma[i].resp_phys  = alloc_frames(dma[i].resp_pages);
         if (!dma[i].cmd_phys || !dma[i].resp_phys) {
             plogk("virtgpu: Ctrl_cmd_batch: frame allocation failed (index=%u)\n", (unsigned)i);
-            virtgpu_dma_commands_free(dma, count);
+            virtgpu_dma_commands_release(dma, count);
+            if (dma_dynamic) free(dma);
             return -ENOMEM;
         }
         dma[i].cmd  = phys_to_virt(dma[i].cmd_phys);
         dma[i].resp = phys_to_virt(dma[i].resp_phys);
     }
 
-    /*
-     * Stack-backed command buffers remain owned until their responses have
-     * been reaped.  Do not schedule while holding that ownership: yielding
-     * lets another task on the same CPU enter this path and wait for a lock
-     * whose owner cannot be scheduled back, deadlocking DRM close/Xorg.
-     */
-    spin_lock(&vgdev->ctrlq_cmd_lock);
+    /* The sleepable gate owns the shared staging pages until all replies land. */
+    virtgpu_cmd_gate_lock(&vgdev->ctrlq_cmd_busy, &vgdev->ctrlq_cmd_wait);
 
     if (count > (uint32_t)vq->num_free / 2) {
         log_reason = CTRL_LOG_NO_DESCRIPTORS;
@@ -280,7 +329,10 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
             ret = -EIO;
             goto out_unlock;
         }
-        cpu_relax();
+        if ((timeout & 0x3fffU) == 0 && scheduler.started)
+            sched_yield();
+        else
+            cpu_relax();
         compiler_barrier();
     }
 
@@ -332,12 +384,13 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         }
     }
 out_unlock:
-    spin_unlock(&vgdev->ctrlq_cmd_lock);
-    virtgpu_dma_commands_free(dma, count);
+    virtgpu_cmd_gate_unlock(&vgdev->ctrlq_cmd_busy, &vgdev->ctrlq_cmd_wait);
+    virtgpu_dma_commands_release(dma, count);
+    if (dma_dynamic) free(dma);
 
     /*
      * printk ultimately damages and flushes the DRM-backed console.  Never
-     * print while owning ctrlq_cmd_lock: doing so recursively submits another
+     * print while owning the command gate: doing so recursively submits another
      * control command and deadlocks the task that must release this gate.
      */
     switch (log_reason) {
@@ -403,28 +456,33 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
     bool     timed_out    = false;
     uint32_t timeout      = 0;
     int      ret;
-    uint64_t dma_phys;
-    size_t   dma_pages;
-    void    *dma_cmd;
+    uint64_t dma_phys  = 0;
+    size_t   dma_pages = 0;
+    void    *dma_cmd   = NULL;
 
     if (!vgdev || !cmd || cmd_size < (int)sizeof(struct virtio_gpu_ctrl_hdr)) {
         plogk("virtgpu: Cursor_cmd: invalid argument (cmd_size=%d)\n", cmd_size);
         return -EINVAL;
     }
-    dma_pages = ALIGN_UP((size_t)cmd_size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
-    dma_phys  = alloc_frames(dma_pages);
-    if (!dma_phys) {
-        plogk("virtgpu: Cursor_cmd: frame allocation failed (pages=%lu)\n", (unsigned long)dma_pages);
-        return -ENOMEM;
+    if ((size_t)cmd_size <= PAGE_4K_SIZE && vgdev->cursorq_dma_cmd) {
+        dma_phys = vgdev->cursorq_dma_cmd_phys;
+        dma_cmd  = vgdev->cursorq_dma_cmd;
+    } else {
+        dma_pages = ALIGN_UP((size_t)cmd_size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
+        dma_phys  = alloc_frames(dma_pages);
+        if (!dma_phys) {
+            plogk("virtgpu: Cursor_cmd: frame allocation failed (pages=%lu)\n", (unsigned long)dma_pages);
+            return -ENOMEM;
+        }
+        dma_cmd = phys_to_virt(dma_phys);
     }
-    dma_cmd = phys_to_virt(dma_phys);
-    memcpy(dma_cmd, cmd, (size_t)cmd_size);
 
     /*
-     * As on the control queue, a synchronous queue owner must not yield while
-     * its stack-backed command remains in flight.
+     * The gate protects the pooled page and lets timer/input IRQs run during
+     * the host wait.  Contending callers sleep instead of spinning behind it.
      */
-    spin_lock(&vgdev->cursorq_cmd_lock);
+    virtgpu_cmd_gate_lock(&vgdev->cursorq_cmd_busy, &vgdev->cursorq_cmd_wait);
+    memcpy(dma_cmd, cmd, (size_t)cmd_size);
 
     /*
      * Cursorq requests are output-only and have no protocol response.  The
@@ -449,12 +507,15 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
             ret = -EIO;
             goto out;
         }
-        cpu_relax();
+        if ((timeout & 0x3fffU) == 0 && scheduler.started)
+            sched_yield();
+        else
+            cpu_relax();
         compiler_barrier();
     }
 out:
-    spin_unlock(&vgdev->cursorq_cmd_lock);
-    free_frames(dma_phys, dma_pages);
+    virtgpu_cmd_gate_unlock(&vgdev->cursorq_cmd_busy, &vgdev->cursorq_cmd_wait);
+    if (dma_pages) free_frames(dma_phys, dma_pages);
 
     /* Logging can flush fbcon through controlq, so release cursorq first. */
     if (queue_error) plogk("virtgpu: Cursor_cmd: queue add failed (err=%d)\n", queue_error);

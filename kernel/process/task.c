@@ -17,6 +17,7 @@
 #include <mem/heap.h>
 #include <process/sched.h>
 #include <process/task.h>
+#include <security/seccomp.h>
 
 #define PID_HASH_BITS 8
 #define PID_HASH_SIZE (1 << PID_HASH_BITS)
@@ -164,6 +165,14 @@ task_t *task_alloc_status(const char *name, int *error)
     task->last_wake_tick    = 0;
     task->last_migrate_tick = 0;
     task->migration_count   = 0;
+    task->start_tick        = sched_ticks();
+    sigemptyset(&task->signal_blocked);
+    sigemptyset(&task->signal_saved_mask);
+    sigemptyset(&task->signal_pending);
+    task->signal_restore_mask      = false;
+    task->signal_altstack.ss_sp    = NULL;
+    task->signal_altstack.ss_size  = 0;
+    task->signal_altstack.ss_flags = SS_DISABLE;
     task->process           = NULL;
     task->weight            = SCHED_NICE_0_LOAD;
     task->base_weight       = SCHED_NICE_0_LOAD;
@@ -204,6 +213,7 @@ task_t *task_alloc_status(const char *name, int *error)
     }
     task->tgid = task->pid;
     pid_hash_add(task, pid_entry);
+    __atomic_add_fetch(&scheduler.tasks_created, 1, __ATOMIC_RELAXED);
     spin_unlock(&pid_hash_lock);
     return task;
 }
@@ -219,6 +229,7 @@ void task_free(task_t *task)
 {
     if (!task) return;
 
+    seccomp_task_release(task);
     cgroup_task_exit(task);
 
     spin_lock(&pid_hash_lock);

@@ -157,7 +157,7 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
     if (!us && !reserved && !id && fault_task && fault_task->uaccess_fault_resume && faulting_address && faulting_address < PROCESS_USER_STACK_TOP) {
         process_t *proc = fault_task->process;
         if (!fault_task->uaccess_fault_nofault && proc && proc->user_page_dir) {
-            if (present && rw && page_resolve_cow_fault(proc, faulting_address) == 0) return;
+            if (present && rw && page_resolve_write_fault(proc, faulting_address) == 0) return;
             if (!present && swap_fault(proc->user_page_dir, faulting_address) == 0) return;
             if (!present && process_demand_fault(proc, faulting_address, rw, 0) == 0) return;
         }
@@ -169,7 +169,7 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
     if (us) {
         process_t *proc = process_current();
         if (proc) {
-            if (present && rw && !reserved && proc->user_page_dir && page_resolve_cow_fault(proc, faulting_address) == 0) return;
+            if (present && rw && !reserved && proc->user_page_dir && page_resolve_write_fault(proc, faulting_address) == 0) return;
             if (!present && !reserved && proc->user_page_dir && swap_fault(proc->user_page_dir, faulting_address) == 0) return;
             if (!present && !reserved && proc->user_page_dir && process_demand_fault(proc, faulting_address, rw, id) == 0) return;
 
@@ -178,7 +178,7 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
             info.si_code   = present ? SEGV_ACCERR : SEGV_MAPERR;
             info.si_addr   = (void *)faulting_address;
 
-            plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n", proc->task->pid, proc->task->name, faulting_address, frame->rip, frame->rsp, frame->cs,
+            plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n", fault_task->pid, fault_task->name, faulting_address, frame->rip, frame->rsp, frame->cs,
                   error_code);
 
             /*
@@ -187,9 +187,9 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
              * ignored, terminate the process instead of retrying the same
              * faulting instruction forever.
              */
-            if (signal_is_blocked_or_ignored(proc, SIGSEGV)) process_exit(-SIGSEGV);
+            if (signal_is_blocked_or_ignored(proc, SIGSEGV)) process_exit_group(-SIGSEGV);
 
-            signal_send_thread(proc->task, SIGSEGV, &info);
+            signal_send_thread(fault_task, SIGSEGV, &info);
 
             syscall_frame_t sigframe = {0};
             sigframe.rax             = frame->rax;
@@ -540,35 +540,55 @@ static page_table_entry_t *find_4k_pte(page_directory_t *directory, uintptr_t ad
     return &table->entries[(addr >> 12) & 0x1ff];
 }
 
-/* Report whether addr falls in a writable VMA (mmap_lock held). */
-static int process_vma_writable_locked(process_t *proc, uintptr_t addr)
+/* Return the writable VMA covering addr (mmap_lock held). */
+static vm_area_t *process_writable_vma_locked(process_t *proc, uintptr_t addr)
 {
     vm_area_t *vma = proc->mmap_list;
     while (vma && vma->end <= addr) vma = vma->next;
-    return vma && vma->start <= addr && addr < vma->end && (vma->flags & VM_WRITE);
+    if (!vma || vma->start > addr || addr >= vma->end || !(vma->flags & VM_WRITE)) return NULL;
+    return vma;
 }
 
-/* Resolve a copy-on-write fault: unshare or make the frame writable. */
-int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
+/*
+ * Reconcile a write-protection fault with its VMA.
+ *
+ * A present write fault is not necessarily a new COW operation: another CPU
+ * may already have made the leaf writable while this CPU still has the old
+ * read-only translation cached.  The VMA is the permission authority.  Once
+ * it confirms VM_WRITE, retry writable leaves after a local invalidation,
+ * unshare private referenced frames, and repair read-only leaves whose
+ * software COW marker was lost during a concurrent permission update.
+ */
+int page_resolve_write_fault(process_t *proc, uintptr_t addr)
 {
     page_directory_t *directory = proc ? proc->user_page_dir : NULL;
     if (!directory || !directory->table) return -1;
 
     for (;;) {
         spin_lock(&proc->mmap_lock);
-        if (!process_vma_writable_locked(proc, addr)) {
+        vm_area_t *vma = process_writable_vma_locked(proc, addr);
+        if (!vma) {
             spin_unlock(&proc->mmap_lock);
             return -1;
         }
         spin_lock(&directory->lock);
         cow_fault_leaf_t leaf;
-        if (find_cow_leaf(directory, addr, &leaf) || !(leaf.value & PTE_COW) || (leaf.value & PTE_WRITEABLE)) {
+        if (find_cow_leaf(directory, addr, &leaf) || !(leaf.value & PTE_USER)) {
             spin_unlock(&directory->lock);
             spin_unlock(&proc->mmap_lock);
             return -1;
         }
 
+        /* The PTE won the race; invalidate this CPU's stale read-only TLB. */
+        if (leaf.value & PTE_WRITEABLE) {
+            flush_tlb(leaf.base);
+            spin_unlock(&directory->lock);
+            spin_unlock(&proc->mmap_lock);
+            return 0;
+        }
+
         uint64_t old_frame = leaf.value & leaf.mask;
+        bool     shared    = (vma->flags & VM_SHARED) || (leaf.value & PTE_SHARED);
         int      sole      = 1;
         for (size_t i = 0; i < leaf.frame_count; i++) {
             if (frame_refcount(old_frame + i * PAGE_4K_SIZE) != 1) {
@@ -578,7 +598,8 @@ int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
         }
 
         uint64_t replacement_flags = (leaf.value & ~leaf.mask & ~PTE_COW) | PTE_WRITEABLE;
-        if (sole) {
+        if (shared) replacement_flags |= PTE_SHARED;
+        if (shared || sole) {
             __atomic_store_n(&leaf.entry->value, old_frame | replacement_flags, __ATOMIC_RELEASE);
             flush_tlb(leaf.base);
             spin_unlock(&directory->lock);
@@ -594,6 +615,7 @@ int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
         spin_unlock(&directory->lock);
         spin_unlock(&proc->mmap_lock);
 
+        frame_reclaim_if_needed(leaf.frame_count);
         uint64_t new_frame;
         if (leaf.size == PAGE_1G_SIZE)
             new_frame = alloc_frames_1G(1);
@@ -609,7 +631,7 @@ int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
         memcpy(phys_to_virt(new_frame), phys_to_virt(old_frame), leaf.size);
 
         spin_lock(&proc->mmap_lock);
-        if (!process_vma_writable_locked(proc, addr)) {
+        if (!process_writable_vma_locked(proc, addr)) {
             spin_unlock(&proc->mmap_lock);
             (void)frame_release_range(new_frame, leaf.frame_count);
             (void)frame_release_range(old_frame, leaf.frame_count);
@@ -630,15 +652,24 @@ int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
             return 0;
         }
 
-        int already_resolved = !current_result && (current.value & PTE_WRITEABLE) && !(current.value & PTE_COW);
-        int retry            = !current_result && (current.value & PTE_COW) && !(current.value & PTE_WRITEABLE);
+        int already_resolved = !current_result && (current.value & PTE_WRITEABLE);
+        int retry            = !current_result && !(current.value & PTE_WRITEABLE);
         spin_unlock(&directory->lock);
         spin_unlock(&proc->mmap_lock);
         (void)frame_release_range(new_frame, leaf.frame_count);
         (void)frame_release_range(old_frame, leaf.frame_count);
-        if (already_resolved) return 0;
+        if (already_resolved) {
+            flush_tlb(current.base);
+            return 0;
+        }
         if (!retry) return -1;
     }
+}
+
+/* Keep the historical API for existing kernel write helpers. */
+int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
+{
+    return page_resolve_write_fault(proc, addr);
 }
 
 /* Tear down the user half of a page directory and release its frames. */
@@ -825,6 +856,66 @@ int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write,
     int accessible = find_cow_leaf(directory, addr, &leaf) == 0 && (leaf.value & PTE_USER) && (!write || (leaf.value & (PTE_WRITEABLE | PTE_COW))) && (!exec || !(leaf.value & PTE_NO_EXECUTE));
     spin_unlock(&directory->lock);
     return accessible;
+}
+
+static uintptr_t page_range_next(uintptr_t address, uintptr_t end, uintptr_t span)
+{
+    uintptr_t next = (address | (span - 1)) + 1;
+    if (next <= address || next > end) return end;
+    return next;
+}
+
+/* Count mapped user pages without taking the page-directory lock per 4 KiB. */
+uint64_t page_count_present_range(page_directory_t *directory, uintptr_t start, uintptr_t end)
+{
+    if (!directory || !directory->table || start >= end) return 0;
+    start = ALIGN_DOWN(start, PAGE_4K_SIZE);
+    end   = ALIGN_UP(end, PAGE_4K_SIZE);
+
+    uint64_t pages   = 0;
+    uintptr_t cursor = start;
+    spin_lock(&directory->lock);
+    while (cursor < end) {
+        page_table_t *l4  = directory->table;
+        uint64_t      l4e = l4->entries[(cursor >> 39) & 0x1ff].value;
+        if (!(l4e & PTE_PRESENT) || (l4e & PTE_HUGE)) {
+            cursor = page_range_next(cursor, end, 1ULL << 39);
+            continue;
+        }
+
+        page_table_t *l3  = phys_to_virt(l4e & PAGE_4K_MASK);
+        uint64_t      l3e = l3->entries[(cursor >> 30) & 0x1ff].value;
+        if (!(l3e & PTE_PRESENT)) {
+            cursor = page_range_next(cursor, end, PAGE_1G_SIZE);
+            continue;
+        }
+        if (l3e & PTE_HUGE) {
+            uintptr_t next = page_range_next(cursor, end, PAGE_1G_SIZE);
+            if (l3e & PTE_USER) pages += (next - cursor) / PAGE_4K_SIZE;
+            cursor = next;
+            continue;
+        }
+
+        page_table_t *l2  = phys_to_virt(l3e & PAGE_4K_MASK);
+        uint64_t      l2e = l2->entries[(cursor >> 21) & 0x1ff].value;
+        if (!(l2e & PTE_PRESENT)) {
+            cursor = page_range_next(cursor, end, PAGE_2M_SIZE);
+            continue;
+        }
+        if (l2e & PTE_HUGE) {
+            uintptr_t next = page_range_next(cursor, end, PAGE_2M_SIZE);
+            if (l2e & PTE_USER) pages += (next - cursor) / PAGE_4K_SIZE;
+            cursor = next;
+            continue;
+        }
+
+        page_table_t *l1  = phys_to_virt(l2e & PAGE_4K_MASK);
+        uint64_t      l1e = l1->entries[(cursor >> 12) & 0x1ff].value;
+        if ((l1e & (PTE_PRESENT | PTE_USER)) == (PTE_PRESENT | PTE_USER)) pages++;
+        cursor += PAGE_4K_SIZE;
+    }
+    spin_unlock(&directory->lock);
+    return pages;
 }
 
 /* Remove the 4 KiB mapping at addr and return its frame, or 0 if unmapped. */

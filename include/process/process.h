@@ -47,6 +47,7 @@ extern process_t *init_process;
 #define PROCESS_HEAP_START 0x100000
 #define PROCESS_HEAP_MAX   0x7ff00000
 #define PROCESS_STACK_BASE 0x7ffffffff000
+#define PROCESS_MMAP_BASE  0x00007f0000000000ULL
 
 #define PROCESS_USER_CODE_MIN  0x0000000000400000
 #define PROCESS_USER_CODE_MAX  0x00007fffffe00000
@@ -207,6 +208,8 @@ typedef struct process {
         uint32_t        refcount;
         uint32_t        thread_count;
         ilist_node_t    threads;
+        /* Serializes thread-list publication with seccomp TSYNC. */
+        spinlock_t      seccomp_lock;
         pid_t           pgid;
         pid_t           sid;
         tty_core_t     *controlling_tty;
@@ -215,6 +218,17 @@ typedef struct process {
         char            cwd[VFS_PATH_MAX];      // current working directory
         char            exe_path[VFS_PATH_MAX]; // executable path (procfs /proc/<pid>/exe)
 } process_t;
+
+typedef struct process_stats {
+        uint64_t user_ticks;
+        uint64_t system_ticks;
+        uint64_t start_tick;
+        uint64_t voluntary_switches;
+        uint64_t involuntary_switches;
+        uint32_t threads;
+        uint32_t running;
+        uint32_t blocked;
+} process_stats_t;
 
 /*
  * Linux is_global_init(): the global init is the thread-group leader whose PID
@@ -248,6 +262,9 @@ process_t *process_create_kthread(task_t *task, const char *name);
 /* Terminate the current process and release its resources */
 __attribute__((noreturn)) void process_exit(int exit_code);
 
+/* Terminate every thread in the current process with one shared status. */
+__attribute__((noreturn)) void process_exit_group(int exit_code);
+
 /* Reap a zombie child process and collect its exit status */
 int process_wait(pid_t pid, int *exit_code);
 
@@ -273,6 +290,11 @@ size_t     process_snapshot_pids(pid_t *pids, size_t capacity);
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid);
 task_t    *process_task_find_get(pid_t pid, process_t **owner);
 void       process_put(process_t *proc);
+
+void process_wake_threads(process_t *proc, bool resume_stopped);
+void process_stop_threads(process_t *proc);
+void process_get_stats(process_t *proc, process_stats_t *stats);
+void process_count_task_states(uint64_t *running, uint64_t *blocked);
 
 /* Get information about the current process */
 process_t *process_current(void);
@@ -315,6 +337,9 @@ vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags);
 /* Insert a VMA into the process's sorted mmap list */
 int vm_area_insert(process_t *proc, vm_area_t *vma);
 
+/* Find a page-aligned VMA gap without modifying the process address space. */
+uintptr_t process_find_free_vma_range(process_t *proc, size_t length);
+
 /* Allocate a new virtual memory area in the given process */
 int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flags);
 
@@ -344,6 +369,9 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags);
 
 /* Install another reference to an existing open-file description. */
 int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flags);
+
+/* Install a shared open-file description at an exact descriptor number. */
+int process_fd_install_file_at(process_t *proc, process_file_t *file, int newfd, uint64_t flags, bool replace);
 
 /* Close a file descriptor */
 int process_fd_close(process_t *proc, int fd);
