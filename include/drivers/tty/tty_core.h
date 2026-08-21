@@ -11,6 +11,7 @@
 #ifndef INCLUDE_TTY_CORE_H_
 #define INCLUDE_TTY_CORE_H_
 
+#include <fs/core/vfs.h>
 #include <kernel/termios.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -39,32 +40,33 @@ struct tty_core {
         spinlock_t lock;
 
         /* Serializes output callbacks without holding the line-discipline lock. */
-        spinlock_t     output_lock;
-        wait_queue_t   read_wait;
-        wait_queue_t   input_space_wait;
-        wait_queue_t   write_wait;
-        struct termios termios;
-        struct winsize winsize;
-        tty_core_ops_t ops;
-        void          *context;
-        uint8_t        input[TTY_CORE_BUFFER_SIZE];
-        uint8_t        input_flags[TTY_CORE_BUFFER_SIZE];
-        size_t         input_head;
-        size_t         input_tail;
-        size_t         input_count;
-        size_t         canon_ready;
-        size_t         edit_count;
-        size_t         eof_count;
-        int64_t        session;
-        int64_t        foreground_pgid;
-        struct vt_mode vt_mode;
-        int64_t        vt_owner_pid;
-        uint8_t        kd_mode;
-        uint8_t        kb_mode;
-        uint8_t        led_state;
-        bool           is_vt;
-        bool           output_stopped;
-        bool           hung_up;
+        spinlock_t        output_lock;
+        wait_queue_t      read_wait;
+        wait_queue_t      input_space_wait;
+        wait_queue_t      write_wait;
+        vfs_poll_source_t poll_source; // poll/select/epoll readiness notification
+        struct termios    termios;
+        struct winsize    winsize;
+        tty_core_ops_t    ops;
+        void             *context;
+        uint8_t           input[TTY_CORE_BUFFER_SIZE];
+        uint8_t           input_flags[TTY_CORE_BUFFER_SIZE];
+        size_t            input_head;
+        size_t            input_tail;
+        size_t            input_count;
+        size_t            canon_ready;
+        size_t            edit_count;
+        size_t            eof_count;
+        int64_t           session;
+        int64_t           foreground_pgid;
+        struct vt_mode    vt_mode;
+        int64_t           vt_owner_pid;
+        uint8_t           kd_mode;
+        uint8_t           kb_mode;
+        uint8_t           led_state;
+        bool              is_vt;
+        bool              output_stopped;
+        bool              hung_up;
 };
 
 /* Initialize a tty core with default termios and the device's ops. */

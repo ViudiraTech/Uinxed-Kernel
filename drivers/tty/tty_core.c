@@ -49,6 +49,7 @@ void tty_core_init(tty_core_t *tty, const tty_core_ops_t *ops, void *context)
     wait_queue_init(&tty->read_wait);
     wait_queue_init(&tty->input_space_wait);
     wait_queue_init(&tty->write_wait);
+    vfs_poll_source_init(&tty->poll_source);
     tty_default_termios(&tty->termios);
     tty->winsize.ws_row = 25;
     tty->winsize.ws_col = 80;
@@ -242,6 +243,7 @@ void tty_core_flush_input(tty_core_t *tty)
     spin_unlock(&tty->lock);
     wait_queue_wake_all(&tty->input_space_wait);
     wait_queue_wake_all(&tty->read_wait);
+    vfs_poll_source_notify(&tty->poll_source, POLLIN);
 }
 
 /* Store one input byte; marker tags EOF bytes in canonical mode. */
@@ -321,6 +323,7 @@ retry_character:;
                 if (flush && tty->ops.event) tty->ops.event(tty->context, TIOCPKT_FLUSHREAD | TIOCPKT_FLUSHWRITE);
                 tty_signal_foreground(tty, signal);
                 wait_queue_wake_all(&tty->read_wait);
+                vfs_poll_source_notify(&tty->poll_source, POLLIN);
                 if (flush) wait_queue_wake_all(&tty->input_space_wait);
                 accepted++;
                 continue;
@@ -386,6 +389,7 @@ retry_character:;
                 }
                 spin_unlock(&tty->lock);
                 wait_queue_wake_all(&tty->read_wait);
+                vfs_poll_source_notify(&tty->poll_source, POLLIN);
                 accepted++;
                 continue;
             }
@@ -410,7 +414,10 @@ retry_character:;
             bool wake = !(lflag & ICANON) || delimiter;
             spin_unlock(&tty->lock);
             if ((lflag & ECHO) || (ch == '\n' && (lflag & ECHONL))) tty_echo(tty, ch, lflag);
-            if (wake) wait_queue_wake_all(&tty->read_wait);
+            if (wake) {
+                wait_queue_wake_all(&tty->read_wait);
+                vfs_poll_source_notify(&tty->poll_source, POLLIN);
+            }
         } else {
             if (!(flags & O_NONBLOCK)) {
                 /* Interrupted by a signal with no progress; return -ERESTARTSYS. */
@@ -896,5 +903,6 @@ void tty_core_hangup(tty_core_t *tty)
     process_ctty_clear_all(tty);
     wait_queue_wake_all(&tty->read_wait);
     wait_queue_wake_all(&tty->write_wait);
+    vfs_poll_source_notify(&tty->poll_source, POLLHUP | POLLIN | POLLOUT);
     tty_core_release(tty);
 }

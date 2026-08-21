@@ -95,16 +95,27 @@ int tty_register_driver(tty_driver_t *drv)
     return 0;
 }
 
+/* Resolve the tty core's poll source for poll/select/epoll readiness. */
+static vfs_poll_source_t *tty_dispatch_poll_source(void *ctx, void *private_data)
+{
+    tty_dispatch_t *d = private_data;
+    (void)ctx;
+    if (!d || !d->drv_data) return NULL;
+    tty_file_endpoint_t *ep = (tty_file_endpoint_t *)d->drv_data;
+    return ep->core ? &ep->core->poll_source : NULL;
+}
+
 /* Create the /dev nodes for every registered tty device. */
 int tty_devices_populate(void)
 {
     static const tmpfs_device_ops_t tty_node_ops = {
-        .open       = tty_dispatch_open,
-        .release    = tty_dispatch_release,
-        .file_read  = tty_dispatch_read,
-        .file_write = tty_dispatch_write,
-        .file_poll  = tty_dispatch_poll,
-        .file_ioctl = tty_dispatch_ioctl,
+        .open             = tty_dispatch_open,
+        .release          = tty_dispatch_release,
+        .file_read        = tty_dispatch_read,
+        .file_write       = tty_dispatch_write,
+        .file_poll        = tty_dispatch_poll,
+        .file_poll_source = tty_dispatch_poll_source,
+        .file_ioctl       = tty_dispatch_ioctl,
     };
     tty_registered_device_t *dev;
     int                      count = 0;
