@@ -20,7 +20,7 @@ Uinxed is a monolithic, UNIX-like operating system kernel for x86-64, written fr
 
 The project aims to build a practical, self-contained kernel with modern design principles: an EEVDF scheduler, a unified page cache with swap support, a full VFS with multiple filesystems, a Linux-style networking and socket layer, and a growing set of device drivers. Unimplemented syscalls return `-ENOSYS`, keeping the ABI surface predictable as it grows.
 
-> **Current status:** The current development image boots Alpine Linux 3.24 on x86-64 and can bring up the Weston (Wayland) desktop with a working terminal. The PS/2 keyboard/mouse path, evdev consumers, poll/epoll wakeups, and the EEVDF scheduler are under active validation. This remains an experimental kernel; GPU, VirtIO, audio, and parts of the Linux-compatible ABI may still be incomplete.
+> **Current status:** The current development image boots Alpine Linux 3.24 on x86-64 and can bring up the Weston (Wayland) desktop with a working terminal. The PS/2 keyboard/mouse path, evdev consumers, poll/epoll wakeups, and the EEVDF scheduler are under active validation. This remains an experimental kernel; GPU, VirtIO, audio, and parts of the Linux-compatible ABI may still be incomplete. Runs on physical servers including Dell PowerEdge R410.
 
 ## Core Features
 
@@ -51,11 +51,15 @@ The project aims to build a practical, self-contained kernel with modern design 
 ### ABI & IPC
 - Linux x86-64 syscall ABI (Linux 6.12 numbering, 0-462)
 - `AF_UNIX`, `AF_NETLINK`, `AF_INET`, `AF_INET6` sockets
-- pipes, `epoll`, `eventfd`, `timerfd`, `signalfd`, `memfd`, POSIX message queues, and System V IPC
-- futexes with Priority Inheritance plus the futex2 syscalls (`futex_wait` / `futex_wake` / `futex_requeue`); `mmap` / `munmap` / `mremap` backed by the page cache
+- pipes, `epoll`, `eventfd`, `timerfd`, `signalfd`, `memfd`, `pidfd`, POSIX message queues, and System V IPC
+- futexes with Priority Inheritance plus the futex2 syscalls (`futex_wait` / `futex_wake` / `futex_requeue` / `futex_waitv`); `mmap` / `munmap` / `mremap` backed by the page cache
 - inotify for filesystem event notification
 - POSIX termios and Linux TTY ioctls, including Unix98 PTYs and multiple virtual terminals (VTs, default 8)
 - Loadable kernel modules via `init_module` / `finit_module` / `delete_module`
+
+### Security & Tracing
+- seccomp filters with `no_new_privs`, user notifications, and seccomp event support
+- Linux-compatible `ptrace` inspection, process lifecycle events, and syscall-stop handling
 
 ### Drivers
 - **Input:** PS/2 keyboard and mouse, Linux-compatible `evdev`, USB HID (keyboard, mouse, consumer control)
