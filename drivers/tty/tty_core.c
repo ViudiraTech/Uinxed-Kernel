@@ -301,6 +301,7 @@ retry_character:;
             spin_unlock(&tty->lock);
             if (tty->ops.event) tty->ops.event(tty->context, TIOCPKT_START);
             wait_queue_wake_all(&tty->write_wait);
+            vfs_poll_source_notify(&tty->poll_source, POLLOUT);
             accepted++;
             continue;
         }
@@ -309,6 +310,7 @@ retry_character:;
             spin_unlock(&tty->lock);
             if (tty->ops.event) tty->ops.event(tty->context, TIOCPKT_START);
             wait_queue_wake_all(&tty->write_wait);
+            vfs_poll_source_notify(&tty->poll_source, POLLOUT);
             goto retry_character;
         }
 
@@ -645,13 +647,17 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             tty->termios = termios;
             spin_unlock(&tty->lock);
             if (request == TCSETSF || mode_changed) wait_queue_wake_all(&tty->input_space_wait);
-            if (restart) wait_queue_wake_all(&tty->write_wait);
+            if (restart) {
+                wait_queue_wake_all(&tty->write_wait);
+                vfs_poll_source_notify(&tty->poll_source, POLLOUT);
+            }
             if (tty->ops.event) {
                 if (restart) tty->ops.event(tty->context, TIOCPKT_START);
                 if (old_ixon != ((termios.c_iflag & IXON) != 0)) tty->ops.event(tty->context, old_ixon ? TIOCPKT_NOSTOP : TIOCPKT_DOSTOP);
                 tty->ops.event(tty->context, TIOCPKT_IOCTL);
             }
             wait_queue_wake_all(&tty->read_wait);
+            vfs_poll_source_notify(&tty->poll_source, POLLIN);
             return 0;
         case TIOCGWINSZ :
             spin_lock(&tty->lock);
@@ -763,7 +769,10 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             uint8_t flow_char = value == TCIOFF ? tty->termios.c_cc[VSTOP] : tty->termios.c_cc[VSTART];
             spin_unlock(&tty->lock);
             if (flow && tty->ops.event) tty->ops.event(tty->context, flow);
-            if (value == TCOON) wait_queue_wake_all(&tty->write_wait);
+            if (value == TCOON) {
+                wait_queue_wake_all(&tty->write_wait);
+                vfs_poll_source_notify(&tty->poll_source, POLLOUT);
+            }
             if ((value == TCIOFF || value == TCION) && tty->ops.emit) {
                 spin_lock(&tty->output_lock);
                 int emitted = tty->ops.emit(tty->context, &flow_char, 1, 0);
