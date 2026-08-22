@@ -341,7 +341,13 @@ void isr_registe_handle(void)
     register_interrupt_handler(ISR_5, (void *)ISR_5_handle, 0, 0x8e);
     register_interrupt_handler(ISR_6, (void *)ISR_6_handle, 0, 0x8e);
     register_interrupt_handler(ISR_7, (void *)ISR_7_handle, 0, 0x8e);
-    register_interrupt_handler(ISR_8, (void *)ISR_8_handle, 0, 0x8e);
+    /*
+     * #DF gets its own IST stack: a double fault by definition fires while
+     * delivering another exception, often with the current kernel stack
+     * unusable.  Without IST, pushing the #DF frame faults again and the
+     * machine triple-faults before any diagnostics are printed.
+     */
+    register_interrupt_handler(ISR_8, (void *)ISR_8_handle, 1, 0x8e);
     register_interrupt_handler(ISR_9, (void *)ISR_9_handle, 0, 0x8e);
     register_interrupt_handler(ISR_10, (void *)ISR_10_handle, 0, 0x8e);
     register_interrupt_handler(ISR_11, (void *)ISR_11_handle, 0, 0x8e);

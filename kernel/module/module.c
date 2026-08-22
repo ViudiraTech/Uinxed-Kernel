@@ -10,6 +10,7 @@
 
 #define UINXED_MODULE_CORE
 #include <boot/limine.h>
+#include <arch/smp.h>
 #include <fs/sysfs/module_sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/module/elf.h>
@@ -761,10 +762,25 @@ static int layout_sections(module_internal_t *internal, const module_elf_view_t 
 static void unmap_module(module_internal_t *internal)
 {
     if (!internal || !internal->frames) return;
+
+    /*
+     * Kernel mappings are GLOBAL: another CPU may keep serving a stale
+     * translation after page_unmap(), so synchronize all TLBs before any
+     * frame is handed back to the allocator.
+     */
+    bool any_mapped = false;
     for (size_t index = 0; index < internal->page_count; index++) {
         if (!internal->frames[index]) continue;
         uint64_t frame = page_unmap(get_kernel_pagedir(), internal->base + index * PAGE_4K_SIZE);
-        if (frame) (void)frame_release_range(frame, 1);
+        if (!frame) internal->frames[index] = 0;
+        else any_mapped = true;
+    }
+
+    if (any_mapped) flush_tlb_all();
+
+    for (size_t index = 0; index < internal->page_count; index++) {
+        if (!internal->frames[index]) continue;
+        (void)frame_release_range(internal->frames[index], 1);
         internal->frames[index] = 0;
     }
     free(internal->frames);

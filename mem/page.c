@@ -452,13 +452,21 @@ int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
 
     /*
      * Publish write protection only after every child leaf owns a frame
-     * reference.  The caller performs one synchronized TLB shootdown before
-     * the child can run, so fork remains cheap without stale writable TLBs.
+     * reference, then perform the synchronized TLB shootdown WHILE STILL
+     * HOLDING parent->lock: until every CPU's stale writable translation
+     * is invalidated, a sibling thread of the parent running elsewhere can
+     * write straight through its cached TLB into a frame that is now
+     * shared with the child - bypassing the page tables entirely.  Holding
+     * the lock also guarantees no concurrent COW resolve can flip a leaf
+     * back to writable mid-shootdown.  After this point all further parent
+     * writes fault and take the proper COW path.
      */
     for (int i = 0; i < 256; i++) {
         uint64_t value = parent->table->entries[i].value;
         if ((value & PTE_PRESENT) && !(value & PTE_HUGE)) mark_parent_table_cow(phys_to_virt(value & PAGE_4K_MASK), 3);
     }
+
+    flush_tlb_all();
 
     spin_unlock(&child->lock);
     spin_unlock(&parent->lock);
@@ -749,7 +757,7 @@ page_directory_t *clone_directory(page_directory_t *src)
         free(new_directory);
         return NULL;
     }
-    flush_tlb_all();
+    /* Shootdown already synchronized all CPUs inside page_clone_user_cow(). */
     return new_directory;
 }
 

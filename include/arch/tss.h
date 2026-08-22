@@ -27,7 +27,14 @@ typedef struct {
 _Static_assert(offsetof(tss_t, rsp[0]) == 4, "x86_64 TSS RSP0 offset");
 _Static_assert(sizeof(tss_t) == 104, "x86_64 TSS size");
 
-typedef uint8_t tss_stack_t[1024];
+/*
+ * Per-CPU interrupt stacks.  IST slots live here; 16 KiB gives a #DF (or any
+ * future IST user) room for a full register frame plus a panic/dump path even
+ * when the interrupted kernel stack is gone.
+ */
+#define TSS_IST_STACK_SIZE 0x4000UL
+
+typedef uint8_t tss_stack_t[TSS_IST_STACK_SIZE];
 
 extern tss_t       tss0;
 extern tss_stack_t tss_stack;

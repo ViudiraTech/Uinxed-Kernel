@@ -2375,7 +2375,12 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
 
     spin_unlock(&parent->mmap_lock);
     spin_unlock(&scheduler.lock);
-    flush_tlb_all();
+    /*
+     * The cross-CPU TLB shootdown for the freshly COW-protected parent
+     * mappings already happened inside page_clone_user_cow(), while the
+     * parent directory lock was still held; nothing here can reintroduce a
+     * stale writable translation before the child runs.
+     */
 
     return child;
 }

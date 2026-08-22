@@ -108,11 +108,23 @@ int smp_handle_nmi(void)
     if (!__atomic_load_n(&smp_ready, __ATOMIC_ACQUIRE) || !tlb_shootdown_ack) return 0;
     uint32_t cpu_id = get_current_cpu_id();
     if (cpu_id >= cpu_count) return 0;
-    uint64_t generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
-    if (__atomic_load_n(&tlb_shootdown_ack[cpu_id], __ATOMIC_ACQUIRE) >= generation) return 0;
 
-    flush_local_tlb_all();
-    __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
+    /*
+     * Flush for the generation observed at entry, then re-check: an
+     * initiator may have bumped the generation while we were flushing.
+     * Publishing ack only for a generation whose flush we completed keeps
+     * "ack >= G" a truthful statement about OUR translation cache state,
+     * so no later generation can ever satisfy an earlier waiter for us.
+     */
+    uint64_t generation;
+    do {
+        generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&tlb_shootdown_ack[cpu_id], __ATOMIC_ACQUIRE) >= generation) return 0;
+
+        flush_local_tlb_all();
+        __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
+    } while (__atomic_load_n(&tlb_shootdown_generation, __ATOMIC_RELAXED) != generation);
+
     return 1;
 }
 
@@ -254,11 +266,33 @@ void flush_tlb_all(void)
     uint32_t self       = get_current_cpu_id();
     uint64_t generation = __atomic_add_fetch(&tlb_shootdown_generation, 1, __ATOMIC_ACQ_REL);
     __atomic_store_n(&tlb_shootdown_ack[self], generation, __ATOMIC_RELEASE);
-    for (size_t i = 0; i < cpu_count; i++)
-        if (i != self) send_ipi(cpus[i].lapic_id, IPI_NMI | APIC_ICR_PHYSICAL);
+
+    /*
+     * x86 NMIs are not queued: an NMI that arrives while another NMI is
+     * still being delivered or handled is silently dropped.  Waiting for a
+     * per-CPU ack alone is therefore unsound - a LATER generation's flush
+     * would satisfy THIS waiter while the target never flushed our pages,
+     * letting it keep stale translations to freed and reused frames.
+     * Re-arm the NMI whenever a target stays silent past the deadline so
+     * every drop is repaired instead of masked.
+     */
+    const uint64_t resend_period = 200000ULL; /* ~80 us at 2.5 GHz TSC */
+
     for (size_t i = 0; i < cpu_count; i++) {
         if (i == self) continue;
-        while (__atomic_load_n(&tlb_shootdown_ack[i], __ATOMIC_ACQUIRE) < generation) __asm__ volatile("pause");
+        send_ipi(cpus[i].lapic_id, IPI_NMI | APIC_ICR_PHYSICAL);
+    }
+
+    for (size_t i = 0; i < cpu_count; i++) {
+        if (i == self) continue;
+        uint64_t deadline = rdtsc() + resend_period;
+        while (__atomic_load_n(&tlb_shootdown_ack[i], __ATOMIC_ACQUIRE) < generation) {
+            if (rdtsc() > deadline) {
+                send_ipi(cpus[i].lapic_id, IPI_NMI | APIC_ICR_PHYSICAL);
+                deadline = rdtsc() + resend_period;
+            }
+            __asm__ volatile("pause");
+        }
     }
     spin_unlock_irqrestore(&tlb_shootdown_lock, irq_flags);
 }

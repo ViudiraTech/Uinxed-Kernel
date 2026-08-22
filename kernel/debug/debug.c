@@ -12,6 +12,7 @@
 #include <arch/smbios.h>
 #include <arch/smp.h>
 #include <boot/limine.h>
+#include <drivers/firmware/apic.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/tty.h>
 #include <kernel/debug/debug.h>
@@ -19,10 +20,43 @@
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdarg.h>
+#include <process/process.h>
 #include <process/sched.h>
 #include <process/task.h>
 
 int carry_error_code = 0;
+
+static volatile int panic_in_progress = 0;
+
+/*
+ * A frame pointer is trusted only when it lives inside a kernel stack we can
+ * name: the current task's stack, its process stack, or this CPU's IST
+ * (where #DF handlers run).  Walking beyond that used to follow corrupted
+ * links into arbitrary memory and fault inside the panic path itself.
+ */
+static bool frame_pointer_plausible(uintptr_t fp)
+{
+    if (fp <= 0x1000) return false;
+
+    task_t *task = current_task();
+    if (task) {
+        if (task->process && task->process->kernel_stack) {
+            uintptr_t base = (uintptr_t)task->process->kernel_stack;
+            if (fp >= base && fp < base + PROCESS_KERNEL_STACK) return true;
+        }
+        if (task->kernel_stack) {
+            uintptr_t base = (uintptr_t)task->kernel_stack;
+            if (fp >= base && fp < base + TASK_KERNEL_STACK) return true;
+        }
+    }
+
+    cpu_processor_t *cpu = get_current_cpu();
+    if (cpu && cpu->tss_stack) {
+        uintptr_t base = (uintptr_t)cpu->tss_stack;
+        if (fp >= base && fp < base + sizeof(tss_stack_t)) return true;
+    }
+    return false;
+}
 
 /* Dump stack */
 void dump_stack(void)
@@ -44,16 +78,16 @@ void dump_stack(void)
 
     int frame_count = 0;
     for (int i = 0; i < 16; ++i) {
+        if ((uintptr_t)rbp <= 0x1000 || !frame_pointer_plausible((uintptr_t)rbp)) break;
+        if (!frame_pointer_plausible((uintptr_t)(rbp + 1))) break;
+
         if (carry_error_code && frame_count == 3) {
-            if ((uintptr_t)(rbp + 1) <= 0x1000) break;
-            if ((uintptr_t)rbp->next <= 0x1000) break;
+            uintptr_t next = (uintptr_t)rbp->next;
+            if (next <= 0x1000 || !frame_pointer_plausible(next)) break;
             rbp = rbp->next;
             ++frame_count;
             continue;
         }
-
-        if ((uintptr_t)rbp <= 0x1000) break;
-        if ((uintptr_t)(rbp + 1) <= 0x1000) break;
 
         rip = *(uintptr_t *)(rbp + 1);
 
@@ -70,8 +104,11 @@ void dump_stack(void)
             break;
         }
 
-        if ((uintptr_t)rbp->next <= 0x1000) break;
-        rbp = rbp->next;
+        {
+            uintptr_t next = (uintptr_t)rbp->next;
+            if (next <= 0x1000 || next <= (uintptr_t)rbp || !frame_pointer_plausible(next)) break;
+            rbp = rbp->next;
+        }
         ++frame_count;
     }
     plogk(" </TASK>\n");
@@ -80,6 +117,21 @@ void dump_stack(void)
 /* Kernel panic */
 void panic(const char *format, ...)
 {
+    /*
+     * Re-entry guard: a panic that faults (or a second CPU panicking on the
+     * same console) must not recurse.  The first entrant owns the report;
+     * everyone else - including this CPU after a nested fault - parks.
+     */
+    if (__atomic_exchange_n(&panic_in_progress, 1, __ATOMIC_ACQ_REL)) {
+        disable_intr();
+        for (;;) __asm__ volatile("hlt");
+    }
+
+    /* Freeze the other CPUs so they cannot wander into more faults. */
+    disable_intr();
+    if (get_cpu_count() > 1) send_ipi_all(IPI_PANIC);
+    enable_intr();
+
     uint64_t    current_address = kernel_address_request.response->virtual_base;
     const char *sys_vendor      = smbios_sys_manufacturer();
     const char *sys_product     = smbios_sys_product_name();

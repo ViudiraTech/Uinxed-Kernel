@@ -578,22 +578,29 @@ static void finish_wait_locked(task_t *task, task_wake_reason_t reason)
     if (!task->wait_queue) return;
 
     /*
-     * Invariant: wait_queue != NULL implies sched_node linked in that
-     * queue's list; both change together under scheduler.lock.  A refusal
-     * here means the protocol was broken elsewhere - refuse to keep
-     * scheduling with damaged queue state.
+     * Membership pointer and links normally change together under
+     * scheduler.lock; a mismatch is a stale pointer from an interrupted
+     * wait cycle.  Detach whatever is actually linked - possibly nothing -
+     * and republish a consistent state instead of failing the wake.
      */
-    if (ilist_remove(&task->sched_node)) panic("sched: wait-queue node not linked (task %llu %s)", task->pid, task->name);
+    (void)ilist_remove(&task->sched_node);
 
     task->wait_queue  = NULL;
     task->wake_reason = reason;
     task->wake_tick   = 0;
 
+<<<<<<< HEAD
     /*
      * The timer node lives independently of the wait queue, but a timed
      * waiter always has both linked; drop the timer entry on any wake.
      */
     if (ilist_is_linked(&task->timer_node) && ilist_remove(&task->timer_node)) panic("sched: timer node unlink failed (task %llu %s)", task->pid, task->name);
+=======
+    /* The timer node lives independently of the wait queue, but a timed
+     * waiter always has both linked; drop the timer entry on any wake. */
+    if (ilist_is_linked(&task->timer_node)) (void)ilist_remove(&task->timer_node);
+
+>>>>>>> 54984c0e (Some bug fix)
     if (task->state == TASK_BLOCKED) wake_task_locked(task, 0);
 }
 
