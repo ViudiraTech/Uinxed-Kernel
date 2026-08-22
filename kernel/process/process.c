@@ -2342,7 +2342,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
          * release it independently of the parent.
          */
         if (copy->vm_private_get && copy->vm_private_put && copy->vm_private_data) copy->vm_private_get(copy->vm_private_data);
-
         if (vm_area_insert(child, copy)) {
             plogk("process: Fork of '%s' failed (VMA insert)\n", parent->name);
             if (copy->vm_private_put && copy->vm_private_data) copy->vm_private_put(copy->vm_private_data);
@@ -2368,13 +2367,13 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child_task->cpu_id = current->cpu_id;
 
     pid_set(child->task->pid, child);
-
     slist_insert_tail(&parent->children, child);
 
     (void)ptrace_fork_child(current, child_task, ptrace_event);
 
     spin_unlock(&parent->mmap_lock);
     spin_unlock(&scheduler.lock);
+
     /*
      * The cross-CPU TLB shootdown for the freshly COW-protected parent
      * mappings already happened inside page_clone_user_cow(), while the

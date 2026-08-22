@@ -575,15 +575,15 @@ static void place_waking_task_locked(task_t *task, bool sync)
 /* Wait-queue and timer membership are serialized by scheduler.lock. */
 static void finish_wait_locked(task_t *task, task_wake_reason_t reason)
 {
-    if (!task->wait_queue) return;
+    if (!task || !task->wait_queue) return;
 
     /*
-     * Membership pointer and links normally change together under
-     * scheduler.lock; a mismatch is a stale pointer from an interrupted
-     * wait cycle.  Detach whatever is actually linked - possibly nothing -
-     * and republish a consistent state instead of failing the wake.
+     * wait_queue and sched_node are published and removed together under
+     * scheduler.lock.  A failed removal therefore means the wait protocol
+     * or the list ring is corrupt; continuing would leave a stale waiter in
+     * the queue and make a later wake unsafe.
      */
-    (void)ilist_remove(&task->sched_node);
+    if (ilist_remove(&task->sched_node)) panic("sched: wait-queue node unlink failed (task %llu %s)", task->pid, task->name);
 
     task->wait_queue  = NULL;
     task->wake_reason = reason;
@@ -593,8 +593,7 @@ static void finish_wait_locked(task_t *task, task_wake_reason_t reason)
      * The timer node lives independently of the wait queue, but a timed
      * waiter always has both linked; drop the timer entry on any wake.
      */
-    if (ilist_is_linked(&task->timer_node)) (void)ilist_remove(&task->timer_node);
-
+    if (ilist_is_linked(&task->timer_node) && ilist_remove(&task->timer_node)) panic("sched: timer node unlink failed (task %llu %s)", task->pid, task->name);
     if (task->state == TASK_BLOCKED) wake_task_locked(task, 0);
 }
 

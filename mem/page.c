@@ -467,7 +467,6 @@ int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
     }
 
     flush_tlb_all();
-
     spin_unlock(&child->lock);
     spin_unlock(&parent->lock);
     return 0;
@@ -757,6 +756,7 @@ page_directory_t *clone_directory(page_directory_t *src)
         free(new_directory);
         return NULL;
     }
+
     /* Shootdown already synchronized all CPUs inside page_clone_user_cow(). */
     return new_directory;
 }

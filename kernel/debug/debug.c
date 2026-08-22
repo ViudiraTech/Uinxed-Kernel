@@ -25,7 +25,6 @@
 #include <process/task.h>
 
 int carry_error_code = 0;
-
 static volatile int panic_in_progress = 0;
 
 /*
@@ -69,7 +68,6 @@ void dump_stack(void)
     } rbp_node_t;
 
     rbp_node_t *rbp;
-
     uintptr_t rip;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
 
@@ -80,7 +78,6 @@ void dump_stack(void)
     for (int i = 0; i < 16; ++i) {
         if ((uintptr_t)rbp <= 0x1000 || !frame_pointer_plausible((uintptr_t)rbp)) break;
         if (!frame_pointer_plausible((uintptr_t)(rbp + 1))) break;
-
         if (carry_error_code && frame_count == 3) {
             uintptr_t next = (uintptr_t)rbp->next;
             if (next <= 0x1000 || !frame_pointer_plausible(next)) break;
@@ -103,7 +100,6 @@ void dump_stack(void)
             plogk("  [<0x%016zx>] %s\n", rip, "unknown");
             break;
         }
-
         {
             uintptr_t next = (uintptr_t)rbp->next;
             if (next <= 0x1000 || next <= (uintptr_t)rbp || !frame_pointer_plausible(next)) break;
