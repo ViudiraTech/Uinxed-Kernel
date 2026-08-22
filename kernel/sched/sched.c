@@ -67,6 +67,7 @@
 scheduler_t     scheduler;
 eevdf_rq_t     *cpu_rqs;
 uint32_t        cpu_scheduler_count;
+sched_domain_cpu_t *cpu_sched_domains;
 static task_t   boot_task = {.pid = 0, .name = "swapper"};
 static uint8_t  boot_stack_marker;
 static task_t  *ap_boot_tasks;
@@ -75,6 +76,8 @@ static uint32_t next_task_cpu;
 /* Forward declarations */
 
 void context_switch(task_context_t *prev, task_context_t *next, volatile uint64_t *prev_on_cpu);
+static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync);
+static void     sched_switch(bool voluntary);
 
 /* Context switch (naked assembly) */
 __attribute__((naked)) void context_switch(task_context_t *prev __attribute__((unused)), task_context_t *next __attribute__((unused)), volatile uint64_t *prev_on_cpu __attribute__((unused)))
@@ -115,12 +118,6 @@ static task_t *timer_node_to_task(ilist_node_t *node)
     return (task_t *)((uint8_t *)node - offsetof(task_t, timer_node));
 }
 
-/* Whether an intrusive-list node is currently linked */
-static int node_is_linked(const ilist_node_t *node)
-{
-    return node->prev && node->next && node->prev != node;
-}
-
 /* EEVDF core: virtual-time arithmetic */
 
 /* Convert wall-clock delta to virtual-time delta for a given weight */
@@ -156,6 +153,15 @@ static uint64_t avg_vruntime(eevdf_rq_t *rq)
         load += rq->curr->weight;
     }
     if (!load) return rq->min_vruntime;
+
+    /*
+     * Match Linux EEVDF's left-biased division.  C truncates a negative
+     * numerator toward zero, which can place V one unit to the right and make
+     * the entity at the real weighted average appear ineligible.  Under a
+     * busy desktop runqueue that rounding error can repeatedly select the
+     * fallback entity instead of the earliest eligible deadline.
+     */
+    if (average < 0) average -= (int64_t)(load - 1);
     return add_signed_vruntime(rq->min_vruntime, average / (int64_t)load);
 }
 
@@ -188,16 +194,18 @@ static uint64_t calc_effective_slice(eevdf_rq_t *rq)
 /* Whether a vruntime is eligible given the runqueue state */
 static int entity_eligible_vruntime(eevdf_rq_t *rq, uint64_t vruntime)
 {
-    int64_t  avg  = rq->avg_vruntime;
+    __int128 avg  = rq->avg_vruntime;
     uint64_t load = rq->avg_load;
 
     if (rq->curr && rq->curr->state == TASK_RUNNING) {
         uint64_t weight = rq->curr->weight;
-        avg += (int64_t)(rq->curr->vruntime - rq->min_vruntime) * (int64_t)weight;
+        avg += (__int128)(int64_t)(rq->curr->vruntime - rq->min_vruntime) * weight;
         load += weight;
     }
 
-    return avg >= (int64_t)(vruntime - rq->min_vruntime) * (int64_t)load;
+    /* The key*load term can overflow s64 on a long-lived or heavily loaded rq. */
+    int64_t key = (int64_t)(vruntime - rq->min_vruntime);
+    return avg >= (__int128)key * load;
 }
 
 /* Whether a task is eligible to run */
@@ -479,12 +487,29 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 
     spin_lock(&rq->lock);
     place_entity(rq, task, initial);
-    task->state      = TASK_READY;
-    task->wake_tick  = 0;
-    task->wait_queue = NULL;
-    task->cpu_id     = cpu_id;
+    task->state     = TASK_READY;
+    task->wake_tick = 0;
+    /*
+     * Wait-queue membership is owned exclusively by the wait protocol
+     * (prepare/cancel/finish under scheduler.lock).  A task reaching the
+     * ready queue always had its membership detached by that protocol
+     * first, or - after being stopped while merely prepared - still owns
+     * it legitimately; either way enqueueing must NOT touch wait_queue,
+     * or pointer and list membership silently diverge.
+     */
+    task->cpu_id = cpu_id;
 
     enqueue_entity(rq, task);
+
+    /*
+     * A local wakeup has no reschedule IPI to force a scheduling point.  Mark
+     * it explicitly when the newly eligible entity has an earlier virtual
+     * deadline, so IRQ/syscall return does not leave an input or compositor
+     * thread waiting for the next periodic tick.
+     */
+    task_t *curr = rq->curr;
+    if (curr == rq->idle || (curr && curr->state == TASK_RUNNING && entity_eligible(rq, task) && entity_before(task, curr)))
+        __atomic_store_n(&rq->need_resched, 1, __ATOMIC_RELEASE);
     spin_unlock(&rq->lock);
 }
 
@@ -522,7 +547,8 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
         return;
     }
 
-    if (remove_linked_node) ilist_remove(&task->sched_node);
+    if (remove_linked_node && ilist_remove(&task->sched_node)) panic("sched: corrupt sleep-queue node on wake (task %llu %s)", task->pid, task->name);
+
     if (task->process && __atomic_load_n(&task->process->signal.group_stopped, __ATOMIC_ACQUIRE)) {
         task->state     = TASK_STOPPED;
         task->wake_tick = 0;
@@ -531,31 +557,91 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
     enqueue_task(task);
 }
 
+/* Apply topology-aware placement exactly once before a blocked task is enqueued. */
+static void place_waking_task_locked(task_t *task, bool sync)
+{
+    if (!task || (task->state != TASK_BLOCKED && task->state != TASK_SLEEPING) || __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) return;
+
+    uint32_t old_cpu = task->cpu_id;
+    uint32_t new_cpu = select_wakeup_cpu_locked(task, sync);
+    if (new_cpu != old_cpu) {
+        task->last_cpu          = old_cpu;
+        task->last_migrate_tick = scheduler.ticks;
+        task->migration_count++;
+    }
+    task->cpu_id         = new_cpu;
+    task->last_wake_tick = scheduler.ticks;
+    __atomic_add_fetch(&cpu_rqs[new_cpu].nr_wakeups, 1, __ATOMIC_RELAXED);
+}
+
 /* Wait-queue and timer membership are serialized by scheduler.lock. */
 static void finish_wait_locked(task_t *task, task_wake_reason_t reason)
 {
     if (!task->wait_queue) return;
 
-    ilist_remove(&task->sched_node);
+    /*
+     * Invariant: wait_queue != NULL implies sched_node linked in that
+     * queue's list; both change together under scheduler.lock.  A refusal
+     * here means the protocol was broken elsewhere - refuse to keep
+     * scheduling with damaged queue state.
+     */
+    if (ilist_remove(&task->sched_node)) panic("sched: wait-queue node not linked (task %llu %s)", task->pid, task->name);
+
     task->wait_queue  = NULL;
     task->wake_reason = reason;
     task->wake_tick   = 0;
-    if (node_is_linked(&task->timer_node)) ilist_remove(&task->timer_node);
+
+    /* The timer node lives independently of the wait queue, but a timed
+     * waiter always has both linked; drop the timer entry on any wake. */
+    if (ilist_is_linked(&task->timer_node) && ilist_remove(&task->timer_node))
+        panic("sched: timer node unlink failed (task %llu %s)", task->pid, task->name);
 
     if (task->state == TASK_BLOCKED) wake_task_locked(task, 0);
 }
 
-/* Send a reschedule IPI to a task's CPU when it is remote. */
-void request_task_cpu(task_t *task)
+/* Send a reschedule IPI to a CPU when it is remote. */
+static void request_cpu_reschedule(uint32_t target)
 {
-    if (!task || !scheduler.started || !cpu_rqs) return;
+    if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) || !cpu_rqs) return;
 
-    uint32_t target = task->cpu_id;
     uint32_t local  = get_current_cpu_id();
     if (target >= cpu_scheduler_count || target == local || !cpu_rqs[target].online) return;
 
     /* Coalesce wake storms: one outstanding reschedule IPI per target CPU. */
     if (!__atomic_exchange_n(&cpu_rqs[target].resched_pending, 1, __ATOMIC_ACQ_REL)) send_ipi_cpu(target, IPI_RESCHEDULE);
+}
+
+/* Send a reschedule IPI to a task's CPU when it is remote. */
+void request_task_cpu(task_t *task)
+{
+    if (!task) return;
+    request_cpu_reschedule(task->cpu_id);
+}
+
+/* Insert a sleeping task into the deadline-ordered sleep queue. */
+static void insert_sleep_deadline_locked(task_t *task)
+{
+    ilist_node_t *position = scheduler.sleep_queue.next;
+
+    while (position != &scheduler.sleep_queue) {
+        task_t *queued = sched_node_to_task(position);
+        if (task->wake_tick < queued->wake_tick) break;
+        position = position->next;
+    }
+    if (ilist_insert_before(position, &task->sched_node)) panic("sched: sleep-queue insert rejected (task %llu %s)", task->pid, task->name);
+}
+
+/* Insert a timed wait into the separately-linked deadline queue. */
+static void insert_timer_deadline_locked(task_t *task)
+{
+    ilist_node_t *position = scheduler.timer_queue.next;
+
+    while (position != &scheduler.timer_queue) {
+        task_t *queued = timer_node_to_task(position);
+        if (task->wake_tick < queued->wake_tick) break;
+        position = position->next;
+    }
+    if (ilist_insert_before(position, &task->timer_node)) panic("sched: timer-queue insert rejected (task %llu %s)", task->pid, task->name);
 }
 
 /* Put a task to sleep until a wake tick */
@@ -564,10 +650,110 @@ static void sleep_task(task_t *task, uint64_t wake_tick)
     task->state      = TASK_SLEEPING;
     task->wake_tick  = wake_tick;
     task->wait_queue = NULL;
-    ilist_insert_before(&scheduler.sleep_queue, &task->sched_node);
+    insert_sleep_deadline_locked(task);
 }
 
 /* Load balancing */
+
+static int sched_domain_level_contains(uint32_t anchor, uint8_t level, uint32_t cpu)
+{
+    if (anchor >= cpu_scheduler_count || cpu >= cpu_scheduler_count) return 0;
+    if (level == SCHED_DOMAIN_SMT) return cpu_topology_same_core(anchor, cpu);
+    if (level == SCHED_DOMAIN_PACKAGE) return cpu_topology_same_package(anchor, cpu);
+    return 1;
+}
+
+static int sched_domain_contains(uint32_t anchor, const sched_domain_t *domain, uint32_t cpu)
+{
+    return domain && sched_domain_level_contains(anchor, domain->level, cpu);
+}
+
+/* Scheduling groups are CPUs at SMT, cores at package, and packages at system level. */
+static int sched_domain_same_group(const sched_domain_t *domain, uint32_t first, uint32_t second)
+{
+    if (domain->level == SCHED_DOMAIN_SMT) return first == second;
+    if (domain->level == SCHED_DOMAIN_PACKAGE) return cpu_topology_same_core(first, second);
+    return cpu_topology_same_package(first, second);
+}
+
+static uint16_t sched_domain_group_count(uint32_t anchor, uint8_t level)
+{
+    uint32_t groups = 0;
+
+    for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
+        if (!sched_domain_level_contains(anchor, level, cpu)) continue;
+
+        /* Every logical CPU is its own group inside an SMT domain. */
+        if (level == SCHED_DOMAIN_SMT) {
+            groups++;
+            continue;
+        }
+
+        int seen = 0;
+        for (uint32_t previous = 0; previous < cpu; previous++) {
+            if (!sched_domain_level_contains(anchor, level, previous)) continue;
+            if ((level == SCHED_DOMAIN_PACKAGE && cpu_topology_same_core(previous, cpu)) ||
+                (level == SCHED_DOMAIN_SYSTEM && cpu_topology_same_package(previous, cpu))) {
+                seen = 1;
+                break;
+            }
+        }
+        if (!seen) groups++;
+    }
+    return groups > UINT16_MAX ? UINT16_MAX : (uint16_t)groups;
+}
+
+static uint16_t sched_domain_span_weight(uint32_t anchor, uint8_t level)
+{
+    uint32_t weight = 0;
+    for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++)
+        if (sched_domain_level_contains(anchor, level, cpu)) weight++;
+    return weight > UINT16_MAX ? UINT16_MAX : (uint16_t)weight;
+}
+
+static void sched_domain_add(uint32_t cpu, uint8_t level, uint16_t flags, uint32_t interval)
+{
+    sched_domain_cpu_t *topology = &cpu_sched_domains[cpu];
+    if (topology->nr_domains >= SCHED_DOMAIN_MAX_LEVELS) return;
+
+    sched_domain_t *domain = &topology->domains[topology->nr_domains++];
+    domain->level            = level;
+    domain->flags            = flags;
+    domain->span_weight      = sched_domain_span_weight(cpu, level);
+    domain->group_count      = sched_domain_group_count(cpu, level);
+    domain->balance_interval = interval ? interval : 1;
+}
+
+/* Build a nested SMT -> package -> system domain chain for every logical CPU. */
+static void sched_domain_build(void)
+{
+    cpu_sched_domains = calloc(cpu_scheduler_count, sizeof(*cpu_sched_domains));
+    if (!cpu_sched_domains) panic("sched: Cannot allocate scheduling domains.");
+
+    for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
+        uint16_t core_span    = sched_domain_span_weight(cpu, SCHED_DOMAIN_SMT);
+        uint16_t package_span = sched_domain_span_weight(cpu, SCHED_DOMAIN_PACKAGE);
+        uint16_t widest       = 1;
+
+        if (core_span > widest) {
+            sched_domain_add(cpu, SCHED_DOMAIN_SMT,
+                             SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC | SCHED_DOMAIN_WAKE_AFFINE |
+                                 SCHED_DOMAIN_SHARE_CAPACITY | SCHED_DOMAIN_SHARE_CACHE,
+                             SCHED_LOAD_BALANCE_INTERVAL > 2 ? SCHED_LOAD_BALANCE_INTERVAL / 4 : 1);
+            widest = core_span;
+        }
+        if (package_span > widest) {
+            sched_domain_add(cpu, SCHED_DOMAIN_PACKAGE,
+                             SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC | SCHED_DOMAIN_WAKE_AFFINE | SCHED_DOMAIN_SHARE_CACHE,
+                             SCHED_LOAD_BALANCE_INTERVAL);
+            widest = package_span;
+        }
+        if (cpu_scheduler_count > widest) {
+            sched_domain_add(cpu, SCHED_DOMAIN_SYSTEM, SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC,
+                             SCHED_LOAD_BALANCE_INTERVAL * 4U);
+        }
+    }
+}
 
 /*
  * Number of runnable entities including the currently executing non-idle task.
@@ -590,6 +776,16 @@ static uint64_t rq_weighted_load(const eevdf_rq_t *rq)
     return load;
 }
 
+/* Normalize load by architectural CPU capacity (1024 for a full-size CPU). */
+static uint64_t rq_pressure(uint32_t cpu)
+{
+    const cpu_processor_t *processor = get_cpu_processor(cpu);
+    uint64_t capacity = processor && processor->capacity ? processor->capacity : SCHED_NICE_0_LOAD;
+    uint64_t pressure = rq_weighted_load(&cpu_rqs[cpu]) * SCHED_NICE_0_LOAD / capacity;
+    pressure += __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) * (SCHED_NICE_0_LOAD / 8ULL);
+    return pressure;
+}
+
 /* Treat an online CPU with neither queued nor executing work as immediately idle. */
 static bool rq_is_idle_cpu(uint32_t cpu)
 {
@@ -597,6 +793,17 @@ static bool rq_is_idle_cpu(uint32_t cpu)
     eevdf_rq_t *rq   = &cpu_rqs[cpu];
     task_t     *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
     return __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) == 0 && (!curr || curr == rq->idle || __atomic_load_n(&curr->state, __ATOMIC_RELAXED) != TASK_RUNNING);
+}
+
+
+/* A physical core is idle only when every online SMT sibling is idle. */
+static bool sched_core_is_idle(uint32_t cpu)
+{
+    for (uint32_t sibling = 0; sibling < cpu_scheduler_count; sibling++) {
+        if (!cpu_rqs[sibling].online || !cpu_topology_same_core(cpu, sibling)) continue;
+        if (!rq_is_idle_cpu(sibling)) return false;
+    }
+    return true;
 }
 
 /*
@@ -607,11 +814,19 @@ static bool rq_is_idle_cpu(uint32_t cpu)
  */
 static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev_cpu, bool sync)
 {
-    uint64_t score = rq_weighted_load(&cpu_rqs[cpu]);
+    uint64_t score = rq_pressure(cpu);
 
-    /* Queue depth matters even when weights happen to be small. */
-    score += __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) * (SCHED_NICE_0_LOAD / 8ULL);
     if (cpu == prev_cpu && score >= SCHED_AFFINITY_BONUS) score -= SCHED_AFFINITY_BONUS;
+
+    /* Preserve cache locality without packing runnable work onto one SMT core. */
+    if (cpu != prev_cpu) {
+        if (cpu_topology_same_core(cpu, prev_cpu))
+            score += SCHED_NICE_0_LOAD / 4ULL;
+        else if (cpu_topology_same_package(cpu, prev_cpu))
+            score += SCHED_NICE_0_LOAD / 16ULL;
+        else
+            score += SCHED_NICE_0_LOAD / 4ULL;
+    }
 
     /* WF_SYNC-like hint: the waker may block/yield soon, so stacking is a bit cheaper. */
     uint32_t this_cpu = get_current_cpu_id();
@@ -622,16 +837,20 @@ static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev
 }
 
 /*
- * Linux select_task_rq_fair() first tries wake-affine/idle placement and only
- * falls back to wider balancing when needed.  Uinxed has no sched-domain/LLC
- * topology yet, so use the same policy shape over the online CPU set:
- *   1. keep an idle previous CPU (best cache locality, full parallelism),
- *   2. otherwise use any idle CPU,
- *   3. otherwise compare weighted pressure with an affinity hysteresis.
+ * Wake placement walks the previous CPU's nested domains.  An entirely idle
+ * physical core wins over an idle SMT sibling; pressure comparison is only a
+ * fallback after the topology-local idle searches fail.
  */
 static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
 {
     if (!cpu_rqs || !cpu_scheduler_count) return 0;
+
+    /*
+     * Before sched_start(), only the BSP can execute scheduler work.  APs are
+     * deliberately parked waiting for scheduler.started, so placing
+     * kthreadd (or a worker it must create) on an AP deadlocks bootstrap.
+     */
+    if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) return 0;
 
     uint32_t this_cpu = get_current_cpu_id();
     if (this_cpu >= cpu_scheduler_count) this_cpu = 0;
@@ -640,11 +859,28 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
     if (!cpu_rqs[prev_cpu].online) prev_cpu = this_cpu;
     if (rq_is_idle_cpu(prev_cpu)) return prev_cpu;
 
-    /* Rotate the idle scan so CPU 0 is not a permanent magnet for wakeups. */
     uint32_t start = (next_task_cpu++) % cpu_scheduler_count;
-    for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
-        uint32_t cpu = (start + n) % cpu_scheduler_count;
-        if (rq_is_idle_cpu(cpu)) return cpu;
+    sched_domain_cpu_t *topology = &cpu_sched_domains[prev_cpu];
+
+    /* Search nearby idle physical cores before considering SMT siblings. */
+    for (uint8_t index = 0; index < topology->nr_domains; index++) {
+        sched_domain_t *domain = &topology->domains[index];
+        if (!(domain->flags & SCHED_DOMAIN_BALANCE_WAKE) || domain->level == SCHED_DOMAIN_SMT) continue;
+        for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
+            uint32_t cpu = (start + n) % cpu_scheduler_count;
+            if (!sched_domain_contains(prev_cpu, domain, cpu) || cpu_topology_same_core(prev_cpu, cpu)) continue;
+            if (rq_is_idle_cpu(cpu) && sched_core_is_idle(cpu)) return cpu;
+        }
+    }
+
+    /* Then accept any idle CPU, expanding one domain at a time. */
+    for (uint8_t index = 0; index < topology->nr_domains; index++) {
+        sched_domain_t *domain = &topology->domains[index];
+        if (!(domain->flags & SCHED_DOMAIN_BALANCE_WAKE)) continue;
+        for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
+            uint32_t cpu = (start + n) % cpu_scheduler_count;
+            if (sched_domain_contains(prev_cpu, domain, cpu) && rq_is_idle_cpu(cpu)) return cpu;
+        }
     }
 
     uint32_t best       = prev_cpu;
@@ -666,17 +902,28 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
 uint32_t choose_task_cpu_locked(void)
 {
     if (!cpu_rqs || !cpu_scheduler_count) return 0;
+    if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) return 0;
 
-    uint32_t start      = (next_task_cpu++) % cpu_scheduler_count;
-    uint32_t best       = UINT32_MAX;
+    uint32_t start = (next_task_cpu++) % cpu_scheduler_count;
+    uint32_t best  = UINT32_MAX;
+
+    /* Spread independent new work across physical cores first. */
+    for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
+        uint32_t cpu = (start + n) % cpu_scheduler_count;
+        if (cpu_rqs[cpu].online && rq_is_idle_cpu(cpu) && sched_core_is_idle(cpu)) return cpu;
+    }
+    for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
+        uint32_t cpu = (start + n) % cpu_scheduler_count;
+        if (cpu_rqs[cpu].online && rq_is_idle_cpu(cpu)) return cpu;
+    }
+
     uint64_t best_score = UINT64_MAX;
 
     for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
         uint32_t cpu = (start + n) % cpu_scheduler_count;
         if (!cpu_rqs[cpu].online) continue;
 
-        uint64_t score = rq_weighted_load(&cpu_rqs[cpu]);
-        score += __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) * (SCHED_NICE_0_LOAD / 8ULL);
+        uint64_t score = rq_pressure(cpu);
         if (score < best_score) {
             best       = cpu;
             best_score = score;
@@ -728,14 +975,16 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
 }
 
 /* Find the most overloaded source runqueue relative to dst. */
-static uint32_t find_busiest_cpu_locked(uint32_t dst)
+static uint32_t find_busiest_cpu_locked(uint32_t dst, const sched_domain_t *domain)
 {
     uint32_t busiest  = UINT32_MAX;
     uint64_t max_load = 0;
 
     for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
-        if (cpu == dst || !cpu_rqs[cpu].online || __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) == 0) continue;
-        uint64_t load = rq_weighted_load(&cpu_rqs[cpu]);
+        if (cpu == dst || !cpu_rqs[cpu].online || !sched_domain_contains(dst, domain, cpu) || sched_domain_same_group(domain, dst, cpu) ||
+            __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) == 0)
+            continue;
+        uint64_t load = rq_pressure(cpu);
         if (load > max_load) {
             max_load = load;
             busiest  = cpu;
@@ -788,14 +1037,19 @@ static task_t *newidle_balance_locked(uint32_t dst_cpu)
     if (cpu_scheduler_count < 2 || dst_cpu >= cpu_scheduler_count) return NULL;
     if (__atomic_load_n(&cpu_rqs[dst_cpu].nr_running, __ATOMIC_RELAXED)) return NULL;
 
-    uint32_t src_cpu = find_busiest_cpu_locked(dst_cpu);
-    if (src_cpu == UINT32_MAX) return NULL;
+    sched_domain_cpu_t *topology = &cpu_sched_domains[dst_cpu];
+    for (uint8_t index = 0; index < topology->nr_domains; index++) {
+        sched_domain_t *domain = &topology->domains[index];
+        if (!(domain->flags & SCHED_DOMAIN_BALANCE_NEWIDLE)) continue;
 
-    uint64_t src_load = rq_weighted_load(&cpu_rqs[src_cpu]);
-    uint64_t dst_load = rq_weighted_load(&cpu_rqs[dst_cpu]);
-    if (src_load <= dst_load + SCHED_NICE_0_LOAD / 2ULL) return NULL;
+        uint32_t src_cpu = find_busiest_cpu_locked(dst_cpu, domain);
+        if (src_cpu == UINT32_MAX) continue;
+        if (rq_pressure(src_cpu) <= rq_pressure(dst_cpu) + SCHED_NICE_0_LOAD / 2ULL) continue;
 
-    return migrate_one_locked(src_cpu, dst_cpu, true);
+        task_t *moved = migrate_one_locked(src_cpu, dst_cpu, true);
+        if (moved) return moved;
+    }
+    return NULL;
 }
 
 /*
@@ -810,64 +1064,58 @@ static task_t *newidle_balance(uint32_t dst_cpu)
     return stolen;
 }
 
-/* Periodic bounded balancing for sustained asymmetric load. */
-static task_t *balance_ready_queues_locked(void)
+static bool sched_domains_need_balance(uint32_t cpu, uint64_t now)
 {
-    if (cpu_scheduler_count < 2) return NULL;
+    sched_domain_cpu_t *topology = &cpu_sched_domains[cpu];
+    for (uint8_t index = 0; index < topology->nr_domains; index++) {
+        sched_domain_t *domain = &topology->domains[index];
+        if ((domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC) && now - cpu_rqs[cpu].last_domain_balance[index] >= domain->balance_interval) return true;
+    }
+    return false;
+}
 
-    uint32_t busiest  = UINT32_MAX;
-    uint32_t idlest   = UINT32_MAX;
-    uint64_t max_load = 0;
-    uint64_t min_load = UINT64_MAX;
+/* Periodic balancing is a bounded pull by each CPU, from close domains outwards. */
+static task_t *rebalance_domains_locked(uint32_t dst_cpu)
+{
+    if (cpu_scheduler_count < 2 || dst_cpu >= cpu_scheduler_count) return NULL;
 
-    for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
-        if (!cpu_rqs[cpu].online) continue;
-        uint64_t load = rq_weighted_load(&cpu_rqs[cpu]);
-        if (load > max_load) {
-            max_load = load;
-            busiest  = cpu;
-        }
-        if (load < min_load) {
-            min_load = load;
-            idlest   = cpu;
+    sched_domain_cpu_t *topology = &cpu_sched_domains[dst_cpu];
+    task_t            *first    = NULL;
+    unsigned int       budget   = SCHED_BALANCE_BATCH;
+    for (uint8_t index = 0; index < topology->nr_domains && budget; index++) {
+        sched_domain_t *domain = &topology->domains[index];
+        if (!(domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC) ||
+            scheduler.ticks - cpu_rqs[dst_cpu].last_domain_balance[index] < domain->balance_interval)
+            continue;
+
+        cpu_rqs[dst_cpu].last_domain_balance[index] = scheduler.ticks;
+        uint32_t src_cpu = find_busiest_cpu_locked(dst_cpu, domain);
+        if (src_cpu == UINT32_MAX) continue;
+
+        uint64_t imbalance = domain->level == SCHED_DOMAIN_SMT ? SCHED_NICE_0_LOAD / 2ULL : SCHED_NICE_0_LOAD;
+        while (budget && __atomic_load_n(&cpu_rqs[src_cpu].nr_running, __ATOMIC_RELAXED)) {
+            if (rq_pressure(src_cpu) <= rq_pressure(dst_cpu) + imbalance) break;
+            task_t *moved = migrate_one_locked(src_cpu, dst_cpu, false);
+            if (!moved) break;
+            if (!first) first = moved;
+            budget--;
+            if (rq_task_count(&cpu_rqs[src_cpu]) <= rq_task_count(&cpu_rqs[dst_cpu]) + 1) break;
         }
     }
-
-    if (busiest == UINT32_MAX || idlest == UINT32_MAX || busiest == idlest) return NULL;
-    if (max_load <= min_load + SCHED_NICE_0_LOAD) return NULL;
-
-    task_t      *first  = NULL;
-    unsigned int budget = SCHED_BALANCE_BATCH;
-    while (budget-- && __atomic_load_n(&cpu_rqs[busiest].nr_running, __ATOMIC_RELAXED)) {
-        uint64_t src_load = rq_weighted_load(&cpu_rqs[busiest]);
-        uint64_t dst_load = rq_weighted_load(&cpu_rqs[idlest]);
-        if (src_load <= dst_load + SCHED_NICE_0_LOAD) break;
-
-        task_t *moved = migrate_one_locked(busiest, idlest, false);
-        if (!moved) break;
-        if (!first) first = moved;
-
-        /* Stop near the midpoint instead of overshooting and bouncing back. */
-        if (rq_task_count(&cpu_rqs[busiest]) <= rq_task_count(&cpu_rqs[idlest]) + 1) break;
-    }
-    __atomic_store_n(&cpu_rqs[idlest].last_balance, scheduler.ticks, __ATOMIC_RELAXED);
     return first;
 }
 
 /* Wake sleeping tasks and timed wait-queue tasks whose deadlines have expired */
 static void wake_sleeping_tasks(void)
 {
-    ilist_node_t *node = scheduler.sleep_queue.next;
-
-    while (node != &scheduler.sleep_queue) {
-        ilist_node_t *next = node->next;
+    while (!ilist_is_empty(&scheduler.sleep_queue)) {
+        ilist_node_t *node = scheduler.sleep_queue.next;
         task_t       *task = sched_node_to_task(node);
 
-        if (task->wake_tick <= scheduler.ticks) {
-            ilist_remove(node);
-            wake_task_locked(task, 0);
-        }
-        node = next;
+        if (task->wake_tick > scheduler.ticks) break;
+        if (ilist_remove(node)) panic("sched: corrupt sleep queue head");
+        place_waking_task_locked(task, false);
+        wake_task_locked(task, 0);
     }
 
     /*
@@ -875,16 +1123,16 @@ static void wake_sleeping_tasks(void)
      * but also have a wake_tick deadline (e.g. futex timeouts).
      * On expiry, remove from the wait queue and wake.
      */
-    node = scheduler.timer_queue.next;
-    while (node != &scheduler.timer_queue) {
-        ilist_node_t *next = node->next;
+    while (!ilist_is_empty(&scheduler.timer_queue)) {
+        ilist_node_t *node = scheduler.timer_queue.next;
         task_t       *task = timer_node_to_task(node);
 
-        if (task->wake_tick <= scheduler.ticks) {
-            ilist_remove(node);
-            finish_wait_locked(task, TASK_WAKE_TIMEOUT);
-        }
-        node = next;
+        if (task->wake_tick > scheduler.ticks) break;
+        /* finish_wait_locked() drops both the timer entry and the wait-queue
+         * entry; the explicit removal here is what makes the loop terminate. */
+        if (ilist_remove(node)) panic("sched: corrupt timer queue head");
+        place_waking_task_locked(task, false);
+        finish_wait_locked(task, TASK_WAKE_TIMEOUT);
     }
 }
 
@@ -956,6 +1204,7 @@ void sched_init(void)
         rb_init_root(&cpu_rqs[i].timeline);
         cpu_rqs[i].online = 1;
     }
+    sched_domain_build();
 
     next_task_cpu = 0;
     __atomic_store_n(&cpu_rqs[0].curr, &boot_task, __ATOMIC_RELAXED);
@@ -1012,7 +1261,7 @@ void sched_ap_start(uint32_t cpu_id)
     while (!cpu_rqs || !cpu_scheduler_count) __asm__ volatile("pause");
     if (cpu_id == 0 || cpu_id >= cpu_scheduler_count) krn_halt();
 
-    while (!scheduler.started) __asm__ volatile("pause");
+    while (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
     __atomic_store_n(&cpu_rqs[cpu_id].curr, &ap_boot_tasks[cpu_id], __ATOMIC_RELAXED);
     percpu_gs_set_current(&ap_boot_tasks[cpu_id]);
     sched_yield();
@@ -1027,7 +1276,7 @@ void sched_ipi_reschedule(void)
     if (!cpu_rqs || cpu_id >= cpu_scheduler_count) return;
     __atomic_add_fetch(&cpu_rqs[cpu_id].reschedule_ipis, 1, __ATOMIC_RELAXED);
     __atomic_store_n(&cpu_rqs[cpu_id].resched_pending, 0, __ATOMIC_RELEASE);
-    if (!scheduler.started) return;
+    if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) return;
 
     /* A group-exit IPI must also retire a CPU-bound thread in userspace. */
     task_t *current = current_task();
@@ -1038,7 +1287,8 @@ void sched_ipi_reschedule(void)
     current    = cpu_rqs[cpu_id].curr;
     bool ready = has_ready_task() || (current && current->state != TASK_RUNNING && current != cpu_rqs[cpu_id].idle);
     spin_unlock(&cpu_rqs[cpu_id].lock);
-    if (ready) sched_yield();
+    /* A reschedule IPI is preemption, not a userspace voluntary yield. */
+    if (ready) sched_switch(false);
 }
 
 /* Return the number of registered scheduler CPUs */
@@ -1077,7 +1327,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
         __atomic_add_fetch(&cpu_rqs[cpu_id].nr_migrations, 1, __ATOMIC_RELAXED);
     }
     spin_unlock(&scheduler.lock);
-    request_task_cpu(task);
+    request_cpu_reschedule(cpu_id);
     return 0;
 }
 
@@ -1087,11 +1337,22 @@ static void sched_switch(bool voluntary)
     eevdf_rq_t *rq           = local_rq();
     uint64_t    entry_rflags = spin_lock_irqsave(&rq->lock);
 
+    __atomic_store_n(&rq->need_resched, 0, __ATOMIC_RELAXED);
+
     task_t *prev = rq->curr;
     task_t *next;
 
     /* Advance vruntime and re-enqueue the current task if it was running */
     if (prev && prev->state == TASK_RUNNING && prev != rq->idle) {
+        /*
+         * sched_yield() must actually yield when another entity is queued.
+         * As in Linux EEVDF, an eligible yielding entity forfeits the rest of
+         * its current request.  Without this, a GLib/Xorg retry loop can
+         * enqueue itself with the same earliest deadline and be selected
+         * again immediately, consuming a CPU while starving its peer.
+         */
+        if (voluntary && rq->nr_running && entity_eligible(rq, prev) && (int64_t)(prev->vruntime - prev->deadline) < 0)
+            prev->vruntime = prev->deadline;
         update_deadline(rq, prev);
         prev->vlag  = (int64_t)(avg_vruntime(rq) - prev->vruntime);
         prev->state = TASK_READY;
@@ -1213,7 +1474,7 @@ void sched_start(void)
 {
     disable_intr();
     local_current()->state = TASK_IDLE;
-    scheduler.started      = 1;
+    __atomic_store_n(&scheduler.started, 1, __ATOMIC_RELEASE);
     enable_intr();
     sched_yield();
 
@@ -1238,13 +1499,15 @@ void task_sleep_ticks(uint64_t ticks)
     spin_lock(&scheduler.lock);
 
     eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
+    task_t     *curr = local_current();
 
     /* Save lag before sleeping (rq state under rq->lock). */
     spin_lock(&rq->lock);
     curr->vlag = (int64_t)(avg_vruntime(rq) - curr->vruntime);
     spin_unlock(&rq->lock);
-    sleep_task(curr, scheduler.ticks + ticks);
+    uint64_t now      = scheduler.ticks;
+    uint64_t deadline = ticks > UINT64_MAX - now ? UINT64_MAX : now + ticks;
+    sleep_task(curr, deadline);
 
     spin_unlock(&scheduler.lock);
     sched_yield();
@@ -1258,7 +1521,22 @@ void task_block(void)
     spin_lock(&scheduler.lock);
 
     eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
+    task_t     *curr = local_current();
+
+    /*
+     * Consume a wakeup that completed while we were between
+     * wait_queue_prepare() and this block request.  A waker running on
+     * another CPU may have removed us from the queue and recorded the wake
+     * reason while our state was still TASK_RUNNING; blocking unconditionally
+     * here would discard that wakeup forever (lost-wakeup deadlock, e.g. a
+     * PI futex handed to us by its previous owner).
+     */
+    if (!curr->wait_queue && curr->wake_reason != TASK_WAKE_NONE) {
+        curr->wake_reason = TASK_WAKE_NONE;
+        spin_unlock(&scheduler.lock);
+        enable_intr();
+        return;
+    }
 
     spin_lock(&rq->lock);
     curr->vlag  = (int64_t)(avg_vruntime(rq) - curr->vruntime);
@@ -1276,18 +1554,7 @@ int task_wakeup(task_t *task)
     if (!task) return 1;
 
     spin_lock(&scheduler.lock);
-    if ((task->state == TASK_BLOCKED || task->state == TASK_SLEEPING) && !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
-        uint32_t old_cpu = task->cpu_id;
-        uint32_t new_cpu = select_wakeup_cpu_locked(task, false);
-        if (new_cpu != old_cpu) {
-            task->last_cpu          = old_cpu;
-            task->last_migrate_tick = scheduler.ticks;
-            task->migration_count++;
-        }
-        task->cpu_id         = new_cpu;
-        task->last_wake_tick = scheduler.ticks;
-        __atomic_add_fetch(&cpu_rqs[new_cpu].nr_wakeups, 1, __ATOMIC_RELAXED);
-    }
+    place_waking_task_locked(task, false);
     if (task->wait_queue) {
         finish_wait_locked(task, TASK_WAKE_NORMAL);
     } else if (task->state == TASK_SLEEPING) {
@@ -1295,8 +1562,10 @@ int task_wakeup(task_t *task)
     } else {
         wake_task_locked(task, 0);
     }
+    uint32_t target_cpu = task->cpu_id;
     spin_unlock(&scheduler.lock);
-    request_task_cpu(task);
+    /* The task may be reaped on another CPU after the scheduler lock drops. */
+    request_cpu_reschedule(target_cpu);
     return 0;
 }
 
@@ -1313,8 +1582,9 @@ int task_continue(task_t *task)
         else
             enqueue_task(task);
     }
+    uint32_t target_cpu = continued ? task->cpu_id : UINT32_MAX;
     spin_unlock(&scheduler.lock);
-    if (continued) request_task_cpu(task);
+    if (continued) request_cpu_reschedule(target_cpu);
     return continued ? 0 : 1;
 }
 
@@ -1332,8 +1602,9 @@ int task_stop(task_t *task)
         task->state = TASK_STOPPED;
         spin_unlock(&rq->lock);
     }
+    uint32_t target_cpu = stopped ? task->cpu_id : UINT32_MAX;
     spin_unlock(&scheduler.lock);
-    if (stopped) request_task_cpu(task);
+    if (stopped) request_cpu_reschedule(target_cpu);
     return stopped ? 0 : 1;
 }
 
@@ -1365,6 +1636,11 @@ void wait_queue_wait(wait_queue_t *queue)
  * Prepare the current task to wait on a queue.  The caller must hold any
  * external lock that guards the condition.  After calling prepare, release
  * the external lock, then call wait_queue_sleep() to actually block.
+ *
+ * State transition (under scheduler.lock): RUNNING+detached ->
+ * RUNNING+linked-in-queue with wake_reason == TASK_WAKE_NONE.  A task may be
+ * prepared on at most one queue; violating that is an invariant break and is
+ * fatal rather than silently corrupting the ring.
  */
 void wait_queue_prepare(wait_queue_t *queue)
 {
@@ -1376,15 +1652,26 @@ void wait_queue_prepare(wait_queue_t *queue)
     spin_lock(&scheduler.lock);
 
     eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = __atomic_load_n(&rq->curr, __ATOMIC_RELAXED);
+    task_t     *curr = local_current();
+
+    if (curr->wait_queue || ilist_is_linked(&curr->sched_node)) {
+        spin_unlock(&scheduler.lock);
+        panic("sched: prepare on task %llu (%s) already waiting (queue=%p)",
+              curr->pid, curr->name, (void *)curr->wait_queue);
+    }
 
     spin_lock(&rq->lock);
     curr->vlag = (int64_t)(avg_vruntime(rq) - curr->vruntime);
     spin_unlock(&rq->lock);
+
     curr->wake_tick   = 0;
-    curr->wait_queue  = queue;
     curr->wake_reason = TASK_WAKE_NONE;
-    ilist_insert_before(&queue->tasks, &curr->sched_node);
+    if (ilist_insert_before(&queue->tasks, &curr->sched_node)) {
+        spin_unlock(&scheduler.lock);
+        panic("sched: cannot link task %llu (%s) into wait queue", curr->pid, curr->name);
+    }
+    /* Publish the membership only after the links are in place. */
+    curr->wait_queue = queue;
 
     spin_unlock(&scheduler.lock);
 }
@@ -1399,23 +1686,57 @@ void wait_queue_sleep(void)
     int     sleep = 0;
 
     spin_lock(&scheduler.lock);
-    if (curr->wait_queue && curr->wake_reason == TASK_WAKE_NONE) {
+    if (!curr->wait_queue && curr->wake_reason != TASK_WAKE_NONE) {
+        /*
+         * Woken between prepare and sleep: consume the pending wakeup and
+         * keep running.  The caller re-checks its condition anyway.
+         */
+        curr->wake_reason = TASK_WAKE_NONE;
+    } else if (curr->wait_queue && curr->wake_reason == TASK_WAKE_NONE) {
         curr->state = TASK_BLOCKED;
         sleep       = 1;
+    } else {
+        plogk("sched: wait_queue_sleep without a prepared wait (task %llu %s)\n", curr->pid, curr->name);
     }
     spin_unlock(&scheduler.lock);
 
     if (sleep) sched_yield();
 }
 
-/* Cancel the current task's two-phase wait before it becomes blocked. */
+/*
+ * Cancel the current task's prepared-but-not-yet-slept wait.
+ *
+ * Only valid between wait_queue_prepare() and the actual block.  Because a
+ * concurrent requeue (futex FUTEX_REQUEUE paths) may legally have moved the
+ * prepared task to another queue under scheduler.lock, the cancellation
+ * operates on whichever queue currently holds the node - @queue identifies
+ * what the caller believes it prepared on, not where the node must be.
+ * Cancelling after the block has committed or after a waker finished the
+ * wait is reported: it cannot happen in a correct protocol.
+ */
 void wait_queue_cancel(wait_queue_t *queue)
 {
-    if (!queue) return;
+    (void)queue;
 
     task_t *curr = local_current();
+
     spin_lock(&scheduler.lock);
-    if (curr->wait_queue == queue && curr->wake_reason == TASK_WAKE_NONE) finish_wait_locked(curr, TASK_WAKE_NORMAL);
+
+    if (!curr->wait_queue) {
+        /* Already cancelled, or a waker/timeout removed us first. */
+        spin_unlock(&scheduler.lock);
+        return;
+    }
+
+    if (curr->state != TASK_RUNNING) {
+        spin_unlock(&scheduler.lock);
+        plogk("sched: cancel of committed wait on task %llu (%s)\n", curr->pid, curr->name);
+        return;
+    }
+
+    if (ilist_remove(&curr->sched_node)) panic("sched: cancel found unlinked wait node (task %llu %s)", curr->pid, curr->name);
+    curr->wait_queue = NULL;
+
     spin_unlock(&scheduler.lock);
 }
 
@@ -1453,16 +1774,29 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
             finish_wait_locked(curr, TASK_WAKE_TIMEOUT);
         } else {
             curr->wake_tick = deadline_ticks;
-            ilist_insert_before(&scheduler.timer_queue, &curr->timer_node);
+            insert_timer_deadline_locked(curr);
             curr->state = TASK_BLOCKED;
             sleep       = 1;
         }
     }
+    /*
+     * If the task was concurrently requeued to another queue (futex
+     * FUTEX_REQUEUE family) or already woken, neither branch runs; the task
+     * simply does not commit to this timed sleep and its owner re-evaluates.
+     */
     spin_unlock(&scheduler.lock);
 
     if (sleep) sched_yield();
 
-    return curr->wake_reason == TASK_WAKE_TIMEOUT ? -ETIMEDOUT : 0;
+    int ret = curr->wake_reason == TASK_WAKE_TIMEOUT ? -ETIMEDOUT : 0;
+
+    /*
+     * Consume the wake reason: leaving it set would make a later bare
+     * task_block() believe an unconsumed wakeup was still outstanding.
+     */
+    curr->wake_reason = TASK_WAKE_NONE;
+
+    return ret;
 }
 
 /* Wake one task from the queue, returning it */
@@ -1479,21 +1813,12 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
     ilist_node_t *node = queue->tasks.next;
     task_t       *task = sched_node_to_task(node);
 
-    if (task->state == TASK_BLOCKED && !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
-        uint32_t old_cpu = task->cpu_id;
-        uint32_t new_cpu = select_wakeup_cpu_locked(task, false);
-        if (new_cpu != old_cpu) {
-            task->last_cpu          = old_cpu;
-            task->last_migrate_tick = scheduler.ticks;
-            task->migration_count++;
-        }
-        task->cpu_id         = new_cpu;
-        task->last_wake_tick = scheduler.ticks;
-        __atomic_add_fetch(&cpu_rqs[new_cpu].nr_wakeups, 1, __ATOMIC_RELAXED);
-    }
+    place_waking_task_locked(task, false);
     finish_wait_locked(task, TASK_WAKE_NORMAL);
+    uint32_t target_cpu = task->cpu_id;
     spin_unlock(&scheduler.lock);
-    request_task_cpu(task);
+    /* Do not dereference task after dropping scheduler.lock. */
+    request_cpu_reschedule(target_cpu);
     return task;
 }
 
@@ -1517,23 +1842,12 @@ task_t *wait_queue_wake_one_sync(wait_queue_t *queue)
      * possible so producer and consumer can run in parallel; migrate only if
      * measured runqueue pressure says another CPU is materially better.
      */
-    if (task->state == TASK_BLOCKED && !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
-        uint32_t old_cpu = task->cpu_id;
-        uint32_t new_cpu = select_wakeup_cpu_locked(task, true);
-        if (new_cpu != old_cpu) {
-            task->last_cpu          = old_cpu;
-            task->last_migrate_tick = scheduler.ticks;
-            task->migration_count++;
-        }
-        task->cpu_id         = new_cpu;
-        task->last_wake_tick = scheduler.ticks;
-        __atomic_add_fetch(&cpu_rqs[new_cpu].nr_wakeups, 1, __ATOMIC_RELAXED);
-    }
+    place_waking_task_locked(task, true);
     finish_wait_locked(task, TASK_WAKE_NORMAL);
     uint32_t target_cpu = task->cpu_id;
     spin_unlock(&scheduler.lock);
 
-    if (target_cpu != this_cpu) request_task_cpu(task);
+    if (target_cpu != this_cpu) request_cpu_reschedule(target_cpu);
     return task;
 }
 
@@ -1552,6 +1866,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
         ilist_node_t *node = queue->tasks.next;
         task_t       *task = sched_node_to_task(node);
 
+        place_waking_task_locked(task, false);
         finish_wait_locked(task, TASK_WAKE_NORMAL);
         if (task->cpu_id != this_cpu) {
             if (task->cpu_id < 64)
@@ -1568,7 +1883,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
      * after dropping scheduler.lock so a remote CPU never spins in its IPI
      * handler on a lock held by the waking IRQ CPU.
      */
-    if (scheduler.started) {
+    if (__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) {
         if (broadcast) {
             send_ipi_all(IPI_RESCHEDULE);
         } else {
@@ -1582,7 +1897,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
 /* sched_tick - periodic tick accounting and preemption */
 void sched_tick(bool user_mode)
 {
-    if (!scheduler.started || !cpu_rqs) return;
+    if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) || !cpu_rqs) return;
 
     uint32_t    cpu_id   = get_current_cpu_id();
     eevdf_rq_t *rq       = &cpu_rqs[cpu_id];
@@ -1596,6 +1911,7 @@ void sched_tick(bool user_mode)
      */
     spin_lock(&rq->lock);
     task_t *curr = rq->curr;
+    bool requested = __atomic_exchange_n(&rq->need_resched, 0, __ATOMIC_ACQ_REL) != 0;
 
     /* Idle task: yield if there is real work */
     if (curr == rq->idle) {
@@ -1614,24 +1930,51 @@ void sched_tick(bool user_mode)
         curr->time_slice++;
         update_curr(rq, 1);
         update_deadline(rq, curr);
-        if (curr->time_slice >= SCHED_MIN_GRANULARITY && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0) preempt = pick_eevdf(rq) != curr;
+        if ((requested || curr->time_slice >= SCHED_MIN_GRANULARITY) && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0) preempt = pick_eevdf(rq) != curr;
     }
     spin_unlock(&rq->lock);
 
-    /* CPU 0 handles global tick, sleep queue, and load balancing under the global lock. */
+    /* CPU 0 owns the global time base and ordered timer queues. */
     if (cpu_id == 0) {
         spin_lock(&scheduler.lock);
         scheduler.ticks++;
         wake_sleeping_tasks();
-        if ((scheduler.ticks % SCHED_LOAD_BALANCE_INTERVAL) == 0) balanced = balance_ready_queues_locked();
         spin_unlock(&scheduler.lock);
     }
-    request_task_cpu(balanced);
+
+    /* Each CPU periodically pulls work through its nested scheduling domains. */
+    uint64_t now = __atomic_load_n(&scheduler.ticks, __ATOMIC_RELAXED);
+    if (cpu_scheduler_count > 1 && sched_domains_need_balance(cpu_id, now)) {
+        spin_lock(&scheduler.lock);
+        balanced = rebalance_domains_locked(cpu_id);
+        spin_unlock(&scheduler.lock);
+        if (balanced) preempt = true;
+    }
 
     /*
      * sched_tick() already charged this millisecond.  Reusing the ordinary
      * yield accounting here used to charge every timer preemption twice.
      */
+    if (preempt) sched_switch(false);
+}
+
+/* Honor a wakeup preemption without waiting for the next 1 ms timer tick. */
+void sched_maybe_preempt(void)
+{
+    if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) || !cpu_rqs) return;
+
+    eevdf_rq_t *rq = local_rq();
+    if (!__atomic_load_n(&rq->need_resched, __ATOMIC_ACQUIRE)) return;
+
+    bool preempt = false;
+    spin_lock(&rq->lock);
+    if (__atomic_exchange_n(&rq->need_resched, 0, __ATOMIC_ACQ_REL)) {
+        task_t *curr = rq->curr;
+        if (curr && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0)
+            preempt = curr == rq->idle || (curr->state == TASK_RUNNING && pick_eevdf(rq) != curr);
+    }
+    spin_unlock(&rq->lock);
+
     if (preempt) sched_switch(false);
 }
 

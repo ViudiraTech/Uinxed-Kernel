@@ -45,6 +45,44 @@ spinlock_t                ap_start_lock = {0};
 static spinlock_t         tlb_shootdown_lock;
 
 /*
+ * CPUID leaves 0x1f/0x0b describe topology by giving bit shifts in the
+ * x2APIC id.  The shifts are uniform across the machine, so the BSP can
+ * decode every Limine-provided APIC id before the APs start.
+ */
+static int smp_topology_shifts(uint8_t *smt_shift, uint8_t *core_shift)
+{
+    uint32_t max_leaf, ebx, ecx, edx;
+    uint32_t leaf;
+
+    cpuid_safe(0, 0, &max_leaf, &ebx, &ecx, &edx);
+    leaf = max_leaf >= 0x1f ? 0x1f : (max_leaf >= 0x0b ? 0x0b : 0);
+    if (!leaf) return 0;
+
+    *smt_shift  = 0;
+    *core_shift = 0;
+    for (uint32_t level = 0; level < 8; level++) {
+        uint32_t eax;
+        cpuid_safe(leaf, level, &eax, &ebx, &ecx, &edx);
+        if (!ebx) break;
+        uint32_t type  = (ecx >> 8) & 0xffU;
+        uint8_t  shift = (uint8_t)(eax & 0x1fU);
+        if (type == 1)
+            *smt_shift = shift;
+        else if (type == 2)
+            *core_shift = shift;
+    }
+    if (!*core_shift) *core_shift = *smt_shift;
+    return *core_shift || *smt_shift;
+}
+
+static uint32_t smp_topology_mask(uint8_t bits)
+{
+    if (!bits) return 0;
+    if (bits >= 32) return UINT32_MAX;
+    return (1U << bits) - 1U;
+}
+
+/*
  * CR3 reloads preserve global translations under CR4.PGE.  Explicit
  * flush_tlb_all() requests are stronger: toggling PGE invalidates both
  * global and non-global entries on this logical CPU.
@@ -264,6 +302,25 @@ cpu_processor_t *get_current_cpu(void)
     return cpu_id < cpu_count ? &cpus[cpu_id] : NULL;
 }
 
+const cpu_processor_t *get_cpu_processor(uint32_t cpu_id)
+{
+    return cpus && cpu_id < cpu_count ? &cpus[cpu_id] : NULL;
+}
+
+int cpu_topology_same_core(uint32_t first, uint32_t second)
+{
+    const cpu_processor_t *a = get_cpu_processor(first);
+    const cpu_processor_t *b = get_cpu_processor(second);
+    return a && b && a->package_id == b->package_id && a->core_id == b->core_id;
+}
+
+int cpu_topology_same_package(uint32_t first, uint32_t second)
+{
+    const cpu_processor_t *a = get_cpu_processor(first);
+    const cpu_processor_t *b = get_cpu_processor(second);
+    return a && b && a->package_id == b->package_id;
+}
+
 /* Initialize the TSS for the AP */
 static void ap_init_tss(cpu_processor_t *cpu)
 {
@@ -361,7 +418,7 @@ void ap_entry(struct limine_smp_info *info)
     local_apic_init();
 
     spin_lock(&ap_start_lock);
-    ap_ready_count++;
+    __atomic_add_fetch(&ap_ready_count, 1, __ATOMIC_RELEASE);
     spin_unlock(&ap_start_lock);
 
     sched_ap_online(cpu->id);
@@ -386,14 +443,58 @@ void smp_init(void)
     if (!cpus || !tlb_shootdown_ack) panic("smp: Cannot allocate CPU state.");
     plogk("smp: Found %d CPUs.\n", cpu_count);
 
+    /*
+     * The Limine MP response identifies the BSP by LAPIC ID but does not
+     * promise that its entry is first.  The scheduler deliberately reserves
+     * logical CPU 0 for the boot task and the global tick, so build our
+     * logical topology with the BSP first instead of inheriting firmware
+     * enumeration order.  Scan the complete response before applying the
+     * configured CPU limit so the BSP cannot be truncated out.
+     */
+    uint64_t bsp_index = smp->cpu_count;
+    for (uint64_t i = 0; i < smp->cpu_count; i++) {
+        if (smp->cpus[i]->lapic_id == smp->bsp_lapic_id) {
+            bsp_index = i;
+            break;
+        }
+    }
+    if (bsp_index == smp->cpu_count) panic("smp: BSP is missing from the Limine CPU list.");
+
+    uint8_t smt_shift = 0, core_shift = 0;
+    int     topology_valid = smp_topology_shifts(&smt_shift, &core_shift);
+
     /* Initialize the per-CPU state of every processor, with special handling for the BSP */
+    uint64_t next_ap_index = 0;
     for (uint32_t i = 0; i < cpu_count; i++) {
-        struct limine_smp_info *cpu = smp->cpus[i];
+        uint64_t source_index;
+        if (i == 0) {
+            source_index = bsp_index;
+        } else {
+            while (next_ap_index == bsp_index) next_ap_index++;
+            source_index = next_ap_index++;
+        }
+        struct limine_smp_info *cpu = smp->cpus[source_index];
         cpus[i].id                  = i;
         cpus[i].lapic_id            = cpu->lapic_id;
+        if (topology_valid) {
+            uint32_t smt_mask = smp_topology_mask(smt_shift);
+            uint32_t core_bits = core_shift > smt_shift ? core_shift - smt_shift : 0;
+            uint32_t core_mask = smp_topology_mask((uint8_t)core_bits);
+            cpus[i].thread_id  = (uint32_t)cpu->lapic_id & smt_mask;
+            cpus[i].core_id    = smt_shift >= 32 ? 0 : ((uint32_t)cpu->lapic_id >> smt_shift) & core_mask;
+            cpus[i].package_id = core_shift >= 32 ? 0 : (uint32_t)cpu->lapic_id >> core_shift;
+        } else {
+            /* Conservative fallback: no fake SMT sharing, one package. */
+            cpus[i].thread_id  = 0;
+            cpus[i].core_id    = (uint32_t)cpu->lapic_id;
+            cpus[i].package_id = 0;
+        }
+        cpus[i].capacity            = 1024;
         cpus[i].syscall.user_rsp    = 0;
         cpus[i].syscall.kernel_rsp  = 0;
         cpus[i].syscall.current     = NULL;
+        cpus[i].syscall.cpu_id      = i;
+        cpus[i].syscall.reserved    = 0;
         cpus[i].fpu.fpu_live        = NULL;
         cpus[i].fpu.fpu_kernel_cnt  = 0;
         cpus[i].fpu.fpu_irq_saved   = 0;
@@ -401,7 +502,7 @@ void smp_init(void)
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
 
         /* Special handling for BSP */
-        if (cpu->lapic_id == smp->bsp_lapic_id) {
+        if (i == 0) {
             cpus[i].gdt       = &gdt0;
             cpus[i].tss_stack = &tss_stack;
             cpus[i].tss       = &tss0;
@@ -434,7 +535,7 @@ void smp_init(void)
     plogk("smp: IPI handlers registered.\n");
 
     /* Wait for all APs to be ready */
-    while (ap_ready_count < cpu_count - 1) __asm__ volatile("pause");
+    while (__atomic_load_n(&ap_ready_count, __ATOMIC_ACQUIRE) < cpu_count - 1) __asm__ volatile("pause");
     if (cpu_support_rdtscp()) __atomic_store_n(&smp_tsc_aux_ready, 1, __ATOMIC_RELEASE);
     __atomic_store_n(&smp_ready, 1, __ATOMIC_RELEASE);
     for (size_t i = 0; i < cpu_count; i++) plogk("smp: CPU %03u: tss_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].kernel_stack);

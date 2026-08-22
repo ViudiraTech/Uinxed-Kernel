@@ -25,10 +25,17 @@
 typedef struct rt_mutex rt_mutex_t;
 
 struct rt_mutex {
+        /*
+         * Protects owner, owner_died and pi_waiters.  Lock order:
+         * futex bucket lock -> mutex->lock -> scheduler.lock.
+         * Never acquire scheduler.lock while holding mutex->lock except
+         * through task_wakeup(), which takes it after this lock is dropped
+         * by all callers in this kernel.
+         */
         spinlock_t   lock;
         task_t      *owner;
         rb_root_t    pi_waiters;
-        wait_queue_t wq;
+        wait_queue_t wq;   // membership serialised by scheduler.lock only
         uint32_t    *uaddr;
         int          owner_died;
 };
@@ -45,7 +52,7 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self);
 /* Unlock the rt_mutex */
 int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self);
 
-/* Wake the highest-priority waiter (returns the woken task) */
+/* Wake the highest-priority waiter (returns the woken task; mutex->lock held) */
 task_t *rt_mutex_wake_top_waiter(rt_mutex_t *mutex);
 
 /* Priority inheritance helpers (used by futex.c) */

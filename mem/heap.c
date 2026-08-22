@@ -42,8 +42,13 @@ void init_heap(void)
         if (memmap_response->entries[i]->type == LIMINE_MEMMAP_USABLE) usable_ram += memmap_response->entries[i]->length;
 
     if (!KERNEL_HEAP_SIZE && !KERNEL_HEAP_START) {
-        /* Keep most RAM reclaimable without shrinking low-memory heaps below their old size. */
-        KERNEL_HEAP_SIZE          = usable_ram / 8;
+        /*
+         * This heap is eagerly backed by physical pages and cannot be
+         * reclaimed.  One eighth of RAM stranded too much memory from Xorg,
+         * file cache and GEM buffers, so reserve one sixteenth while retaining
+         * the established 32 MiB floor on normal-memory machines.
+         */
+        KERNEL_HEAP_SIZE          = usable_ram / 16;
         uint64_t low_memory_floor = usable_ram / 4;
         if (low_memory_floor > 32ULL * 1024 * 1024) low_memory_floor = 32ULL * 1024 * 1024;
         if (KERNEL_HEAP_SIZE < low_memory_floor) KERNEL_HEAP_SIZE = low_memory_floor;

@@ -476,7 +476,7 @@ static int64_t clock_sleep(uint64_t clockid, uint64_t flags, uint64_t req, uint6
         wait_queue_prepare(&sleep_queue);
         now_tick = sched_ticks();
         if (clock_sleep_signal_pending()) {
-            wait_queue_wake_one(&sleep_queue);
+            wait_queue_cancel(&sleep_queue);
             if (!(flags & TIMER_ABSTIME) && rem) {
                 uint64_t         elapsed_ticks = now_tick - start_tick;
                 uint64_t         elapsed_ns    = elapsed_ticks > UINT64_MAX / TIMER_TICK_NS ? UINT64_MAX : elapsed_ticks * TIMER_TICK_NS;
@@ -488,7 +488,7 @@ static int64_t clock_sleep(uint64_t clockid, uint64_t flags, uint64_t req, uint6
         }
 
         if (now_tick >= deadline_tick) {
-            wait_queue_wake_one(&sleep_queue);
+            wait_queue_cancel(&sleep_queue);
             return EOK;
         }
         wait_queue_wait_timed(&sleep_queue, deadline_tick);
@@ -833,7 +833,14 @@ static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint6
     task_t *task = current_task();
 
     switch (code) {
+        case 0x1001 : // ARCH_SET_GS
+            if (addr >= PROCESS_USER_STACK_TOP) return -EPERM;
+            /* In kernel mode IA32_GS_BASE is the per-CPU base; the user GS lives in KERNEL_GS_BASE. */
+            set_user_gs_base(addr);
+            if (task) task->thread.gs_base = addr;
+            return 0;
         case 0x1002 : // ARCH_SET_FS
+            if (addr >= PROCESS_USER_STACK_TOP) return -EPERM;
             wrmsr(0xC0000100, addr);
             if (task) task->thread.fs_base = addr;
             return 0;
@@ -841,12 +848,7 @@ static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint6
             uint64_t fs = task ? task->thread.fs_base : 0;
             return copy_to_user((void *)addr, &fs, sizeof(fs));
         }
-        case 0x1004 : // ARCH_SET_GS
-            /* In kernel mode IA32_GS_BASE is the per-CPU base; the user GS lives in KERNEL_GS_BASE. */
-            set_user_gs_base(addr);
-            if (task) task->thread.gs_base = addr;
-            return 0;
-        case 0x1005 : { // ARCH_GET_GS
+        case 0x1004 : { // ARCH_GET_GS
             uint64_t gs = task ? task->thread.gs_base : 0;
             return copy_to_user((void *)addr, &gs, sizeof(gs));
         }
@@ -2634,6 +2636,29 @@ static size_t pidfd_vfs_write(void *file, const void *addr, size_t offset, size_
     return (size_t)-1;
 }
 
+/* Linux pidfds are not readable or writable. */
+static int64_t pidfd_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    (void)node;
+    (void)private_data;
+    (void)flags;
+    (void)addr;
+    (void)offset;
+    (void)size;
+    return -EINVAL;
+}
+
+static int64_t pidfd_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    (void)node;
+    (void)private_data;
+    (void)flags;
+    (void)addr;
+    (void)offset;
+    (void)size;
+    return -EINVAL;
+}
+
 /* Unsupported stat callback */
 static int pidfd_stub_stat(void *f, vfs_node_t n)
 {
@@ -2706,6 +2731,21 @@ static void pidfd_stub_unmount(void *root)
     (void)root;
 }
 
+/* Return the process pinned by a pidfd node. The node owns the reference. */
+process_t *pidfd_get_target(vfs_node_t node)
+{
+    if (!node || pidfd_fsid < 0 || node->fsid != pidfd_fsid || !node->handle) return NULL;
+    return (process_t *)node->handle;
+}
+
+/* Resolve a pidfd to the PID exposed through /proc/<pid>/fdinfo/<fd>. */
+int64_t pidfd_get_pid(vfs_node_t node)
+{
+    process_t *target = pidfd_get_target(node);
+    if (!target || !target->task) return -1;
+    return (int64_t)target->task->tgid;
+}
+
 /* Register pidfs during boot, before userspace can issue concurrent opens. */
 void pidfd_init(void)
 {
@@ -2715,23 +2755,25 @@ void pidfd_init(void)
         plogk("pidfd: Failed to allocate VFS callbacks.\n");
         return;
     }
-    cb->mount    = pidfd_stub_mount;
-    cb->unmount  = pidfd_stub_unmount;
-    cb->open     = pidfd_vfs_open;
-    cb->close    = pidfd_vfs_close;
-    cb->read     = pidfd_vfs_read;
-    cb->write    = pidfd_vfs_write;
-    cb->readlink = pidfd_stub_readlink;
-    cb->mkdir    = pidfd_stub_mk;
-    cb->mkfile   = pidfd_stub_mk;
-    cb->link     = pidfd_stub_mk;
-    cb->symlink  = pidfd_stub_mk;
-    cb->stat     = pidfd_stub_stat;
-    cb->ioctl    = pidfd_stub_ioctl;
-    cb->dup      = pidfd_stub_dup;
-    cb->delete   = pidfd_stub_del;
-    cb->rename   = pidfd_stub_rename;
-    pidfd_fsid   = vfs_regist(cb);
+    cb->mount      = pidfd_stub_mount;
+    cb->unmount    = pidfd_stub_unmount;
+    cb->open       = pidfd_vfs_open;
+    cb->close      = pidfd_vfs_close;
+    cb->read       = pidfd_vfs_read;
+    cb->write      = pidfd_vfs_write;
+    cb->readlink   = pidfd_stub_readlink;
+    cb->mkdir      = pidfd_stub_mk;
+    cb->mkfile     = pidfd_stub_mk;
+    cb->link       = pidfd_stub_mk;
+    cb->symlink    = pidfd_stub_mk;
+    cb->stat       = pidfd_stub_stat;
+    cb->ioctl      = pidfd_stub_ioctl;
+    cb->dup        = pidfd_stub_dup;
+    cb->delete     = pidfd_stub_del;
+    cb->rename     = pidfd_stub_rename;
+    cb->file_read  = pidfd_file_read;
+    cb->file_write = pidfd_file_write;
+    pidfd_fsid     = vfs_regist(cb);
     free(cb);
     if (pidfd_fsid < 0)
         plogk("pidfd: Failed to register VFS callbacks (%d)\n", pidfd_fsid);
@@ -2748,6 +2790,7 @@ static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t ar
     (void)arg5;
 
     if (flags & ~(uint64_t)PIDFD_NONBLOCK) return -EINVAL;
+    if ((int64_t)pid_raw <= 0) return -EINVAL;
 
     process_t *target = process_find_get((pid_t)pid_raw);
     if (!target) return -ESRCH;
@@ -2773,9 +2816,10 @@ static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t ar
     node->handle = target; // caller must process_put in close
     node->fsid   = pidfd_fsid;
     node->size   = 0;
-    node->mode   = O_RDONLY;
+    node->mode   = O_RDWR;
 
-    uint64_t fd_flags = O_RDONLY;
+    /* Linux creates pidfds read/write and close-on-exec. */
+    uint64_t fd_flags = O_RDWR | O_CLOEXEC;
     if (flags & PIDFD_NONBLOCK) fd_flags |= O_NONBLOCK;
 
     int fd = process_fd_install(proc, node, fd_flags);
@@ -2918,11 +2962,18 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
     (void)arg5;
 
     if (flags) return -EINVAL;
+    if (pidfd >= PROCESS_MAX_FD) return -EBADF;
 
-    process_t *target = NULL;
-    /* Treat pidfd as a raw pid. */
-    target = process_find_get((pid_t)pidfd);
-    if (!target) return -ESRCH;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    process_file_t *pid_file = process_fd_get(proc, (int)pidfd);
+    if (!pid_file) return -EBADF;
+    process_t *target = pidfd_get_target(pid_file->node);
+    if (!target) {
+        process_file_put(pid_file);
+        return -EBADF;
+    }
 
     /* Read iovec entries */
     struct {
@@ -2932,7 +2983,7 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
 
     if (vlen > 16) vlen = 16;
     if (copy_from_user(iov, (const void *)iovec, vlen * sizeof(iov[0]))) {
-        process_put(target);
+        process_file_put(pid_file);
         return -EFAULT;
     }
 
@@ -2944,13 +2995,13 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
             case 2 : // MADV_PAGEOUT
                 break;
             default :
-                process_put(target);
+                process_file_put(pid_file);
                 return -EINVAL;
         }
         result++;
     }
 
-    process_put(target);
+    process_file_put(pid_file);
     return result;
 }
 
@@ -4533,7 +4584,7 @@ static int64_t sys_delete_module_impl(uint64_t user_name, uint64_t flags, uint64
     return module_unload(name, (unsigned int)flags);
 }
 
-static syscall_fn_t syscall_table[SYS_MAX] = {
+static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_READ]                   = sys_read,
     [SYS_WRITE]                  = sys_write,
     [SYS_OPEN]                   = sys_open,
@@ -4894,6 +4945,21 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FCHMODAT2]              = sys_fchmodat2_impl,
 };
 
+/*
+ * Userspace feature probes may intentionally retry an unavailable syscall.
+ * Synchronous serial/fb logging is orders of magnitude slower than returning
+ * -ENOSYS, so retain diagnostics without putting printk in the retry path.
+ */
+static uint64_t syscall_missing_logged[(SYS_MAX + 63U) / 64U];
+static uint8_t  syscall_unknown_logged;
+
+static bool syscall_log_missing_once(uint64_t num)
+{
+    if (num >= SYS_MAX) return !__atomic_exchange_n(&syscall_unknown_logged, 1, __ATOMIC_RELAXED);
+    uint64_t mask = 1ULL << (num & 63U);
+    return !(__atomic_fetch_or(&syscall_missing_logged[num >> 6], mask, __ATOMIC_RELAXED) & mask);
+}
+
 /* Helper: check if a return value is a kernel-internal restart code. */
 static inline int is_restart_code(int64_t ret)
 {
@@ -4911,7 +4977,7 @@ int syscall_dispatch(syscall_frame_t *frame)
 
     if (traced) ptrace_syscall_enter(frame, num);
     num = frame->rax;
-    if (!seccomp_enforce(frame, &num, &retval)) {
+    if (dispatch_task && __atomic_load_n(&dispatch_task->seccomp_mode, __ATOMIC_ACQUIRE) != SECCOMP_MODE_DISABLED && !seccomp_enforce(frame, &num, &retval)) {
         frame->rax = (uint64_t)retval;
         goto check_signals;
     }
@@ -5017,8 +5083,8 @@ int syscall_dispatch(syscall_frame_t *frame)
     }
 
     if (num >= SYS_MAX || !syscall_table[num]) {
-        task_t *task = current_task();
-        plogk("syscall: Unimplemented syscall %llu from pid %llu (%s)\n", num, task ? task->pid : 0, task ? task->name : "?");
+        if (syscall_log_missing_once(num))
+            plogk("syscall: Unimplemented syscall %llu from pid %llu (%s)\n", num, dispatch_task ? dispatch_task->pid : 0, dispatch_task ? dispatch_task->name : "?");
         retval     = -ENOSYS;
         frame->rax = (uint64_t)retval;
         goto check_signals;
@@ -5030,8 +5096,8 @@ int syscall_dispatch(syscall_frame_t *frame)
      * (notably Xorg) identify the missing ABI entry in the kernel log.
      */
     if (syscall_table[num] == sys_stub) {
-        task_t *task = current_task();
-        plogk("syscall: syscall %llu is not implemented (pid %llu, %s)\n", num, task ? task->pid : 0, task ? task->name : "?");
+        if (syscall_log_missing_once(num))
+            plogk("syscall: syscall %llu is not implemented (pid %llu, %s)\n", num, dispatch_task ? dispatch_task->pid : 0, dispatch_task ? dispatch_task->name : "?");
     }
 
     if (num == SYS_EXECVE) {
@@ -5075,6 +5141,7 @@ int syscall_dispatch(syscall_frame_t *frame)
          * Do NOT go through the restart logic since we're restoring
          * a previous context, not returning from a syscall.
          */
+        disable_intr();
         if (frame->cs & 0x3) signal_deliver_for_process(dispatch_task ? dispatch_task->process : NULL, frame);
         return 0;
     }
@@ -5087,6 +5154,13 @@ check_signals:
         ptrace_syscall_exit(frame, (int64_t)frame->rax);
     }
     retval = (int64_t)frame->rax;
+
+    /*
+     * Syscall bodies run with interrupts enabled.  Close the exit-work race
+     * before inspecting signal/reschedule state; a remote IPI raised after
+     * this point remains pending and is taken immediately after SYSRET.
+     */
+    disable_intr();
     /*
      * On return to userspace, deliver any pending signals.
      * The signal subsystem sets up handler frames (redirecting RIP/RSP)
@@ -5198,6 +5272,9 @@ check_signals:
          */
     }
 
+    /* Let freshly woken input/compositor peers run before returning to user. */
+    sched_maybe_preempt();
+
     /*
      * SYSRET is valid only for the ordinary 64-bit userspace selectors and
      * canonical lower-half addresses.  Full-context restoration paths use
@@ -5283,7 +5360,9 @@ __attribute__((naked)) void syscall_entry(void)
                      "pushq %r14\n\t"
                      "pushq %r15\n\t"
                      "movq %rsp, %rdi\n\t"
+                     "sti\n\t"
                      "call syscall_dispatch\n\t"
+                     "cli\n\t"
                      "jmp syscall_return\n\t");
 }
 
@@ -5317,7 +5396,9 @@ __attribute__((naked)) static void syscall_entry_syscall(void)
                                                                                                                                                                        "pushq %r14\n\t"
                                                                                                                                                                        "pushq %r15\n\t"
                                                                                                                                                                        "movq %rsp, %rdi\n\t"
+                                                                                                                                                                       "sti\n\t"
                                                                                                                                                                        "call syscall_dispatch\n\t"
+                                                                                                                                                                       "cli\n\t"
                                                                                                                                                                        "testl %eax, %eax\n\t"
                                                                                                                                                                        "jz syscall_return\n\t"
                                                                                                                                                                        "jmp syscall_return_sysret\n\t");

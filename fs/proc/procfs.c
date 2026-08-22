@@ -38,6 +38,8 @@
 #include <process/process.h>
 #include <process/sched.h>
 #include <security/seccomp.h>
+#include <syscall/fcntl.h>
+#include <syscall/syscall.h>
 
 static int procfs_id;
 
@@ -111,6 +113,8 @@ typedef enum procfs_type {
     PROCFS_SELF_LINK,
     PROCFS_PID_FD_DIR,
     PROCFS_PID_FD_LINK,
+    PROCFS_PID_FDINFO_DIR,
+    PROCFS_PID_FDINFO_FILE,
     PROCFS_PID_EXE_LINK,
     PROCFS_PID_CWD_LINK,
     PROCFS_PID_ROOT_LINK,
@@ -1541,6 +1545,45 @@ static void procfs_fd_target(process_t *proc, int fd, char *target, size_t capac
     process_file_put(file);
 }
 
+/* Generate Linux-compatible /proc/<pid>/fdinfo/<fd> content. */
+static void gen_pid_fdinfo(procfs_file_t *pf)
+{
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc) return;
+
+    process_file_t *file = process_fd_get(proc, pf->subtype);
+    if (!file) {
+        process_put(proc);
+        return;
+    }
+
+    uint64_t flags = file->flags;
+    spin_lock(&proc->fd_lock);
+    if (pf->subtype >= 0 && pf->subtype < PROCESS_MAX_FD && proc->fds[pf->subtype] == file && (proc->fd_flags[pf->subtype] & FD_CLOEXEC)) flags |= O_CLOEXEC;
+    spin_unlock(&proc->fd_lock);
+
+    int64_t target_pid = pidfd_get_pid(file->node);
+    char   *buf        = malloc(256);
+    if (buf) {
+        int n = snprintf(buf, 256,
+                         "pos:\t%llu\n"
+                         "flags:\t0%llo\n"
+                         "mnt_id:\t%llu\n"
+                         "ino:\t%llu\n",
+                         (unsigned long long)file->offset, (unsigned long long)flags, (unsigned long long)file->node->mount_id, (unsigned long long)file->node->inode);
+        if (n >= 0 && target_pid > 0 && n < 256) {
+            int extra = snprintf(buf + n, 256 - (size_t)n, "Pid:\t%lld\nNSpid:\t%lld\n", (long long)target_pid, (long long)target_pid);
+            if (extra > 0) n += extra;
+        }
+        pf->content  = buf;
+        pf->size     = n < 0 ? 0 : (size_t)n;
+        pf->capacity = 256;
+    }
+
+    process_file_put(file);
+    process_put(proc);
+}
+
 /* Generate /proc/<pid>/mem content. */
 static void gen_pid_mem(procfs_file_t *pf)
 {
@@ -1804,6 +1847,9 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                     break;
             }
             break;
+        case PROCFS_PID_FDINFO_FILE :
+            gen_pid_fdinfo(pf);
+            break;
         case PROCFS_NET_FILE :
             gen_net_file(pf);
             break;
@@ -1957,6 +2003,10 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 pf->type   = PROCFS_PID_FD_DIR;
                 pf->pid    = ppf->pid;
                 node->type = file_dir;
+            } else if (streq(name, "fdinfo")) {
+                pf->type   = PROCFS_PID_FDINFO_DIR;
+                pf->pid    = ppf->pid;
+                node->type = file_dir;
             } else if (streq(name, "exe")) {
                 pf->type   = PROCFS_PID_EXE_LINK;
                 pf->pid    = ppf->pid;
@@ -1994,6 +2044,28 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             pf->pid     = ppf->pid;
             pf->subtype = fd;
             node->type  = file_symlink;
+            break;
+        }
+        case PROCFS_PID_FDINFO_DIR : {
+            process_t *proc = process_find_get(ppf->pid);
+            if (!proc) {
+                free(pf);
+                return;
+            }
+            char           *end;
+            int             fd   = (int)strtol(name, &end, 10);
+            process_file_t *file = NULL;
+            if (*end == '\0' && fd >= 0 && fd < PROCESS_MAX_FD) file = process_fd_get(proc, fd);
+            process_put(proc);
+            if (!file) {
+                free(pf);
+                return;
+            }
+            process_file_put(file);
+            pf->type    = PROCFS_PID_FDINFO_FILE;
+            pf->pid     = ppf->pid;
+            pf->subtype = fd;
+            node->type  = file_none;
             break;
         }
         case PROCFS_NET_DIR : {
@@ -2133,7 +2205,9 @@ static int procfs_file_open(vfs_node_t node, uint64_t flags, void **private_data
     (void)flags;
     if (!node || !private_data) return -EINVAL;
     procfs_file_t *source = node->handle;
-    if (!source || (source->type != PROCFS_INFO_FILE && source->type != PROCFS_PID_FILE && source->type != PROCFS_NET_FILE && source->type != PROCFS_SYS_FILE && source->type != PROCFS_TTY_FILE)) {
+    if (!source
+        || (source->type != PROCFS_INFO_FILE && source->type != PROCFS_PID_FILE && source->type != PROCFS_PID_FDINFO_FILE && source->type != PROCFS_NET_FILE && source->type != PROCFS_SYS_FILE
+            && source->type != PROCFS_TTY_FILE)) {
         *private_data = NULL;
         return EOK;
     }
@@ -2268,6 +2342,7 @@ static int procfs_stat(void *file, vfs_node_t node)
             for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++) (void)procfs_ensure_child(node, pid_tab[i].name, PROCFS_PID_FILE, pf->pid, pid_tab[i].subtype, file_none);
 
             (void)procfs_ensure_child(node, "fd", PROCFS_PID_FD_DIR, pf->pid, 0, file_dir);
+            (void)procfs_ensure_child(node, "fdinfo", PROCFS_PID_FDINFO_DIR, pf->pid, 0, file_dir);
             (void)procfs_ensure_child(node, "exe", PROCFS_PID_EXE_LINK, pf->pid, 0, file_symlink);
             (void)procfs_ensure_child(node, "cwd", PROCFS_PID_CWD_LINK, pf->pid, 0, file_symlink);
             (void)procfs_ensure_child(node, "root", PROCFS_PID_ROOT_LINK, pf->pid, 0, file_symlink);
@@ -2297,6 +2372,33 @@ static int procfs_stat(void *file, vfs_node_t node)
                 char name[8];
                 (void)snprintf(name, sizeof(name), "%d", fd);
                 (void)procfs_ensure_child(node, name, PROCFS_PID_FD_LINK, pf->pid, fd, file_symlink);
+            }
+            process_put(proc);
+            break;
+        }
+        case PROCFS_PID_FDINFO_DIR : {
+            process_t *proc = process_find_get(pf->pid);
+            if (!proc) {
+                node->type = file_none;
+                return -ENOENT;
+            }
+            node->type = file_dir;
+
+            for (clist_t link = node->child; link; link = link->next) {
+                vfs_node_t     child = link->data;
+                procfs_file_t *cpf   = child ? child->handle : NULL;
+                if (cpf && cpf->type == PROCFS_PID_FDINFO_FILE) {
+                    child->flags |= VFS_NODE_UNLINKED;
+                    child->type = file_none;
+                }
+            }
+            for (int fd = 0; fd < PROCESS_MAX_FD; fd++) {
+                process_file_t *file = process_fd_get(proc, fd);
+                if (!file) continue;
+                process_file_put(file);
+                char name[8];
+                (void)snprintf(name, sizeof(name), "%d", fd);
+                (void)procfs_ensure_child(node, name, PROCFS_PID_FDINFO_FILE, pf->pid, fd, file_none);
             }
             process_put(proc);
             break;
@@ -2334,6 +2436,7 @@ static int procfs_stat(void *file, vfs_node_t node)
             break;
         case PROCFS_INFO_FILE :
         case PROCFS_PID_FILE :
+        case PROCFS_PID_FDINFO_FILE :
         case PROCFS_NET_FILE :
         case PROCFS_SYS_FILE :
         case PROCFS_TTY_FILE :

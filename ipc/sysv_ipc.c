@@ -12,6 +12,7 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/kobject/kobject.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -65,6 +66,7 @@ typedef struct sem_undo {
 } sem_undo_t;
 
 typedef struct shm_seg {
+        kref_t     refs;
         ipc_perm_t perm;
         size_t     size;
         uint64_t   atime;
@@ -78,6 +80,7 @@ typedef struct shm_seg {
         spinlock_t lock;
         int        deleted;
         int        locked;
+        int        id;
 } shm_seg_t;
 
 typedef struct msg_msg {
@@ -121,6 +124,55 @@ static spinlock_t   msg_global_lock;
 
 static sem_undo_t *sem_undo_list;
 static spinlock_t  sem_undo_lock;
+
+/* Release a segment after both its table reference and all VMA/operation
+ * references have gone away. */
+static void shm_seg_release(kref_t *ref)
+{
+    shm_seg_t *seg = (shm_seg_t *)((uint8_t *)ref - offsetof(shm_seg_t, refs));
+
+    free_frames(seg->phys_addr, seg->npages);
+    free(seg);
+}
+
+static void shm_seg_put(shm_seg_t *seg)
+{
+    if (seg) (void)kref_put(&seg->refs, shm_seg_release);
+}
+
+/* Look up a segment and pin it after dropping the global table lock. */
+static shm_seg_t *shm_seg_get_by_id(int shmid)
+{
+    int idx = shmid & IPC_ID_MASK;
+    if (idx < 0 || idx >= SHM_MAX_SEGS) return NULL;
+    uint16_t seq = (uint16_t)((shmid >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK);
+
+    spin_lock(&shm_global_lock);
+    shm_seg_t *seg = shm_segs[idx];
+    if (!seg || shm_seq[idx] != seq || !kref_get_unless_zero(&seg->refs)) seg = NULL;
+    spin_unlock(&shm_global_lock);
+    return seg;
+}
+
+/* Remove a marked segment once no address space is attached.  Linux keeps a
+ * removed shmid attachable until this point; MIT-SHM clients depend on that
+ * behaviour when they issue IPC_RMID immediately after their first shmat. */
+static void shm_remove_if_unused(shm_seg_t *seg)
+{
+    int drop_table_ref = 0;
+    int idx            = seg->id & IPC_ID_MASK;
+
+    spin_lock(&shm_global_lock);
+    spin_lock(&seg->lock);
+    if (seg->deleted && seg->nattch == 0 && idx >= 0 && idx < SHM_MAX_SEGS && shm_segs[idx] == seg && shm_seq[idx] == (uint16_t)((seg->id >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK)) {
+        shm_segs[idx]  = NULL;
+        drop_table_ref = 1;
+    }
+    spin_unlock(&seg->lock);
+    spin_unlock(&shm_global_lock);
+
+    if (drop_table_ref) shm_seg_put(seg);
+}
 
 /* System V IPC timestamps are realtime seconds, not scheduler ticks. */
 static uint64_t ipc_now_seconds(void)
@@ -829,9 +881,12 @@ int sysv_shm_vma_get(void *identity, uint32_t pid)
     shm_seg_t *seg = identity;
     if (!seg) return -EINVAL;
 
+    if (!kref_get_unless_zero(&seg->refs)) return -EINVAL;
+
     spin_lock(&seg->lock);
     if (seg->nattch == UINT32_MAX) {
         spin_unlock(&seg->lock);
+        shm_seg_put(seg);
         return -ENOMEM;
     }
     seg->nattch++;
@@ -873,6 +928,12 @@ static shm_seg_t *shm_attach_get(int shmid, int mode, uint32_t pid, int *error)
         if (error) *error = -ENOMEM;
         return NULL;
     }
+    if (!kref_get_unless_zero(&seg->refs)) {
+        spin_unlock(&seg->lock);
+        spin_unlock(&shm_global_lock);
+        if (error) *error = -EINVAL;
+        return NULL;
+    }
     seg->nattch++;
     seg->atime = ipc_now_seconds();
     seg->lpid  = pid;
@@ -896,10 +957,8 @@ void sysv_shm_vma_put(void *identity, uint32_t pid)
     destroy    = seg->deleted && seg->nattch == 0;
     spin_unlock(&seg->lock);
 
-    if (destroy) {
-        free_frames(seg->phys_addr, seg->npages);
-        free(seg);
-    }
+    if (destroy) shm_remove_if_unused(seg);
+    shm_seg_put(seg);
 }
 
 /* sys_shmget - get or create a shared memory segment */
@@ -911,19 +970,27 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     if (key != IPC_PRIVATE) {
         spin_lock(&shm_global_lock);
         for (int i = 0; i < SHM_MAX_SEGS; i++) {
-            if (shm_segs[i] != NULL && shm_segs[i]->perm.key == key) {
+            if (shm_segs[i] != NULL && !shm_segs[i]->deleted && shm_segs[i]->perm.key == key) {
                 shm_seg_t *seg = shm_segs[i];
+                if (!kref_get_unless_zero(&seg->refs)) continue;
                 spin_unlock(&shm_global_lock);
 
-                if (shmflg & (IPC_CREAT | IPC_EXCL))
-                    if ((shmflg & (IPC_CREAT | IPC_EXCL)) == (IPC_CREAT | IPC_EXCL)) return -EEXIST;
+                if ((shmflg & (IPC_CREAT | IPC_EXCL)) == (IPC_CREAT | IPC_EXCL)) {
+                    shm_seg_put(seg);
+                    return -EEXIST;
+                }
 
+                spin_lock(&seg->lock);
                 int ret = ipc_perm_check(&seg->perm, shmflg & 0777);
+                bool too_small = size > 0 && size > seg->size;
+                int  id        = seg->id;
+                spin_unlock(&seg->lock);
+                shm_seg_put(seg);
+
                 if (ret < 0) return ret;
+                if (too_small) return -EINVAL;
 
-                if (size > 0 && size > seg->size) return -EINVAL;
-
-                return ((int)seg->perm.seq << IPC_SEQ_SHIFT) | i;
+                return id;
             }
         }
         spin_unlock(&shm_global_lock);
@@ -954,6 +1021,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
         return -ENOMEM;
     }
     memset(seg, 0, sizeof(shm_seg_t));
+    kref_init(&seg->refs);
 
     seg->size      = size;
     seg->phys_addr = (uintptr_t)phys;
@@ -981,6 +1049,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     }
 
     seg->perm.seq = (uint32_t)((id >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK);
+    seg->id       = id;
     return id;
 }
 
@@ -1100,36 +1169,109 @@ int64_t sys_shmdt(const void *shmaddr)
 int64_t sys_shmctl(int shmid, int cmd, void *buf)
 {
     cmd &= ~IPC_64;
-    shm_seg_t *seg = (shm_seg_t *)ipc_id_lookup((void **)shm_segs, shm_seq, SHM_MAX_SEGS, &shm_global_lock, shmid);
+
+    if (cmd == IPC_INFO || cmd == SHM_INFO) {
+        if (buf == NULL) return -EFAULT;
+        shminfo_t info;
+        memset(&info, 0, sizeof(info));
+        info.shmmax = SHM_SIZE_MAX;
+        info.shmmin = 1;
+        info.shmmni = SHM_MAX_SEGS;
+        info.shmseg = SHM_MAX_SEGS;
+        info.shmall = (uint64_t)SHM_MAX_SEGS * 256;
+        if (copy_to_user(buf, &info, sizeof(shminfo_t)) != 0) return -EFAULT;
+
+        if (cmd == SHM_INFO) {
+            spin_lock(&shm_global_lock);
+            int used = 0;
+            for (int i = 0; i < SHM_MAX_SEGS; i++)
+                if (shm_segs[i] != NULL) used++;
+            spin_unlock(&shm_global_lock);
+            return used;
+        }
+        return SHM_MAX_SEGS;
+    }
+
+    if (cmd == SHM_STAT) {
+        if (buf == NULL) return -EFAULT;
+        int idx = shmid & IPC_ID_MASK;
+        if (idx < 0 || idx >= SHM_MAX_SEGS) return -EINVAL;
+
+        spin_lock(&shm_global_lock);
+        shm_seg_t *indexed = shm_segs[idx];
+        if (indexed && !kref_get_unless_zero(&indexed->refs)) indexed = NULL;
+        spin_unlock(&shm_global_lock);
+        if (!indexed) return -EINVAL;
+
+        shmid_ds_t ds;
+        memset(&ds, 0, sizeof(ds));
+        spin_lock(&indexed->lock);
+        ds.shm_perm   = indexed->perm;
+        ds.shm_segsz  = indexed->size;
+        ds.shm_atime  = indexed->atime;
+        ds.shm_dtime  = indexed->dtime;
+        ds.shm_ctime  = indexed->ctime;
+        ds.shm_cpid   = indexed->cpid;
+        ds.shm_lpid   = indexed->lpid;
+        ds.shm_nattch = indexed->nattch;
+        int id        = indexed->id;
+        spin_unlock(&indexed->lock);
+
+        int ret = copy_to_user(buf, &ds, sizeof(shmid_ds_t)) != 0 ? -EFAULT : id;
+        shm_seg_put(indexed);
+        return ret;
+    }
+
+    shm_seg_t *seg = shm_seg_get_by_id(shmid);
     if (seg == NULL) return -EINVAL;
+
+    int result = 0;
 
     switch (cmd) {
         case IPC_RMID : {
             int ret = ipc_owner_check(&seg->perm);
-            if (ret < 0) return ret;
-
-            int rem = ipc_id_remove((void **)shm_segs, shm_seq, SHM_MAX_SEGS, &shm_global_lock, shmid);
-            if (rem < 0) return rem;
-
-            spin_lock(&seg->lock);
-            seg->deleted = 1;
-            int nattch   = (int)seg->nattch;
-            spin_unlock(&seg->lock);
-
-            if (nattch == 0) {
-                free_frames(seg->phys_addr, seg->npages);
-                free(seg);
+            if (ret < 0) {
+                result = ret;
+                break;
             }
-            return 0;
+
+            int drop_table_ref = 0;
+            spin_lock(&shm_global_lock);
+            spin_lock(&seg->lock);
+            int idx = seg->id & IPC_ID_MASK;
+            if (seg->deleted || idx < 0 || idx >= SHM_MAX_SEGS || shm_segs[idx] != seg) {
+                result = -EINVAL;
+            } else {
+                seg->deleted = 1;
+                seg->perm.mode |= SHM_DEST;
+                seg->ctime = ipc_now_seconds();
+                if (seg->nattch == 0) {
+                    shm_segs[idx]  = NULL;
+                    drop_table_ref = 1;
+                }
+            }
+            spin_unlock(&seg->lock);
+            spin_unlock(&shm_global_lock);
+            if (drop_table_ref) shm_seg_put(seg);
+            break;
         }
 
         case IPC_SET : {
             int ret = ipc_owner_check(&seg->perm);
-            if (ret < 0) return ret;
-            if (buf == NULL) return -EFAULT;
+            if (ret < 0) {
+                result = ret;
+                break;
+            }
+            if (buf == NULL) {
+                result = -EFAULT;
+                break;
+            }
 
             shmid_ds_t ds;
-            if (copy_from_user(&ds, buf, sizeof(shmid_ds_t)) != 0) return -EFAULT;
+            if (copy_from_user(&ds, buf, sizeof(shmid_ds_t)) != 0) {
+                result = -EFAULT;
+                break;
+            }
 
             spin_lock(&seg->lock);
             seg->perm.uid  = ds.shm_perm.uid;
@@ -1137,13 +1279,19 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             seg->perm.mode = (ds.shm_perm.mode & 0777) | (seg->perm.mode & ~0777U);
             seg->ctime     = ipc_now_seconds();
             spin_unlock(&seg->lock);
-            return 0;
+            break;
         }
 
         case IPC_STAT : {
             int ret = ipc_perm_check(&seg->perm, 0444);
-            if (ret < 0) return ret;
-            if (buf == NULL) return -EFAULT;
+            if (ret < 0) {
+                result = ret;
+                break;
+            }
+            if (buf == NULL) {
+                result = -EFAULT;
+                break;
+            }
 
             shmid_ds_t ds;
             memset(&ds, 0, sizeof(ds));
@@ -1158,79 +1306,40 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             ds.shm_nattch = seg->nattch;
             spin_unlock(&seg->lock);
 
-            if (copy_to_user(buf, &ds, sizeof(shmid_ds_t)) != 0) return -EFAULT;
-            return 0;
+            if (copy_to_user(buf, &ds, sizeof(shmid_ds_t)) != 0) result = -EFAULT;
+            break;
         }
 
         case SHM_LOCK : {
             int ret = ipc_owner_check(&seg->perm);
-            if (ret < 0) return ret;
+            if (ret < 0) {
+                result = ret;
+                break;
+            }
             spin_lock(&seg->lock);
             seg->locked = 1;
             spin_unlock(&seg->lock);
-            return 0;
+            break;
         }
 
         case SHM_UNLOCK : {
             int ret = ipc_owner_check(&seg->perm);
-            if (ret < 0) return ret;
+            if (ret < 0) {
+                result = ret;
+                break;
+            }
             spin_lock(&seg->lock);
             seg->locked = 0;
             spin_unlock(&seg->lock);
-            return 0;
-        }
-        case IPC_INFO :
-        case SHM_INFO : {
-            if (buf == NULL) return -EFAULT;
-            shminfo_t info;
-            memset(&info, 0, sizeof(info));
-            info.shmmax = SHM_SIZE_MAX;
-            info.shmmin = 1;
-            info.shmmni = SHM_MAX_SEGS;
-            info.shmseg = SHM_MAX_SEGS;
-            info.shmall = (uint64_t)SHM_MAX_SEGS * 256;
-            if (copy_to_user(buf, &info, sizeof(shminfo_t)) != 0) return -EFAULT;
-
-            if (cmd == SHM_INFO) {
-                spin_lock(&shm_global_lock);
-                int used = 0;
-                for (int i = 0; i < SHM_MAX_SEGS; i++)
-                    if (shm_segs[i] != NULL) used++;
-                spin_unlock(&shm_global_lock);
-                return used;
-            }
-            return SHM_MAX_SEGS;
-        }
-
-        case SHM_STAT : {
-            if (buf == NULL) return -EFAULT;
-            int idx = shmid & IPC_ID_MASK;
-            if (idx < 0 || idx >= SHM_MAX_SEGS) return -EINVAL;
-
-            spin_lock(&shm_global_lock);
-            shm_seg_t *s = shm_segs[idx];
-            if (s == NULL) {
-                spin_unlock(&shm_global_lock);
-                return -EINVAL;
-            }
-            shmid_ds_t ds;
-            memset(&ds, 0, sizeof(ds));
-            ds.shm_perm   = s->perm;
-            ds.shm_segsz  = s->size;
-            ds.shm_atime  = s->atime;
-            ds.shm_dtime  = s->dtime;
-            ds.shm_ctime  = s->ctime;
-            ds.shm_cpid   = s->cpid;
-            ds.shm_lpid   = s->lpid;
-            ds.shm_nattch = s->nattch;
-            spin_unlock(&shm_global_lock);
-
-            if (copy_to_user(buf, &ds, sizeof(shmid_ds_t)) != 0) return -EFAULT;
-            return ((int)s->perm.seq << IPC_SEQ_SHIFT) | idx;
+            break;
         }
         default :
-            return -EINVAL;
+            result = -EINVAL;
+            break;
     }
+
+    shm_seg_put(seg);
+    return result;
 }
 
 /* sys_msgget - get or create a message queue */

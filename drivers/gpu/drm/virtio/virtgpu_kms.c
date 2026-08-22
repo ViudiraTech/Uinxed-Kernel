@@ -241,7 +241,7 @@ static void virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_s
 
     DRM_DEBUG_KMS("CRTC-%d disabled.\n", crtc->base.id);
 
-    virtgpu_cmd_set_scanout(vgdev, 0, NULL);
+    (void)virtgpu_page_flip(vgdev, NULL, vgdev->current_fb);
     vgdev->current_fb          = NULL;
     vgdev->current_scanout_obj = NULL;
 }

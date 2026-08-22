@@ -594,6 +594,7 @@ int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint
     cmd->hdr.type     = VIRTIO_GPU_CMD_SUBMIT_3D;
     cmd->hdr.ctx_id   = ctx_id;
     cmd->hdr.fence_id = fence ? fence->id : 0;
+    if (fence) cmd->hdr.flags |= VIRTIO_GPU_FLAG_FENCE;
     if (use_ring_idx) {
         cmd->hdr.flags |= VIRTIO_GPU_FLAG_INFO_RING_IDX;
         cmd->hdr.ring_idx = (uint8_t)ring_idx;

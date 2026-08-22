@@ -95,9 +95,6 @@ bool ps2_port_available(bool second_port);
 /* Probe and initialize the i8042 controller and attached devices. */
 void init_ps2(void);
 
-/* Register the deferred PS/2 event worker once kernel workers are available. */
-void ps2_start_worker(void);
-
 /* Initialize the PS/2 keyboard and register its evdev device. */
 void ps2_keyboard_init(void);
 
@@ -107,7 +104,7 @@ void ps2_keyboard_handle_byte(uint8_t scancode);
 /* Discard a partial keyboard sequence after a transport error. */
 void ps2_keyboard_reset_stream(void);
 
-/* Block until keyboard events are ready (worker loop helper). */
+/* Block until keyboard events are ready. */
 int             ps2kbd_wait_events(void);
 extern evdev_t *ps2_keyboard_evdev;
 

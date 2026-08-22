@@ -636,6 +636,11 @@ struct virtio_gpu_device {
         volatile int        cursorq_cmd_busy;
         wait_queue_t        ctrlq_cmd_wait;
         wait_queue_t        cursorq_cmd_wait;
+        wait_queue_t        ctrlq_complete_wait;
+        wait_queue_t        cursorq_complete_wait;
+        int                 irq_vector;
+        bool                irq_enabled;
+        bool                msix_enabled;
 
         /* Reusable DMA staging buffers; serialised by the command gates. */
         uint64_t ctrlq_dma_cmd_phys[VIRTGPU_CTRLQ_MAX_BATCH];
@@ -674,6 +679,10 @@ struct virtio_gpu_device {
         /* Current framebuffer for scanout */
         struct drm_framebuffer   *current_fb;
         struct virtio_gpu_object *current_scanout_obj;
+        uint32_t                  current_scanout_width;
+        uint32_t                  current_scanout_height;
+        uint32_t                  current_scanout_stride;
+        uint32_t                  current_scanout_offset;
         struct drm_plane         *kms_primary;
         struct drm_crtc          *kms_crtc;
         struct drm_encoder       *kms_encoder;

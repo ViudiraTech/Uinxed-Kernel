@@ -31,6 +31,7 @@ struct task;
 #define SYSCALL_CPU_USER_RSP_OFFSET   0
 #define SYSCALL_CPU_KERNEL_RSP_OFFSET 8
 #define SYSCALL_CPU_CURRENT_OFFSET    16
+#define SYSCALL_CPU_ID_OFFSET         24
 
 /*
  * GS-relative per-CPU window.  In kernel mode %gs points here, so the fields
@@ -41,11 +42,14 @@ typedef struct {
         uint64_t     user_rsp;   // 0x00 - user stack saved by syscall entry
         uint64_t     kernel_rsp; // 0x08 - per-CPU kernel stack
         struct task *current;    // 0x10 - task running on this CPU
+        uint32_t     cpu_id;     // 0x18 - scheduler CPU number
+        uint32_t     reserved;
 } syscall_cpu_state_t;
 
 _Static_assert(offsetof(syscall_cpu_state_t, user_rsp) == SYSCALL_CPU_USER_RSP_OFFSET, "syscall user RSP offset");
 _Static_assert(offsetof(syscall_cpu_state_t, kernel_rsp) == SYSCALL_CPU_KERNEL_RSP_OFFSET, "syscall kernel RSP offset");
 _Static_assert(offsetof(syscall_cpu_state_t, current) == SYSCALL_CPU_CURRENT_OFFSET, "syscall current offset");
+_Static_assert(offsetof(syscall_cpu_state_t, cpu_id) == SYSCALL_CPU_ID_OFFSET, "syscall CPU ID offset");
 
 /* Read the current task from the GS-relative per-CPU window (one load) */
 static inline struct task *percpu_gs_current(void)
@@ -59,6 +63,14 @@ static inline struct task *percpu_gs_current(void)
 static inline void percpu_gs_set_current(struct task *t)
 {
     __asm__("movq %0, %%gs:%c1" : : "r"(t), "i"(SYSCALL_CPU_CURRENT_OFFSET) : "memory");
+}
+
+/* Read the logical CPU number without the serializing RDTSCP instruction. */
+static inline uint32_t percpu_gs_cpu_id(void)
+{
+    uint32_t cpu_id;
+    __asm__("movl %%gs:%c1, %0" : "=r"(cpu_id) : "i"(SYSCALL_CPU_ID_OFFSET) : "memory");
+    return cpu_id;
 }
 
 /*
@@ -81,6 +93,10 @@ typedef struct {
 typedef struct cpu_processor {
         uint64_t            id;
         uint64_t            lapic_id;
+        uint32_t            package_id;
+        uint32_t            core_id;
+        uint32_t            thread_id;
+        uint32_t            capacity;
         gdt_t              *gdt;
         tss_stack_t        *tss_stack;
         tss_t              *tss;
@@ -112,6 +128,11 @@ uint32_t get_cpu_count(void);
 
 /* Get the ID of the current CPU */
 uint32_t get_current_cpu_id(void);
+
+/* Read-only hardware topology discovered from x86 CPUID topology leaves. */
+const cpu_processor_t *get_cpu_processor(uint32_t cpu_id);
+int                    cpu_topology_same_core(uint32_t first, uint32_t second);
+int                    cpu_topology_same_package(uint32_t first, uint32_t second);
 
 /* Get the current CPU's per-CPU state. */
 cpu_processor_t *get_current_cpu(void);

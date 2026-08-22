@@ -251,8 +251,17 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
         }
 
         wait_queue_prepare(&context.wq);
-        if (__atomic_load_n(&context.generation, __ATOMIC_ACQUIRE) != generation || poll_signal_pending(proc) || (!timeout->infinite && sched_ticks() >= timeout->deadline_tick))
-            wait_queue_wake_all(&context.wq);
+        if (__atomic_load_n(&context.generation, __ATOMIC_ACQUIRE) != generation || poll_signal_pending(proc) || (!timeout->infinite && sched_ticks() >= timeout->deadline_tick)) {
+            /*
+             * Condition already satisfied (or a signal arrived): withdraw
+             * our OWN prepared entry instead of waking the queue.  Waking
+             * ourselves through wake_all() only works while this task is
+             * still the queue's sole member and hides the real protocol
+             * transition from the scheduler.
+             */
+            wait_queue_cancel(&context.wq);
+            continue;
+        }
 
         if (timeout->infinite)
             wait_queue_sleep();

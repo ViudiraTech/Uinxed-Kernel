@@ -32,6 +32,15 @@
  */
 static uint32_t   drm_vblank_enabled_total;
 static spinlock_t drm_vblank_enabled_lock = {.lock = 0, .rflags = 0};
+static uint64_t   drm_vblank_next_ns       = UINT64_MAX;
+static uint64_t   drm_vblank_generation;
+
+/* IRQ-safe deadline hint for the software-vblank bottom half. */
+bool drm_vblank_deferred_due(uint64_t monotonic_ns)
+{
+    if (!__atomic_load_n(&drm_vblank_enabled_total, __ATOMIC_ACQUIRE)) return false;
+    return monotonic_ns >= __atomic_load_n(&drm_vblank_next_ns, __ATOMIC_ACQUIRE);
+}
 
 /* drm_vblank_init: initialize vblank subsystem for @num_crtcs CRTCs */
 int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
@@ -271,6 +280,8 @@ void drm_crtc_vblank_off(struct drm_crtc *crtc)
         vblank->enabled = false;
         spin_lock(&drm_vblank_enabled_lock);
         if (drm_vblank_enabled_total) drm_vblank_enabled_total--;
+        __atomic_add_fetch(&drm_vblank_generation, 1, __ATOMIC_RELEASE);
+        __atomic_store_n(&drm_vblank_next_ns, drm_vblank_enabled_total ? 0 : UINT64_MAX, __ATOMIC_RELEASE);
         spin_unlock(&drm_vblank_enabled_lock);
     }
     vblank->next_vblank_ns = 0;
@@ -323,7 +334,14 @@ void drm_crtc_vblank_on(struct drm_crtc *crtc)
         spin_unlock(&drm_vblank_enabled_lock);
     }
     if (!vblank->next_vblank_ns) vblank->next_vblank_ns = timer_monotonic_ns() + period_ns;
+    uint64_t next_vblank_ns = vblank->next_vblank_ns;
     spin_unlock(&vblank->lock);
+
+    spin_lock(&drm_vblank_enabled_lock);
+    __atomic_add_fetch(&drm_vblank_generation, 1, __ATOMIC_RELEASE);
+    uint64_t published = __atomic_load_n(&drm_vblank_next_ns, __ATOMIC_ACQUIRE);
+    if (next_vblank_ns < published) __atomic_store_n(&drm_vblank_next_ns, next_vblank_ns, __ATOMIC_RELEASE);
+    spin_unlock(&drm_vblank_enabled_lock);
 }
 
 /* drm_handle_vblank: handle a vblank interrupt for the given pipe */
@@ -387,6 +405,8 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 void drm_vblank_tick(void)
 {
     uint64_t           now;
+    uint64_t           next = UINT64_MAX;
+    uint64_t           generation = __atomic_load_n(&drm_vblank_generation, __ATOMIC_ACQUIRE);
     struct drm_device *devs[DRM_MAX_DEVICES];
     int                ndev;
 
@@ -394,10 +414,7 @@ void drm_vblank_tick(void)
      * Fast path: no CRTC has vblank enabled, so skip the device-list scan,
      * refcount churn and per-CRTC spinlocks that cost nothing to avoid.
      */
-    spin_lock(&drm_vblank_enabled_lock);
-    bool any_enabled = drm_vblank_enabled_total > 0;
-    spin_unlock(&drm_vblank_enabled_lock);
-    if (!any_enabled) return;
+    if (!__atomic_load_n(&drm_vblank_enabled_total, __ATOMIC_ACQUIRE)) return;
 
     now  = timer_monotonic_ns();
     ndev = drm_device_list_collect(devs, DRM_MAX_DEVICES);
@@ -428,12 +445,22 @@ void drm_vblank_tick(void)
                         vblank->next_vblank_ns += vblank->period_ns;
                     } while (now >= vblank->next_vblank_ns);
                 }
+                if (vblank->next_vblank_ns < next) next = vblank->next_vblank_ns;
                 spin_unlock(&vblank->lock);
                 if (due) drm_handle_vblank(dev, (unsigned int)i);
             }
         }
         drm_dev_put(dev);
     }
+
+    spin_lock(&drm_vblank_enabled_lock);
+    if (!drm_vblank_enabled_total)
+        __atomic_store_n(&drm_vblank_next_ns, UINT64_MAX, __ATOMIC_RELEASE);
+    else if (__atomic_load_n(&drm_vblank_generation, __ATOMIC_ACQUIRE) != generation)
+        __atomic_store_n(&drm_vblank_next_ns, 0, __ATOMIC_RELEASE);
+    else
+        __atomic_store_n(&drm_vblank_next_ns, next, __ATOMIC_RELEASE);
+    spin_unlock(&drm_vblank_enabled_lock);
 }
 
 /* drm_wait_vblank_ioctl: handle DRM_IOCTL_WAIT_VBLANK */

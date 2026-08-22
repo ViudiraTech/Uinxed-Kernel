@@ -491,8 +491,9 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
         if (ring->read_waiters) ring->read_waiters--;
     }
 
-    uint32_t avail = pipe_ring_readable(ring);
-    uint32_t chunk = (size < avail) ? (uint32_t)size : avail;
+    uint32_t avail    = pipe_ring_readable(ring);
+    uint32_t chunk    = (size < avail) ? (uint32_t)size : avail;
+    bool     was_full = pipe_ring_writable(ring) == 0;
 
     pipe_ring_copy_out(ring, (uint8_t *)addr, chunk);
     pipe_ring_consume(ring, chunk);
@@ -507,7 +508,7 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
      * remains.  Waking the whole queue creates avoidable scheduler/IPI work.
      */
     if (wake_writers) wait_queue_wake_one_sync(&ring->write_wq);
-    pipe_poll_notify(node, POLLOUT);
+    if (was_full) pipe_poll_notify(node, POLLOUT);
 
     return (int64_t)chunk;
 }
@@ -569,8 +570,9 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
             if (ring->read_waiters) ring->read_waiters--;
         }
 
-        uint32_t avail = pipe_ring_readable(ring);
-        uint32_t chunk = size < avail ? (uint32_t)size : avail;
+        uint32_t avail    = pipe_ring_readable(ring);
+        uint32_t chunk    = size < avail ? (uint32_t)size : avail;
+        bool     was_full = pipe_ring_writable(ring) == 0;
         if (pipe_ring_copy_out_user(ring, proc, addr, chunk)) {
             spin_unlock(&ring->lock);
             /*
@@ -587,7 +589,7 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
         spin_unlock(&ring->lock);
 
         if (wake_writers) wait_queue_wake_one_sync(&ring->write_wq);
-        pipe_poll_notify(node, POLLOUT);
+        if (was_full) pipe_poll_notify(node, POLLOUT);
         return (int64_t)chunk;
     }
 }
@@ -668,7 +670,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
 
         /* Wake readers that may be waiting for data */
         if (wake_readers) wait_queue_wake_one_sync(&ring->read_wq);
-        pipe_poll_notify(node, POLLIN);
+        if (was_empty) pipe_poll_notify(node, POLLIN);
     }
 
     return (int64_t)total_written;
@@ -765,7 +767,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
         spin_unlock(&ring->lock);
 
         if (wake_readers) wait_queue_wake_one_sync(&ring->read_wq);
-        pipe_poll_notify(node, POLLIN);
+        if (was_empty) pipe_poll_notify(node, POLLIN);
     }
 
     return (int64_t)total_written;

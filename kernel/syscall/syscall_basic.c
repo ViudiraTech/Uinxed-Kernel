@@ -1640,23 +1640,17 @@ int64_t sys_pidfd_send_signal_impl(uint64_t pidfd, uint64_t sig, uint64_t info, 
     (void)arg4;
     (void)arg5;
     if (flags) return -EINVAL;
+    if (pidfd >= PROCESS_MAX_FD) return -EBADF;
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /* pidfd is a file descriptor pointing to a process */
-    process_file_t *pf     = process_fd_get(proc, (int)pidfd);
-    process_t      *target = NULL;
-
-    if (pf && pf->node && pf->node->handle) target = (process_t *)pf->node->handle;
+    process_file_t *pf = process_fd_get(proc, (int)pidfd);
+    if (!pf) return -EBADF;
+    process_t *target = pidfd_get_target(pf->node);
     if (!target) {
-        /* Fallback: treat pidfd as a raw PID */
-        if (pf) process_file_put(pf);
-        target = process_find_get((pid_t)pidfd);
-        if (!target) return -ESRCH;
-        int ret = signal_send(target, (int)sig, NULL);
-        process_put(target);
-        return ret;
+        process_file_put(pf);
+        return -EBADF;
     }
 
     int ret = signal_send(target, (int)sig, NULL);
@@ -1986,38 +1980,30 @@ int64_t sys_pidfd_getfd_impl(uint64_t pidfd, uint64_t targetfd, uint64_t flags, 
     (void)arg4;
     (void)arg5;
     if (flags) return -EINVAL;
+    if (pidfd >= PROCESS_MAX_FD || targetfd >= PROCESS_MAX_FD) return -EBADF;
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /* pidfd is a file descriptor pointing to a process */
-    process_file_t *pf     = process_fd_get(proc, (int)pidfd);
-    process_t      *target = NULL;
-
-    if (pf && pf->node && pf->node->handle) target = (process_t *)pf->node->handle;
+    process_file_t *pf = process_fd_get(proc, (int)pidfd);
+    if (!pf) return -EBADF;
+    process_t *target = pidfd_get_target(pf->node);
     if (!target) {
-        if (pf) process_file_put(pf);
-        target = process_find_get((pid_t)pidfd);
-        if (!target) return -ESRCH;
+        process_file_put(pf);
+        return -EBADF;
     }
 
     /* Get the target's fd */
     process_file_t *tf = process_fd_get(target, (int)targetfd);
     if (!tf) {
-        if (pf)
-            process_file_put(pf);
-        else
-            process_put(target);
+        process_file_put(pf);
         return -EBADF;
     }
 
-    /* Install in current process */
-    int newfd = process_fd_install(proc, tf->node, tf->flags);
+    /* Duplicate the same open-file description and set close-on-exec. */
+    int newfd = process_fd_install_file(proc, tf, O_CLOEXEC);
     process_file_put(tf);
-    if (pf)
-        process_file_put(pf);
-    else
-        process_put(target);
+    process_file_put(pf);
 
     return newfd;
 }

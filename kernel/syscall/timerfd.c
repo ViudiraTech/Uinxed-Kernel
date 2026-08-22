@@ -38,6 +38,28 @@ typedef struct {
 static int          timerfd_fsid = -1;
 static ilist_node_t timerfd_list;
 static spinlock_t   timerfd_list_lock;
+static uint64_t     timerfd_next_monotonic_ns = UINT64_MAX;
+static uint64_t     timerfd_next_realtime_ns  = UINT64_MAX;
+static uint64_t     timerfd_deadline_generation;
+
+/* Publish an earlier deadline without making the timer interrupt scan lists. */
+static void timerfd_deadline_min(uint64_t clockid, uint64_t deadline_ns)
+{
+    uint64_t *next = clockid == CLOCK_REALTIME ? &timerfd_next_realtime_ns : &timerfd_next_monotonic_ns;
+    uint64_t  seen = __atomic_load_n(next, __ATOMIC_ACQUIRE);
+    while (deadline_ns < seen && !__atomic_compare_exchange_n(next, &seen, deadline_ns, false, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {}
+}
+
+/* IRQ-safe deadline test; stale early values merely request one harmless rescan. */
+bool timerfd_deferred_due(uint64_t monotonic_ns)
+{
+    uint64_t mono = __atomic_load_n(&timerfd_next_monotonic_ns, __ATOMIC_ACQUIRE);
+    uint64_t real = __atomic_load_n(&timerfd_next_realtime_ns, __ATOMIC_ACQUIRE);
+    if (monotonic_ns >= mono) return true;
+    if (real == UINT64_MAX) return false;
+    int64_t realtime_ns = timer_realtime_ns();
+    return realtime_ns >= 0 && (uint64_t)realtime_ns >= real;
+}
 
 /* Convert a timespec to nanoseconds, validating the input. */
 static int timerfd_timespec_to_ns(const timerfd_timespec_t *ts, uint64_t *ns)
@@ -378,7 +400,12 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         ctx->armed = 1;
     }
 
+    bool     armed      = ctx->armed;
+    uint64_t clockid    = ctx->clockid;
+    uint64_t deadline   = ctx->deadline_ns;
     spin_unlock(&ctx->lock);
+    __atomic_add_fetch(&timerfd_deadline_generation, 1, __ATOMIC_RELEASE);
+    if (armed) timerfd_deadline_min(clockid, deadline);
     process_file_put(file);
     return EOK;
 }
@@ -426,6 +453,10 @@ int sys_timerfd_gettime(int fd, void *curr_value)
 /* Periodic tick: fire expired timers and publish readiness */
 void timerfd_tick(void)
 {
+    uint64_t next_monotonic = UINT64_MAX;
+    uint64_t next_realtime  = UINT64_MAX;
+    uint64_t generation     = __atomic_load_n(&timerfd_deadline_generation, __ATOMIC_ACQUIRE);
+
     spin_lock(&timerfd_list_lock);
     for (ilist_node_t *node = timerfd_list.next; node != &timerfd_list; node = node->next) {
         timerfd_ctx_t *ctx = (timerfd_ctx_t *)((char *)node - offsetof(timerfd_ctx_t, timers));
@@ -449,17 +480,32 @@ void timerfd_tick(void)
 
             /* Publish readiness to VFS subscribers, not just direct waiters. */
             vfs_poll_notify(ctx->node, 0x001U);
-            continue;
+            spin_lock(&ctx->lock);
+        }
+        if (ctx->armed) {
+            uint64_t *next = ctx->clockid == CLOCK_REALTIME ? &next_realtime : &next_monotonic;
+            if (ctx->deadline_ns < *next) *next = ctx->deadline_ns;
         }
         spin_unlock(&ctx->lock);
     }
+    __atomic_store_n(&timerfd_next_monotonic_ns, next_monotonic, __ATOMIC_RELEASE);
+    __atomic_store_n(&timerfd_next_realtime_ns, next_realtime, __ATOMIC_RELEASE);
     spin_unlock(&timerfd_list_lock);
+
+    /* A concurrent reprogram may have raced the rescan stores; retry next tick. */
+    if (__atomic_load_n(&timerfd_deadline_generation, __ATOMIC_ACQUIRE) != generation) {
+        __atomic_store_n(&timerfd_next_monotonic_ns, 0, __ATOMIC_RELEASE);
+        __atomic_store_n(&timerfd_next_realtime_ns, 0, __ATOMIC_RELEASE);
+    }
 }
 
 /* Register the timerfd filesystem callback set */
 void timerfd_init(void)
 {
     ilist_init(&timerfd_list);
+    __atomic_store_n(&timerfd_next_monotonic_ns, UINT64_MAX, __ATOMIC_RELEASE);
+    __atomic_store_n(&timerfd_next_realtime_ns, UINT64_MAX, __ATOMIC_RELEASE);
+    __atomic_store_n(&timerfd_deadline_generation, 0, __ATOMIC_RELEASE);
     vfs_callback_t cb = calloc(1, sizeof(struct vfs_callback));
     if (!cb) {
         plogk("timerfd: Failed to allocate callback.\n");

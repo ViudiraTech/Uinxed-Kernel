@@ -911,6 +911,7 @@ int                         drm_wait_vblank_ioctl(struct drm_device *dev, void *
 int                         drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs);
 void                        drm_handle_vblank(struct drm_device *dev, unsigned int pipe);
 void                        drm_vblank_tick(void);
+bool                        drm_vblank_deferred_due(uint64_t monotonic_ns);
 void                        drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
 void                        drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
 uint32_t                    drm_crtc_vblank_count(struct drm_crtc *crtc);

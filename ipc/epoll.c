@@ -32,6 +32,7 @@
 #ifndef EPOLL_MAX_FDS
 #    define EPOLL_MAX_FDS 1024
 #endif
+#define EPOLL_MAX_NESTS     4
 #define EPOLL_TICKS_PER_SEC TIMER_HZ
 
 /* Internal structures */
@@ -69,6 +70,43 @@ typedef struct epoll_instance {
 /* Static filesystem ID */
 
 static int epoll_fsid = -1;
+
+/* Serializes changes to the graph formed by epoll-on-epoll registrations. */
+static spinlock_t epoll_topology_lock;
+
+static epoll_instance_t *epoll_file_instance(process_file_t *file)
+{
+    if (!file || !file->node || !(file->node->type & file_epoll)) return NULL;
+    return (epoll_instance_t *)file->node->handle;
+}
+
+/*
+ * Return true if start already reaches needle, or if following the proposed
+ * edge would make the nesting deeper than the supported bound.  The topology
+ * lock makes the item arrays stable while this walk is in progress.
+ */
+static bool epoll_path_reaches(epoll_instance_t *start, epoll_instance_t *needle, unsigned int depth)
+{
+    if (start == needle) return true;
+    if (depth >= EPOLL_MAX_NESTS) return true;
+
+    for (int fd = 0; fd <= start->max_fd; fd++) {
+        epoll_item_t *item = start->items[fd];
+        if (!item || !__atomic_load_n(&item->active, __ATOMIC_ACQUIRE)) continue;
+
+        epoll_instance_t *child = epoll_file_instance(item->file);
+        if (child && epoll_path_reaches(child, needle, depth + 1)) return true;
+    }
+    return false;
+}
+
+static bool epoll_signal_pending(process_t *proc)
+{
+    spin_lock(&proc->signal.lock);
+    bool pending = signal_has_interrupting_pending(&proc->signal);
+    spin_unlock(&proc->signal.lock);
+    return pending;
+}
 
 /*
  * Map a process_fd_poll result (which returns POLLIN/POLLOUT/POLLERR/POLLHUP)
@@ -382,9 +420,11 @@ static int epoll_vfs_free(void *handle)
     if (!epi) return -EINVAL;
 
     for (int fd = 0; fd <= epi->max_fd; fd++) {
+        spin_lock(&epoll_topology_lock);
         spin_lock(&epi->lock);
         epoll_item_t *item = epoll_item_del(epi, fd);
         spin_unlock(&epi->lock);
+        spin_unlock(&epoll_topology_lock);
         epoll_item_release(item);
     }
 
@@ -586,6 +626,20 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
         }
     }
 
+    spin_lock(&epoll_topology_lock);
+
+    if (target) {
+        epoll_instance_t *target_epi = epoll_file_instance(target);
+        if (target_epi == epi) {
+            ret = -EINVAL;
+            goto out_topology;
+        }
+        if (target_epi && epoll_path_reaches(target_epi, epi, 0)) {
+            ret = -ELOOP;
+            goto out_topology;
+        }
+    }
+
     spin_lock(&epi->lock);
 
     switch (op) {
@@ -682,6 +736,8 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
     }
 
     spin_unlock(&epi->lock);
+out_topology:
+    spin_unlock(&epoll_topology_lock);
     if (publish_ready && epi->node) vfs_poll_notify(epi->node, POLLIN);
     if (target) process_file_put(target);
     epoll_item_release(release);
@@ -730,17 +786,29 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
             break;
         }
 
-        spin_lock(&proc->signal.lock);
-        bool interrupted = signal_has_interrupting_pending(&proc->signal);
-        spin_unlock(&proc->signal.lock);
-        if (interrupted) {
+        if (epoll_signal_pending(proc)) {
             ret = -ERESTARTSYS;
             break;
         }
 
         wait_queue_prepare(&epi->wq);
-        if (__atomic_load_n(&epi->event_generation, __ATOMIC_ACQUIRE) != generation) wait_queue_wake_all(&epi->wq);
+        if (__atomic_load_n(&epi->event_generation, __ATOMIC_ACQUIRE) != generation) {
+            /*
+             * Events arrived between the scan and the prepare: withdraw our
+             * OWN prepared entry instead of waking the queue (self-wake
+             * through wake_all is not a cancellation protocol).
+             */
+            wait_queue_cancel(&epi->wq);
+            spin_unlock(&epi->lock);
+            continue;
+        }
         spin_unlock(&epi->lock);
+        if (epoll_signal_pending(proc)) {
+            wait_queue_cancel(&epi->wq);
+            spin_lock(&epi->lock);
+            ret = -ERESTARTSYS;
+            break;
+        }
         if (deadline)
             (void)wait_queue_wait_timed(&epi->wq, deadline);
         else

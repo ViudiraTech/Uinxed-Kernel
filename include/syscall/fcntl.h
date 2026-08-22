@@ -38,6 +38,7 @@
 #define F_SEAL_GROW         0x0004
 #define F_SEAL_WRITE        0x0008
 #define F_SEAL_FUTURE_WRITE 0x0010
+#define F_SEAL_EXEC         0x0020
 
 /* FD flags (for F_GETFD/F_SETFD) */
 #define FD_CLOEXEC 1

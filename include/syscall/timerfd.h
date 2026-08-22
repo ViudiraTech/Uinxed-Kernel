@@ -50,5 +50,6 @@ void timerfd_init(void);
 
 /* Account armed timerfds from the unified monotonic clock. */
 void timerfd_tick(void);
+bool timerfd_deferred_due(uint64_t monotonic_ns);
 
 #endif // INCLUDE_TIMERFD_H_

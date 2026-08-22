@@ -48,7 +48,7 @@ int drm_atomic_worker_init(void)
     if (__atomic_load_n(&drm_atomic_worker_state, __ATOMIC_ACQUIRE) == 2) return 0;
     if (!__atomic_compare_exchange_n(&drm_atomic_worker_state, &expected, 1, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
         while (__atomic_load_n(&drm_atomic_worker_state, __ATOMIC_ACQUIRE) == 1) {
-            if (scheduler.started)
+            if (__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE))
                 sched_yield();
             else
                 __asm__ volatile("pause");

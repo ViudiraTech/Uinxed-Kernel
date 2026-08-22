@@ -235,11 +235,25 @@ static int memfd_free(void *handle)
     return EOK;
 }
 
+/* Keep execute permission bits immutable after F_SEAL_EXEC is installed. */
+static int memfd_chmod(vfs_node_t node, uint16_t mode)
+{
+    memfd_file_t *file = node->handle;
+    if (!file) return -EINVAL;
+
+    spin_lock(&file->lock);
+    bool exec_changed = ((node->mode ^ mode) & 0111) != 0;
+    bool exec_sealed  = (file->seals & F_SEAL_EXEC) != 0;
+    spin_unlock(&file->lock);
+    return exec_sealed && exec_changed ? -EPERM : EOK;
+}
+
 static struct vfs_callback memfd_callbacks = {
     .stat       = memfd_stat,
     .free       = memfd_free,
     .file_read  = memfd_file_read,
     .file_write = memfd_file_write,
+    .chmod      = memfd_chmod,
 };
 
 /* Register the memfd filesystem */
@@ -265,7 +279,7 @@ int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t 
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if ((flags & ~(uint64_t)(MFD_CLOEXEC | MFD_ALLOW_SEALING)) || !name) {
+    if ((flags & ~(uint64_t)(MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_NOEXEC_SEAL)) || !name) {
         plogk("memfd: Create invalid flags (%lx)\n", (unsigned long)flags);
         return -EINVAL;
     }
@@ -296,7 +310,10 @@ int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t 
         return -ENOMEM;
     }
     memset(file, 0, sizeof(*file));
-    file->seals = (flags & MFD_ALLOW_SEALING) ? 0 : F_SEAL_SEAL;
+    if (flags & MFD_NOEXEC_SEAL)
+        file->seals = F_SEAL_EXEC;
+    else
+        file->seals = (flags & MFD_ALLOW_SEALING) ? 0 : F_SEAL_SEAL;
 
     char node_name[MFD_NAME_MAX + 8];
     strcpy(node_name, "memfd:");
@@ -345,7 +362,7 @@ int memfd_add_seals(vfs_node_t node, uint32_t seals)
         plogk("memfd: add_seals on non-memfd node (%p)\n", (void *)node);
         return -EINVAL;
     }
-    if (!seals || (seals & ~(F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE | F_SEAL_FUTURE_WRITE))) {
+    if (!seals || (seals & ~(F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE | F_SEAL_FUTURE_WRITE | F_SEAL_EXEC))) {
         plogk("memfd: add_seals invalid flags (%x)\n", (unsigned)seals);
         return -EINVAL;
     }
@@ -356,6 +373,8 @@ int memfd_add_seals(vfs_node_t node, uint32_t seals)
         plogk("memfd: add_seals denied (file=%p, seal=sealed)\n", (void *)file);
         return -EPERM;
     }
+    /* Sealing an executable memfd also freezes its contents (Linux W^X semantics). */
+    if ((seals & F_SEAL_EXEC) && (node->mode & 0111)) seals |= F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE | F_SEAL_FUTURE_WRITE;
     if ((seals & F_SEAL_WRITE) && file->writable_mappings) {
         spin_unlock(&file->lock);
         plogk("memfd: add_seals F_SEAL_WRITE denied (file=%p, writable_mappings=%u)\n", (void *)file, file->writable_mappings);

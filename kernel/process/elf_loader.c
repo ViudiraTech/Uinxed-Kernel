@@ -410,80 +410,81 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         return -EINVAL;
     }
 
-    uint8_t *elf_data = malloc(node->size);
-    if (!elf_data) {
+    elf_source_t source = {.data = NULL, .node = node, .size = (size_t)node->size};
+    Elf64_Ehdr   ehdr;
+    int          result = elf_source_read(&source, 0, &ehdr, sizeof(ehdr));
+    if (result || validate_ehdr(&ehdr, source.size)) {
+        vfs_close(node);
+        return result ? result : -ENOEXEC;
+    }
+
+    size_t      phdr_size = (size_t)ehdr.e_phnum * sizeof(Elf64_Phdr);
+    Elf64_Phdr *phdr      = malloc(phdr_size);
+    if (!phdr) {
         vfs_close(node);
         return -ENOMEM;
     }
+    result = elf_source_read(&source, (size_t)ehdr.e_phoff, phdr, phdr_size);
+    if (result) goto out;
 
-    size_t total = 0;
-    while (total < node->size) {
-        size_t remaining = node->size - total;
-        size_t n         = vfs_read(node, elf_data + total, total, remaining);
-        if (!n || n > remaining) break;
-        total += n;
-    }
-    vfs_close(node);
-
-    if (total < sizeof(Elf64_Ehdr)) {
-        free(elf_data);
-        return -ENOEXEC;
-    }
-
-    Elf64_Ehdr *iehdr = NULL;
-    if (validate_elf(elf_data, total, &iehdr)) {
-        free(elf_data);
-        return -ENOEXEC;
-    }
-
-    const Elf64_Phdr *iphdr       = (const Elf64_Phdr *)(elf_data + iehdr->e_phoff);
-    uintptr_t         image_start = UINT64_MAX;
-    uintptr_t         image_end   = 0;
-    for (int i = 0; i < iehdr->e_phnum; i++) {
-        if (iphdr[i].type != PT_LOAD) continue;
-        uintptr_t start = ALIGN_DOWN(iphdr[i].vaddr, PAGE_4K_SIZE);
-        uintptr_t end   = ALIGN_UP(iphdr[i].vaddr + iphdr[i].memsz, PAGE_4K_SIZE);
+    uintptr_t image_start = UINT64_MAX;
+    uintptr_t image_end   = 0;
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        if (phdr[i].type != PT_LOAD) continue;
+        uintptr_t start, end;
+        int range = elf_segment_range(&phdr[i], 0, NULL, &start, &end);
+        if (range < 0) {
+            result = -ENOEXEC;
+            goto out;
+        }
+        if (!range) continue;
         if (start < image_start) image_start = start;
         if (end > image_end) image_end = end;
     }
     if (image_start == UINT64_MAX || image_end <= image_start) {
-        free(elf_data);
-        return -ENOEXEC;
+        result = -ENOEXEC;
+        goto out;
     }
 
     uintptr_t interp_base = find_free_range(proc, INTERP_LOAD_BASE, INTERP_LOAD_END, image_end - image_start);
     if (!interp_base) {
-        free(elf_data);
-        return -ENOMEM;
+        result = -ENOMEM;
+        goto out;
     }
 
-    uintptr_t load_bias = compute_load_bias(iehdr, iphdr, interp_base);
+    uintptr_t load_bias = compute_load_bias(&ehdr, phdr, interp_base);
 
-    int load_ret = load_elf_segments(proc, iehdr, elf_data, total, load_bias, 0);
-    if (load_ret) {
-        free(elf_data);
-        return load_ret;
-    }
+    /* Stream the linker through a small window instead of copying its entire file per exec. */
+    source.window_capacity = 64U * 1024U;
+    source.window          = malloc(source.window_capacity);
+    if (!source.window) source.window_capacity = 0;
+
+    result = load_elf_segments_source(proc, &ehdr, phdr, &source, load_bias, 0);
+    if (result) goto out;
 
     int valid_entry = 0;
-    for (int i = 0; i < iehdr->e_phnum; i++) {
-        if (iphdr[i].type == PT_LOAD && (iphdr[i].flags & PF_X)) {
-            uintptr_t entry = iehdr->e_entry + load_bias;
-            uintptr_t start = iphdr[i].vaddr + load_bias;
-            if (entry >= start && entry < start + iphdr[i].memsz) valid_entry = 1;
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        if (phdr[i].type == PT_LOAD && (phdr[i].flags & PF_X)) {
+            uintptr_t entry = ehdr.e_entry + load_bias;
+            uintptr_t start = phdr[i].vaddr + load_bias;
+            if (entry >= start && phdr[i].memsz <= UINT64_MAX - start && entry < start + phdr[i].memsz) valid_entry = 1;
         }
         if (valid_entry) break;
     }
     if (!valid_entry) {
-        free(elf_data);
-        return -ENOEXEC;
+        result = -ENOEXEC;
+        goto out;
     }
 
     *base_out  = load_bias;
-    *entry_out = iehdr->e_entry + load_bias;
+    *entry_out = ehdr.e_entry + load_bias;
+    result     = 0;
 
-    free(elf_data);
-    return 0;
+out:
+    free(source.window);
+    free(phdr);
+    vfs_close(node);
+    return result;
 }
 
 /* Count the entries in a NULL-terminated string array */

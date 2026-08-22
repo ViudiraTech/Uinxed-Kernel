@@ -10,6 +10,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <mem/pagecache.h>
@@ -28,7 +29,12 @@
 #define PAGECACHE_HASH_MAX_SIZE (1U << PAGECACHE_HASH_MAX_BITS)
 #define PAGECACHE_HASH_LOAD     4U
 #define PAGECACHE_READAHEAD_MIN 2U
-#define PAGECACHE_READAHEAD_MAX 32U
+#define PAGECACHE_READAHEAD_MAX 16U
+
+/* Keep direct reclaim latency bounded for page faults and desktop redraws. */
+#define PAGECACHE_RECLAIM_MIN_SCAN      4096U
+#define PAGECACHE_RECLAIM_SCAN_PER_PAGE 32U
+#define PAGECACHE_RECLAIM_MAX_WRITEBACK 4U
 
 #define PC_PAGE_UPTODATE   (1U << 0)
 #define PC_PAGE_DIRTY      (1U << 1)
@@ -180,6 +186,17 @@ static void pc_lru_add_tail_locked(pagecache_page_t *page)
 /* Mark a page as referenced and move it to the head of the LRU. */
 static void pc_touch(pagecache_page_t *page)
 {
+    /*
+     * Hot active pages only need their access bit refreshed.  Avoid taking
+     * the global LRU lock on every shared-library, font and icon-cache hit;
+     * reclaim will consume this bit and rotate the page when necessary.
+     */
+    uint32_t state = __atomic_load_n(&page->flags, __ATOMIC_ACQUIRE);
+    if ((state & (PC_PAGE_ACTIVE | PC_PAGE_READAHEAD | PC_PAGE_EVICTING)) == PC_PAGE_ACTIVE) {
+        __atomic_fetch_or(&page->flags, PC_PAGE_REFERENCED, __ATOMIC_RELAXED);
+        return;
+    }
+
     pc_lock(&page->lock);
     pc_lock(&pagecache.lock);
     if (!(page->flags & PC_PAGE_EVICTING)) {
@@ -556,7 +573,6 @@ void pagecache_mark_dirty(pagecache_page_t *page)
 /* Prefetch count pages starting at first, returning the first error if strict. */
 static int pc_readahead_pages(pagecache_mapping_t *mapping, uint64_t first, uint32_t count, int strict)
 {
-    if (__atomic_load_n(&mapping->pins, __ATOMIC_ACQUIRE)) return EOK;
     uint64_t size       = __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE);
     uint64_t file_pages = size / PAGECACHE_PAGE_SIZE + (size % PAGECACHE_PAGE_SIZE != 0);
     if (!file_pages || first >= file_pages) return EOK;
@@ -609,6 +625,12 @@ static void pc_adaptive_readahead(pagecache_mapping_t *mapping, uint64_t first, 
     pc_unlock(&mapping->lock);
 
     if (prefetch_count && last != UINT64_MAX) (void)pc_readahead_pages(mapping, prefetch_first, prefetch_count, 0);
+}
+
+/* Feed sequential mmap faults into the same adaptive window as read(2). */
+void pagecache_mmap_readahead(pagecache_mapping_t *mapping, uint64_t index)
+{
+    if (mapping) pc_adaptive_readahead(mapping, index, index);
 }
 
 /* Read a range of the mapping into buffer. */
@@ -966,16 +988,62 @@ int pagecache_readahead(pagecache_mapping_t *mapping, uint64_t offset, size_t si
 /* Free clean pages up to target, writing back dirty candidates. */
 size_t pagecache_reclaim(size_t target)
 {
+    bool   unlimited   = target == SIZE_MAX;
+    size_t scan_budget = SIZE_MAX;
+    if (!unlimited) {
+        scan_budget = target > SIZE_MAX / PAGECACHE_RECLAIM_SCAN_PER_PAGE ? SIZE_MAX : target * PAGECACHE_RECLAIM_SCAN_PER_PAGE;
+        if (scan_budget < PAGECACHE_RECLAIM_MIN_SCAN) scan_budget = PAGECACHE_RECLAIM_MIN_SCAN;
+    }
+
     size_t reclaimed = 0;
-    while (reclaimed < target) {
+    size_t scanned   = 0;
+    size_t writeback = 0;
+    while (reclaimed < target && scanned < scan_budget) {
         pagecache_page_t *victim = NULL;
         pagecache_page_t *dirty  = NULL;
         pc_lock(&pagecache.lock);
-        for (pagecache_page_t *page = pagecache.lru_tail; page; page = page->lru_prev) {
+        pagecache_page_t *previous = NULL;
+        for (pagecache_page_t *page = pagecache.lru_tail; page && scanned < scan_budget; page = previous) {
+            previous = page->lru_prev;
+            scanned++;
             if ((page->mapping->flags & PAGECACHE_MAPPING_UNEVICTABLE) || __atomic_load_n(&page->mapping->pins, __ATOMIC_ACQUIRE)) continue;
             if (__atomic_load_n(&page->references, __ATOMIC_ACQUIRE)) continue;
             if (!pc_trylock(&page->lock)) continue;
             if (page->flags & (PC_PAGE_WRITEBACK | PC_PAGE_EVICTING)) {
+                pc_unlock(&page->lock);
+                continue;
+            }
+
+            /*
+             * Two-generation/second-chance aging: an accessed page becomes
+             * active, an unreferenced active page is demoted, and only an
+             * inactive unreferenced page can be evicted.  Rotating each aged
+             * page to the head prevents one reclaim call from immediately
+             * consuming all of its chances and protects the desktop working
+             * set against short allocation bursts.
+             */
+            if (page->flags & PC_PAGE_REFERENCED) {
+                page->flags &= ~PC_PAGE_REFERENCED;
+                if (!(page->flags & PC_PAGE_ACTIVE)) {
+                    page->flags |= PC_PAGE_ACTIVE;
+                    pc_stat_inc(&pagecache.stats.active);
+                    pc_stat_dec(&pagecache.stats.inactive);
+                }
+                if (pagecache.lru_head != page) {
+                    pc_lru_remove_locked(page);
+                    pc_lru_add_head_locked(page);
+                }
+                pc_unlock(&page->lock);
+                continue;
+            }
+            if (page->flags & PC_PAGE_ACTIVE) {
+                page->flags &= ~PC_PAGE_ACTIVE;
+                pc_stat_dec(&pagecache.stats.active);
+                pc_stat_inc(&pagecache.stats.inactive);
+                if (pagecache.lru_head != page) {
+                    pc_lru_remove_locked(page);
+                    pc_lru_add_head_locked(page);
+                }
                 pc_unlock(&page->lock);
                 continue;
             }
@@ -1004,9 +1072,14 @@ size_t pagecache_reclaim(size_t target)
         }
         pc_unlock(&pagecache.lock);
         if (!victim && dirty) {
+            if (!unlimited && writeback >= PAGECACHE_RECLAIM_MAX_WRITEBACK) {
+                pc_unlock(&dirty->lock);
+                break;
+            }
             int result = pc_writeback_page_locked(dirty);
             pc_unlock(&dirty->lock);
             if (result) break;
+            writeback++;
             continue;
         }
         if (dirty) pc_unlock(&dirty->lock);

@@ -25,6 +25,7 @@
 #include <process/sched.h>
 #include <process/task.h>
 #include <process/uaccess.h>
+#include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 
@@ -36,6 +37,16 @@
 #endif
 #define SOCK_BOUND_MAX      256
 #define SOCK_SHUT_MASK(how) ((how) == SHUT_RDWR ? ((1U << SHUT_RD) | (1U << SHUT_WR)) : (1U << (uint32_t)(how)))
+
+/*
+ * SOCK_SEQPACKET metadata belongs to the queued record, not to the live peer
+ * link.  The sender is allowed to close immediately after sendmsg(); keeping
+ * credentials in the record preserves SCM_CREDENTIALS across that race.
+ */
+typedef struct unix_seqpacket_header {
+        uint32_t length;
+        ucred_t  credentials;
+} unix_seqpacket_header_t;
 
 /* Bound-address registry - UNIX-domain namespace */
 
@@ -300,6 +311,33 @@ static void sock_blocked_unregister(socket_t *sk)
      * hook for symmetry with the old implementation.
      */
     (void)sk;
+}
+
+/* True when the current operation has a deliverable signal pending. */
+static bool socket_signal_pending(void)
+{
+    process_t *proc = process_current();
+    if (!proc) return false;
+    spin_lock(&proc->signal.lock);
+    bool pending = signal_has_interrupting_pending(&proc->signal);
+    spin_unlock(&proc->signal.lock);
+    return pending;
+}
+
+/*
+ * Complete a prepared socket wait without losing a signal that arrives
+ * between dropping the socket lock and committing TASK_BLOCKED.  A signal is
+ * durable in the pending mask, while an early task_wakeup() removes the task
+ * from the wait queue, so checking on both sides of sleep closes both races.
+ */
+static int sock_blocked_sleep_interruptible(socket_t *sk)
+{
+    if (socket_signal_pending()) {
+        wait_queue_cancel(&sk->waitq);
+        return -ERESTARTSYS;
+    }
+    wait_queue_sleep();
+    return socket_signal_pending() ? -ERESTARTSYS : EOK;
 }
 
 /* Wake a single task blocked on this socket. */
@@ -1158,6 +1196,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     sk->state = SOCK_STATE_CONNECTED;
 
     /* Add to accept queue */
+    bool accept_became_ready = listener->accept_queue_len == 0;
     listener->accept_queue[listener->accept_queue_len] = server;
     listener->accept_queue_len++;
     socket_ref(server);
@@ -1166,7 +1205,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     spin_unlock(&listener->lock);
 
     sock_blocked_wake(listener);
-    socket_poll_notify(listener, 0x001);
+    if (accept_became_ready) socket_poll_notify(listener, 0x001);
 
     /* The peer link and accept queue now own the server endpoint. */
     socket_unref(server);
@@ -1202,7 +1241,8 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&sk->lock);
-        wait_queue_sleep();
+        int wait_status = sock_blocked_sleep_interruptible(sk);
+        if (wait_status) return wait_status;
         spin_lock(&sk->lock);
         sock_blocked_unregister(sk);
     }
@@ -1243,6 +1283,8 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
     socket_t *peer;
     int       is_nonblock;
     uint32_t  total_written = 0;
+    bool      publish_readable = false;
+    bool      rights_published = false;
     int       ret;
 
     if (sk->type != SOCK_STREAM && sk->type != SOCK_SEQPACKET) return -EOPNOTSUPP;
@@ -1288,6 +1330,20 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
         uint32_t space = sock_buf_space(&peer->recv_buf);
 
         if (space == 0) {
+            /*
+             * A blocking write may fill the peer buffer before the whole
+             * request is copied.  Publish that completed batch before this
+             * writer sleeps; otherwise both endpoints can wait forever (the
+             * receiver has data but never gets its wakeup).
+             */
+            if (publish_readable) {
+                spin_unlock(&peer->lock);
+                sock_blocked_wake(peer);
+                socket_poll_notify(peer, 0x001);
+                publish_readable = false;
+                spin_lock(&peer->lock);
+                continue;
+            }
             if (is_nonblock) {
                 if (total_written == 0) {
                     spin_unlock(&peer->lock);
@@ -1299,9 +1355,16 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
             /* Block until peer reads some data */
             sock_blocked_register(sk, current_task());
             spin_unlock(&peer->lock);
-            wait_queue_sleep();
+            int wait_status = sock_blocked_sleep_interruptible(sk);
             spin_lock(&peer->lock);
             sock_blocked_unregister(sk);
+
+            if (wait_status) {
+                if (total_written) break;
+                spin_unlock(&peer->lock);
+                socket_unref(peer);
+                return wait_status;
+            }
 
             if (peer->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD)) {
                 spin_unlock(&peer->lock);
@@ -1314,30 +1377,28 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
         if (chunk > space) chunk = space;
 
         /* Write as much as we can; the upper layer handles message boundaries. */
+        if (sock_buf_available(&peer->recv_buf) == 0) publish_readable = true;
         uint32_t written = sock_buf_write(&peer->recv_buf, (const uint8_t *)buf + total_written, chunk);
         total_written += written;
+
+        /* SCM_RIGHTS becomes visible atomically with the first accepted byte. */
+        if (written && !rights_published) {
+            for (size_t i = 0; i < rights_count; i++) {
+                peer->rights[peer->rights_tail] = rights[i];
+                peer->rights_tail               = (uint16_t)((peer->rights_tail + 1U) % SOCK_RIGHTS_MAX);
+                peer->rights_count++;
+            }
+            rights_published = true;
+        }
 
         if (written < chunk) break;
     }
 
-    /*
-     * Ancillary descriptors are published under the same lock as the first
-     * bytes of this sendmsg.  The refs in rights[] become owned by the peer's
-     * receive queue only after at least one byte has been accepted.
-     */
-    if (total_written > 0) {
-        for (size_t i = 0; i < rights_count; i++) {
-            peer->rights[peer->rights_tail] = rights[i];
-            peer->rights_tail               = (uint16_t)((peer->rights_tail + 1U) % SOCK_RIGHTS_MAX);
-            peer->rights_count++;
-        }
-    }
-
     spin_unlock(&peer->lock);
 
-    /* Wake the peer if it's blocked on recv */
-    sock_blocked_wake(peer);
-    socket_poll_notify(peer, 0x001);
+    /* Wake on data; publish EPOLLIN only for an empty -> non-empty edge. */
+    if (total_written) sock_blocked_wake(peer);
+    if (publish_readable) socket_poll_notify(peer, 0x001);
 
     socket_unref(peer);
 
@@ -1361,6 +1422,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
     socket_t *peer;
     int       ret;
     bool      shutdown_read;
+    bool      publish_writable = false;
 
     if (sk->type != SOCK_STREAM && sk->type != SOCK_SEQPACKET) return -EOPNOTSUPP;
 
@@ -1398,9 +1460,13 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
             }
             sock_blocked_register(sk, current_task());
             spin_unlock(&sk->lock);
-            wait_queue_sleep();
+            int wait_status = sock_blocked_sleep_interruptible(sk);
             spin_lock(&sk->lock);
             sock_blocked_unregister(sk);
+            if (wait_status) {
+                spin_unlock(&sk->lock);
+                return total_read ? (int)total_read : wait_status;
+            }
             peer = sk->peer;
             continue;
         }
@@ -1409,6 +1475,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
         if (chunk > avail) chunk = avail;
 
         uint32_t rd;
+        if (!peek && sock_buf_space(&sk->recv_buf) == 0) publish_writable = true;
         if (peek)
             rd = sock_buf_peek(&sk->recv_buf, (uint8_t *)buf + total_read, chunk);
         else
@@ -1429,7 +1496,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
 
     if (peer) {
         sock_blocked_wake(peer);
-        socket_poll_notify(peer, 0x004);
+        if (publish_writable) socket_poll_notify(peer, 0x004);
         socket_unref(peer);
     }
 
@@ -1439,14 +1506,14 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
 }
 
 /*
- * SOCK_SEQPACKET preserves record boundaries.  Store each record as a native
- * 32-bit length followed by its bytes in the peer's private ring.  The ring is
- * protected by peer->lock, so publishing the header and payload is atomic to
- * readers.
+ * SOCK_SEQPACKET preserves record boundaries.  Store each record's length and
+ * sending credentials before its bytes in the peer's private ring.  The ring
+ * is protected by peer->lock, so publishing metadata and payload is atomic to
+ * readers and survives an immediate close by the sender.
  */
 static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int flags)
 {
-    const uint32_t header_size = sizeof(uint32_t);
+    const uint32_t header_size = sizeof(unix_seqpacket_header_t);
     int            is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
     if (len > UINT32_MAX || len > SOCK_BUF_MAX - header_size) return -EMSGSIZE;
 
@@ -1483,13 +1550,26 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&peer->lock);
-        wait_queue_sleep();
+        int wait_status = sock_blocked_sleep_interruptible(sk);
         spin_lock(&peer->lock);
         sock_blocked_unregister(sk);
+        if (wait_status) {
+            spin_unlock(&peer->lock);
+            socket_unref(peer);
+            return wait_status;
+        }
     }
 
-    uint32_t record_len = (uint32_t)len;
-    if (sock_buf_write(&peer->recv_buf, &record_len, header_size) != header_size || (record_len && sock_buf_write(&peer->recv_buf, buf, record_len) != record_len)) {
+    unix_seqpacket_header_t header = {.length = (uint32_t)len};
+    process_t              *process = process_current();
+    if (process) {
+        header.credentials.pid = (uint32_t)(process->task ? process->task->tgid : 0);
+        header.credentials.uid = process->uid;
+        header.credentials.gid = process->gid;
+    }
+
+    bool publish_readable = sock_buf_available(&peer->recv_buf) == 0;
+    if (sock_buf_write(&peer->recv_buf, &header, header_size) != header_size || (header.length && sock_buf_write(&peer->recv_buf, buf, header.length) != header.length)) {
         /*
          * Space was reserved while holding the lock; reaching this path means
          * ring corruption rather than a short write.
@@ -1501,32 +1581,33 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
     spin_unlock(&peer->lock);
 
     sock_blocked_wake(peer);
-    socket_poll_notify(peer, 0x001);
+    if (publish_readable) socket_poll_notify(peer, 0x001);
     socket_unref(peer);
     return (int)len;
 }
 
 /* Receive one SOCK_SEQPACKET record, preserving its length header. */
-static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, int *message_flags, size_t *record_size)
+static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, int *message_flags, size_t *record_size, ucred_t *credentials, bool *credentials_valid)
 {
-    const uint32_t header_size = sizeof(uint32_t);
+    const uint32_t header_size = sizeof(unix_seqpacket_header_t);
     int            is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
     int            peek        = (flags & MSG_PEEK) != 0;
     socket_t      *peer;
-    uint32_t       packet_len;
+    unix_seqpacket_header_t header;
 
     if (message_flags) *message_flags = 0;
     if (record_size) *record_size = 0;
+    if (credentials_valid) *credentials_valid = false;
 
     spin_lock(&sk->lock);
     for (;;) {
         uint32_t available = sock_buf_available(&sk->recv_buf);
         if (available >= header_size) {
-            if (sock_buf_peek(&sk->recv_buf, &packet_len, header_size) != header_size || packet_len > sk->recv_buf.capacity - header_size) {
+            if (sock_buf_peek(&sk->recv_buf, &header, header_size) != header_size || header.length > sk->recv_buf.capacity - header_size) {
                 spin_unlock(&sk->lock);
                 return -EIO;
             }
-            if (available >= header_size + packet_len) break;
+            if (available >= header_size + header.length) break;
         }
 
         peer = sk->peer;
@@ -1544,17 +1625,22 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&sk->lock);
-        wait_queue_sleep();
+        int wait_status = sock_blocked_sleep_interruptible(sk);
         spin_lock(&sk->lock);
         sock_blocked_unregister(sk);
+        if (wait_status) {
+            spin_unlock(&sk->lock);
+            return wait_status;
+        }
     }
 
-    size_t copied = len < packet_len ? len : packet_len;
+    size_t copied = len < header.length ? len : header.length;
     if (copied && sock_buf_peek_at(&sk->recv_buf, header_size, buf, (uint32_t)copied) != copied) {
         spin_unlock(&sk->lock);
         return -EIO;
     }
-    if (!peek) sock_buf_discard(&sk->recv_buf, header_size + packet_len);
+    bool publish_writable = !peek && sock_buf_space(&sk->recv_buf) == 0;
+    if (!peek) sock_buf_discard(&sk->recv_buf, header_size + header.length);
     peer = NULL;
     if (!peek && sk->peer) {
         peer = sk->peer;
@@ -1564,12 +1650,14 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
 
     if (message_flags) {
         *message_flags |= MSG_EOR;
-        if (copied < packet_len) *message_flags |= MSG_TRUNC;
+        if (copied < header.length) *message_flags |= MSG_TRUNC;
     }
-    if (record_size) *record_size = packet_len;
+    if (record_size) *record_size = header.length;
+    if (credentials) *credentials = header.credentials;
+    if (credentials_valid) *credentials_valid = true;
     if (!peek && peer) {
         sock_blocked_wake(peer);
-        socket_poll_notify(peer, 0x004);
+        if (publish_writable) socket_poll_notify(peer, 0x004);
         socket_unref(peer);
     }
     return (int)copied;
@@ -1624,9 +1712,13 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
         }
         sock_blocked_register(dest, current_task());
         spin_unlock(&dest->lock);
-        wait_queue_sleep();
+        int wait_status = sock_blocked_sleep_interruptible(dest);
         spin_lock(&dest->lock);
         sock_blocked_unregister(dest);
+        if (wait_status) {
+            spin_unlock(&dest->lock);
+            return wait_status;
+        }
     }
 
     ucred_t    sender  = {0};
@@ -1636,8 +1728,9 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
         sender.uid = process->uid;
         sender.gid = process->gid;
     }
-    uint32_t msg_len = (uint32_t)len;
-    uint32_t written = 0;
+    bool     publish_readable = sock_buf_available(&dest->recv_buf) == 0;
+    uint32_t msg_len          = (uint32_t)len;
+    uint32_t written          = 0;
     if (sock_buf_write(&dest->recv_buf, &msg_len, sizeof(msg_len)) == sizeof(msg_len) && sock_buf_write(&dest->recv_buf, &sk->local_addr, sizeof(sockaddr_un_t)) == sizeof(sockaddr_un_t)
         && sock_buf_write(&dest->recv_buf, &sender, sizeof(sender)) == sizeof(sender))
         written = msg_len ? sock_buf_write(&dest->recv_buf, buf, msg_len) : 0;
@@ -1646,7 +1739,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
 
     /* Wake destination */
     sock_blocked_wake(dest);
-    socket_poll_notify(dest, 0x001);
+    if (publish_readable) socket_poll_notify(dest, 0x001);
 
     if (written < (uint32_t)len) {
         plogk("socket: Unix datagram send short write (%u of %u bytes)\n", (unsigned)written, (unsigned)len);
@@ -1695,9 +1788,13 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&sk->lock);
-        wait_queue_sleep();
+        int wait_status = sock_blocked_sleep_interruptible(sk);
         spin_lock(&sk->lock);
         sock_blocked_unregister(sk);
+        if (wait_status) {
+            spin_unlock(&sk->lock);
+            return wait_status;
+        }
     }
 
     if (sock_buf_peek_at(&sk->recv_buf, sizeof(uint32_t), &sender_addr, sizeof(sender_addr)) != sizeof(sender_addr)
@@ -1715,6 +1812,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
         spin_unlock(&sk->lock);
         return -EIO;
     }
+    bool publish_writable = !peek && sock_buf_space(&sk->recv_buf) == 0;
     if (!peek) sock_buf_discard(&sk->recv_buf, header_size + msg_len);
 
     spin_unlock(&sk->lock);
@@ -1732,7 +1830,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
 
     if (!peek) {
         sock_blocked_wake_all(sk);
-        socket_poll_notify(sk, 0x004);
+        if (publish_writable) socket_poll_notify(sk, 0x004);
     }
 
     return (int)rd;
@@ -1819,7 +1917,7 @@ static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size
     if (sk->type == SOCK_DGRAM) {
         ret = unix_dgram_recv(sk, addr, size, NULL, NULL, sk->flags, NULL, NULL, NULL);
     } else if (sk->type == SOCK_SEQPACKET) {
-        ret = unix_seqpacket_recv(sk, addr, size, 0, NULL, NULL);
+        ret = unix_seqpacket_recv(sk, addr, size, 0, NULL, NULL, NULL, NULL);
     } else {
         ret = unix_stream_recv(sk, addr, size, 0);
     }
@@ -1873,7 +1971,7 @@ static int64_t socket_vfs_file_read(vfs_node_t node, void *private_data, uint64_
     }
     if (sk->socket_read) return sk->socket_read(sk, addr, size, NULL, NULL);
     if (sk->type == SOCK_DGRAM) return unix_dgram_recv(sk, addr, size, NULL, NULL, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL, NULL);
-    if (sk->type == SOCK_SEQPACKET) return unix_seqpacket_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL);
+    if (sk->type == SOCK_SEQPACKET) return unix_seqpacket_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL, NULL, NULL);
     return unix_stream_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
 }
 
@@ -2469,7 +2567,7 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
         }
     } else if (sk->type == SOCK_SEQPACKET) {
         size_t record_len = 0;
-        ret               = unix_seqpacket_recv(sk, kbuf, len, flags, NULL, &record_len);
+        ret               = unix_seqpacket_recv(sk, kbuf, len, flags, NULL, &record_len, NULL, NULL);
         if (ret >= 0 && (flags & MSG_TRUNC)) {
             int copied = ret;
             if (copied > 0 && copy_to_user(buf, kbuf, (size_t)copied)) {
@@ -2641,10 +2739,13 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
 /* Core recvmsg dispatch with kernel-side message buffers. */
 static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec_t *iov, void *kbuf, size_t total_len, int flags)
 {
-    int    ret;
-    int    msg_flags = 0;
-    int    installed_rights[SOCK_RIGHTS_MAX];
-    size_t installed_rights_count = 0;
+    int       ret;
+    int       msg_flags = 0;
+    int       installed_rights[SOCK_RIGHTS_MAX];
+    size_t    installed_rights_count = 0;
+    size_t    seqpacket_record_len   = 0;
+    ucred_t   seqpacket_credentials  = {0};
+    bool      seqpacket_credentials_valid = false;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
@@ -2785,28 +2886,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
             return (int64_t)record_len;
         }
     } else if (sk->type == SOCK_SEQPACKET) {
-        size_t record_len = 0;
-        ret               = unix_seqpacket_recv(sk, kbuf, total_len, flags, &msg_flags, &record_len);
-        if (ret >= 0 && (flags & MSG_TRUNC)) {
-            /*
-             * Scatter only the bytes that fit; recvmsg's return value may
-             * still report the complete record length with MSG_TRUNC.
-             */
-            int copied = ret;
-            if (copied > 0) {
-                uint8_t *src       = (uint8_t *)kbuf;
-                size_t   remaining = (size_t)copied;
-                for (size_t i = 0; i < kmsg->msg_iovlen && remaining; i++) {
-                    size_t chunk = iov[i].iov_len < remaining ? iov[i].iov_len : remaining;
-                    if (copy_to_user(iov[i].iov_base, src, chunk)) return -EFAULT;
-                    src += chunk;
-                    remaining -= chunk;
-                }
-            }
-            kmsg->msg_flags      = msg_flags;
-            kmsg->msg_controllen = 0;
-            return (int64_t)record_len;
-        }
+        ret = unix_seqpacket_recv(sk, kbuf, total_len, flags, &msg_flags, &seqpacket_record_len, &seqpacket_credentials, &seqpacket_credentials_valid);
     } else {
         ret = unix_stream_recv(sk, kbuf, total_len, flags);
     }
@@ -2868,29 +2948,31 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         }
 
         int     passcred;
-        int     has_peer;
-        ucred_t credentials;
+        bool    credentials_valid = seqpacket_credentials_valid;
+        ucred_t credentials       = seqpacket_credentials;
         spin_lock(&sk->lock);
-        socket_t *peer  = sk->peer;
-        passcred        = sk->passcred;
-        has_peer        = peer != NULL;
-        credentials.pid = peer ? peer->pid : 0;
-        credentials.uid = peer ? peer->uid : 0;
-        credentials.gid = peer ? peer->gid : 0;
+        passcred = sk->passcred;
+        if (sk->type == SOCK_STREAM) {
+            socket_t *peer  = sk->peer;
+            credentials_valid = peer != NULL;
+            credentials.pid = peer ? peer->pid : 0;
+            credentials.uid = peer ? peer->uid : 0;
+            credentials.gid = peer ? peer->gid : 0;
+        }
         spin_unlock(&sk->lock);
 
         /*
          * SO_PASSCRED applies to connected sockets too.  eudevd's
          * SOCK_SEQPACKET control channel requires this record.
          */
-        if (ret >= 0 && passcred && has_peer && kmsg->msg_control && control_capacity >= control_used && control_capacity - control_used >= CMSG_SPACE(sizeof(credentials))) {
+        if (ret >= 0 && passcred && credentials_valid && kmsg->msg_control && control_capacity >= control_used && control_capacity - control_used >= CMSG_SPACE(sizeof(credentials))) {
             cmsghdr_t *cmsg  = (cmsghdr_t *)(control + control_used);
             cmsg->cmsg_len   = CMSG_LEN(sizeof(credentials));
             cmsg->cmsg_level = SOL_SOCKET;
             cmsg->cmsg_type  = SCM_CREDENTIALS;
             memcpy(CMSG_DATA(cmsg), &credentials, sizeof(credentials));
             control_used += CMSG_SPACE(sizeof(credentials));
-        } else if (ret >= 0 && passcred && has_peer) {
+        } else if (ret >= 0 && passcred && credentials_valid) {
             msg_flags |= MSG_CTRUNC;
         }
 
@@ -2924,6 +3006,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
     /* Write back msg_flags */
     kmsg->msg_flags = msg_flags;
 
+    if (ret >= 0 && sk->type == SOCK_SEQPACKET && (flags & MSG_TRUNC)) return (int64_t)seqpacket_record_len;
     return (int64_t)ret;
 }
 

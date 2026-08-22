@@ -22,6 +22,42 @@
 
 #define SCHED_NICE_0_LOAD 1024ULL
 
+/*
+ * Scheduling topology.  Domains are stored from the closest sharing level
+ * outwards and use the hardware topology exported by arch/smp.
+ */
+#define SCHED_DOMAIN_MAX_LEVELS 3
+
+typedef enum {
+        SCHED_DOMAIN_SMT = 0,
+        SCHED_DOMAIN_PACKAGE,
+        SCHED_DOMAIN_SYSTEM,
+} sched_domain_level_t;
+
+enum {
+        SCHED_DOMAIN_BALANCE_WAKE     = 1U << 0,
+        SCHED_DOMAIN_BALANCE_NEWIDLE  = 1U << 1,
+        SCHED_DOMAIN_BALANCE_PERIODIC = 1U << 2,
+        SCHED_DOMAIN_WAKE_AFFINE      = 1U << 3,
+        SCHED_DOMAIN_SHARE_CAPACITY   = 1U << 4,
+        SCHED_DOMAIN_SHARE_CACHE      = 1U << 5,
+};
+
+typedef struct {
+        uint8_t  level;
+        uint8_t  reserved;
+        uint16_t flags;
+        uint16_t span_weight;
+        uint16_t group_count;
+        uint32_t balance_interval;
+} sched_domain_t;
+
+typedef struct {
+        uint8_t        nr_domains;
+        uint8_t        reserved[7];
+        sched_domain_t domains[SCHED_DOMAIN_MAX_LEVELS];
+} sched_domain_cpu_t;
+
 /* Per-CPU EEVDF runqueue */
 
 typedef struct {
@@ -37,11 +73,12 @@ typedef struct {
         uint64_t         nr_migrations;   // tasks migrated into/out of this rq
         uint64_t         nr_steals;       // tasks pulled while this CPU was idle
         uint64_t         nr_wakeups;      // wakeups targeted at this rq
-        uint64_t         last_balance;    // last global tick this rq balanced
+        uint64_t         last_domain_balance[SCHED_DOMAIN_MAX_LEVELS];
         uint64_t         user_ticks;
         uint64_t         system_ticks;
         uint64_t         idle_ticks;
         uint64_t         context_switches;
+        volatile uint8_t need_resched;   // local wakeup should preempt at a safe return point
         volatile uint8_t resched_pending; // coalesce remote reschedule IPIs
         uint8_t          online;          // CPU is online
 } eevdf_rq_t;
@@ -66,6 +103,7 @@ typedef struct {
 extern scheduler_t scheduler;
 extern eevdf_rq_t *cpu_rqs;
 extern uint32_t    cpu_scheduler_count;
+extern sched_domain_cpu_t *cpu_sched_domains;
 
 /* Enqueue a task onto its assigned CPU's ready queue */
 void enqueue_task(task_t *task);
@@ -99,6 +137,9 @@ int task_stop(task_t *task);
 
 /* Account one scheduler tick and preempt the current task if needed */
 void sched_tick(bool user_mode);
+
+/* Honor a pending local wakeup preemption at a safe kernel return point */
+void sched_maybe_preempt(void);
 
 /* Return the scheduler tick count */
 uint64_t sched_ticks(void);

@@ -685,8 +685,8 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
 
     if (cursor->flags & DRM_MODE_CURSOR_BO) {
         if (!helpers || !helpers->cursor_set) {
-            DRM_ERROR("Crtc %u has no cursor_set helper.\n", cursor->crtc_id);
-            ret = -ENOSYS;
+            /* No cursor plane/helper is a supported driver configuration. */
+            ret = -ENXIO;
             goto out;
         }
         if (cursor->handle) {
@@ -723,8 +723,8 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
     }
     if (cursor->flags & DRM_MODE_CURSOR_MOVE) {
         if (!helpers || !helpers->cursor_move) {
-            DRM_ERROR("Crtc %u has no cursor_move helper.\n", cursor->crtc_id);
-            ret = -ENOSYS;
+            /* Let userspace fall back to a software cursor without noise. */
+            ret = -ENXIO;
             goto out;
         }
         ret = helpers->cursor_move(crtc, cursor->x, cursor->y);

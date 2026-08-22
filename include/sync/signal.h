@@ -397,6 +397,7 @@ void signal_init(void);
 void signal_itimer_get(process_t *proc, unsigned int which, uint64_t *remaining, uint64_t *interval);
 void signal_itimer_set(process_t *proc, unsigned int which, uint64_t value, uint64_t interval, uint64_t *old_remaining, uint64_t *old_interval);
 void signal_itimer_real_tick(uint64_t now);
+uint64_t signal_itimer_real_next_tick(void);
 void signal_itimer_cpu_tick(process_t *proc, bool user_mode);
 void signal_itimer_cancel(process_t *proc);
 

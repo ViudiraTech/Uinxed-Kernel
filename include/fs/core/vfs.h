@@ -101,6 +101,7 @@ typedef void (*vfs_open_t)(void *parent, const char *name, vfs_node_t node);
 typedef void (*vfs_close_t)(void *current);
 typedef int (*vfs_resize_t)(void *current, uint64_t size);
 typedef int (*vfs_sync_t)(void *current, int data_only);
+typedef int (*vfs_chmod_t)(vfs_node_t node, uint16_t mode);
 typedef size_t (*vfs_write_t)(void *file, const void *addr, size_t offset, size_t size);
 typedef size_t (*vfs_read_t)(void *file, void *addr, size_t offset, size_t size);
 typedef size_t (*vfs_readlink_t)(vfs_node_t node, void *addr, size_t offset, size_t size);
@@ -181,6 +182,7 @@ typedef struct vfs_callback {
         vfs_file_poll_source_cb_t   file_poll_source;      // Per-open readiness notification source
         vfs_resize_t                resize;                // Change the persistent file size
         vfs_sync_t                  sync;                  // Commit data and metadata to stable storage
+        vfs_chmod_t                 chmod;                 // Validate a permission-mode change
 } *vfs_callback_t;
 
 extern vfs_callback_t fs_callbacks[];

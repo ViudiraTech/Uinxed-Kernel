@@ -93,43 +93,102 @@ static void simpledrm_encoder_atomic_check(struct drm_encoder *encoder, struct d
     (void)conn_state;
 }
 
-/* Copy a committed framebuffer into the physical GOP framebuffer. */
-static void simpledrm_scanout_fb(simpledrm_device_t *sdev, struct drm_framebuffer *fb)
+/* Copy one framebuffer rectangle into the physical GOP framebuffer. */
+static int simpledrm_blit_rect(simpledrm_device_t *sdev, struct drm_framebuffer *fb, uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2)
 {
     const uint8_t *src;
     uint8_t       *dst;
-    uint32_t       copy_w, copy_h, fb_pitch;
+    uint32_t       fb_pitch;
+    uint64_t       src_end;
+    size_t         row_bytes;
     uint32_t       y;
 
-    if (!sdev || !fb || !fb->obj[0] || !fb->obj[0]->backing) return;
-    if (!sdev->screen) return;
+    if (!sdev || !fb || !fb->obj[0] || !fb->obj[0]->backing || !sdev->screen) return -EINVAL;
 
     /* The GOP framebuffer is 32-bit; reject any other pixel layout. */
     if (fb->format != DRM_FORMAT_XRGB8888 && fb->format != DRM_FORMAT_ARGB8888) {
         DRM_WARN("Scanout: unsupported framebuffer format 0x%x, skipping scanout.\n", (unsigned int)fb->format);
-        return;
+        return -EINVAL;
+    }
+
+    if (x2 > fb->width || y2 > fb->height || x1 > x2 || y1 > y2) return -EINVAL;
+    if (x2 > sdev->width) x2 = sdev->width;
+    if (y2 > sdev->height) y2 = sdev->height;
+    if (x1 >= x2 || y1 >= y2) return 0;
+
+    fb_pitch = fb->pitches[0];
+    if (fb_pitch < fb->width * sizeof(uint32_t)) return -EINVAL;
+
+    row_bytes = (size_t)(x2 - x1) * sizeof(uint32_t);
+    src_end   = (uint64_t)fb->offsets[0] + (uint64_t)(y2 - 1) * fb_pitch + (uint64_t)x1 * sizeof(uint32_t) + row_bytes;
+    if (src_end > fb->obj[0]->size) return -EINVAL;
+
+    src = (const uint8_t *)fb->obj[0]->backing + fb->offsets[0];
+    dst = (uint8_t *)sdev->screen;
+    for (y = y1; y < y2; y++)
+        memcpy(dst + (size_t)y * sdev->screen_pitch + (size_t)x1 * sizeof(uint32_t), src + (size_t)y * fb_pitch + (size_t)x1 * sizeof(uint32_t), row_bytes);
+
+    return 0;
+}
+
+/* Copy a committed framebuffer into the physical GOP framebuffer. */
+static int simpledrm_scanout_fb(simpledrm_device_t *sdev, struct drm_framebuffer *fb)
+{
+    uint32_t copy_w, copy_h;
+    int      ret;
+
+    if (!sdev) return -EINVAL;
+    if (!fb) {
+        sdev->current_fb = NULL;
+        return 0;
     }
 
     copy_w = fb->width < sdev->width ? fb->width : sdev->width;
     copy_h = fb->height < sdev->height ? fb->height : sdev->height;
-    if (!copy_w || !copy_h) return;
-
-    fb_pitch = fb->pitches[0] ? fb->pitches[0] : copy_w * sizeof(uint32_t);
-    if (fb_pitch < copy_w * sizeof(uint32_t)) fb_pitch = copy_w * sizeof(uint32_t);
-
-    src = (const uint8_t *)fb->obj[0]->backing;
-    dst = (uint8_t *)sdev->screen;
-    for (y = 0; y < copy_h; y++) memcpy(dst + (size_t)y * sdev->screen_pitch, src + (size_t)y * fb_pitch, (size_t)copy_w * sizeof(uint32_t));
+    ret    = simpledrm_blit_rect(sdev, fb, 0, 0, copy_w, copy_h);
+    if (ret) return ret;
 
     sdev->current_fb = fb;
+    return 0;
 }
+
+/* Flush userspace damage from the current scanout buffer to the GOP. */
+static int simpledrm_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips)
+{
+    simpledrm_device_t *sdev;
+    unsigned int        first, step;
+    int                 ret;
+
+    (void)file_priv;
+    (void)color;
+
+    if (!fb || !fb->obj[0] || !fb->obj[0]->dev) return -EINVAL;
+    sdev = (simpledrm_device_t *)fb->obj[0]->dev->dev_private;
+    if (!sdev) return -EINVAL;
+
+    /* A later page flip uploads off-screen buffers in full. */
+    if (sdev->current_fb != fb) return 0;
+    if (!num_clips) return simpledrm_blit_rect(sdev, fb, 0, 0, fb->width, fb->height);
+
+    first = (flags & DRM_MODE_FB_DIRTY_ANNOTATE_COPY) ? 1U : 0U;
+    step  = (flags & DRM_MODE_FB_DIRTY_ANNOTATE_COPY) ? 2U : 1U;
+    for (unsigned int i = first; i < num_clips; i += step) {
+        ret = simpledrm_blit_rect(sdev, fb, clips[i].x1, clips[i].y1, clips[i].x2, clips[i].y2);
+        if (ret) return ret;
+    }
+    return 0;
+}
+
+static const struct drm_framebuffer_funcs simpledrm_fb_funcs = {
+    .dirty = simpledrm_dirty_fb,
+};
 
 /* On a modeset, push the new framebuffer to the physical display. */
 static void simpledrm_crtc_mode_set(struct drm_crtc *crtc, struct drm_framebuffer *fb)
 {
     simpledrm_device_t *sdev = (simpledrm_device_t *)crtc->dev->dev_private;
 
-    simpledrm_scanout_fb(sdev, fb);
+    (void)simpledrm_scanout_fb(sdev, fb);
 }
 
 /* Page flip helper for the legacy ioctl and atomic fb-only commits. */
@@ -140,7 +199,9 @@ static int simpledrm_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffe
     (void)event;
     (void)flags;
 
-    simpledrm_scanout_fb(sdev, fb);
+    int ret = simpledrm_scanout_fb(sdev, fb);
+
+    if (ret) return ret;
 
     /* The legacy page-flip ioctl expects the driver to commit the plane. */
     if (crtc->primary && crtc->primary->state) {
@@ -162,7 +223,7 @@ static void simpledrm_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_
      * On the initial commit the atomic core also ran mode_set, which already
      * scanned this fb out; skip the redundant full-frame memcpy.
      */
-    if (plane && plane->state && plane->state->fb && sdev->current_fb != plane->state->fb) simpledrm_scanout_fb(sdev, plane->state->fb);
+    if (plane && plane->state && plane->state->fb && sdev->current_fb != plane->state->fb) (void)simpledrm_scanout_fb(sdev, plane->state->fb);
 
     if (crtc->state && crtc->state->event) {
         drm_crtc_send_vblank_event(crtc, crtc->state->event);
@@ -259,6 +320,8 @@ static struct drm_driver simpledrm_drm_driver = {
     .release   = simpledrm_release,
 
     .gem_prime_import = simpledrm_gem_prime_import,
+
+    .fb_funcs = &simpledrm_fb_funcs,
 
     .dumb_create     = drm_gem_dumb_create,
     .dumb_map_offset = drm_gem_dumb_map_offset,

@@ -48,6 +48,16 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
  */
 static spinlock_t itimer_lock;
 static process_t *itimer_real_head;
+static uint64_t   itimer_real_next = UINT64_MAX;
+
+/* Recompute the earliest wall-clock interval-timer deadline under itimer_lock. */
+static void itimer_real_recompute_next_locked(void)
+{
+    uint64_t next = UINT64_MAX;
+    for (process_t *proc = itimer_real_head; proc; proc = proc->itimer_real_next)
+        if (proc->itimer_value[0] && proc->itimer_value[0] < next) next = proc->itimer_value[0];
+    __atomic_store_n(&itimer_real_next, next, __ATOMIC_RELEASE);
+}
 
 /* Return the remaining time for an interval timer */
 static uint64_t itimer_real_remaining_locked(const process_t *proc, uint64_t now)
@@ -107,7 +117,14 @@ void signal_itimer_set(process_t *proc, unsigned int which, uint64_t value, uint
         proc->itimer_value[which] = value;
     }
     proc->itimer_interval[which] = interval;
+    if (which == 0) itimer_real_recompute_next_locked();
     spin_unlock(&itimer_lock);
+}
+
+/* IRQ-safe deadline hint used to avoid waking the timer bottom half at 1 kHz. */
+uint64_t signal_itimer_real_next_tick(void)
+{
+    return __atomic_load_n(&itimer_real_next, __ATOMIC_ACQUIRE);
 }
 
 /* Fire due ITIMER_REAL timers, sending SIGALRM and re-arming interval timers */
@@ -139,6 +156,7 @@ void signal_itimer_real_tick(uint64_t now)
         }
         (void)signal_send(proc, SIGALRM, NULL);
     }
+    itimer_real_recompute_next_locked();
     spin_unlock(&itimer_lock);
 }
 
@@ -164,6 +182,7 @@ void signal_itimer_cancel(process_t *proc)
     itimer_real_unlink_locked(proc);
     memset(proc->itimer_value, 0, sizeof(proc->itimer_value));
     memset(proc->itimer_interval, 0, sizeof(proc->itimer_interval));
+    itimer_real_recompute_next_locked();
     spin_unlock(&itimer_lock);
 }
 
@@ -268,6 +287,7 @@ void signal_init(void)
     itimer_lock.lock   = 0;
     itimer_lock.rflags = 0;
     itimer_real_head   = NULL;
+    __atomic_store_n(&itimer_real_next, UINT64_MAX, __ATOMIC_RELEASE);
     plogk("signal: POSIX signal handling available (%u signals)\n", NSIG);
 }
 

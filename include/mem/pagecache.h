@@ -89,6 +89,7 @@ int      pagecache_mapping_error(pagecache_mapping_t *mapping);
 void     pagecache_mapping_pin(pagecache_mapping_t *mapping);
 void     pagecache_mapping_unpin(pagecache_mapping_t *mapping);
 int      pagecache_readahead(pagecache_mapping_t *mapping, uint64_t offset, size_t size);
+void     pagecache_mmap_readahead(pagecache_mapping_t *mapping, uint64_t index);
 
 /* Page operations */
 pagecache_page_t *pagecache_get_page(pagecache_mapping_t *mapping, uint64_t index, int create);

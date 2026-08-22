@@ -20,7 +20,7 @@ Uinxed is a monolithic, UNIX-like operating system kernel for x86-64, written fr
 
 The project aims to build a practical, self-contained kernel with modern design principles: an EEVDF scheduler, a unified page cache with swap support, a full VFS with multiple filesystems, a Linux-style networking and socket layer, and a growing set of device drivers. Unimplemented syscalls return `-ENOSYS`, keeping the ABI surface predictable as it grows.
 
-> **Current status:** The current development image boots Alpine Linux 3.24 on x86-64 and can bring up the Weston (Wayland) desktop with a working terminal. The PS/2 keyboard/mouse path, evdev consumers, poll/epoll wakeups, and the EEVDF scheduler are under active validation. This remains an experimental kernel; GPU, VirtIO, audio, and parts of the Linux-compatible ABI may still be incomplete. Runs on physical servers including Dell PowerEdge R410.
+> **Current status:** The current development image boots Alpine Linux 3.23 on x86-64 and can bring up the Xfce (X11) desktop with a working terminal. The PS/2 keyboard/mouse path, evdev consumers, poll/epoll wakeups, and the EEVDF scheduler are under active validation. This remains an experimental kernel; GPU, VirtIO, audio, and parts of the Linux-compatible ABI may still be incomplete. Runs on physical servers including Dell PowerEdge R410.
 
 ## Core Features
 

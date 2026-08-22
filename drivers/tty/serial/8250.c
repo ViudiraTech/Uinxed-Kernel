@@ -23,6 +23,12 @@ log_buffer_t serial_log;
 
 static console_t serial_consoles[UART_MAX_PORTS];
 
+#define UART8250_IER_RX       0x01
+#define UART8250_IER_TX_EMPTY 0x02
+#define UART8250_LSR_RX_READY 0x01
+#define UART8250_LSR_TX_EMPTY 0x20
+#define UART8250_FIFO_SIZE    16
+
 static uart_driver_t uart_8250_driver = {
     .name        = "ttyS",
     .major       = 4,
@@ -39,7 +45,7 @@ static uint16_t uart8250_base(const uart_port_t *port)
 /* Enable RX interrupts (data available) on the port. */
 static int uart8250_startup(uart_port_t *port)
 {
-    outb(uart8250_base(port) + UART8250_REG_IER, 0x01); // RX data available
+    outb(uart8250_base(port) + UART8250_REG_IER, UART8250_IER_RX);
     return 0;
 }
 
@@ -63,24 +69,55 @@ static void uart8250_set_termios(uart_port_t *port)
     outb(base + UART8250_REG_LCR, lcr);
 }
 
-/* Write bytes to the UART, waiting for the transmitter to be ready. */
+/* Fill one empty 16550 FIFO from the software ring; port->lock is held. */
+static void uart8250_tx_chars_locked(uart_port_t *port)
+{
+    uint16_t base = uart8250_base(port);
+
+    if (!(inb(base + UART8250_REG_LSR) & UART8250_LSR_TX_EMPTY)) return;
+    for (size_t sent = 0; sent < UART8250_FIFO_SIZE && port->tx_count; sent++) {
+        outb(base + UART8250_REG_DATA, port->tx_buf[port->tx_tail]);
+        port->tx_tail = (port->tx_tail + 1) % UART_TX_BUF_SIZE;
+        port->tx_count--;
+    }
+}
+
+/*
+ * Queue tty output and let the TX-empty IRQ drain it.  tty_core serializes
+ * writers and invokes this with port->lock held, so this path contains no
+ * baud-rate-sized polling delay.
+ */
 static int uart8250_tx_write(uart_port_t *port, const uint8_t *data, size_t len)
+{
+    uint16_t base = uart8250_base(port);
+    size_t   queued = 0;
+
+    while (queued < len && port->tx_count < UART_TX_BUF_SIZE) {
+        port->tx_buf[port->tx_head] = data[queued++];
+        port->tx_head = (port->tx_head + 1) % UART_TX_BUF_SIZE;
+    }
+    uart8250_tx_chars_locked(port);
+
+    uint8_t ier = inb(base + UART8250_REG_IER);
+    if (port->tx_count)
+        ier |= UART8250_IER_TX_EMPTY;
+    else
+        ier &= (uint8_t)~UART8250_IER_TX_EMPTY;
+    outb(base + UART8250_REG_IER, ier);
+    return (int)queued;
+}
+
+/* Console/panic output remains polling, but serial_core bounds it to a byte. */
+static void uart8250_console_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
     uint16_t base = uart8250_base(port);
 
     for (size_t i = 0; i < len; i++) {
         uint32_t timeout = 100000;
-        while (timeout-- && !(inb(base + UART8250_REG_LSR) & 0x20)) {}
-        if (!(inb(base + UART8250_REG_LSR) & 0x20)) return (int)i;
+        while (timeout-- && !(inb(base + UART8250_REG_LSR) & UART8250_LSR_TX_EMPTY)) {}
+        if (!(inb(base + UART8250_REG_LSR) & UART8250_LSR_TX_EMPTY)) return;
         outb(base + UART8250_REG_DATA, data[i]);
     }
-    return (int)len;
-}
-
-/* Console write: transmit through the UART. */
-static void uart8250_console_write(uart_port_t *port, const uint8_t *data, size_t len)
-{
-    (void)uart8250_tx_write(port, data, len);
 }
 
 static const uart_ops_t uart8250_ops = {
@@ -150,7 +187,7 @@ static int uart8250_irq_of(int number)
     return (number == 0 || number == 2) ? 4 : 3;
 }
 
-/* Drain received bytes from every present port sharing this IRQ. */
+/* Service RX and TX causes for every present port sharing this IRQ. */
 static void uart8250_service(int line_irq)
 {
     for (int i = 0; i < UART_MAX_PORTS; i++) {
@@ -159,18 +196,37 @@ static void uart8250_service(int line_irq)
 
         if (!port->present || uart8250_irq_of(i) != line_irq) continue;
         base = uart8250_base(port);
-        for (;;) {
-            uint8_t  ch;
-            uint64_t flags = spin_lock_irqsave(&port->lock);
-            if (inb(base + UART8250_REG_IIR) & 0x01 || !(inb(base + UART8250_REG_LSR) & 0x01)) {
+        /* Bound a broken/emulated UART so one shared interrupt cannot livelock. */
+        for (size_t serviced = 0; serviced < 64; serviced++) {
+            uint8_t  received[UART8250_FIFO_SIZE];
+            size_t   received_count = 0;
+            uint64_t flags          = spin_lock_irqsave(&port->lock);
+            uint8_t  iir            = inb(base + UART8250_REG_IIR);
+            uint8_t  reason         = iir & 0x0e;
+
+            if (iir & 0x01) {
                 spin_unlock_irqrestore(&port->lock, flags);
                 break;
             }
-            ch = (uint8_t)inb(base + UART8250_REG_DATA);
+            if (reason == 0x02) { /* transmitter holding register empty */
+                uart8250_tx_chars_locked(port);
+                if (!port->tx_count) {
+                    uint8_t ier = inb(base + UART8250_REG_IER);
+                    outb(base + UART8250_REG_IER, ier & (uint8_t)~UART8250_IER_TX_EMPTY);
+                }
+            } else if (reason == 0x04 || reason == 0x0c || reason == 0x06) {
+                /* RX available/timeout/line status: empty the hardware FIFO. */
+                while (received_count < UART8250_FIFO_SIZE &&
+                       (inb(base + UART8250_REG_LSR) & UART8250_LSR_RX_READY))
+                    received[received_count++] = (uint8_t)inb(base + UART8250_REG_DATA);
+            } else {
+                /* Reading MSR acknowledges the otherwise unhandled modem cause. */
+                (void)inb(base + UART8250_REG_MSR);
+            }
             spin_unlock_irqrestore(&port->lock, flags);
 
-            /* The line discipline may echo or wait; never call it locked. */
-            uart_insert_char(port, ch);
+            /* The line discipline may echo or wake tasks; never call it locked. */
+            for (size_t j = 0; j < received_count; j++) uart_insert_char(port, received[j]);
         }
     }
 }

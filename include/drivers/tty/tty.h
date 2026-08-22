@@ -63,6 +63,7 @@ void tty_buff_flush(void);
 
 /* Flush deferred tty output for framebuffer consoles */
 void tty_deferred_flush(void);
+bool tty_deferred_pending(void);
 
 /* Publish framebuffer character geometry through the console TTY. */
 void tty_console_resize(uint16_t rows, uint16_t cols);

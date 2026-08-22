@@ -20,7 +20,9 @@
 #include <net/socket.h>
 #include <net/transport/tcp.h>
 #include <net/transport/udp.h>
+#include <process/process.h>
 #include <process/sched.h>
+#include <sync/signal.h>
 
 static const struct inet_backend_ops *inet_ops;
 
@@ -166,7 +168,18 @@ static uint64_t inet_event_snapshot(inet_core_socket_t *sock)
     return generation;
 }
 
-/* Block until the event generation advances, a wake fires, or the deadline passes. */
+/* True when a signal can interrupt the current socket operation. */
+static bool inet_signal_pending(void)
+{
+    process_t *proc = process_current();
+    if (!proc) return false;
+    spin_lock(&proc->signal.lock);
+    bool pending = signal_has_interrupting_pending(&proc->signal);
+    spin_unlock(&proc->signal.lock);
+    return pending;
+}
+
+/* Block interruptibly until the event generation advances or the deadline passes. */
 static int inet_event_wait(inet_core_socket_t *sock, uint64_t generation, uint64_t deadline)
 {
     spin_lock(&sock->event_lock);
@@ -176,9 +189,15 @@ static int inet_event_wait(inet_core_socket_t *sock, uint64_t generation, uint64
     }
     wait_queue_prepare(&sock->wait);
     spin_unlock(&sock->event_lock);
-    if (deadline) return wait_queue_wait_timed(&sock->wait, deadline);
-    wait_queue_sleep();
-    return EOK;
+    if (inet_signal_pending()) {
+        wait_queue_cancel(&sock->wait);
+        return -ERESTARTSYS;
+    }
+    if (deadline)
+        (void)wait_queue_wait_timed(&sock->wait, deadline);
+    else
+        wait_queue_sleep();
+    return inet_signal_pending() ? -ERESTARTSYS : EOK;
 }
 
 /* Drain pending TCP data into the socket RX buffer. */
@@ -470,7 +489,8 @@ static int core_connect(void *context, const struct sockaddr *addr, uint32_t len
             if (inet_timed_out(deadline)) return -ETIMEDOUT;
             uint64_t generation = inet_event_snapshot(sock);
             if (tcp_get_state(sock->endpoint.tcp) != TCP_SYN_SENT) break;
-            (void)inet_event_wait(sock, generation, deadline);
+            int wait_status = inet_event_wait(sock, generation, deadline);
+            if (wait_status) return wait_status;
         }
         sock->connecting = 0;
         if (tcp_get_state(sock->endpoint.tcp) == TCP_ESTABLISHED) return EOK;
@@ -509,7 +529,8 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
         endpoint            = tcp_accept(listener->endpoint.tcp);
         if (endpoint) break;
         if ((flags & SOCK_NONBLOCK) || inet_timed_out(deadline)) return -EAGAIN;
-        (void)inet_event_wait(listener, generation, deadline);
+        int wait_status = inet_event_wait(listener, generation, deadline);
+        if (wait_status) return wait_status;
     }
     inet_core_socket_t *sock = calloc(1, sizeof(*sock));
     if (!sock) {
@@ -584,7 +605,8 @@ static int core_sendto(void *context, const void *buf, size_t len, int flags, co
             }
             if (ret != -EAGAIN) return sent ? (int)sent : ret;
             if ((flags & MSG_DONTWAIT) || inet_timed_out(deadline)) return sent ? (int)sent : -EAGAIN;
-            (void)inet_event_wait(sock, generation, deadline);
+            int wait_status = inet_event_wait(sock, generation, deadline);
+            if (wait_status) return sent ? (int)sent : wait_status;
         }
         return (int)sent;
     }
@@ -642,7 +664,8 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
             tcp_state_t state = tcp_get_state(sock->endpoint.tcp);
             if (state == TCP_CLOSE_WAIT || state == TCP_CLOSED || state == TCP_TIME_WAIT) return (int)copied;
             if ((flags & MSG_DONTWAIT) || inet_timed_out(deadline)) return copied ? (int)copied : -EAGAIN;
-            (void)inet_event_wait(sock, generation, deadline);
+            int wait_status = inet_event_wait(sock, generation, deadline);
+            if (wait_status) return copied ? (int)copied : wait_status;
         }
     }
     if (sock->type == SOCK_RAW) {
@@ -653,7 +676,11 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
             uint64_t generation = inet_event_snapshot(sock);
             ret                 = icmp_receive(sock->endpoint.icmp, buf, len, &source, (flags & MSG_PEEK) != 0);
             if (ret != -EAGAIN || (flags & MSG_DONTWAIT) || inet_timed_out(deadline)) break;
-            (void)inet_event_wait(sock, generation, deadline);
+            int wait_status = inet_event_wait(sock, generation, deadline);
+            if (wait_status) {
+                ret = wait_status;
+                break;
+            }
         } while (1);
         if (ret >= 0 && addr && addrlen) {
             inet_make_address((sockaddr_in_t *)addr, source, 0);
@@ -668,7 +695,11 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
         uint64_t generation = inet_event_snapshot(sock);
         ret                 = udp_receive(sock->endpoint.udp, buf, len, &info, (flags & MSG_PEEK) != 0);
         if (ret != -EAGAIN || (flags & MSG_DONTWAIT) || inet_timed_out(deadline)) break;
-        (void)inet_event_wait(sock, generation, deadline);
+        int wait_status = inet_event_wait(sock, generation, deadline);
+        if (wait_status) {
+            ret = wait_status;
+            break;
+        }
     } while (1);
     if (ret >= 0 && addr && addrlen) {
         if (info.family == AF_INET6 && !ipv6_address_is_unspecified(&info.source_address6))

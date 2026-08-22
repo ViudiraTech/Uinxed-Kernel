@@ -319,11 +319,11 @@
 #endif
 
 #ifndef SCHED_WAKEUP_GRANULARITY
-#    define SCHED_WAKEUP_GRANULARITY 1
+#    define SCHED_WAKEUP_GRANULARITY 0
 #endif
 
 #ifndef SERIAL_BAUD_RATE
-#    define SERIAL_BAUD_RATE 9600
+#    define SERIAL_BAUD_RATE 115200
 #endif
 
 #ifndef SERIAL_DATA_BITS

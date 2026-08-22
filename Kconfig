@@ -98,11 +98,13 @@ menu "Scheduler"
 
   config SCHED_WAKEUP_GRANULARITY
     int "EEVDF wakeup preemption threshold (ticks)"
-    default 1
-    range 1 16
+    default 0
+    range 0 16
     help
       A newly woken task must be ahead by at least this many ticks
-      before it can preempt the currently running task.
+      before it can preempt the currently running task. Zero is preferred
+      for an interactive desktop because EEVDF deadlines still prevent an
+      ineligible wakee from preempting.
 
   config SCHED_LOAD_BALANCE_INTERVAL
     int "Load-balance interval (ticks)"

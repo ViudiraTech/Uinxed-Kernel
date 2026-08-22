@@ -333,7 +333,8 @@ void isr_registe_handle(void)
     register_interrupt_handler(ISR_0, (void *)ISR_0_handle, 0, 0x8e);
     register_interrupt_handler(ISR_1, (void *)ISR_1_handle, 0, 0x8e);
     register_interrupt_handler(ISR_2, (void *)ISR_2_handle, 0, 0x8e);
-    register_interrupt_handler(ISR_3, (void *)ISR_3_handle, 0, 0x8e);
+    /* User processes may execute INT3; expose the breakpoint gate at DPL=3. */
+    register_interrupt_handler(ISR_3, (void *)ISR_3_handle, 0, 0xee);
     register_interrupt_handler(ISR_4, (void *)ISR_4_handle, 0, 0x8e);
     register_interrupt_handler(ISR_5, (void *)ISR_5_handle, 0, 0x8e);
     register_interrupt_handler(ISR_6, (void *)ISR_6_handle, 0, 0x8e);

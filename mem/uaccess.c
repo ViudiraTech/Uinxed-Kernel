@@ -248,19 +248,11 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
         void  *kaddr;
         size_t page_left;
 
-        /*
-         * Translate once while holding the page-table lock and keep the leaf
-         * alive through the copy.  The old fast path walked all four page
-         * table levels before taking this lock, then immediately walked them
-         * again to close the COW/munmap race.
-         */
+        /* Keep the page-table lock across translation and the copy. */
         spin_lock(&proc->user_page_dir->lock);
         if (!user_translate(proc, user, to_user, &kaddr, &page_left)) {
             spin_unlock(&proc->user_page_dir->lock);
-            /*
-             * Fault handling may allocate, copy pages, or shoot down TLBs and
-             * therefore must stay outside the page-table lock.
-             */
+            /* Fault handling may allocate and shoot down TLBs. */
             if (to_user && page_resolve_cow_fault(proc, user) == 0) continue;
             if (process_demand_fault(proc, user, to_user, 0) == 0) continue;
             plogk("uaccess: Copy %s fault at %p (size %zu, remaining %zu)\n", to_user ? "to_user" : "from_user", (void *)user, size, remaining);
@@ -268,11 +260,10 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
         }
 
         size_t step = remaining < page_left ? remaining : page_left;
-        if (to_user) {
+        if (to_user)
             memcpy(kaddr, (const void *)kern, step);
-        } else {
+        else
             memcpy((void *)kern, kaddr, step);
-        }
         spin_unlock(&proc->user_page_dir->lock);
         user += step;
         kern += step;

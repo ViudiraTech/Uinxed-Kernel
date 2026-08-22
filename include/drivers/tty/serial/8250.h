@@ -23,6 +23,7 @@ extern log_buffer_t serial_log;
 #define UART8250_REG_LCR  3
 #define UART8250_REG_MCR  4
 #define UART8250_REG_LSR  5
+#define UART8250_REG_MSR  6
 
 #define UART8250_BASE1 0x3f8
 #define UART8250_BASE2 0x2f8
@@ -33,7 +34,7 @@ extern log_buffer_t serial_log;
 #    define SERIAL_PARITY 0
 #endif
 #ifndef SERIAL_BAUD_RATE
-#    define SERIAL_BAUD_RATE 9600
+#    define SERIAL_BAUD_RATE 115200
 #endif
 #ifndef SERIAL_DATA_BITS
 #    define SERIAL_DATA_BITS 8

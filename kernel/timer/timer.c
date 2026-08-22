@@ -37,6 +37,7 @@ static wait_queue_t timer_deferred_wait;
 static spinlock_t   timer_deferred_lock;
 static bool         timer_deferred_pending;
 static bool         timer_deferred_registered;
+static uint64_t     timer_deferred_last_tick;
 
 /* Run the deferred timer bottom-half: TTY/timerfd flush, interval timers, vblank and network ticks. */
 static void timer_deferred_service(void)
@@ -99,6 +100,7 @@ void timer_deferred_init(void)
     wait_queue_init(&timer_deferred_wait);
     timer_deferred_lock    = (spinlock_t) {0};
     timer_deferred_pending = false;
+    timer_deferred_last_tick = 0;
     if (kernel_worker_register("timer-deferred", timer_deferred_worker, NULL, NULL) != EOK) {
         plogk("timer: Unable to register deferred worker.\n");
         return;
@@ -181,7 +183,19 @@ void timer_handle_frame(syscall_frame_t *frame)
     task_t  *interrupted = current_task();
     if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, (frame->cs & 3U) == 3U);
     send_eoi();
-    if (cpu_id == 0 && timer_deferred_registered) timer_queue_deferred_work();
+    if (cpu_id == 0 && timer_deferred_registered) {
+        uint64_t now_ticks = sched_ticks();
+        uint64_t base_interval = TIMER_HZ / 100U;
+        if (!base_interval) base_interval = 1;
+
+        uint64_t monotonic_ns = timer_monotonic_ns();
+        bool due = now_ticks - timer_deferred_last_tick >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks
+                   || drm_vblank_deferred_due(monotonic_ns) || timerfd_deferred_due(monotonic_ns);
+        if (due) {
+            timer_deferred_last_tick = now_ticks;
+            timer_queue_deferred_work();
+        }
+    }
 
     /* Keep CPU-local/global maintenance ahead of the possible context switch. */
     sched_tick((frame->cs & 3U) == 3U);

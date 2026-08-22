@@ -68,6 +68,10 @@ void syscall_entry(void);
 void syscall_return(void);
 int  syscall_dispatch(syscall_frame_t *frame);
 
+/* PID file descriptor helpers. The returned process pointer is borrowed. */
+struct process *pidfd_get_target(vfs_node_t node);
+int64_t         pidfd_get_pid(vfs_node_t node);
+
 /* Internal path helpers shared between syscall.c and syscall_basic.c. */
 int         copy_path_from_user(uint64_t upath, char path[SYSCALL_PATH_MAX]);
 const char *path_basename(const char *path);

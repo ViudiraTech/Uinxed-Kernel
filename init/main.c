@@ -415,7 +415,6 @@ void kernel_entry(void)
     rtl8139_start_workers();      // Register rtl8139 workers
     usb_host_start_workers();     // Register USB host workers
     video_start_refresh_worker(); // Register display refresh worker
-    ps2_start_worker();           // Register deferred PS/2 event processing
     timer_deferred_init();        // Register timer bottom-half processing
     kernel_workers_start();       // Create every registered kernel worker
     swapper_enqueue_init();       // Finally make init runnable

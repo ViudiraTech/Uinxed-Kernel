@@ -120,6 +120,10 @@ int vfs_chmod_process(vfs_node_t node, uint16_t mode, process_t *proc)
     if (proc->fsuid != 0 && proc->fsuid != node->owner) return -EPERM;
     mode &= 07777;
     if (proc->fsuid != 0 && !process_in_group(proc, node->group)) mode &= (uint16_t)~02000;
+    if (callbackof(node, chmod) != vfs_empty_callback.chmod) {
+        int result = callbackof(node, chmod)(node, mode);
+        if (result != EOK) return result;
+    }
     node->mode        = mode;
     node->permissions = mode;
     vfs_touch_change(node);
@@ -1883,6 +1887,7 @@ int vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *phy
         pagecache_unlock_page(page);
     }
     pagecache_put_page(page);
+    if (!result) pagecache_mmap_readahead(mapping, index);
     return result;
 }
 

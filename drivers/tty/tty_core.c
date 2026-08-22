@@ -827,7 +827,6 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             if (!current || !current->task || current->sid <= 0 || current->sid != (int64_t)current->task->pid) return -EPERM;
             if ((flags & O_PATH) || (flags & O_ACCMODE) == O_WRONLY) return -EBADF;
             value = (int)(uintptr_t)user_arg;
-            if (value != 0 && value != 1) return -EINVAL;
 
             tty_core_t *ctty = process_ctty_get(current);
             if (ctty && ctty != tty) {
@@ -838,7 +837,10 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
 
             int64_t old_session = 0;
             int64_t old_pgid    = 0;
-            int     result      = process_ctty_acquire(current, tty, value == 1 && current->uid == 0, &old_session, &old_pgid);
+            /* Linux only gives argument 1 special "steal" semantics; all
+             * other values mean a normal acquisition.  VTE deliberately
+             * passes the slave fd here for cross-platform compatibility. */
+            int result = process_ctty_acquire(current, tty, value == 1 && current->uid == 0, &old_session, &old_pgid);
             if (result) return result;
             if (old_session > 0 && old_session != current->sid && old_pgid > 0) {
                 signal_send_pgrp_session(old_pgid, old_session, SIGHUP);

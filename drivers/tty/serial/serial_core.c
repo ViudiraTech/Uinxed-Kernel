@@ -240,13 +240,21 @@ int uart_write(uart_port_t *port, const uint8_t *data, size_t len)
     return result;
 }
 
-/* Invoke a low-level console callback without racing tty or IRQ output. */
+/*
+ * Invoke the polling console callback in one-byte critical sections.  The
+ * old implementation held IRQs disabled for the complete printk record; at
+ * 9600 baud that is about 1 ms per byte and can postpone input/timer IRQs by
+ * hundreds of milliseconds.  Byte-sized locking preserves register safety
+ * while placing a hard bound on irq-off time.
+ */
 void uart_console_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
     if (!port || !port->ops || !port->ops->console_write) return;
-    uint64_t flags = spin_lock_irqsave(&port->lock);
-    port->ops->console_write(port, data, len);
-    spin_unlock_irqrestore(&port->lock, flags);
+    for (size_t i = 0; i < len; i++) {
+        uint64_t flags = spin_lock_irqsave(&port->lock);
+        port->ops->console_write(port, &data[i], 1);
+        spin_unlock_irqrestore(&port->lock, flags);
+    }
 }
 
 /* Look up the tty core for a serial port without opening it. */

@@ -295,8 +295,7 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
         rect.width  = x2 - x1;
         rect.height = y2 - y1;
     }
-    offset = fb->offsets[0] + (uint64_t)rect.y * obj->stride + (uint64_t)rect.x * 4;
-
+    offset = fb->offsets[0] + (uint64_t)rect.y * obj->stride + (uint64_t)rect.x * sizeof(uint32_t);
     return virtgpu_cmd_update_2d(vgdev, obj, &rect, offset);
 }
 
@@ -874,6 +873,10 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
             if (ret) return ret;
             vgdev->current_scanout_obj = obj;
             vgdev->current_fb          = fb;
+            vgdev->current_scanout_width  = fb->width;
+            vgdev->current_scanout_height = fb->height;
+            vgdev->current_scanout_stride = fb->pitches[0];
+            vgdev->current_scanout_offset = fb->offsets[0];
             return 0;
         }
 
@@ -888,8 +891,8 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
          * Submit the full flip as one ordered batch and avoid rebinding an
          * object that is already the active scanout.
          */
-        bool layout_changed = !vgdev->current_fb || vgdev->current_fb->width != fb->width || vgdev->current_fb->height != fb->height || vgdev->current_fb->pitches[0] != fb->pitches[0]
-                              || vgdev->current_fb->offsets[0] != fb->offsets[0];
+        bool layout_changed = !vgdev->current_scanout_obj || vgdev->current_scanout_width != fb->width || vgdev->current_scanout_height != fb->height || vgdev->current_scanout_stride != fb->pitches[0]
+                              || vgdev->current_scanout_offset != fb->offsets[0];
         ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, fb->width, fb->height, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
         if (ret) {
             DRM_ERROR("Flip: batched update failed: %d\n", ret);
@@ -897,11 +900,17 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
         }
 
         vgdev->current_scanout_obj = obj;
+        vgdev->current_scanout_width  = fb->width;
+        vgdev->current_scanout_height = fb->height;
+        vgdev->current_scanout_stride = fb->pitches[0];
+        vgdev->current_scanout_offset = fb->offsets[0];
     } else {
         /* Disable scanout */
         ret = virtgpu_cmd_set_scanout(vgdev, scanout_id, NULL);
         if (ret) return ret;
         vgdev->current_scanout_obj = NULL;
+        vgdev->current_scanout_width = vgdev->current_scanout_height = 0;
+        vgdev->current_scanout_stride = vgdev->current_scanout_offset = 0;
     }
 
     vgdev->current_fb = fb;
@@ -972,6 +981,9 @@ int virtio_gpu_driver_init(void)
     vgdev->cursorq_cmd_busy       = 0;
     wait_queue_init(&vgdev->ctrlq_cmd_wait);
     wait_queue_init(&vgdev->cursorq_cmd_wait);
+    wait_queue_init(&vgdev->ctrlq_complete_wait);
+    wait_queue_init(&vgdev->cursorq_complete_wait);
+    vgdev->irq_vector       = -1;
     vgdev->fence_lock.lock  = 0;
     vgdev->next_resource_id = 1;
     vgdev->next_context_id  = 1;

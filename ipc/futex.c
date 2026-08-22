@@ -9,6 +9,7 @@
  */
 
 #include <ipc/futex.h>
+#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
@@ -231,16 +232,17 @@ static void futex_remove_entry_locked(futex_bucket_t *bucket, futex_entry_t *ent
 /*
  * Check whether a wait queue is empty.
  * Must be called with the bucket lock held (to prevent concurrent
- * modification of the entry chain), but the wq internal lock is
- * acquired here for the check.
+ * modification of the entry chain).  Wait-queue membership itself is
+ * protected by scheduler.lock.
  */
 static int futex_entry_empty(futex_entry_t *entry)
 {
     int empty;
 
-    spin_lock(&entry->wq.lock);
+    /* Wait-queue membership is serialized by the scheduler lock. */
+    spin_lock(&scheduler.lock);
     empty = ilist_is_empty(&entry->wq.tasks);
-    spin_unlock(&entry->wq.lock);
+    spin_unlock(&scheduler.lock);
 
     return empty;
 }
@@ -422,22 +424,36 @@ static int futex_move_waiter(wait_queue_t *wq_src, wait_queue_t *wq_dst)
     ilist_node_t *node;
     task_t       *task;
 
-    spin_lock(&wq_src->lock);
+    if (!wq_src || !wq_dst || wq_src == wq_dst) return 0;
+
+    /* All wait-queue list users share scheduler.lock; do not use the unused
+     * per-queue lock here, or wake/cancel can mutate the same list beside us.
+     * The caller already holds the futex bucket lock(s). */
+    spin_lock(&scheduler.lock);
     if (ilist_is_empty(&wq_src->tasks)) {
-        spin_unlock(&wq_src->lock);
+        spin_unlock(&scheduler.lock);
         return 0;
     }
 
     node = wq_src->tasks.next;
     task = (task_t *)((uint8_t *)node - offsetof(task_t, sched_node));
 
-    ilist_remove(node);
-    task->wait_queue = wq_dst;
+    if (ilist_remove(node)) panic("futex: requeue source list corrupted");
 
-    spin_lock(&wq_dst->lock);
-    ilist_insert_before(&wq_dst->tasks, &task->sched_node);
-    spin_unlock(&wq_dst->lock);
-    spin_unlock(&wq_src->lock);
+    /*
+     * The move must be one atomic state transition: link into the
+     * destination FIRST and publish task->wait_queue only afterwards, so a
+     * failed insertion can never leave a task whose queue pointer disagrees
+     * with its actual membership.  On failure, restore the node to the tail
+     * of the source queue.
+     */
+    if (ilist_insert_before(&wq_dst->tasks, node)) {
+        if (ilist_insert_before(&wq_src->tasks, node)) panic("futex: cannot restore requeue victim");
+        spin_unlock(&scheduler.lock);
+        return 0;
+    }
+    task->wait_queue = wq_dst;
+    spin_unlock(&scheduler.lock);
 
     return 1;
 }
@@ -697,6 +713,10 @@ static rt_mutex_t *futex_get_pi_mutex(futex_bucket_t *bucket, uint32_t *uaddr)
  * FUTEX_LOCK_PI: acquire a PI mutex.
  * Userspace fastpath: cmpxchg(*uaddr, 0, tid) - success.
  * Kernel slowpath (this function): block with priority inheritance.
+ *
+ * Lock order: bucket->lock -> pi_mutex->lock -> scheduler.lock (taken
+ * internally by wait_queue_* / task_wakeup).  scheduler.lock is never held
+ * across an acquisition of either outer lock.
  */
 static int futex_lock_pi(uint32_t *uaddr)
 {
@@ -704,71 +724,112 @@ static int futex_lock_pi(uint32_t *uaddr)
     if (!self) return -ESRCH;
 
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
-    spin_lock(&bucket->lock);
 
-    rt_mutex_t *pi_mutex = futex_get_pi_mutex(bucket, uaddr);
-    if (!pi_mutex) {
-        spin_unlock(&bucket->lock);
-        return -ENOMEM;
-    }
+    for (;;) {
+        spin_lock(&bucket->lock);
 
-    /*
-     * Userspace should have attempted cmpxchg first.
-     * If the lock is still free, take it now.
-     */
-    uint32_t cur_val;
-    if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
-        spin_unlock(&bucket->lock);
-        return -EFAULT;
-    }
+        rt_mutex_t *pi_mutex = futex_get_pi_mutex(bucket, uaddr);
+        if (!pi_mutex) {
+            spin_unlock(&bucket->lock);
+            return -ENOMEM;
+        }
 
-    if ((cur_val & FUTEX_TID_MASK) == 0) {
-        uint32_t new_val = (self->pid & FUTEX_TID_MASK);
+        /*
+         * Userspace should have attempted cmpxchg first.
+         * If the lock is still free, take it now.
+         */
+        uint32_t cur_val;
+        if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
+            spin_unlock(&bucket->lock);
+            return -EFAULT;
+        }
+
+        if ((cur_val & FUTEX_TID_MASK) == 0) {
+            uint32_t new_val = (self->pid & FUTEX_TID_MASK);
+            if (copy_to_user(uaddr, &new_val, sizeof(new_val)) != 0) {
+                spin_unlock(&bucket->lock);
+                return -EFAULT;
+            }
+            spin_lock(&pi_mutex->lock);
+            pi_mutex->owner      = self;
+            pi_mutex->owner_died = 0;
+            self->base_weight    = self->weight;
+            self->pi_weight      = self->weight;
+            spin_unlock(&pi_mutex->lock);
+            spin_unlock(&bucket->lock);
+            return EOK;
+        }
+
+        /*
+         * Lock is contended.  Decode the owner TID from the futex word.
+         * Set the FUTEX_WAITERS flag so the unlock path knows to call us.
+         */
+        uint32_t owner_tid = cur_val & FUTEX_TID_MASK;
+        uint32_t new_val   = cur_val | FUTEX_WAITERS;
         if (copy_to_user(uaddr, &new_val, sizeof(new_val)) != 0) {
             spin_unlock(&bucket->lock);
             return -EFAULT;
         }
-        pi_mutex->owner      = self;
-        pi_mutex->owner_died = 0;
-        self->base_weight    = self->weight;
-        self->pi_weight      = self->weight;
+
+        /* Find the owner task by PID */
+        task_t *owner = pid_find_task(owner_tid);
+
+        if (!owner || owner == self) {
+            spin_unlock(&bucket->lock);
+            return (owner == self) ? -EDEADLK : -ESRCH;
+        }
+
+        spin_lock(&pi_mutex->lock);
+        pi_mutex->owner = owner;
+
+        /* Priority inheritance: add self as waiter, propagate chain */
+        self->pi_weight   = self->weight;
+        self->base_weight = self->weight;
+        if (self->blocked_on != pi_mutex) pi_waiter_add(self, pi_mutex);
+        spin_unlock(&pi_mutex->lock);
+
+        wait_queue_prepare(&pi_mutex->wq);
         spin_unlock(&bucket->lock);
-        return EOK;
+
+        /*
+         * Re-check ownership after linking into the wait queue but before
+         * committing to sleep: the previous owner may already have handed
+         * the mutex to us.  Sleeping now would discard that hand-off.
+         */
+        spin_lock(&pi_mutex->lock);
+        bool ready = !pi_mutex->owner || pi_mutex->owner == self;
+        spin_unlock(&pi_mutex->lock);
+
+        if (ready) {
+            /* Withdraw our own prepared entry; never wake someone else. */
+            wait_queue_cancel(&pi_mutex->wq);
+            spin_lock(&pi_mutex->lock);
+            pi_waiter_remove(self);
+            spin_unlock(&pi_mutex->lock);
+            continue; /* re-read the futex word and restart cleanly */
+        }
+
+        task_block();
+
+        spin_lock(&pi_mutex->lock);
+        bool handed       = pi_mutex->owner == self;
+        bool died         = pi_mutex->owner_died && !handed && pi_mutex->owner != NULL;
+        bool still_queued = self->blocked_on == pi_mutex;
+        if ((handed || died) && still_queued) pi_waiter_remove(self);
+        spin_unlock(&pi_mutex->lock);
+
+        if (died) return -EOWNERDEAD;
+        if (handed) return EOK;
+
+        /*
+         * Defensive: a wake-up that neither transferred ownership nor
+         * reported death leaves us unlinked but not owning.  Drop any PI
+         * queueing and restart the whole slowpath from a clean state.
+         */
+        spin_lock(&pi_mutex->lock);
+        if (self->blocked_on == pi_mutex) pi_waiter_remove(self);
+        spin_unlock(&pi_mutex->lock);
     }
-
-    /*
-     * Lock is contended.  Decode the owner TID from the futex word.
-     * Set the FUTEX_WAITERS flag so the unlock path knows to call us.
-     */
-    uint32_t owner_tid = cur_val & FUTEX_TID_MASK;
-    uint32_t new_val   = cur_val | FUTEX_WAITERS;
-    if (copy_to_user(uaddr, &new_val, sizeof(new_val)) != 0) {
-        spin_unlock(&bucket->lock);
-        return -EFAULT;
-    }
-
-    /* Find the owner task by PID */
-    task_t *owner = pid_find_task(owner_tid);
-
-    if (!owner || owner == self) {
-        spin_unlock(&bucket->lock);
-        return (owner == self) ? -EDEADLK : -ESRCH;
-    }
-
-    pi_mutex->owner = owner;
-
-    /* Priority inheritance: add self as waiter, propagate chain */
-    self->pi_weight   = self->weight;
-    self->base_weight = self->weight;
-
-    pi_waiter_add(self, pi_mutex);
-
-    wait_queue_prepare(&pi_mutex->wq);
-    spin_unlock(&bucket->lock);
-
-    task_block();
-    if (pi_mutex->owner_died) return -EOWNERDEAD;
-    return EOK;
 }
 
 /*
@@ -794,23 +855,36 @@ static int futex_unlock_pi(uint32_t *uaddr)
 
     rt_mutex_t *pi_mutex = entry->pi_mutex;
 
+    spin_lock(&pi_mutex->lock);
     if (pi_mutex->owner != self) {
+        spin_unlock(&pi_mutex->lock);
         spin_unlock(&bucket->lock);
         return -EPERM;
     }
 
     pi_mutex->owner     = NULL;
     rb_node_t *leftmost = rb_first(&pi_mutex->pi_waiters);
+    task_t    *next_owner = NULL;
 
     if (leftmost) {
-        task_t *next_owner = rb_entry(leftmost, task_t, pi_node);
+        next_owner = rb_entry(leftmost, task_t, pi_node);
         rb_erase_augmented(&pi_mutex->pi_waiters, leftmost, pi_waiter_augment, NULL);
         next_owner->blocked_on = NULL;
         pi_mutex->owner        = next_owner;
+    }
+    spin_unlock(&pi_mutex->lock);
+
+    if (next_owner) {
+        /* Snapshot remaining waiter membership under scheduler.lock. */
+        spin_lock(&scheduler.lock);
+        bool has_waiters = !ilist_is_empty(&pi_mutex->wq.tasks);
+        spin_unlock(&scheduler.lock);
 
         uint32_t new_val = (next_owner->pid & FUTEX_TID_MASK);
-        if (!ilist_is_empty(&pi_mutex->wq.tasks)) new_val |= FUTEX_WAITERS;
+        if (has_waiters) new_val |= FUTEX_WAITERS;
         copy_to_user(uaddr, &new_val, sizeof(new_val));
+        /* Woken with ownership handed off; the waiter's slowpath observes
+         * owner == self and completes without re-queueing. */
         task_wakeup(next_owner);
     } else {
         uint32_t zero = 0;
@@ -854,10 +928,12 @@ static int futex_trylock_pi(uint32_t *uaddr)
         return -EFAULT;
     }
 
+    spin_lock(&pi_mutex->lock);
     pi_mutex->owner      = self;
     pi_mutex->owner_died = 0;
     self->base_weight    = self->weight;
     self->pi_weight      = self->weight;
+    spin_unlock(&pi_mutex->lock);
 
     spin_unlock(&bucket->lock);
     return EOK;

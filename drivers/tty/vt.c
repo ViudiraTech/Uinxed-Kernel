@@ -164,6 +164,14 @@ void tty_deferred_flush(void)
     spin_unlock(&tty_flush_spinlock);
 }
 
+/* Lockless IRQ-side hint; the deferred pass verifies the queue under its lock. */
+bool tty_deferred_pending(void)
+{
+    size_t head = __atomic_load_n(&tty_vga_head, __ATOMIC_ACQUIRE);
+    size_t tail = __atomic_load_n(&tty_vga_tail, __ATOMIC_ACQUIRE);
+    return head != tail;
+}
+
 /* Add character data to the teletype buffer */
 static void tty_buff_add(const char ch)
 {
