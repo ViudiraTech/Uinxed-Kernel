@@ -495,8 +495,17 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 
         ns->nsid          = nsid;
         ns->total_sectors = ns_data->nsze;
-        ns->sector_size   = (ds > 0) ? (1u << ds) : NVME_SECTOR_SIZE;
-        ns->ready         = 1;
+        if (ds > 31 || ds < 9) {
+            plogk("nvme: invalid ds=%u for ns %u, using default %u\n", ds, nsid, NVME_SECTOR_SIZE);
+            ns->sector_size = NVME_SECTOR_SIZE;
+        } else {
+            ns->sector_size = 1u << ds;
+            if (ns->sector_size < 512 || ns->sector_size > PAGE_4K_SIZE) {
+                plogk("nvme: sector_size %u out of range for ns %u, using default %u\n", ns->sector_size, nsid, NVME_SECTOR_SIZE);
+                ns->sector_size = NVME_SECTOR_SIZE;
+            }
+        }
+        ns->ready = 1;
 
         plogk("nvme: /dev/nvme%dn%u: %llu sectors, sector size=%u\n", ctrl_id, nsid, (unsigned long long)ns->total_sectors, ns->sector_size);
 

@@ -538,6 +538,10 @@ void smp_init(void)
         cpus[i].fpu.fpu_irq_saved  = 0;
         /* Allocate kernel stack for each CPU */
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
+        if (!cpus[i].kernel_stack) {
+            plogk("smp: failed to allocate kernel stack for CPU %u\n", i);
+            continue;
+        }
 
         /* Special handling for BSP */
         if (i == 0) {
@@ -555,9 +559,33 @@ void smp_init(void)
             continue;
         }
         cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
+        if (!cpus[i].gdt) {
+            plogk("smp: failed to allocate GDT for CPU %u\n", i);
+            free(cpus[i].kernel_stack);
+            cpus[i].kernel_stack = NULL;
+            continue;
+        }
         memset(cpus[i].gdt, 0, sizeof(gdt_t)); // Clear dirty data
         cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
-        cpus[i].tss       = (tss_t *)aligned_alloc(16, ALIGN_UP(sizeof(tss_t), 16));
+        if (!cpus[i].tss_stack) {
+            plogk("smp: failed to allocate TSS stack for CPU %u\n", i);
+            free(cpus[i].gdt);
+            cpus[i].gdt = NULL;
+            free(cpus[i].kernel_stack);
+            cpus[i].kernel_stack = NULL;
+            continue;
+        }
+        cpus[i].tss = (tss_t *)aligned_alloc(16, ALIGN_UP(sizeof(tss_t), 16));
+        if (!cpus[i].tss) {
+            plogk("smp: failed to allocate TSS for CPU %u\n", i);
+            free(cpus[i].tss_stack);
+            cpus[i].tss_stack = NULL;
+            free(cpus[i].gdt);
+            cpus[i].gdt = NULL;
+            free(cpus[i].kernel_stack);
+            cpus[i].kernel_stack = NULL;
+            continue;
+        }
         memset(cpus[i].tss, 0, sizeof(tss_t)); // Clear dirty data
 
         /* Configure the AP entry point */

@@ -456,7 +456,7 @@ static int futex_move_waiter(wait_queue_t *wq_src, wait_queue_t *wq_dst)
     if (ilist_insert_before(&wq_dst->tasks, node)) {
         plogk("futex: requeue destination insert rejected (task %llu %s)\n", task->pid, task->name);
         if (ilist_insert_before(&wq_src->tasks, node)) {
-            plogk("futex: cannot restore requeue victim (task %llu %s) - waking orphaned task\n", task->pid, task->name);
+            plogk("futex: cannot restore requeue victim (task %llu %s) - waking orphaned task.\n", task->pid, task->name);
             task->wait_queue = NULL;
             spin_unlock(&scheduler.lock);
             task_wakeup(task);
@@ -895,7 +895,12 @@ static int futex_unlock_pi(uint32_t *uaddr)
 
         uint32_t new_val = (next_owner->pid & FUTEX_TID_MASK);
         if (has_waiters) new_val |= FUTEX_WAITERS;
-        copy_to_user(uaddr, &new_val, sizeof(new_val));
+        if (copy_to_user(uaddr, &new_val, sizeof(new_val))) {
+            plogk("futex_unlock_pi: copy_to_user failed for %p\n", (void *)uaddr);
+            pi_propagate_chain(self);
+            spin_unlock(&bucket->lock);
+            return -EFAULT;
+        }
 
         /*
          * Woken with ownership handed off; the waiter's slowpath observes
@@ -904,7 +909,12 @@ static int futex_unlock_pi(uint32_t *uaddr)
         task_wakeup(next_owner);
     } else {
         uint32_t zero = 0;
-        copy_to_user(uaddr, &zero, sizeof(zero));
+        if (copy_to_user(uaddr, &zero, sizeof(zero))) {
+            plogk("futex_unlock_pi: copy_to_user zero failed for %p\n", (void *)uaddr);
+            pi_propagate_chain(self);
+            spin_unlock(&bucket->lock);
+            return -EFAULT;
+        }
         futex_try_cleanup(bucket, entry);
     }
     pi_propagate_chain(self);

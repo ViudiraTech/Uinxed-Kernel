@@ -80,6 +80,11 @@ struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
 
     /* Allocate per-plane state array */
     if (config->num_total_plane > 0) {
+        if ((size_t)config->num_total_plane > SIZE_MAX / sizeof(*state->planes)) {
+            DRM_ERROR("Plane count %d overflow.\n", config->num_total_plane);
+            free(state);
+            return NULL;
+        }
         state->planes = malloc(sizeof(*state->planes) * config->num_total_plane);
         if (!state->planes) {
             DRM_ERROR("Failed to allocate plane state array (%d planes)\n", config->num_total_plane);
@@ -91,6 +96,12 @@ struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
 
     /* Allocate per-CRTC state array */
     if (config->num_crtc > 0) {
+        if ((size_t)config->num_crtc > SIZE_MAX / sizeof(*state->crtcs)) {
+            DRM_ERROR("CRTC count %d overflow.\n", config->num_crtc);
+            free(state->planes);
+            free(state);
+            return NULL;
+        }
         state->crtcs = malloc(sizeof(*state->crtcs) * config->num_crtc);
         if (!state->crtcs) {
             DRM_ERROR("Failed to allocate crtc state array (%d crtcs)\n", config->num_crtc);
@@ -277,6 +288,10 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         size_t                       new_count = state->num_connector + 1;
         struct drm_connector       **new_connectors;
         struct drm_connector_state **new_states;
+        if (new_count > SIZE_MAX / sizeof(*new_connectors) || new_count > SIZE_MAX / sizeof(*new_states)) {
+            DRM_ERROR("Connector count %zu overflow.\n", new_count);
+            return NULL;
+        }
 
         new_connectors = malloc(sizeof(*new_connectors) * new_count); // NOLINT(bugprone-sizeof-expression)
         new_states     = malloc(sizeof(*new_states) * new_count);     // NOLINT(bugprone-sizeof-expression)

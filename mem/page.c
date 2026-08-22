@@ -398,7 +398,11 @@ static int clone_table_cow(page_table_t *destination, const page_table_t *source
         page_table_clear(next);
         destination->entries[i].value = table_frame | (value & ~PAGE_4K_MASK);
 
-        if (clone_table_cow(next, phys_to_virt(value & PAGE_4K_MASK), level - 1)) return -1;
+        if (clone_table_cow(next, phys_to_virt(value & PAGE_4K_MASK), level - 1)) {
+            free_frames(table_frame, 1);
+            destination->entries[i].value = 0;
+            return -1;
+        }
     }
     return 0;
 }

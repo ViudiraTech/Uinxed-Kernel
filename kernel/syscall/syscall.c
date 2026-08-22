@@ -3894,20 +3894,29 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
 
             int out         = 0;
             new_argv[out++] = strdup(interpreter);
+            if (!new_argv[out - 1]) goto shebang_oom;
             if (optional < end) {
                 size_t optional_len = end - optional;
-                new_argv[out]       = malloc(optional_len + 1);
-                if (new_argv[out]) {
-                    memcpy(new_argv[out], elf_data + optional, optional_len);
-                    new_argv[out][optional_len] = '\0';
-                }
+                if (optional_len == SIZE_MAX) goto shebang_oom;
+                new_argv[out] = malloc(optional_len + 1);
+                if (!new_argv[out]) goto shebang_oom;
+                memcpy(new_argv[out], elf_data + optional, optional_len);
+                new_argv[out][optional_len] = '\0';
                 out++;
             }
             new_argv[out++] = strdup(kpath);
-            for (int i = 1; i < argc; i++) new_argv[out++] = strdup(kargv[i]);
+            if (!new_argv[out - 1]) goto shebang_oom;
+            for (int i = 1; i < argc; i++) {
+                new_argv[out++] = strdup(kargv[i]);
+                if (!new_argv[out - 1]) goto shebang_oom;
+            }
             bool allocation_failed = false;
             for (int i = 0; i < new_argc; i++)
                 if (!new_argv[i]) allocation_failed = true;
+            if (false) {
+shebang_oom:
+                allocation_failed = true;
+            }
             if (allocation_failed) {
                 plogk("syscall: Exec of %s failed (shebang argv element allocation)\n", kpath);
                 vfs_close(node);

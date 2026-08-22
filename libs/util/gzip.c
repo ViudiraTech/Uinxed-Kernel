@@ -411,8 +411,12 @@ int gzip_decompress(const uint8_t *input, size_t input_size, uint8_t **output, s
         return -EINVAL;
     }
 
-    size_t   expected_size = load_le32(input + input_size - 4);
-    uint8_t *result        = malloc(expected_size ? expected_size : 1);
+    size_t expected_size = load_le32(input + input_size - 4);
+    if (expected_size > 32 * 1024 * 1024) {
+        plogk("gzip: ISIZE %zu exceeds 32MB limit.\n", expected_size);
+        return -EFBIG;
+    }
+    uint8_t *result = malloc(expected_size ? expected_size : 1);
     if (!result) {
         plogk("gzip: Out of memory allocating %zu bytes for output.\n", expected_size);
         return -ENOMEM;

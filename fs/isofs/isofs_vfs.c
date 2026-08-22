@@ -72,6 +72,7 @@ static iso_directory_record_t *isofs_lookup_record(isofs_mount_t *mnt, uint32_t 
     uint8_t *buf;
     uint32_t block_size = mnt->block_size;
     uint64_t pos        = 0;
+    if (!mnt || block_size == 0 || (block_size & (block_size - 1)) != 0 || block_size > 4096) return NULL;
 
     buf = malloc(block_size);
     if (!buf) return NULL;
@@ -182,6 +183,7 @@ static int isofs_load_directory(vfs_node_t node)
     uint32_t       block_size = mnt->block_size;
     uint32_t       dir_block  = h->first_extent;
     uint64_t       pos        = 0;
+    if (block_size == 0 || (block_size & (block_size - 1)) != 0 || block_size > 4096) return -EIO;
 
     uint8_t *buf = malloc(block_size);
     if (!buf) return -ENOMEM;
@@ -288,7 +290,10 @@ static int isofs_load_directory(vfs_node_t node)
         ch->extent_block  = blk;
         ch->extent_offset = off;
         ch->raw_de_buf    = malloc(de_len);
-        if (ch->raw_de_buf) memcpy(ch->raw_de_buf, de, de_len);
+        if (ch->raw_de_buf)
+            memcpy(ch->raw_de_buf, de, de_len);
+        else
+            plogk("isofs: raw_de malloc %u failed for %s\n", de_len, child->name);
         ch->raw_de = (iso_directory_record_t *)ch->raw_de_buf;
 
         /* parse Rock Ridge if available */
@@ -657,10 +662,14 @@ static vfs_node_t isofs_vfs_dup(vfs_node_t node)
     copy->permissions = node->permissions;
     copy->owner       = node->owner;
     copy->group       = node->group;
-    copy->linkname    = node->linkname ? strdup(node->linkname) : NULL;
-    copy->createtime  = node->createtime;
-    copy->readtime    = node->readtime;
-    copy->writetime   = node->writetime;
+    if (node->linkname) {
+        copy->linkname = strdup(node->linkname);
+        if (!copy->linkname) plogk("isofs: linkname strdup failed.\n");
+    } else
+        copy->linkname = NULL;
+    copy->createtime = node->createtime;
+    copy->readtime   = node->readtime;
+    copy->writetime  = node->writetime;
     return copy;
 }
 

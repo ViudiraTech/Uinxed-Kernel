@@ -3364,7 +3364,12 @@ static int ntfs_load_directory(ntfs_handle_t *h, vfs_node_t node)
                     h->runlist_sz = al - mp;
                     free(h->runlist_buf);
                     h->runlist_buf = malloc(h->runlist_sz);
-                    if (h->runlist_buf) memcpy(h->runlist_buf, mft + off + mp, h->runlist_sz);
+                    if (h->runlist_buf)
+                        memcpy(h->runlist_buf, mft + off + mp, h->runlist_sz);
+                    else {
+                        plogk("ntfs: runlist malloc %u failed for mft %llu\n", h->runlist_sz, (unsigned long long)h->mft_no);
+                        h->runlist_sz = 0;
+                    }
                 }
                 h->is_resident = 0;
             } else {
@@ -3374,7 +3379,13 @@ static int ntfs_load_directory(ntfs_handle_t *h, vfs_node_t node)
                     h->runlist_sz = (u32)h->file_size;
                     free(h->runlist_buf);
                     h->runlist_buf = malloc(h->runlist_sz);
-                    if (h->runlist_buf) memcpy(h->runlist_buf, mft + off + voff, h->runlist_sz);
+                    if (h->runlist_buf)
+                        memcpy(h->runlist_buf, mft + off + voff, h->runlist_sz);
+                    else {
+                        plogk("ntfs: resident data malloc %u failed for mft %llu\n", h->runlist_sz, (unsigned long long)h->mft_no);
+                        h->runlist_sz = 0;
+                        h->file_size  = 0;
+                    }
                 }
                 h->is_resident = 1;
             }
@@ -3439,7 +3450,12 @@ static int ntfs_load_file_runlist(ntfs_handle_t *h, vfs_node_t node)
                 if (mp < al) {
                     h->runlist_sz  = al - mp;
                     h->runlist_buf = malloc(h->runlist_sz);
-                    if (h->runlist_buf) memcpy(h->runlist_buf, mft + off + mp, h->runlist_sz);
+                    if (h->runlist_buf)
+                        memcpy(h->runlist_buf, mft + off + mp, h->runlist_sz);
+                    else {
+                        plogk("ntfs: runlist malloc %u failed for file mft %llu\n", h->runlist_sz, (unsigned long long)h->mft_no);
+                        h->runlist_sz = 0;
+                    }
                 }
                 h->is_resident = 0;
             } else {
@@ -3449,7 +3465,14 @@ static int ntfs_load_file_runlist(ntfs_handle_t *h, vfs_node_t node)
                 if (voff + h->file_size <= al && h->file_size > 0) {
                     h->runlist_sz  = (u32)h->file_size;
                     h->runlist_buf = malloc(h->runlist_sz);
-                    if (h->runlist_buf) memcpy(h->runlist_buf, mft + off + voff, h->runlist_sz);
+                    if (h->runlist_buf)
+                        memcpy(h->runlist_buf, mft + off + voff, h->runlist_sz);
+                    else {
+                        plogk("ntfs: resident malloc %u failed for file mft %llu\n", h->runlist_sz, (unsigned long long)h->mft_no);
+                        h->runlist_sz = 0;
+                        h->file_size  = 0;
+                        node->size    = 0;
+                    }
                 }
                 h->is_resident = 1;
             }

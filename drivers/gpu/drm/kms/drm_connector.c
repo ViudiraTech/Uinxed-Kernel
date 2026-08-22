@@ -248,7 +248,12 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
     encoder_count = (int)connector->possible_encoders_count;
 
     if (user_modes && mode_count) {
-        uint32_t                  count = user_modes < (uint32_t)mode_count ? user_modes : (uint32_t)mode_count;
+        uint32_t count = user_modes < (uint32_t)mode_count ? user_modes : (uint32_t)mode_count;
+        if ((size_t)count > SIZE_MAX / sizeof(struct drm_mode_modeinfo)) {
+            DRM_ERROR("Mode count %u overflow.\n", count);
+            drm_mode_object_put(obj);
+            return -EOVERFLOW;
+        }
         struct drm_mode_modeinfo *modes = malloc((size_t)count * sizeof(*modes));
         ilist_node_t             *node  = connector->modes.next;
         if (!modes) {

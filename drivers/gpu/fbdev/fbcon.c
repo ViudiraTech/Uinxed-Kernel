@@ -628,11 +628,12 @@ void fbcon_resize(void)
             free(new_last);
             new_text  = NULL;
             new_color = new_bg = new_first = new_last = NULL;
+            dim_changed                               = false;
         }
     }
 
     spin_lock(&fbcon_lock);
-    if (dim_changed) {
+    if (dim_changed && new_text && new_color && new_bg && new_first && new_last) {
         uint32_t old_cw    = c_width;
         uint32_t old_ch    = c_height;
         uint32_t old_cur_x = vt_ansi_state.x;

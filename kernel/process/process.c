@@ -1863,8 +1863,11 @@ void process_exit(int exit_code)
     if (sibling_exit) {
         if (current->clear_child_tid) {
             uint32_t zero = 0;
-            copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero));
-            sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
+            if (copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero))) {
+                plogk("process_exit: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
+            } else {
+                sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
+            }
         }
         if (!(current->flags & PF_KTHREAD)) ptrace_exit_notify(exit_code);
         task_exit();
@@ -1936,8 +1939,11 @@ void process_exit(int exit_code)
     /* Notify set_tid_address with 0 (futex wake on clear_child_tid) */
     if (current->clear_child_tid) {
         uint32_t zero = 0;
-        copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero));
-        sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
+        if (copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero))) {
+            plogk("process_exit: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
+        } else {
+            sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
+        }
     }
 
     process_fd_table_close(proc);

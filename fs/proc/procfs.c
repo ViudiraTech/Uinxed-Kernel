@@ -17,6 +17,7 @@
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/proc/procfs.h>
 #include <kernel/cmdline/cmdline.h>
+#include <kernel/config.h>
 #include <kernel/errno.h>
 #include <kernel/module/module.h>
 #include <kernel/printk.h>
@@ -698,14 +699,17 @@ static void gen_info_interrupts(procfs_file_t *pf)
     int   n;
 
     n = snprintf(p, remaining, "           CPU0");
+    if (n < 0 || n >= remaining) goto done;
     p += n;
     remaining -= n;
     for (uint32_t i = 1; i < cpu_count && remaining > 0; i++) {
         n = snprintf(p, remaining, "       CPU%u", i);
+        if (n < 0 || n >= remaining) break;
         p += n;
         remaining -= n;
     }
     n = snprintf(p, remaining, "\n");
+    if (n < 0 || n >= remaining) goto done;
     p += n;
     remaining -= n;
 
@@ -722,27 +726,41 @@ static void gen_info_interrupts(procfs_file_t *pf)
     int vector = 0;
     for (size_t i = 0; i < sizeof(vectors) / sizeof(vectors[0]) && remaining > 0; i++) {
         n = snprintf(p, remaining, " %2d: ", vector);
+        if (n < 0 || n >= remaining) break;
         p += n;
         remaining -= n;
         for (uint32_t c = 0; c < cpu_count && remaining > 0; c++) {
             n = snprintf(p, remaining, "%10llu ", (unsigned long long)(c == 0 ? vectors[i].count : 0));
+            if (n < 0 || n >= remaining) break;
             p += n;
             remaining -= n;
         }
+        if (remaining <= 0) break;
         n = snprintf(p, remaining, "  %s\n", vectors[i].name);
+        if (n < 0 || n >= remaining) break;
         p += n;
         remaining -= n;
         vector++;
     }
-    n = snprintf(p, remaining, "NMI:          0          0   Non-maskable interrupts\n");
-    p += n;
-    remaining -= n;
-    n = snprintf(p, remaining, "LOC:   %10llu   %10llu   Local timer interrupts\n", (unsigned long long)scheduler.ticks, 0ULL);
-    p += n;
-    remaining -= n;
-    n = snprintf(p, remaining, "SPU:          0          0   Spurious interrupts\n");
-    p += n;
-
+    if (remaining > 0) {
+        n = snprintf(p, remaining, "NMI:          0          0   Non-maskable interrupts\n");
+        if (n >= 0 && n < remaining) {
+            p += n;
+            remaining -= n;
+        }
+    }
+    if (remaining > 0) {
+        n = snprintf(p, remaining, "LOC:   %10llu   %10llu   Local timer interrupts\n", (unsigned long long)scheduler.ticks, 0ULL);
+        if (n >= 0 && n < remaining) {
+            p += n;
+            remaining -= n;
+        }
+    }
+    if (remaining > 0) {
+        n = snprintf(p, remaining, "SPU:          0          0   Spurious interrupts\n");
+        if (n >= 0 && n < remaining) p += n;
+    }
+done:
     pf->content  = buf;
     pf->size     = (size_t)(p - buf);
     pf->capacity = buf_size;

@@ -165,6 +165,14 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
         char name[32];
         (void)snprintf(name, sizeof(name), "card%d", primary_idx);
         minor->device_node_name = strdup(name);
+        if (!minor->device_node_name) {
+            DRM_ERROR("dev_alloc: out of memory for primary node name.\n");
+            free(minor);
+            drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
+            drm_mode_config_cleanup(dev);
+            free(dev);
+            return NULL;
+        }
     }
     dev->primary = minor;
 
@@ -197,6 +205,17 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
         char name[32];
         (void)snprintf(name, sizeof(name), "renderD%d", 128 + render_idx);
         minor->device_node_name = strdup(name);
+        if (!minor->device_node_name) {
+            DRM_ERROR("dev_alloc: out of memory for render node name.\n");
+            free(minor);
+            drm_minor_free(DRM_MINOR_RENDER, render_idx);
+            free(dev->primary->device_node_name);
+            free(dev->primary);
+            drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
+            drm_mode_config_cleanup(dev);
+            free(dev);
+            return NULL;
+        }
     }
     dev->render = minor;
 

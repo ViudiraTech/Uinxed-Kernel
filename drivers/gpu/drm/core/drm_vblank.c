@@ -52,6 +52,10 @@ int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
         DRM_ERROR("Vblank_init with invalid args (dev=%p, num_crtcs=%u), returning -EINVAL\n", dev, num_crtcs);
         return -EINVAL;
     }
+    if (num_crtcs > SIZE_MAX / sizeof(*vblank)) {
+        DRM_ERROR("Vblank_init: num_crtcs %u overflow.\n", num_crtcs);
+        return -EOVERFLOW;
+    }
 
     vblank = malloc(sizeof(*vblank) * num_crtcs);
     if (!vblank) {

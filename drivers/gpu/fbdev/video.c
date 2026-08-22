@@ -155,6 +155,7 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
      */
     if (size) {
         row_bytes = (size_t)info.stride * bytes_per_pixel;
+        if (row_bytes == 0) return size;
         start_row = offset / row_bytes;
         end_row   = (offset + size - 1) / row_bytes;
         if (start_row == end_row) {

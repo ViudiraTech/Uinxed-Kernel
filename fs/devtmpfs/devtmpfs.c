@@ -79,7 +79,8 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
     /* Create parent directories by tokenising the path. */
     {
         char *path_copy = strdup(path);
-        char *save      = path_copy;
+        if (!path_copy) return -ENOMEM;
+        char *save = path_copy;
         char *slash;
 
         /* Skip leading '/' and walk components. */

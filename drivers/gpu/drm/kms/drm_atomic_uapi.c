@@ -380,6 +380,11 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             ret = -EFAULT;
             goto out;
         }
+        if ((size_t)atomic->count_objs > SIZE_MAX / sizeof(*objs) || (size_t)atomic->count_objs > SIZE_MAX / sizeof(*count_props)) {
+            DRM_ERROR("Object count %u overflow.\n", atomic->count_objs);
+            ret = -EOVERFLOW;
+            goto out;
+        }
         objs        = malloc((size_t)atomic->count_objs * sizeof(*objs));
         count_props = malloc((size_t)atomic->count_objs * sizeof(*count_props));
         if (!objs || !count_props) {
@@ -406,6 +411,11 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         if (!atomic->props_ptr || !atomic->prop_values_ptr) {
             DRM_ERROR("Missing props/prop_values pointers.\n");
             ret = -EFAULT;
+            goto out;
+        }
+        if ((size_t)total_props > SIZE_MAX / sizeof(*props) || (size_t)total_props > SIZE_MAX / sizeof(*prop_values)) {
+            DRM_ERROR("Prop count %u overflow.\n", total_props);
+            ret = -EOVERFLOW;
             goto out;
         }
         props       = malloc((size_t)total_props * sizeof(*props));

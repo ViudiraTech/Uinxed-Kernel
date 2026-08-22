@@ -773,8 +773,19 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
         return result;
     }
 
-    size_t             slots = capacity;
-    pagecache_page_t **pages = (pagecache_page_t **)malloc(slots * sizeof(*pages)); // NOLINT(bugprone-sizeof-expression)
+    size_t slots = capacity;
+    size_t bytes;
+    if (__builtin_mul_overflow(slots, sizeof(pagecache_page_t *), &bytes)) {
+        plogk("pagecache: Writeback slots overflow %zu\n", slots);
+        pc_unlock(&mapping->lock);
+        return -EOVERFLOW;
+    }
+    if (slots > 1000000) {
+        plogk("pagecache: Writeback slots %zu exceeds limit\n", slots);
+        pc_unlock(&mapping->lock);
+        return -EFBIG;
+    }
+    pagecache_page_t **pages = (pagecache_page_t **)malloc(bytes); // NOLINT(bugprone-sizeof-expression)
     if (!pages) {
         plogk("pagecache: Writeback array alloc failed for %zu dirty pages.\n", slots);
         pc_unlock(&mapping->lock);

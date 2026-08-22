@@ -632,11 +632,15 @@ static vfs_node_t fatfs_vfs_dup(vfs_node_t node)
     copy = vfs_node_alloc(node->parent, node->name);
     if (!copy) return 0;
 
-    copy->type        = node->type;
-    copy->size        = node->size;
-    copy->realsize    = node->realsize;
-    copy->blksz       = node->blksz;
-    copy->linkname    = node->linkname ? strdup(node->linkname) : 0;
+    copy->type     = node->type;
+    copy->size     = node->size;
+    copy->realsize = node->realsize;
+    copy->blksz    = node->blksz;
+    if (node->linkname) {
+        copy->linkname = strdup(node->linkname);
+        if (!copy->linkname) plogk("fatfs: linkname strdup failed.\n");
+    } else
+        copy->linkname = 0;
     copy->permissions = node->permissions;
     return copy;
 }

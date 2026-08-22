@@ -451,6 +451,7 @@ int extfs_dir_add_entry(extfs_handle_t *dir_h, const char *name, uint32_t ino, u
         memcpy(de->name, name, name_len);
 
         if (extfs_dir_write_leaf(dir_h, new_block, block_buf) != EOK) {
+            extfs_free_block(sb, new_block);
             free(block_buf);
             return -EIO;
         }
@@ -461,11 +462,13 @@ int extfs_dir_add_entry(extfs_handle_t *dir_h, const char *name, uint32_t ino, u
             uint64_t blocks;
             status = extfs_extent_count_blocks(dir_h, &blocks);
             if (status != EOK) {
+                extfs_free_block(sb, new_block);
                 free(block_buf);
                 return status;
             }
             uint32_t sectors_per_block = sb->block_size / 512;
             if (!sectors_per_block || blocks > UINT32_MAX / sectors_per_block) {
+                extfs_free_block(sb, new_block);
                 free(block_buf);
                 return -EOVERFLOW;
             }
@@ -476,6 +479,7 @@ int extfs_dir_add_entry(extfs_handle_t *dir_h, const char *name, uint32_t ino, u
 
         status = extfs_write_inode_raw(sb, dir_h->inode_no, &raw);
         if (status != EOK) {
+            extfs_free_block(sb, new_block);
             free(block_buf);
             return status;
         }

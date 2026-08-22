@@ -26,6 +26,7 @@ static int64_t kmsg_read(void *ctx, void *private_data, uint64_t flags, void *bu
     (void)buffer;
     (void)offset;
     (void)size;
+
     /*
      * The kernel currently exposes printk output through its consoles.  A
      * nonblocking kmsg reader observes no queued record rather than EOF.
@@ -42,6 +43,7 @@ static int64_t kmsg_write(void *ctx, void *private_data, uint64_t flags, const v
     (void)offset;
     if (!buffer && size) return -EINVAL;
     if (!size) return 0;
+    if (size > 8192) return -EINVAL;
 
     char *message = malloc(size + 1);
     if (!message) {
@@ -50,6 +52,7 @@ static int64_t kmsg_write(void *ctx, void *private_data, uint64_t flags, const v
     }
     memcpy(message, buffer, size);
     message[size] = '\0';
+
     /*
      * /dev/kmsg writers may prefix a syslog priority as "<n>".  The console
      * backend has no severity lanes yet, but should not print that framing.

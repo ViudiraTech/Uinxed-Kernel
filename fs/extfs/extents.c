@@ -285,8 +285,11 @@ static int extent_alloc_node(extfs_handle_t *h, uint32_t *block, uint8_t **buffe
 /* Rebuild the extent tree from a vector, freeing the old index nodes. */
 static int extent_rebuild(extfs_handle_t *h, extent_vector_t *vector)
 {
-    uint16_t        root_capacity = (sizeof(h->ei.i_data) - sizeof(ext4_extent_header_t)) / sizeof(ext4_extent_t);
-    uint16_t        node_capacity = (h->sb->block_size - sizeof(ext4_extent_header_t) - ((h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) ? 4 : 0)) / sizeof(ext4_extent_t);
+    uint16_t root_capacity = (sizeof(h->ei.i_data) - sizeof(ext4_extent_header_t)) / sizeof(ext4_extent_t);
+    uint16_t node_capacity = 0;
+    if (h->sb->block_size < sizeof(ext4_extent_header_t) + 4) return -EINVAL;
+    node_capacity = (h->sb->block_size - sizeof(ext4_extent_header_t) - ((h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) ? 4 : 0)) / sizeof(ext4_extent_t);
+    if (!node_capacity) return -EINVAL;
     uint32_t       *allocated = 0, allocated_count = 0, allocated_capacity = 0;
     extent_child_t *children    = 0;
     uint32_t        child_count = 0;
@@ -306,6 +309,7 @@ static int extent_rebuild(extfs_handle_t *h, extent_vector_t *vector)
         goto replace;
     }
 
+    if (node_capacity == 0) return -EINVAL;
     child_count = (vector->count + node_capacity - 1) / node_capacity;
     children    = calloc(child_count, sizeof(*children));
     if (!children) {

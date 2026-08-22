@@ -139,7 +139,11 @@ void cgroup_init(void)
 {
 #if CONFIG_CGROUP
     memset(&root_cgroup, 0, sizeof(root_cgroup));
-    root_cgroup.name     = strdup("");
+    root_cgroup.name = strdup("");
+    if (!root_cgroup.name) {
+        plogk("cgroup: root name alloc failed.\n");
+        return;
+    }
     root_cgroup.pids_max = CGROUP_PIDS_MAX;
     root_cgroup.refcount = 1;
     ilist_init(&root_cgroup.tasks);

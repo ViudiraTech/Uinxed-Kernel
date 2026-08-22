@@ -578,7 +578,11 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
      * drm_gem_mmap can later look up the GEM object by offset.
      */
     obj->mmap_offset = dumb_offset_alloc(size);
-    if (!obj->mmap_offset) DRM_ERROR("Dumb mmap offset space exhausted (size=%zu)\n", size);
+    if (!obj->mmap_offset) {
+        DRM_ERROR("Dumb mmap offset space exhausted (size=%zu)\n", size);
+        free(obj);
+        return -ENOSPC;
+    }
 
     /*
      * Allocate backing memory for the dumb buffer, page-rounded so the whole

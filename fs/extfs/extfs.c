@@ -1105,7 +1105,11 @@ static vfs_node_t extfs_dup(vfs_node_t node)
     copy->createtime  = node->createtime;
     copy->readtime    = node->readtime;
     copy->writetime   = node->writetime;
-    copy->linkname    = node->linkname ? strdup(node->linkname) : 0;
+    if (node->linkname) {
+        copy->linkname = strdup(node->linkname);
+        if (!copy->linkname) { plogk("extfs: linkname strdup failed for inode %llu\n", (unsigned long long)node->inode); }
+    } else
+        copy->linkname = 0;
     return copy;
 }
 

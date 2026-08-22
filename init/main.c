@@ -77,6 +77,7 @@
 #include <ipc/posix_mq.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/cmdline/cmdline.h>
+#include <kernel/config.h>
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
@@ -180,8 +181,8 @@ static void swapper_run_init(void)
                     process_fd_close(init, std_fd);
                 plogk("swapper/0: Unable to open an initial console.\n");
             } else {
-                (void)process_fd_dup2(init, 0, 1);
-                (void)process_fd_dup2(init, 0, 2);
+                if (process_fd_dup2(init, 0, 1) != EOK) plogk("init: dup2 stdout failed.\n");
+                if (process_fd_dup2(init, 0, 2) != EOK) plogk("init: dup2 stderr failed.\n");
                 (void)tty_console_acquire(init, O_RDWR);
             }
         }

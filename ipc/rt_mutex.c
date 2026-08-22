@@ -281,15 +281,19 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
     pi_propagate_chain(self);
 
     if (next) {
-        /* Snapshot remaining waiter membership under scheduler.lock. */
+        uint32_t new_futex_val = (next->pid & FUTEX_TID_MASK);
         spin_lock(&scheduler.lock);
         bool has_waiters = !ilist_is_empty(&mutex->wq.tasks);
         spin_unlock(&scheduler.lock);
-        task_wakeup(next);
-
-        uint32_t new_futex_val = (next->pid & FUTEX_TID_MASK);
         if (has_waiters) new_futex_val |= FUTEX_WAITERS;
-        if (mutex->uaddr) copy_to_user(mutex->uaddr, &new_futex_val, sizeof(new_futex_val));
+        if (mutex->uaddr && copy_to_user(mutex->uaddr, &new_futex_val, sizeof(new_futex_val))) {
+            plogk("rt_mutex: copy_to_user failed for uaddr %p, waiter %llu may spin.\n", (void *)mutex->uaddr, (unsigned long long)next->pid);
+
+            /* Still wake next owner but report fault to caller */
+            task_wakeup(next);
+            return -EFAULT;
+        }
+        task_wakeup(next);
     }
     return EOK;
 }

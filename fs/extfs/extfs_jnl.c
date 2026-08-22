@@ -618,8 +618,10 @@ static void extfs_jnl_abort(void *context, uint32_t transaction_id, int error)
     extfs_jnl_superblock_t *super   = (extfs_jnl_superblock_t *)journal->super_buffer;
     (void)transaction_id;
     extfs_jnl_put_be32(&super->error, (uint32_t)(error < 0 ? -error : error));
-    (void)extfs_jnl_write_super(journal, journal->start, journal->sequence);
-    (void)blockdev_flush(&journal->sb->device);
+    int s1 = extfs_jnl_write_super(journal, journal->start, journal->sequence);
+    int s2 = blockdev_flush(&journal->sb->device);
+    if (s1 != EOK) plogk("extfs_jnl: abort write_super failed %d\n", s1);
+    if (s2 != EOK) plogk("extfs_jnl: abort flush failed %d\n", s2);
     extfs_jnl_free_records(journal);
 }
 

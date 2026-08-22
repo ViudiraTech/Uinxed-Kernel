@@ -713,8 +713,16 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
 
     start_sector  = offset / device->sector_size;
     sector_offset = (size_t)(offset % device->sector_size);
-    sector_count  = (uint32_t)((sector_offset + size + device->sector_size - 1) / device->sector_size);
-    scratch       = malloc((size_t)sector_count * device->sector_size);
+    {
+        size_t tmp;
+        if (__builtin_add_overflow(sector_offset, size, &tmp) || __builtin_add_overflow(tmp, device->sector_size - 1, &tmp)) return -EOVERFLOW;
+        sector_count = (uint32_t)(tmp / device->sector_size);
+    }
+    {
+        size_t bytes;
+        if (__builtin_mul_overflow((size_t)sector_count, device->sector_size, &bytes)) return -EOVERFLOW;
+        scratch = malloc(bytes);
+    }
     if (!scratch) return -ENOMEM;
 
     int status = blockdev_read_sectors(device, start_sector, sector_count, scratch);
@@ -749,8 +757,16 @@ int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const
 
     start_sector  = offset / device->sector_size;
     sector_offset = (size_t)(offset % device->sector_size);
-    sector_count  = (uint32_t)((sector_offset + size + device->sector_size - 1) / device->sector_size);
-    scratch       = malloc((size_t)sector_count * device->sector_size);
+    {
+        size_t tmp;
+        if (__builtin_add_overflow(sector_offset, size, &tmp) || __builtin_add_overflow(tmp, device->sector_size - 1, &tmp)) return -EOVERFLOW;
+        sector_count = (uint32_t)(tmp / device->sector_size);
+    }
+    {
+        size_t bytes;
+        if (__builtin_mul_overflow((size_t)sector_count, device->sector_size, &bytes)) return -EOVERFLOW;
+        scratch = malloc(bytes);
+    }
     if (!scratch) return -ENOMEM;
 
     int status = blockdev_read_sectors(device, start_sector, sector_count, scratch);

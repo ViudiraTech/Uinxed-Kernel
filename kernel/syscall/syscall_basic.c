@@ -1472,7 +1472,13 @@ int64_t sys_sendfile_impl(uint64_t out_fd, uint64_t in_fd, uint64_t offset, uint
 
     if (have_off) {
         int64_t new_off = process_fd_seek(proc, (int)in_fd, 0, SEEK_CUR);
-        copy_to_user((void *)offset, &new_off, sizeof(int64_t));
+        if (copy_to_user((void *)offset, &new_off, sizeof(int64_t))) {
+            plogk("sys_sendfile: copy_to_user offset failed.\n");
+            process_fd_seek(proc, (int)in_fd, old_off, SEEK_SET);
+            process_file_put(pf_in);
+            process_file_put(pf_out);
+            return -EFAULT;
+        }
         process_fd_seek(proc, (int)in_fd, old_off, SEEK_SET);
     }
     process_file_put(pf_in);

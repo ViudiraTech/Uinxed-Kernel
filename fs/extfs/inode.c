@@ -106,7 +106,11 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
             if (status != EOK) return 0;
             h->ei.i_data[logical] = phys;
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, phys, buf);
+            if (extfs_write_block(sb, phys, buf) != EOK) {
+                extfs_free_block(sb, phys);
+                h->ei.i_data[logical] = 0;
+                return 0;
+            }
         }
         return h->ei.i_data[logical];
     }
@@ -120,7 +124,11 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
             if (status != EOK) return 0;
             h->ei.i_data[EXT2_IND_BLOCK] = indir;
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, indir, buf);
+            if (extfs_write_block(sb, indir, buf) != EOK) {
+                extfs_free_block(sb, indir);
+                h->ei.i_data[EXT2_IND_BLOCK] = 0;
+                return 0;
+            }
         }
         indir = h->ei.i_data[EXT2_IND_BLOCK];
         if (indir == 0) return 0;
@@ -131,13 +139,29 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
             status = extfs_alloc_block(sb, 0, &phys);
             if (status != EOK) return 0;
             buf[logical] = phys;
-            extfs_write_block(sb, indir, buf);
+            if (extfs_write_block(sb, indir, buf) != EOK) {
+                extfs_free_block(sb, phys);
+                buf[logical] = 0;
+                return 0;
+            }
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, phys, buf);
+            if (extfs_write_block(sb, phys, buf) != EOK) {
+                /* rollback indir update */
+                buf[logical] = 0;
+
+                /* best effort: clear indir entry (or free phys) */
+                extfs_free_block(sb, phys);
+
+                /* revert indir block on disk */
+                if (extfs_read_block(sb, indir, buf) == EOK) {
+                    buf[logical] = 0;
+                    extfs_write_block(sb, indir, buf);
+                }
+                return 0;
+            }
         }
         return phys;
     }
-
     logical -= ptrs_per_block;
 
     /* Double indirect */
@@ -150,7 +174,11 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
             if (status != EOK) return 0;
             h->ei.i_data[EXT2_DIND_BLOCK] = indir;
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, indir, buf);
+            if (extfs_write_block(sb, indir, buf) != EOK) {
+                extfs_free_block(sb, indir);
+                h->ei.i_data[EXT2_DIND_BLOCK] = 0;
+                return 0;
+            }
         }
         indir = h->ei.i_data[EXT2_DIND_BLOCK];
         if (indir == 0) return 0;
@@ -161,25 +189,46 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
             status = extfs_alloc_block(sb, 0, &indir2);
             if (status != EOK) return 0;
             buf[idx1] = indir2;
-            extfs_write_block(sb, indir, buf);
+            if (extfs_write_block(sb, indir, buf) != EOK) {
+                extfs_free_block(sb, indir2);
+                buf[idx1] = 0;
+                return 0;
+            }
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, indir2, buf);
+            if (extfs_write_block(sb, indir2, buf) != EOK) {
+                extfs_free_block(sb, indir2);
+                if (extfs_read_block(sb, indir, buf) == EOK) {
+                    buf[idx1] = 0;
+                    extfs_write_block(sb, indir, buf);
+                }
+                return 0;
+            }
         }
         if (indir2 == 0) return 0;
-
         if (extfs_read_block(sb, indir2, buf) != EOK) return 0;
+
         phys = buf[idx2];
+
         if (phys == 0 && create) {
             status = extfs_alloc_block(sb, 0, &phys);
             if (status != EOK) return 0;
             buf[idx2] = phys;
-            extfs_write_block(sb, indir2, buf);
+            if (extfs_write_block(sb, indir2, buf) != EOK) {
+                extfs_free_block(sb, phys);
+                return 0;
+            }
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, phys, buf);
+            if (extfs_write_block(sb, phys, buf) != EOK) {
+                extfs_free_block(sb, phys);
+                if (extfs_read_block(sb, indir2, buf) == EOK) {
+                    buf[idx2] = 0;
+                    extfs_write_block(sb, indir2, buf);
+                }
+                return 0;
+            }
         }
         return phys;
     }
-
     logical -= (uint32_t)ptrs_per_block * ptrs_per_block;
 
     /* Triple indirect */
@@ -193,48 +242,85 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
             if (status != EOK) return 0;
             h->ei.i_data[EXT2_TIND_BLOCK] = indir;
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, indir, buf);
+            if (extfs_write_block(sb, indir, buf) != EOK) {
+                extfs_free_block(sb, indir);
+                h->ei.i_data[EXT2_TIND_BLOCK] = 0;
+                return 0;
+            }
         }
         indir = h->ei.i_data[EXT2_TIND_BLOCK];
-        if (indir == 0) return 0;
 
+        if (indir == 0) return 0;
         if (extfs_read_block(sb, indir, buf) != EOK) return 0;
+
         uint32_t indir2 = buf[idx1];
+
         if (indir2 == 0 && create) {
             status = extfs_alloc_block(sb, 0, &indir2);
             if (status != EOK) return 0;
             buf[idx1] = indir2;
-            extfs_write_block(sb, indir, buf);
+            if (extfs_write_block(sb, indir, buf) != EOK) {
+                extfs_free_block(sb, indir2);
+                return 0;
+            }
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, indir2, buf);
+            if (extfs_write_block(sb, indir2, buf) != EOK) {
+                extfs_free_block(sb, indir2);
+                if (extfs_read_block(sb, indir, buf) == EOK) {
+                    buf[idx1] = 0;
+                    extfs_write_block(sb, indir, buf);
+                }
+                return 0;
+            }
         }
         if (indir2 == 0) return 0;
-
         if (extfs_read_block(sb, indir2, buf) != EOK) return 0;
+
         uint32_t indir3 = buf[idx2];
+
         if (indir3 == 0 && create) {
             status = extfs_alloc_block(sb, 0, &indir3);
             if (status != EOK) return 0;
             buf[idx2] = indir3;
-            extfs_write_block(sb, indir2, buf);
+            if (extfs_write_block(sb, indir2, buf) != EOK) {
+                extfs_free_block(sb, indir3);
+                return 0;
+            }
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, indir3, buf);
+            if (extfs_write_block(sb, indir3, buf) != EOK) {
+                extfs_free_block(sb, indir3);
+                if (extfs_read_block(sb, indir2, buf) == EOK) {
+                    buf[idx2] = 0;
+                    extfs_write_block(sb, indir2, buf);
+                }
+                return 0;
+            }
         }
         if (indir3 == 0) return 0;
-
         if (extfs_read_block(sb, indir3, buf) != EOK) return 0;
+
         phys = buf[idx3];
+
         if (phys == 0 && create) {
             status = extfs_alloc_block(sb, 0, &phys);
             if (status != EOK) return 0;
             buf[idx3] = phys;
-            extfs_write_block(sb, indir3, buf);
+            if (extfs_write_block(sb, indir3, buf) != EOK) {
+                extfs_free_block(sb, phys);
+                return 0;
+            }
             memset(buf, 0, sb->block_size);
-            extfs_write_block(sb, phys, buf);
+            if (extfs_write_block(sb, phys, buf) != EOK) {
+                extfs_free_block(sb, phys);
+                if (extfs_read_block(sb, indir3, buf) == EOK) {
+                    buf[idx3] = 0;
+                    extfs_write_block(sb, indir3, buf);
+                }
+                return 0;
+            }
         }
         return phys;
     }
-
     return 0;
 }
 

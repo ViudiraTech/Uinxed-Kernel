@@ -12,6 +12,7 @@
 #define INCLUDE_DRM_MODE_H_
 
 #include <drivers/gpu/drm/drm.h>
+#include <kernel/config.h>
 
 #define DRM_S32_MAX ((int32_t)0x7fffffff)
 #define DRM_S32_MIN (-DRM_S32_MAX - 1)

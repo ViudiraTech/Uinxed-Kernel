@@ -615,7 +615,7 @@ static int audio_sync_ptr_ioctl(audio_pcm_file_t *pf, void *uarg)
         st.appl_ptr = pf->appl_ptr;
         st.hw_ptr   = pf->hw_ptr;
         st.avail    = (snd_pcm_uframes_t)pcm_ring_buffer_avail(pf);
-        copy_to_user((void *)sp.status, &st, sizeof(st));
+        if (copy_to_user((void *)sp.status, &st, sizeof(st))) return -EFAULT;
     }
 
     return EOK;

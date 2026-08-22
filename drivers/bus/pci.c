@@ -915,9 +915,13 @@ static pci_finding_response_iter_t pci_device_finding(pci_device_cache_t *start,
 static void add_to_usable_list(pci_finding_request_t *req)
 {
     pci_usable_node_t *node = (pci_usable_node_t *)malloc(sizeof(pci_usable_node_t));
-    node->request           = req;
-    node->next              = pci_usable.head;
-    pci_usable.head         = node;
+    if (!node) {
+        plogk("pci: failed to allocate usable node.\n");
+        return;
+    }
+    node->request   = req;
+    node->next      = pci_usable.head;
+    pci_usable.head = node;
     pci_usable.count++;
 }
 
@@ -925,8 +929,13 @@ static void add_to_usable_list(pci_finding_request_t *req)
 void pci_device_find(pci_finding_request_t *req)
 {
     pci_finding_response_iter_t *response = malloc(sizeof(pci_finding_response_iter_t));
-    req->response                         = response;
-    response->next                        = 0;
+    if (!response) {
+        plogk("pci: failed to allocate finding response.\n");
+        req->response = NULL;
+        return;
+    }
+    req->response  = response;
+    response->next = 0;
 
     /* Add to usable list */
     add_to_usable_list(req);
@@ -957,8 +966,15 @@ void pci_device_find(pci_finding_request_t *req)
 void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_response_iter_t *response)
 {
     volatile pci_finding_response_iter_t *next_response = 0;
+    if (!response) return;
     if (response->error == PCI_FINDING_SUCCESS) {
-        if (!response->next) response->next = malloc(sizeof(pci_finding_response_iter_t));
+        if (!response->next) {
+            response->next = malloc(sizeof(pci_finding_response_iter_t));
+            if (!response->next) {
+                plogk("pci: failed to allocate next response.\n");
+                return;
+            }
+        }
         next_response = response->next;
         /* Process the request to next responses */
         switch (request->type) {
@@ -1051,12 +1067,21 @@ void pci_free_devices_cache(void)
 static void pci_add_device_cache(pci_device_cache_t *cache)
 {
     pci_device_cache_t *cpy_cache = (pci_device_cache_t *)malloc(sizeof(pci_device_cache_t));
-    *cpy_cache                    = *cache;
-    pci_device_t *cpy_device      = (pci_device_t *)malloc(sizeof(pci_device_t));
-    *cpy_device                   = *(cache->device);
-    cpy_cache->device             = cpy_device;
-    cpy_cache->next               = pci_cache.head;
-    pci_cache.head                = cpy_cache;
+    if (!cpy_cache) {
+        plogk("pci: failed to allocate device cache copy.\n");
+        return;
+    }
+    *cpy_cache               = *cache;
+    pci_device_t *cpy_device = (pci_device_t *)malloc(sizeof(pci_device_t));
+    if (!cpy_device) {
+        plogk("pci: failed to allocate device copy.\n");
+        free(cpy_cache);
+        return;
+    }
+    *cpy_device       = *(cache->device);
+    cpy_cache->device = cpy_device;
+    cpy_cache->next   = pci_cache.head;
+    pci_cache.head    = cpy_cache;
     pci_cache.devices_count++;
 }
 

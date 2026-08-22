@@ -1448,7 +1448,10 @@ size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo)
 {
     if (!buffer || !capacity) return 0;
     vfs_mount_format_scratch_t *scratch = malloc(sizeof(*scratch));
-    if (!scratch) return 0;
+    if (!scratch) {
+        plogk("vfs: mount table scratch alloc failed.\n");
+        return 0;
+    }
 
     size_t used = 0;
     buffer[0]   = '\0';

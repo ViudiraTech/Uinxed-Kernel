@@ -241,7 +241,9 @@ static void xhci_write64(volatile uint8_t *base, size_t offset, uint64_t value)
 /* Allocate zeroed DMA memory and return its physical address. */
 static void *xhci_dma_alloc(size_t size, uint64_t *physical, size_t *pages)
 {
-    size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
+    if (size > SIZE_MAX - PAGE_4K_SIZE + 1) return NULL;
+    size_t count = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
+    if (count == 0) return NULL;
     uint64_t address = alloc_frames(count);
     if (!address) return NULL;
     void *memory = phys_to_virt(address);

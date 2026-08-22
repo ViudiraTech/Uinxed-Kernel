@@ -371,16 +371,20 @@ int tmpfs_ioctl(void *file, size_t req, void *arg)
 /* Duplicate a VFS node bound to tmpfs */
 vfs_node_t tmpfs_dup(vfs_node_t node)
 {
-    vfs_node_t copy     = vfs_node_alloc(node->parent, node->name);
-    copy->handle        = node->handle;
-    copy->type          = node->type;
-    copy->size          = node->size;
-    copy->inode         = node->inode;
-    copy->nlink         = node->nlink;
-    copy->dev           = node->dev;
-    copy->rdev          = node->rdev;
-    copy->fsid          = node->fsid;
-    copy->linkname      = node->linkname == 0 ? 0 : strdup(node->linkname);
+    vfs_node_t copy = vfs_node_alloc(node->parent, node->name);
+    copy->handle    = node->handle;
+    copy->type      = node->type;
+    copy->size      = node->size;
+    copy->inode     = node->inode;
+    copy->nlink     = node->nlink;
+    copy->dev       = node->dev;
+    copy->rdev      = node->rdev;
+    copy->fsid      = node->fsid;
+    if (node->linkname) {
+        copy->linkname = strdup(node->linkname);
+        if (!copy->linkname) plogk("tmpfs: linkname strdup failed for %s\n", node->name);
+    } else
+        copy->linkname = 0;
     copy->flags         = node->flags;
     copy->permissions   = node->permissions;
     copy->mode          = node->mode;

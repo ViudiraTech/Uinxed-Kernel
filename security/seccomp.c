@@ -667,6 +667,10 @@ static int seccomp_prepare_filter(uint64_t flags, uint64_t user_filter, struct s
 
     struct seccomp_filter *filter = calloc(1, sizeof(*filter));
     if (!filter) return -ENOMEM;
+    if ((size_t)user_program.len > SIZE_MAX / sizeof(*filter->program)) {
+        free(filter);
+        return -EOVERFLOW;
+    }
     filter->program = malloc((size_t)user_program.len * sizeof(*filter->program));
     if (!filter->program) {
         free(filter);
