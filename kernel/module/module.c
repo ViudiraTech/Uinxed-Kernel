@@ -9,8 +9,8 @@
  */
 
 #define UINXED_MODULE_CORE
-#include <boot/limine.h>
 #include <arch/smp.h>
+#include <boot/limine.h>
 #include <fs/sysfs/module_sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/module/elf.h>
@@ -772,8 +772,10 @@ static void unmap_module(module_internal_t *internal)
     for (size_t index = 0; index < internal->page_count; index++) {
         if (!internal->frames[index]) continue;
         uint64_t frame = page_unmap(get_kernel_pagedir(), internal->base + index * PAGE_4K_SIZE);
-        if (!frame) internal->frames[index] = 0;
-        else any_mapped = true;
+        if (!frame)
+            internal->frames[index] = 0;
+        else
+            any_mapped = true;
     }
 
     if (any_mapped) flush_tlb_all();

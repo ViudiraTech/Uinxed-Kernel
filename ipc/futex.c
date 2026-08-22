@@ -440,7 +440,11 @@ static int futex_move_waiter(wait_queue_t *wq_src, wait_queue_t *wq_dst)
     node = wq_src->tasks.next;
     task = (task_t *)((uint8_t *)node - offsetof(task_t, sched_node));
 
-    if (ilist_remove(node)) panic("futex: requeue source list corrupted");
+    if (ilist_remove(node)) {
+        plogk("futex: requeue source list corrupted (task %llu %s)\n", task->pid, task->name);
+        spin_unlock(&scheduler.lock);
+        return 0;
+    }
 
     /*
      * The move must be one atomic state transition: link into the
@@ -450,7 +454,14 @@ static int futex_move_waiter(wait_queue_t *wq_src, wait_queue_t *wq_dst)
      * of the source queue.
      */
     if (ilist_insert_before(&wq_dst->tasks, node)) {
-        if (ilist_insert_before(&wq_src->tasks, node)) panic("futex: cannot restore requeue victim");
+        plogk("futex: requeue destination insert rejected (task %llu %s)\n", task->pid, task->name);
+        if (ilist_insert_before(&wq_src->tasks, node)) {
+            plogk("futex: cannot restore requeue victim (task %llu %s) - waking orphaned task\n", task->pid, task->name);
+            task->wait_queue = NULL;
+            spin_unlock(&scheduler.lock);
+            task_wakeup(task);
+            return 0;
+        }
         spin_unlock(&scheduler.lock);
         return 0;
     }

@@ -24,7 +24,7 @@
 #include <process/sched.h>
 #include <process/task.h>
 
-int carry_error_code = 0;
+int                 carry_error_code  = 0;
 static volatile int panic_in_progress = 0;
 
 /*
@@ -68,7 +68,7 @@ void dump_stack(void)
     } rbp_node_t;
 
     rbp_node_t *rbp;
-    uintptr_t rip;
+    uintptr_t   rip;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
 
     plogk("Call Trace:\n");

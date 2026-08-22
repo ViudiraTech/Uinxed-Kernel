@@ -84,10 +84,6 @@
 #define F_OWNER_PID  1
 #define F_OWNER_PGRP 2
 
-/* Signal numbers for F_SETSIG/F_GETSIG */
-#define F_SETSIG 10
-#define F_GETSIG 11
-
 /* Syscall implementation */
 int64_t sys_fcntl(int fd, int cmd, uint64_t arg);
 
