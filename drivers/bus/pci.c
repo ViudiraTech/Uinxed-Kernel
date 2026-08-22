@@ -976,6 +976,7 @@ void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_r
             }
         }
         next_response = response->next;
+
         /* Process the request to next responses */
         switch (request->type) {
             case PCI_FOUND_CLASS :

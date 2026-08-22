@@ -279,8 +279,8 @@ static void extfs_unmount(void *root)
     if (!node) return;
 
     h = extfs_get_handle(node);
-    if (!h) return;
 
+    if (!h) return;
     if (h->owns_sb && h->sb) {
         if (!h->sb->read_only && blockdev_flush(&h->sb->device) == EOK) {
             h->sb->es->s_state |= EXT2_VALID_FS;
