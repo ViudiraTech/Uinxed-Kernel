@@ -503,9 +503,9 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
     spin_lock(&dev->mode_config.fb_lock);
     fb = drm_idr_find(&dev->mode_config.fb_idr, r->fb_id);
     spin_unlock(&dev->mode_config.fb_lock);
+
     /* Userspace may probe DIRTYFB with fb_id 0; absence is not a driver fault. */
     if (!fb) return -ENOENT;
-
     if ((!r->num_clips) != (!r->clips_ptr)) {
         DRM_ERROR("Dirtyfb: num_clips %u and clips_ptr 0x%llx mismatch.\n", r->num_clips, (unsigned long long)r->clips_ptr);
         return -EINVAL;

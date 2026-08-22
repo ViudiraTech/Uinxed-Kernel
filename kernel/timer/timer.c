@@ -98,8 +98,8 @@ void timer_deferred_init(void)
     if (timer_deferred_registered) return;
 
     wait_queue_init(&timer_deferred_wait);
-    timer_deferred_lock    = (spinlock_t) {0};
-    timer_deferred_pending = false;
+    timer_deferred_lock      = (spinlock_t) {0};
+    timer_deferred_pending   = false;
     timer_deferred_last_tick = 0;
     if (kernel_worker_register("timer-deferred", timer_deferred_worker, NULL, NULL) != EOK) {
         plogk("timer: Unable to register deferred worker.\n");
@@ -184,13 +184,13 @@ void timer_handle_frame(syscall_frame_t *frame)
     if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, (frame->cs & 3U) == 3U);
     send_eoi();
     if (cpu_id == 0 && timer_deferred_registered) {
-        uint64_t now_ticks = sched_ticks();
+        uint64_t now_ticks     = sched_ticks();
         uint64_t base_interval = TIMER_HZ / 100U;
         if (!base_interval) base_interval = 1;
 
         uint64_t monotonic_ns = timer_monotonic_ns();
-        bool due = now_ticks - timer_deferred_last_tick >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks
-                   || drm_vblank_deferred_due(monotonic_ns) || timerfd_deferred_due(monotonic_ns);
+        bool     due          = now_ticks - timer_deferred_last_tick >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns)
+                   || timerfd_deferred_due(monotonic_ns);
         if (due) {
             timer_deferred_last_tick = now_ticks;
             timer_queue_deferred_work();

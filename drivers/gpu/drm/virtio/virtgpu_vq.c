@@ -57,8 +57,8 @@ static int virtgpu_irq_init(struct virtio_gpu_device *vgdev)
     vector = pci_enable_msi(vp->pci_dev);
     if (vector < 0) {
         if (pci_enable_msix(vp->pci_dev, 1) != 1) return -ENODEV;
-        vector               = pci_irq_vector(vp->pci_dev, 0);
-        vgdev->msix_enabled  = true;
+        vector              = pci_irq_vector(vp->pci_dev, 0);
+        vgdev->msix_enabled = true;
 
         /* queue_msix_vector contains an MSI-X table index, not an IDT vector. */
         vp->common->queue_select      = VIRTGPU_CTRLQ;
@@ -77,7 +77,6 @@ static int virtgpu_irq_init(struct virtio_gpu_device *vgdev)
     register_interrupt_handler((uint16_t)vector, (void *)virtgpu_irq_handler, 0, 0x8e);
     vgdev->irq_enabled = true;
     return 0;
-
 err_msix:
     pci_disable_msix(vp->pci_dev);
     vgdev->msix_enabled = false;
@@ -91,6 +90,7 @@ err_irq:
     return -ENODEV;
 }
 
+/* Disable virtgpu interrupts and release the configured MSI/MSI-X vector. */
 static void virtgpu_irq_fini(struct virtio_gpu_device *vgdev)
 {
     if (!vgdev || !vgdev->irq_enabled) return;
@@ -198,7 +198,6 @@ int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
 
     /* Probe-time commands can poll; runtime commands sleep on this IRQ. */
     if (virtgpu_irq_init(vgdev)) plogk("virtgpu: MSI/MSI-X unavailable; falling back to bounded queue polling.\n");
-
     plogk("virtgpu: Virtqueues initialised (ctrlq=%d, cursorq=%d, irq=%d)\n", vgdev->ctrlq.num_max, vgdev->cursorq.num_max, vgdev->irq_enabled ? vgdev->irq_vector : -1);
     return 0;
 }
@@ -248,6 +247,7 @@ static inline void cpu_relax(void)
 #define VIRTGPU_FAST_POLL_COUNT     256U
 #define VIRTGPU_QUEUE_TIMEOUT_TICKS (5ULL * TIMER_HZ)
 
+/* Return the earlier of the next scheduler tick and the overall deadline. */
 static uint64_t virtgpu_next_recheck_deadline(uint64_t overall_deadline)
 {
     uint64_t now      = sched_ticks();
@@ -306,9 +306,9 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         = CTRL_LOG_NONE;
 
     struct vp_virtqueue        *vq;
-    uint32_t                    submitted = 0;
-    uint32_t                    completed = 0;
-    uint32_t                    timeout   = 0;
+    uint32_t                    submitted  = 0;
+    uint32_t                    completed  = 0;
+    uint32_t                    timeout    = 0;
     uint32_t                    fast_polls = 0;
     uint32_t                    len;
     uint32_t                    log_index    = 0;
@@ -330,7 +330,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         plogk("virtgpu: Ctrl_cmd_batch: command count exceeds ring capacity (count=%u, num_max=%u)\n", (unsigned)count, (unsigned)vq->num_max);
         return -ENOSPC;
     }
-
     for (uint32_t i = 0; i < count; i++)
         if (!commands[i].cmd || !commands[i].resp || commands[i].cmd_size <= 0 || commands[i].resp_size <= 0) {
             plogk("virtgpu: Ctrl_cmd_batch: invalid command slot (index=%u)\n", (unsigned)i);
@@ -357,7 +356,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
             dma[i].resp_pages = 0;
             continue;
         }
-
         dma[i].cmd_pages  = (ALIGN_UP((size_t)commands[i].cmd_size, PAGE_4K_SIZE)) / PAGE_4K_SIZE;
         dma[i].resp_pages = (ALIGN_UP((size_t)commands[i].resp_size, PAGE_4K_SIZE)) / PAGE_4K_SIZE;
         dma[i].cmd_phys   = alloc_frames(dma[i].cmd_pages);
@@ -397,7 +395,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         spin_unlock_irqrestore(&vgdev->fence_lock, rflags);
         tail->flags |= VIRTIO_GPU_FLAG_FENCE;
     }
-
     for (uint32_t i = 0; i < count; i++) {
         memcpy(dma[i].cmd, commands[i].cmd, (size_t)commands[i].cmd_size);
         memset(dma[i].resp, 0, (size_t)commands[i].resp_size);
@@ -410,7 +407,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         }
         submitted++;
     }
-
     if (submitted == 0) goto out_unlock;
 
     /* One doorbell covers every avail entry published above. */
@@ -422,7 +418,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
             timeout = 0;
             continue;
         }
-
         if (vgdev->irq_enabled && __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) {
             if (fast_polls++ < VIRTGPU_FAST_POLL_COUNT) {
                 cpu_relax();
@@ -442,7 +437,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
                 ret = -EIO;
                 goto out_unlock;
             }
-
             wait_queue_prepare(&vgdev->ctrlq_complete_wait);
 
             /* Close the used-ring/prepare race before committing the sleep. */
@@ -454,7 +448,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
             (void)wait_queue_wait_timed(&vgdev->ctrlq_complete_wait, virtgpu_next_recheck_deadline(overall_deadline));
             continue;
         }
-
         if (++timeout > 10000000) {
             /*
              * A completion can race the first empty observation. Reap once
@@ -479,7 +472,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     }
     for (uint32_t i = 0; i < submitted; i++) memcpy(commands[i].resp, dma[i].resp, (size_t)commands[i].resp_size);
     if (submitted != count) goto out_unlock;
-
     for (uint32_t i = 0; i < count; i++) {
         struct virtio_gpu_ctrl_hdr *request = (struct virtio_gpu_ctrl_hdr *)commands[i].cmd;
         struct virtio_gpu_ctrl_hdr *reply   = (struct virtio_gpu_ctrl_hdr *)commands[i].resp;
@@ -508,7 +500,6 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
                 expected = VIRTIO_GPU_RESP_OK_NODATA;
                 break;
         }
-
         if (reply->type != expected) {
             log_reason   = CTRL_LOG_BAD_RESPONSE;
             log_type     = request->type;
@@ -596,9 +587,9 @@ int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, v
 int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
 {
     uint32_t command_type;
-    uint32_t timeout = 0;
+    uint32_t timeout    = 0;
     uint32_t fast_polls = 0;
-    int      ret     = 0;
+    int      ret        = 0;
     size_t   dma_pages;
     uint64_t dma_phys;
     void    *dma_cmd;
@@ -608,9 +599,10 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
         plogk("virtgpu: Cursor_cmd: invalid argument (cmd_size=%d)\n", cmd_size);
         return -EINVAL;
     }
-    command_type = ((struct virtio_gpu_ctrl_hdr *)cmd)->type;
 
-    pooled = (size_t)cmd_size <= PAGE_4K_SIZE && vgdev->cursorq_dma_cmd;
+    command_type = ((struct virtio_gpu_ctrl_hdr *)cmd)->type;
+    pooled       = (size_t)cmd_size <= PAGE_4K_SIZE && vgdev->cursorq_dma_cmd;
+
     if (pooled) {
         dma_pages = 0;
         dma_phys  = vgdev->cursorq_dma_cmd_phys;
@@ -632,7 +624,6 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
         for (;;) {
             void *completed = virtqueue_get_buf(&vgdev->cursorq, &len);
             if (completed == dma_cmd) break;
-
             if (vgdev->irq_enabled && __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) {
                 if (fast_polls++ < VIRTGPU_FAST_POLL_COUNT) {
                     cpu_relax();
@@ -647,7 +638,6 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
                     ret = -EIO;
                     break;
                 }
-
                 wait_queue_prepare(&vgdev->cursorq_complete_wait);
 
                 /* Close the used-ring/prepare race before going to sleep. */
@@ -659,7 +649,6 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
                 (void)wait_queue_wait_timed(&vgdev->cursorq_complete_wait, virtgpu_next_recheck_deadline(overall_deadline));
                 continue;
             }
-
             if (++timeout > 10000000) {
                 if (virtqueue_get_buf(&vgdev->cursorq, &len) == dma_cmd) break;
                 virtgpu_mark_queues_broken(vgdev);
@@ -674,7 +663,6 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
     }
     virtgpu_cmd_gate_unlock(&vgdev->cursorq_cmd_busy, &vgdev->cursorq_cmd_wait);
     if (!pooled) free_frames(dma_phys, dma_pages);
-
     if (ret == -EIO) plogk("virtgpu: Timed out waiting for cursor command 0x%04x.\n", command_type);
     if (ret && ret != -EIO) plogk("virtgpu: Cursor_cmd: queue add failed (err=%d)\n", ret);
     return ret;

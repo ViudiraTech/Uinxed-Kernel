@@ -1196,7 +1196,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     sk->state = SOCK_STATE_CONNECTED;
 
     /* Add to accept queue */
-    bool accept_became_ready = listener->accept_queue_len == 0;
+    bool accept_became_ready                           = listener->accept_queue_len == 0;
     listener->accept_queue[listener->accept_queue_len] = server;
     listener->accept_queue_len++;
     socket_ref(server);
@@ -1282,7 +1282,7 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
 {
     socket_t *peer;
     int       is_nonblock;
-    uint32_t  total_written = 0;
+    uint32_t  total_written    = 0;
     bool      publish_readable = false;
     bool      rights_published = false;
     int       ret;
@@ -1390,7 +1390,6 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
             }
             rights_published = true;
         }
-
         if (written < chunk) break;
     }
 
@@ -1560,7 +1559,7 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
         }
     }
 
-    unix_seqpacket_header_t header = {.length = (uint32_t)len};
+    unix_seqpacket_header_t header  = {.length = (uint32_t)len};
     process_t              *process = process_current();
     if (process) {
         header.credentials.pid = (uint32_t)(process->task ? process->task->tgid : 0);
@@ -1589,10 +1588,10 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
 /* Receive one SOCK_SEQPACKET record, preserving its length header. */
 static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, int *message_flags, size_t *record_size, ucred_t *credentials, bool *credentials_valid)
 {
-    const uint32_t header_size = sizeof(unix_seqpacket_header_t);
-    int            is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
-    int            peek        = (flags & MSG_PEEK) != 0;
-    socket_t      *peer;
+    const uint32_t          header_size = sizeof(unix_seqpacket_header_t);
+    int                     is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
+    int                     peek        = (flags & MSG_PEEK) != 0;
+    socket_t               *peer;
     unix_seqpacket_header_t header;
 
     if (message_flags) *message_flags = 0;
@@ -2739,13 +2738,13 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
 /* Core recvmsg dispatch with kernel-side message buffers. */
 static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec_t *iov, void *kbuf, size_t total_len, int flags)
 {
-    int       ret;
-    int       msg_flags = 0;
-    int       installed_rights[SOCK_RIGHTS_MAX];
-    size_t    installed_rights_count = 0;
-    size_t    seqpacket_record_len   = 0;
-    ucred_t   seqpacket_credentials  = {0};
-    bool      seqpacket_credentials_valid = false;
+    int     ret;
+    int     msg_flags = 0;
+    int     installed_rights[SOCK_RIGHTS_MAX];
+    size_t  installed_rights_count      = 0;
+    size_t  seqpacket_record_len        = 0;
+    ucred_t seqpacket_credentials       = {0};
+    bool    seqpacket_credentials_valid = false;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
@@ -2953,11 +2952,11 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         spin_lock(&sk->lock);
         passcred = sk->passcred;
         if (sk->type == SOCK_STREAM) {
-            socket_t *peer  = sk->peer;
+            socket_t *peer    = sk->peer;
             credentials_valid = peer != NULL;
-            credentials.pid = peer ? peer->pid : 0;
-            credentials.uid = peer ? peer->uid : 0;
-            credentials.gid = peer ? peer->gid : 0;
+            credentials.pid   = peer ? peer->pid : 0;
+            credentials.uid   = peer ? peer->uid : 0;
+            credentials.gid   = peer ? peer->gid : 0;
         }
         spin_unlock(&sk->lock);
 

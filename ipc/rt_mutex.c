@@ -97,15 +97,13 @@ void pi_propagate_chain(task_t *owner)
         rt_mutex_t *mutex = __atomic_load_n(&owner->blocked_on, __ATOMIC_RELAXED);
         if (!mutex) {
             uint32_t base = __atomic_load_n(&owner->base_weight, __ATOMIC_RELAXED);
-            if (__atomic_load_n(&owner->weight, __ATOMIC_RELAXED) != base)
-                __atomic_store_n(&owner->weight, base, __ATOMIC_RELAXED);
+            if (__atomic_load_n(&owner->weight, __ATOMIC_RELAXED) != base) __atomic_store_n(&owner->weight, base, __ATOMIC_RELAXED);
             return;
         }
 
         uint32_t new_weight = pi_effective_weight(owner);
 
-        if (__atomic_load_n(&owner->weight, __ATOMIC_RELAXED) != new_weight)
-            __atomic_store_n(&owner->weight, new_weight, __ATOMIC_RELAXED);
+        if (__atomic_load_n(&owner->weight, __ATOMIC_RELAXED) != new_weight) __atomic_store_n(&owner->weight, new_weight, __ATOMIC_RELAXED);
 
         owner = __atomic_load_n(&mutex->owner, __ATOMIC_RELAXED);
     }
@@ -122,12 +120,11 @@ void pi_propagate_chain(task_t *owner)
 void pi_waiter_remove(task_t *waiter)
 {
     rt_mutex_t *mutex = waiter->blocked_on;
-    if (!mutex) return;
 
+    if (!mutex) return;
     if (!rb_is_empty(&mutex->pi_waiters)) rb_erase_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_augment, NULL);
 
     waiter->blocked_on = NULL;
-
     pi_propagate_chain(mutex->owner);
 }
 
@@ -139,9 +136,7 @@ void pi_waiter_remove(task_t *waiter)
 void pi_waiter_add(task_t *waiter, rt_mutex_t *mutex)
 {
     waiter->blocked_on = mutex;
-
     rb_insert_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_less, pi_waiter_augment, NULL);
-
     pi_propagate_chain(mutex->owner);
 }
 
@@ -162,13 +157,12 @@ void rt_mutex_init(rt_mutex_t *mutex, uint32_t *uaddr)
 int rt_mutex_trylock(rt_mutex_t *mutex, task_t *self)
 {
     if (!mutex || !self) return -EINVAL;
-
     spin_lock(&mutex->lock);
+
     if (mutex->owner) {
         spin_unlock(&mutex->lock);
         return -EAGAIN;
     }
-
     mutex->owner      = self;
     mutex->owner_died = 0;
     self->base_weight = self->weight;
@@ -182,12 +176,10 @@ int rt_mutex_trylock(rt_mutex_t *mutex, task_t *self)
 int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
 {
     if (!mutex || !self) return -EINVAL;
-
     bool waited = false;
 
     for (;;) {
         spin_lock(&mutex->lock);
-
         if (!mutex->owner) {
             mutex->owner      = self;
             mutex->owner_died = 0;
@@ -209,13 +201,16 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
             return ret;
         }
 
-        /* Contended: queue as PI waiter unless an earlier attempt left us
-         * queued (foreign wake-up retry keeps the existing node). */
+        /*
+         * Contended: queue as PI waiter unless an earlier attempt left us
+         * queued (foreign wake-up retry keeps the existing node).
+         */
         self->base_weight = self->weight;
         self->pi_weight   = self->weight;
-        if (self->blocked_on != mutex) pi_waiter_add(self, mutex);
-        spin_unlock(&mutex->lock);
 
+        if (self->blocked_on != mutex) pi_waiter_add(self, mutex);
+
+        spin_unlock(&mutex->lock);
         wait_queue_prepare(&mutex->wq);
 
         /*
@@ -237,6 +232,7 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
              */
             wait_queue_cancel(&mutex->wq);
             spin_lock(&mutex->lock);
+
             /* No-op when an unlock already popped us (blocked_on == NULL). */
             pi_waiter_remove(self);
             spin_unlock(&mutex->lock);
@@ -253,7 +249,6 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
 
         if ((handed || died) && still_queued) pi_waiter_remove(self);
         spin_unlock(&mutex->lock);
-
         if (died) return -EOWNERDEAD;
 
         /*
@@ -269,7 +264,6 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
 int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
 {
     if (!mutex || !self) return -EINVAL;
-
     spin_lock(&mutex->lock);
     if (mutex->owner != self) {
         spin_unlock(&mutex->lock);
@@ -282,8 +276,8 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
         /* Optimistic hand-off: @next owns the mutex from this point on. */
         mutex->owner = next;
     }
-    spin_unlock(&mutex->lock);
 
+    spin_unlock(&mutex->lock);
     pi_propagate_chain(self);
 
     if (next) {
@@ -291,14 +285,12 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
         spin_lock(&scheduler.lock);
         bool has_waiters = !ilist_is_empty(&mutex->wq.tasks);
         spin_unlock(&scheduler.lock);
-
         task_wakeup(next);
 
         uint32_t new_futex_val = (next->pid & FUTEX_TID_MASK);
         if (has_waiters) new_futex_val |= FUTEX_WAITERS;
         if (mutex->uaddr) copy_to_user(mutex->uaddr, &new_futex_val, sizeof(new_futex_val));
     }
-
     return EOK;
 }
 
@@ -309,10 +301,9 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
 task_t *rt_mutex_wake_top_waiter(rt_mutex_t *mutex)
 {
     if (!mutex) return NULL;
-
     rb_node_t *leftmost = rb_first(&mutex->pi_waiters);
-    if (!leftmost) return NULL;
 
+    if (!leftmost) return NULL;
     task_t *top = rb_entry(leftmost, task_t, pi_node);
 
     rb_erase_augmented(&mutex->pi_waiters, leftmost, pi_waiter_augment, NULL);

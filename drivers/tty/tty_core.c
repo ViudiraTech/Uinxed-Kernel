@@ -837,9 +837,12 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
 
             int64_t old_session = 0;
             int64_t old_pgid    = 0;
-            /* Linux only gives argument 1 special "steal" semantics; all
+
+            /*
+             * Linux only gives argument 1 special "steal" semantics; all
              * other values mean a normal acquisition.  VTE deliberately
-             * passes the slave fd here for cross-platform compatibility. */
+             * passes the slave fd here for cross-platform compatibility.
+             */
             int result = process_ctty_acquire(current, tty, value == 1 && current->uid == 0, &old_session, &old_pgid);
             if (result) return result;
             if (old_session > 0 && old_session != current->sid && old_pgid > 0) {

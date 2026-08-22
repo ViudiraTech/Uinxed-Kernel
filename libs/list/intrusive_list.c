@@ -96,8 +96,7 @@ int ilist_insert_before(struct ilist_node *node, struct ilist_node *new_node)
 /* Remove the specified node from the intrusive linked list */
 int ilist_remove(struct ilist_node *node)
 {
-    if (!node_linked_consistent(node))
-        return 1; /* DETACHED, INITED (list head), double-remove, or corrupt */
+    if (!node_linked_consistent(node)) return 1; // DETACHED, INITED (list head), double-remove, or corrupt
 
     node->prev->next = node->next;
     node->next->prev = node->prev;
@@ -110,6 +109,7 @@ int ilist_remove(struct ilist_node *node)
 int ilist_is_empty(const struct ilist_node *list)
 {
     if (!list) return 1;
+
     /* A never-initialized (zeroed) head reports empty instead of faulting */
     if (!list->next) return 1;
     return list->next == list;

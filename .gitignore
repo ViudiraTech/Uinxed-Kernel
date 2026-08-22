@@ -74,8 +74,3 @@ make.log
 *.img
 *.log
 *.cpio
-
-# Local Xfce test artifacts (not part of the kernel build)
-assets/Limine/initramfs.cpio
-scripts/build-alpine-xfce-initramfs.sh
-Uinxed-xfce-x64.iso

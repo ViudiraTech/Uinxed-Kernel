@@ -125,8 +125,7 @@ static spinlock_t   msg_global_lock;
 static sem_undo_t *sem_undo_list;
 static spinlock_t  sem_undo_lock;
 
-/* Release a segment after both its table reference and all VMA/operation
- * references have gone away. */
+/* Release a segment after both its table reference and all VMA/operation references have gone away. */
 static void shm_seg_release(kref_t *ref)
 {
     shm_seg_t *seg = (shm_seg_t *)((uint8_t *)ref - offsetof(shm_seg_t, refs));
@@ -135,6 +134,7 @@ static void shm_seg_release(kref_t *ref)
     free(seg);
 }
 
+/* Drop a reference to the shared memory segment and release it when unused. */
 static void shm_seg_put(shm_seg_t *seg)
 {
     if (seg) (void)kref_put(&seg->refs, shm_seg_release);
@@ -154,9 +154,11 @@ static shm_seg_t *shm_seg_get_by_id(int shmid)
     return seg;
 }
 
-/* Remove a marked segment once no address space is attached.  Linux keeps a
+/*
+ * Remove a marked segment once no address space is attached.  Linux keeps a
  * removed shmid attachable until this point; MIT-SHM clients depend on that
- * behaviour when they issue IPC_RMID immediately after their first shmat. */
+ * behaviour when they issue IPC_RMID immediately after their first shmat.
+ */
 static void shm_remove_if_unused(shm_seg_t *seg)
 {
     int drop_table_ref = 0;
@@ -164,10 +166,12 @@ static void shm_remove_if_unused(shm_seg_t *seg)
 
     spin_lock(&shm_global_lock);
     spin_lock(&seg->lock);
+
     if (seg->deleted && seg->nattch == 0 && idx >= 0 && idx < SHM_MAX_SEGS && shm_segs[idx] == seg && shm_seq[idx] == (uint16_t)((seg->id >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK)) {
         shm_segs[idx]  = NULL;
         drop_table_ref = 1;
     }
+
     spin_unlock(&seg->lock);
     spin_unlock(&shm_global_lock);
 
@@ -686,7 +690,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             free(sem);
             return 0;
         }
-
         case IPC_SET : {
             int ret = ipc_owner_check(&sem->perm);
             if (ret < 0) return ret;
@@ -703,7 +706,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             spin_unlock(&sem->lock);
             return 0;
         }
-
         case IPC_STAT : {
             int ret = ipc_perm_check(&sem->perm, 0444);
             if (ret < 0) return ret;
@@ -721,7 +723,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             if (copy_to_user((void *)arg, &ds, sizeof(semid_ds_t)) != 0) return -EFAULT;
             return 0;
         }
-
         case GETVAL : {
             int ret = ipc_perm_check(&sem->perm, 0444);
             if (ret < 0) return ret;
@@ -732,7 +733,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             spin_unlock(&sem->lock);
             return val;
         }
-
         case SETVAL : {
             int ret = ipc_perm_check(&sem->perm, 0222);
             if (ret < 0) return ret;
@@ -748,7 +748,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             wait_queue_wake_all(&sem->waitq[semnum]);
             return 0;
         }
-
         case GETALL : {
             int ret = ipc_perm_check(&sem->perm, 0444);
             if (ret < 0) return ret;
@@ -768,7 +767,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             free(vals);
             return 0;
         }
-
         case SETALL : {
             int ret = ipc_perm_check(&sem->perm, 0222);
             if (ret < 0) return ret;
@@ -776,7 +774,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 
             uint16_t *vals = malloc(sizeof(uint16_t) * sem->nsems);
             if (vals == NULL) return -ENOMEM;
-
             if (copy_from_user(vals, (void *)arg, sizeof(uint16_t) * sem->nsems) != 0) {
                 free(vals);
                 return -EFAULT;
@@ -791,7 +788,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             free(vals);
             return 0;
         }
-
         case GETPID : {
             int ret = ipc_perm_check(&sem->perm, 0444);
             if (ret < 0) return ret;
@@ -802,7 +798,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             spin_unlock(&sem->lock);
             return (int64_t)pid;
         }
-
         case GETNCNT : {
             int ret = ipc_perm_check(&sem->perm, 0444);
             if (ret < 0) return ret;
@@ -813,7 +808,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             spin_unlock(&sem->lock);
             return (int64_t)cnt;
         }
-
         case GETZCNT : {
             int ret = ipc_perm_check(&sem->perm, 0444);
             if (ret < 0) return ret;
@@ -836,7 +830,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             info.semvmx = 32767;
             info.semusz = (int32_t)sizeof(sem_array_t);
             if (copy_to_user((void *)arg, &info, sizeof(seminfo_t)) != 0) return -EFAULT;
-
             if (cmd == SEM_INFO) {
                 spin_lock(&sem_global_lock);
                 int used = 0;
@@ -847,7 +840,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             }
             return SEM_MAX_SETS;
         }
-
         case SEM_STAT : {
             if (arg == 0) return -EFAULT;
             int idx = semid & IPC_ID_MASK;
@@ -879,8 +871,8 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 int sysv_shm_vma_get(void *identity, uint32_t pid)
 {
     shm_seg_t *seg = identity;
-    if (!seg) return -EINVAL;
 
+    if (!seg) return -EINVAL;
     if (!kref_get_unless_zero(&seg->refs)) return -EINVAL;
 
     spin_lock(&seg->lock);
@@ -981,7 +973,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
                 }
 
                 spin_lock(&seg->lock);
-                int ret = ipc_perm_check(&seg->perm, shmflg & 0777);
+                int  ret       = ipc_perm_check(&seg->perm, shmflg & 0777);
                 bool too_small = size > 0 && size > seg->size;
                 int  id        = seg->id;
                 spin_unlock(&seg->lock);
@@ -1180,7 +1172,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
         info.shmseg = SHM_MAX_SEGS;
         info.shmall = (uint64_t)SHM_MAX_SEGS * 256;
         if (copy_to_user(buf, &info, sizeof(shminfo_t)) != 0) return -EFAULT;
-
         if (cmd == SHM_INFO) {
             spin_lock(&shm_global_lock);
             int used = 0;
@@ -1224,7 +1215,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
 
     shm_seg_t *seg = shm_seg_get_by_id(shmid);
     if (seg == NULL) return -EINVAL;
-
     int result = 0;
 
     switch (cmd) {
@@ -1255,7 +1245,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             if (drop_table_ref) shm_seg_put(seg);
             break;
         }
-
         case IPC_SET : {
             int ret = ipc_owner_check(&seg->perm);
             if (ret < 0) {
@@ -1281,7 +1270,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             spin_unlock(&seg->lock);
             break;
         }
-
         case IPC_STAT : {
             int ret = ipc_perm_check(&seg->perm, 0444);
             if (ret < 0) {
@@ -1309,7 +1297,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             if (copy_to_user(buf, &ds, sizeof(shmid_ds_t)) != 0) result = -EFAULT;
             break;
         }
-
         case SHM_LOCK : {
             int ret = ipc_owner_check(&seg->perm);
             if (ret < 0) {
@@ -1321,7 +1308,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             spin_unlock(&seg->lock);
             break;
         }
-
         case SHM_UNLOCK : {
             int ret = ipc_owner_check(&seg->perm);
             if (ret < 0) {

@@ -426,9 +426,11 @@ static int futex_move_waiter(wait_queue_t *wq_src, wait_queue_t *wq_dst)
 
     if (!wq_src || !wq_dst || wq_src == wq_dst) return 0;
 
-    /* All wait-queue list users share scheduler.lock; do not use the unused
+    /*
+     * All wait-queue list users share scheduler.lock; do not use the unused
      * per-queue lock here, or wake/cancel can mutate the same list beside us.
-     * The caller already holds the futex bucket lock(s). */
+     * The caller already holds the futex bucket lock(s).
+     */
     spin_lock(&scheduler.lock);
     if (ilist_is_empty(&wq_src->tasks)) {
         spin_unlock(&scheduler.lock);
@@ -806,7 +808,7 @@ static int futex_lock_pi(uint32_t *uaddr)
             spin_lock(&pi_mutex->lock);
             pi_waiter_remove(self);
             spin_unlock(&pi_mutex->lock);
-            continue; /* re-read the futex word and restart cleanly */
+            continue; // re-read the futex word and restart cleanly
         }
 
         task_block();
@@ -862,8 +864,8 @@ static int futex_unlock_pi(uint32_t *uaddr)
         return -EPERM;
     }
 
-    pi_mutex->owner     = NULL;
-    rb_node_t *leftmost = rb_first(&pi_mutex->pi_waiters);
+    pi_mutex->owner       = NULL;
+    rb_node_t *leftmost   = rb_first(&pi_mutex->pi_waiters);
     task_t    *next_owner = NULL;
 
     if (leftmost) {
@@ -883,8 +885,11 @@ static int futex_unlock_pi(uint32_t *uaddr)
         uint32_t new_val = (next_owner->pid & FUTEX_TID_MASK);
         if (has_waiters) new_val |= FUTEX_WAITERS;
         copy_to_user(uaddr, &new_val, sizeof(new_val));
-        /* Woken with ownership handed off; the waiter's slowpath observes
-         * owner == self and completes without re-queueing. */
+
+        /*
+         * Woken with ownership handed off; the waiter's slowpath observes
+         * owner == self and completes without re-queueing.
+         */
         task_wakeup(next_owner);
     } else {
         uint32_t zero = 0;

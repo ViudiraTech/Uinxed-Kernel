@@ -32,7 +32,7 @@
  */
 static uint32_t   drm_vblank_enabled_total;
 static spinlock_t drm_vblank_enabled_lock = {.lock = 0, .rflags = 0};
-static uint64_t   drm_vblank_next_ns       = UINT64_MAX;
+static uint64_t   drm_vblank_next_ns      = UINT64_MAX;
 static uint64_t   drm_vblank_generation;
 
 /* IRQ-safe deadline hint for the software-vblank bottom half. */
@@ -405,7 +405,7 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 void drm_vblank_tick(void)
 {
     uint64_t           now;
-    uint64_t           next = UINT64_MAX;
+    uint64_t           next       = UINT64_MAX;
     uint64_t           generation = __atomic_load_n(&drm_vblank_generation, __ATOMIC_ACQUIRE);
     struct drm_device *devs[DRM_MAX_DEVICES];
     int                ndev;

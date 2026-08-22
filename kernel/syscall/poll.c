@@ -235,8 +235,8 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
 
     poll_watch_t *watches = NULL;
     int           ret     = poll_watches_create(proc, fds, nfds, invalid_is_error, &context, &watches);
-    if (ret != EOK) return ret;
 
+    if (ret != EOK) return ret;
     for (;;) {
         uint64_t generation = __atomic_load_n(&context.generation, __ATOMIC_ACQUIRE);
         ret                 = poll_scan(fds, watches, nfds);

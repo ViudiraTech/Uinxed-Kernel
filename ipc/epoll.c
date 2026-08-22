@@ -74,6 +74,7 @@ static int epoll_fsid = -1;
 /* Serializes changes to the graph formed by epoll-on-epoll registrations. */
 static spinlock_t epoll_topology_lock;
 
+/* Return the epoll instance associated with a valid epoll file. */
 static epoll_instance_t *epoll_file_instance(process_file_t *file)
 {
     if (!file || !file->node || !(file->node->type & file_epoll)) return NULL;
@@ -89,7 +90,6 @@ static bool epoll_path_reaches(epoll_instance_t *start, epoll_instance_t *needle
 {
     if (start == needle) return true;
     if (depth >= EPOLL_MAX_NESTS) return true;
-
     for (int fd = 0; fd <= start->max_fd; fd++) {
         epoll_item_t *item = start->items[fd];
         if (!item || !__atomic_load_n(&item->active, __ATOMIC_ACQUIRE)) continue;

@@ -835,6 +835,7 @@ static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint6
     switch (code) {
         case 0x1001 : // ARCH_SET_GS
             if (addr >= PROCESS_USER_STACK_TOP) return -EPERM;
+
             /* In kernel mode IA32_GS_BASE is the per-CPU base; the user GS lives in KERNEL_GS_BASE. */
             set_user_gs_base(addr);
             if (task) task->thread.gs_base = addr;
@@ -5083,8 +5084,7 @@ int syscall_dispatch(syscall_frame_t *frame)
     }
 
     if (num >= SYS_MAX || !syscall_table[num]) {
-        if (syscall_log_missing_once(num))
-            plogk("syscall: Unimplemented syscall %llu from pid %llu (%s)\n", num, dispatch_task ? dispatch_task->pid : 0, dispatch_task ? dispatch_task->name : "?");
+        if (syscall_log_missing_once(num)) plogk("syscall: Unimplemented syscall %llu from pid %llu (%s)\n", num, dispatch_task ? dispatch_task->pid : 0, dispatch_task ? dispatch_task->name : "?");
         retval     = -ENOSYS;
         frame->rax = (uint64_t)retval;
         goto check_signals;
@@ -5096,8 +5096,7 @@ int syscall_dispatch(syscall_frame_t *frame)
      * (notably Xorg) identify the missing ABI entry in the kernel log.
      */
     if (syscall_table[num] == sys_stub) {
-        if (syscall_log_missing_once(num))
-            plogk("syscall: syscall %llu is not implemented (pid %llu, %s)\n", num, dispatch_task ? dispatch_task->pid : 0, dispatch_task ? dispatch_task->name : "?");
+        if (syscall_log_missing_once(num)) plogk("syscall: syscall %llu is not implemented (pid %llu, %s)\n", num, dispatch_task ? dispatch_task->pid : 0, dispatch_task ? dispatch_task->name : "?");
     }
 
     if (num == SYS_EXECVE) {
@@ -5161,6 +5160,7 @@ check_signals:
      * this point remains pending and is taken immediately after SYSRET.
      */
     disable_intr();
+
     /*
      * On return to userspace, deliver any pending signals.
      * The signal subsystem sets up handler frames (redirecting RIP/RSP)

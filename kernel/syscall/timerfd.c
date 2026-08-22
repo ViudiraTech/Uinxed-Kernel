@@ -400,9 +400,9 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         ctx->armed = 1;
     }
 
-    bool     armed      = ctx->armed;
-    uint64_t clockid    = ctx->clockid;
-    uint64_t deadline   = ctx->deadline_ns;
+    bool     armed    = ctx->armed;
+    uint64_t clockid  = ctx->clockid;
+    uint64_t deadline = ctx->deadline_ns;
     spin_unlock(&ctx->lock);
     __atomic_add_fetch(&timerfd_deadline_generation, 1, __ATOMIC_RELEASE);
     if (armed) timerfd_deadline_min(clockid, deadline);

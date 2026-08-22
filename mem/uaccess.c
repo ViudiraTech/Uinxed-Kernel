@@ -252,6 +252,7 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
         spin_lock(&proc->user_page_dir->lock);
         if (!user_translate(proc, user, to_user, &kaddr, &page_left)) {
             spin_unlock(&proc->user_page_dir->lock);
+
             /* Fault handling may allocate and shoot down TLBs. */
             if (to_user && page_resolve_cow_fault(proc, user) == 0) continue;
             if (process_demand_fault(proc, user, to_user, 0) == 0) continue;

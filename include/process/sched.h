@@ -29,18 +29,18 @@
 #define SCHED_DOMAIN_MAX_LEVELS 3
 
 typedef enum {
-        SCHED_DOMAIN_SMT = 0,
-        SCHED_DOMAIN_PACKAGE,
-        SCHED_DOMAIN_SYSTEM,
+    SCHED_DOMAIN_SMT = 0,
+    SCHED_DOMAIN_PACKAGE,
+    SCHED_DOMAIN_SYSTEM,
 } sched_domain_level_t;
 
 enum {
-        SCHED_DOMAIN_BALANCE_WAKE     = 1U << 0,
-        SCHED_DOMAIN_BALANCE_NEWIDLE  = 1U << 1,
-        SCHED_DOMAIN_BALANCE_PERIODIC = 1U << 2,
-        SCHED_DOMAIN_WAKE_AFFINE      = 1U << 3,
-        SCHED_DOMAIN_SHARE_CAPACITY   = 1U << 4,
-        SCHED_DOMAIN_SHARE_CACHE      = 1U << 5,
+    SCHED_DOMAIN_BALANCE_WAKE     = 1U << 0,
+    SCHED_DOMAIN_BALANCE_NEWIDLE  = 1U << 1,
+    SCHED_DOMAIN_BALANCE_PERIODIC = 1U << 2,
+    SCHED_DOMAIN_WAKE_AFFINE      = 1U << 3,
+    SCHED_DOMAIN_SHARE_CAPACITY   = 1U << 4,
+    SCHED_DOMAIN_SHARE_CACHE      = 1U << 5,
 };
 
 typedef struct {
@@ -78,7 +78,7 @@ typedef struct {
         uint64_t         system_ticks;
         uint64_t         idle_ticks;
         uint64_t         context_switches;
-        volatile uint8_t need_resched;   // local wakeup should preempt at a safe return point
+        volatile uint8_t need_resched;    // local wakeup should preempt at a safe return point
         volatile uint8_t resched_pending; // coalesce remote reschedule IPIs
         uint8_t          online;          // CPU is online
 } eevdf_rq_t;
@@ -100,9 +100,9 @@ typedef struct {
 
 /* External interface */
 
-extern scheduler_t scheduler;
-extern eevdf_rq_t *cpu_rqs;
-extern uint32_t    cpu_scheduler_count;
+extern scheduler_t         scheduler;
+extern eevdf_rq_t         *cpu_rqs;
+extern uint32_t            cpu_scheduler_count;
 extern sched_domain_cpu_t *cpu_sched_domains;
 
 /* Enqueue a task onto its assigned CPU's ready queue */

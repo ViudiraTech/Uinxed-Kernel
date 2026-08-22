@@ -1047,6 +1047,7 @@ size_t pagecache_reclaim(size_t target)
                 pc_unlock(&page->lock);
                 continue;
             }
+
             /*
              * A lookup can acquire a reference between the unlocked test
              * above and this page lock.  Publish EVICTING first so no new

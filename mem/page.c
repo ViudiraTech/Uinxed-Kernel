@@ -180,6 +180,7 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
 
             plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n", fault_task->pid, fault_task->name, faulting_address, frame->rip, frame->rsp, frame->cs,
                   error_code);
+
             /*
              * A synchronous fault cannot be deferred.  If SIGSEGV is
              * blocked (normally because its handler faulted recursively) or
@@ -187,7 +188,6 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
              * faulting instruction forever.
              */
             if (signal_is_blocked_or_ignored(proc, SIGSEGV)) process_exit_group(-SIGSEGV);
-
             signal_send_thread(fault_task, SIGSEGV, &info);
 
             syscall_frame_t sigframe = {0};

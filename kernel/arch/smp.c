@@ -75,6 +75,7 @@ static int smp_topology_shifts(uint8_t *smt_shift, uint8_t *core_shift)
     return *core_shift || *smt_shift;
 }
 
+/* Return a mask containing the requested number of low-order bits. */
 static uint32_t smp_topology_mask(uint8_t bits)
 {
     if (!bits) return 0;
@@ -302,11 +303,13 @@ cpu_processor_t *get_current_cpu(void)
     return cpu_id < cpu_count ? &cpus[cpu_id] : NULL;
 }
 
+/* Return the processor descriptor for a valid CPU ID. */
 const cpu_processor_t *get_cpu_processor(uint32_t cpu_id)
 {
     return cpus && cpu_id < cpu_count ? &cpus[cpu_id] : NULL;
 }
 
+/* Check whether two CPUs belong to the same physical core. */
 int cpu_topology_same_core(uint32_t first, uint32_t second)
 {
     const cpu_processor_t *a = get_cpu_processor(first);
@@ -314,6 +317,7 @@ int cpu_topology_same_core(uint32_t first, uint32_t second)
     return a && b && a->package_id == b->package_id && a->core_id == b->core_id;
 }
 
+/* Check whether two CPUs belong to the same physical package. */
 int cpu_topology_same_package(uint32_t first, uint32_t second)
 {
     const cpu_processor_t *a = get_cpu_processor(first);
@@ -477,7 +481,7 @@ void smp_init(void)
         cpus[i].id                  = i;
         cpus[i].lapic_id            = cpu->lapic_id;
         if (topology_valid) {
-            uint32_t smt_mask = smp_topology_mask(smt_shift);
+            uint32_t smt_mask  = smp_topology_mask(smt_shift);
             uint32_t core_bits = core_shift > smt_shift ? core_shift - smt_shift : 0;
             uint32_t core_mask = smp_topology_mask((uint8_t)core_bits);
             cpus[i].thread_id  = (uint32_t)cpu->lapic_id & smt_mask;
@@ -489,15 +493,15 @@ void smp_init(void)
             cpus[i].core_id    = (uint32_t)cpu->lapic_id;
             cpus[i].package_id = 0;
         }
-        cpus[i].capacity            = 1024;
-        cpus[i].syscall.user_rsp    = 0;
-        cpus[i].syscall.kernel_rsp  = 0;
-        cpus[i].syscall.current     = NULL;
-        cpus[i].syscall.cpu_id      = i;
-        cpus[i].syscall.reserved    = 0;
-        cpus[i].fpu.fpu_live        = NULL;
-        cpus[i].fpu.fpu_kernel_cnt  = 0;
-        cpus[i].fpu.fpu_irq_saved   = 0;
+        cpus[i].capacity           = 1024;
+        cpus[i].syscall.user_rsp   = 0;
+        cpus[i].syscall.kernel_rsp = 0;
+        cpus[i].syscall.current    = NULL;
+        cpus[i].syscall.cpu_id     = i;
+        cpus[i].syscall.reserved   = 0;
+        cpus[i].fpu.fpu_live       = NULL;
+        cpus[i].fpu.fpu_kernel_cnt = 0;
+        cpus[i].fpu.fpu_irq_saved  = 0;
         /* Allocate kernel stack for each CPU */
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
 

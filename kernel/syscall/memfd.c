@@ -373,6 +373,7 @@ int memfd_add_seals(vfs_node_t node, uint32_t seals)
         plogk("memfd: add_seals denied (file=%p, seal=sealed)\n", (void *)file);
         return -EPERM;
     }
+
     /* Sealing an executable memfd also freezes its contents (Linux W^X semantics). */
     if ((seals & F_SEAL_EXEC) && (node->mode & 0111)) seals |= F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE | F_SEAL_FUTURE_WRITE;
     if ((seals & F_SEAL_WRITE) && file->writable_mappings) {

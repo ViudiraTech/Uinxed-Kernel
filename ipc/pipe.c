@@ -573,8 +573,10 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
         uint32_t avail    = pipe_ring_readable(ring);
         uint32_t chunk    = size < avail ? (uint32_t)size : avail;
         bool     was_full = pipe_ring_writable(ring) == 0;
+
         if (pipe_ring_copy_out_user(ring, proc, addr, chunk)) {
             spin_unlock(&ring->lock);
+
             /*
              * Fault/COW resolution can allocate or sleep, so it is done only
              * after dropping the ring lock.  Nothing has been consumed yet.

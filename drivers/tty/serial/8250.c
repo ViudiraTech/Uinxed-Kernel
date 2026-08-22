@@ -89,12 +89,12 @@ static void uart8250_tx_chars_locked(uart_port_t *port)
  */
 static int uart8250_tx_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
-    uint16_t base = uart8250_base(port);
+    uint16_t base   = uart8250_base(port);
     size_t   queued = 0;
 
     while (queued < len && port->tx_count < UART_TX_BUF_SIZE) {
         port->tx_buf[port->tx_head] = data[queued++];
-        port->tx_head = (port->tx_head + 1) % UART_TX_BUF_SIZE;
+        port->tx_head               = (port->tx_head + 1) % UART_TX_BUF_SIZE;
     }
     uart8250_tx_chars_locked(port);
 
@@ -196,6 +196,7 @@ static void uart8250_service(int line_irq)
 
         if (!port->present || uart8250_irq_of(i) != line_irq) continue;
         base = uart8250_base(port);
+
         /* Bound a broken/emulated UART so one shared interrupt cannot livelock. */
         for (size_t serviced = 0; serviced < 64; serviced++) {
             uint8_t  received[UART8250_FIFO_SIZE];
@@ -208,7 +209,7 @@ static void uart8250_service(int line_irq)
                 spin_unlock_irqrestore(&port->lock, flags);
                 break;
             }
-            if (reason == 0x02) { /* transmitter holding register empty */
+            if (reason == 0x02) { // transmitter holding register empty
                 uart8250_tx_chars_locked(port);
                 if (!port->tx_count) {
                     uint8_t ier = inb(base + UART8250_REG_IER);
@@ -216,9 +217,7 @@ static void uart8250_service(int line_irq)
                 }
             } else if (reason == 0x04 || reason == 0x0c || reason == 0x06) {
                 /* RX available/timeout/line status: empty the hardware FIFO. */
-                while (received_count < UART8250_FIFO_SIZE &&
-                       (inb(base + UART8250_REG_LSR) & UART8250_LSR_RX_READY))
-                    received[received_count++] = (uint8_t)inb(base + UART8250_REG_DATA);
+                while (received_count < UART8250_FIFO_SIZE && (inb(base + UART8250_REG_LSR) & UART8250_LSR_RX_READY)) received[received_count++] = (uint8_t)inb(base + UART8250_REG_DATA);
             } else {
                 /* Reading MSR acknowledges the otherwise unhandled modem cause. */
                 (void)inb(base + UART8250_REG_MSR);

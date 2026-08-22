@@ -432,7 +432,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     for (int i = 0; i < ehdr.e_phnum; i++) {
         if (phdr[i].type != PT_LOAD) continue;
         uintptr_t start, end;
-        int range = elf_segment_range(&phdr[i], 0, NULL, &start, &end);
+        int       range = elf_segment_range(&phdr[i], 0, NULL, &start, &end);
         if (range < 0) {
             result = -ENOEXEC;
             goto out;
@@ -479,7 +479,6 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     *base_out  = load_bias;
     *entry_out = ehdr.e_entry + load_bias;
     result     = 0;
-
 out:
     free(source.window);
     free(phdr);

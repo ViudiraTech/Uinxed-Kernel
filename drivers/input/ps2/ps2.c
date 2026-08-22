@@ -66,13 +66,13 @@ static void ps2_dispatch_input(uint8_t status, uint8_t data)
             ps2_keyboard_reset_stream();
         if (status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY)) return;
     }
-
     if (port == PS2_PORT_MOUSE)
         ps2_mouse_handle_byte(data);
     else
         ps2_keyboard_handle_byte(data);
 }
 
+/* Dispatch all queued PS/2 input events in the batch. */
 static void ps2_dispatch_batch(const struct ps2_input_batch *batch)
 {
     for (size_t i = 0; i < batch->count; i++) ps2_dispatch_input(batch->events[i].status, batch->events[i].data);

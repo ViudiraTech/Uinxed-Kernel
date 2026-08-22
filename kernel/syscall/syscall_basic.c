@@ -1647,6 +1647,7 @@ int64_t sys_pidfd_send_signal_impl(uint64_t pidfd, uint64_t sig, uint64_t info, 
 
     process_file_t *pf = process_fd_get(proc, (int)pidfd);
     if (!pf) return -EBADF;
+
     process_t *target = pidfd_get_target(pf->node);
     if (!target) {
         process_file_put(pf);
@@ -1779,6 +1780,7 @@ int64_t sys_timer_create_impl(uint64_t clockid, uint64_t evp, uint64_t timerid, 
     (void)arg4;
     (void)arg5;
     if (!timerid) return -EFAULT;
+
     /* POSIX timers: return dummy timer id = 1 */
     int32_t tid = 1;
     if (copy_to_user((void *)timerid, &tid, sizeof(tid))) return -EFAULT;
@@ -1845,6 +1847,7 @@ int64_t sys_syslog_impl(uint64_t type, uint64_t buf, uint64_t len, uint64_t arg3
     (void)arg3;
     (void)arg4;
     (void)arg5;
+
     /*
      * 0=close, 1=open, 2=read, 3=read_all, 4=read_clear, 5=clear,
      * 6=disable, 7=enable, 8=set_level, 9=unread, 10=size
@@ -1947,7 +1950,6 @@ int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t u
 
     open_how_t oh;
     if (copy_from_user(&oh, (const void *)how, sizeof(oh))) return -EFAULT;
-
     if (oh.resolve & ~31ULL) return -EINVAL;
     if ((oh.flags & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
 
@@ -1987,6 +1989,7 @@ int64_t sys_pidfd_getfd_impl(uint64_t pidfd, uint64_t targetfd, uint64_t flags, 
 
     process_file_t *pf = process_fd_get(proc, (int)pidfd);
     if (!pf) return -EBADF;
+
     process_t *target = pidfd_get_target(pf->node);
     if (!target) {
         process_file_put(pf);

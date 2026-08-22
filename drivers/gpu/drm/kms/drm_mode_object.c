@@ -370,6 +370,7 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
     if ((prop->flags & DRM_MODE_PROP_ATOMIC) || !obj->properties) {
         drm_mode_object_put(&prop->base);
         drm_mode_object_put(obj);
+
         /* Legacy Xorg probes atomic-only properties here; -EINVAL is expected. */
         return -EINVAL;
     }

@@ -4,6 +4,7 @@
  *      Intrusive linked list header file
  *
  *      2025/7/21 By MicroFish
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

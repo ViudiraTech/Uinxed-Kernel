@@ -35,7 +35,7 @@ struct rt_mutex {
         spinlock_t   lock;
         task_t      *owner;
         rb_root_t    pi_waiters;
-        wait_queue_t wq;   // membership serialised by scheduler.lock only
+        wait_queue_t wq; // membership serialised by scheduler.lock only
         uint32_t    *uaddr;
         int          owner_died;
 };

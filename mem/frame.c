@@ -35,9 +35,9 @@ static volatile uint32_t frame_reclaim_backoff;
  * zone buddy.  Keep the same shape here: a modest cache absorbs page faults,
  * page-cache churn and GEM allocations without bouncing one global lock.
  */
-#define FRAME_PCP_MAX_CPUS 256U
-#define FRAME_PCP_HIGH     64U
-#define FRAME_PCP_BATCH    16U
+#define FRAME_PCP_MAX_CPUS  256U
+#define FRAME_PCP_HIGH      64U
+#define FRAME_PCP_BATCH     16U
 #define FRAME_RECLAIM_BATCH 16U
 
 typedef struct {
@@ -62,8 +62,7 @@ static void frame_pcp_return_to_buddy(const size_t *frames, size_t count)
     if (!count) return;
     spin_lock(&frame_allocator.lock);
     for (size_t i = 0; i < count; i++) {
-        if (buddy_free(&frame_allocator.buddy, frames[i], 0))
-            plogk("frame: PCP drain failed for 0x%016llx\n", (uint64_t)frames[i] * PAGE_4K_SIZE);
+        if (buddy_free(&frame_allocator.buddy, frames[i], 0)) plogk("frame: PCP drain failed for 0x%016llx\n", (uint64_t)frames[i] * PAGE_4K_SIZE);
     }
     spin_unlock(&frame_allocator.lock);
 }
@@ -82,6 +81,7 @@ static void frame_pcp_drain_cpu(uint32_t cpu)
     frame_pcp_return_to_buddy(frames, count);
 }
 
+/* Drain the per-CPU frame caches for all supported CPUs. */
 static void frame_pcp_drain_all(void)
 {
     for (uint32_t cpu = 0; cpu < FRAME_PCP_MAX_CPUS; cpu++) frame_pcp_drain_cpu(cpu);
@@ -119,7 +119,7 @@ static size_t frame_pcp_pop(void)
         spin_unlock_irqrestore(&frame_pcp[cpu].lock, rflags);
         return SIZE_MAX;
     }
-    size_t frame = frame_pcp[cpu].frames[--frame_pcp[cpu].count];
+    size_t frame                           = frame_pcp[cpu].frames[--frame_pcp[cpu].count];
     frame_allocator.buddy.pages[frame].tag = 1;
     spin_unlock_irqrestore(&frame_pcp[cpu].lock, rflags);
     __atomic_sub_fetch(&frame_allocator.usable_frames, 1, __ATOMIC_RELAXED);
@@ -131,7 +131,7 @@ static size_t frame_pcp_refill(void)
 {
     size_t   first = SIZE_MAX;
     size_t   units = 0;
-    unsigned order = 4; /* 16 pages, matching FRAME_PCP_BATCH. */
+    unsigned order = 4; // 16 pages, matching FRAME_PCP_BATCH.
 
     spin_lock(&frame_allocator.lock);
     while (1) {
@@ -168,6 +168,7 @@ static int frame_try_reclaim(size_t target)
     return reclaimed;
 }
 
+/* Reclaim up to the requested number of free frame pages. */
 int frame_reclaim_pages(size_t target)
 {
     return target ? frame_try_reclaim(target) : 0;
@@ -418,7 +419,7 @@ int frame_release_range(uint64_t addr, size_t count)
         buddy_page_t *page  = &frame_allocator.buddy.pages[index];
         page->tag--;
         if (!page->tag) {
-            page->reserved = 1; /* exactly this release owns the PCP handoff */
+            page->reserved = 1; // exactly this release owns the PCP handoff
             released++;
         }
     }

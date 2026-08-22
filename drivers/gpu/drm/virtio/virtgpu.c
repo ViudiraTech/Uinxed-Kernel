@@ -871,8 +871,8 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
             obj->stride = fb->pitches[0];
             ret         = virtgpu_cmd_set_scanout_blob(vgdev, scanout_id, obj);
             if (ret) return ret;
-            vgdev->current_scanout_obj = obj;
-            vgdev->current_fb          = fb;
+            vgdev->current_scanout_obj    = obj;
+            vgdev->current_fb             = fb;
             vgdev->current_scanout_width  = fb->width;
             vgdev->current_scanout_height = fb->height;
             vgdev->current_scanout_stride = fb->pitches[0];
@@ -899,7 +899,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
             return ret;
         }
 
-        vgdev->current_scanout_obj = obj;
+        vgdev->current_scanout_obj    = obj;
         vgdev->current_scanout_width  = fb->width;
         vgdev->current_scanout_height = fb->height;
         vgdev->current_scanout_stride = fb->pitches[0];
@@ -908,7 +908,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
         /* Disable scanout */
         ret = virtgpu_cmd_set_scanout(vgdev, scanout_id, NULL);
         if (ret) return ret;
-        vgdev->current_scanout_obj = NULL;
+        vgdev->current_scanout_obj   = NULL;
         vgdev->current_scanout_width = vgdev->current_scanout_height = 0;
         vgdev->current_scanout_stride = vgdev->current_scanout_offset = 0;
     }

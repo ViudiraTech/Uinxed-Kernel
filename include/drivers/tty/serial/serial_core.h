@@ -44,16 +44,17 @@ struct uart_port {
         size_t      rx_head;
         size_t      rx_tail;
         size_t      rx_count;
+
         /*
          * Normal tty writes are queued here and drained by the UART TX-empty
          * interrupt.  Keeping this in the port makes serial output bounded:
          * a userspace logger must never busy-wait for every character while
          * holding interrupts off on the only vCPU.
          */
-        uint8_t     tx_buf[UART_TX_BUF_SIZE];
-        size_t      tx_head;
-        size_t      tx_tail;
-        size_t      tx_count;
+        uint8_t tx_buf[UART_TX_BUF_SIZE];
+        size_t  tx_head;
+        size_t  tx_tail;
+        size_t  tx_count;
 
         /* Serializes UART registers, driver callbacks, and open/close state. */
         spinlock_t   lock;

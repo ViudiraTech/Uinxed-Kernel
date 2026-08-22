@@ -125,9 +125,8 @@ static int simpledrm_blit_rect(simpledrm_device_t *sdev, struct drm_framebuffer 
 
     src = (const uint8_t *)fb->obj[0]->backing + fb->offsets[0];
     dst = (uint8_t *)sdev->screen;
-    for (y = y1; y < y2; y++)
-        memcpy(dst + (size_t)y * sdev->screen_pitch + (size_t)x1 * sizeof(uint32_t), src + (size_t)y * fb_pitch + (size_t)x1 * sizeof(uint32_t), row_bytes);
 
+    for (y = y1; y < y2; y++) memcpy(dst + (size_t)y * sdev->screen_pitch + (size_t)x1 * sizeof(uint32_t), src + (size_t)y * fb_pitch + (size_t)x1 * sizeof(uint32_t), row_bytes);
     return 0;
 }
 
@@ -172,6 +171,7 @@ static int simpledrm_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_
 
     first = (flags & DRM_MODE_FB_DIRTY_ANNOTATE_COPY) ? 1U : 0U;
     step  = (flags & DRM_MODE_FB_DIRTY_ANNOTATE_COPY) ? 2U : 1U;
+
     for (unsigned int i = first; i < num_clips; i += step) {
         ret = simpledrm_blit_rect(sdev, fb, clips[i].x1, clips[i].y1, clips[i].x2, clips[i].y2);
         if (ret) return ret;
@@ -187,7 +187,6 @@ static const struct drm_framebuffer_funcs simpledrm_fb_funcs = {
 static void simpledrm_crtc_mode_set(struct drm_crtc *crtc, struct drm_framebuffer *fb)
 {
     simpledrm_device_t *sdev = (simpledrm_device_t *)crtc->dev->dev_private;
-
     (void)simpledrm_scanout_fb(sdev, fb);
 }
 
@@ -200,7 +199,6 @@ static int simpledrm_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffe
     (void)flags;
 
     int ret = simpledrm_scanout_fb(sdev, fb);
-
     if (ret) return ret;
 
     /* The legacy page-flip ioctl expects the driver to commit the plane. */
@@ -224,7 +222,6 @@ static void simpledrm_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_
      * scanned this fb out; skip the redundant full-frame memcpy.
      */
     if (plane && plane->state && plane->state->fb && sdev->current_fb != plane->state->fb) (void)simpledrm_scanout_fb(sdev, plane->state->fb);
-
     if (crtc->state && crtc->state->event) {
         drm_crtc_send_vblank_event(crtc, crtc->state->event);
         crtc->state->event = NULL;
@@ -320,8 +317,7 @@ static struct drm_driver simpledrm_drm_driver = {
     .release   = simpledrm_release,
 
     .gem_prime_import = simpledrm_gem_prime_import,
-
-    .fb_funcs = &simpledrm_fb_funcs,
+    .fb_funcs         = &simpledrm_fb_funcs,
 
     .dumb_create     = drm_gem_dumb_create,
     .dumb_map_offset = drm_gem_dumb_map_offset,
