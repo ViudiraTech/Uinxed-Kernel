@@ -589,18 +589,12 @@ static void finish_wait_locked(task_t *task, task_wake_reason_t reason)
     task->wake_reason = reason;
     task->wake_tick   = 0;
 
-<<<<<<< HEAD
     /*
      * The timer node lives independently of the wait queue, but a timed
      * waiter always has both linked; drop the timer entry on any wake.
      */
-    if (ilist_is_linked(&task->timer_node) && ilist_remove(&task->timer_node)) panic("sched: timer node unlink failed (task %llu %s)", task->pid, task->name);
-=======
-    /* The timer node lives independently of the wait queue, but a timed
-     * waiter always has both linked; drop the timer entry on any wake. */
     if (ilist_is_linked(&task->timer_node)) (void)ilist_remove(&task->timer_node);
 
->>>>>>> 54984c0e (Some bug fix)
     if (task->state == TASK_BLOCKED) wake_task_locked(task, 0);
 }
 
