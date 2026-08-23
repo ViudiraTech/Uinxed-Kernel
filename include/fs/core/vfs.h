@@ -359,6 +359,7 @@ int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flag
 int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
 int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
 int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+
 /*
  * Descriptor-backed I/O on an open file description that was already
  * authorized at open time.  Credentials are not re-evaluated so inherited

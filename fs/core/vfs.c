@@ -1763,11 +1763,13 @@ int64_t vfs_file_read_user_granted(vfs_node_t file, void *private_data, uint64_t
     return vfs_file_read_user_process_impl(file, private_data, flags, addr, offset, size, proc, false);
 }
 
+/* Read through a process-authorized descriptor; see vfs_file_read_granted(). */
 int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
 {
     return vfs_file_read_user_process_impl(file, private_data, flags, addr, offset, size, proc, true);
 }
 
+/* Write through a process-authorized descriptor; see vfs_file_write_granted(). */
 static int64_t vfs_file_write_user_process_impl(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, bool check_access)
 {
     if (!file || (!addr && size)) return -EINVAL;
@@ -1849,6 +1851,7 @@ int64_t vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_
     return vfs_file_write_user_process_impl(file, private_data, flags, addr, offset, size, proc, false);
 }
 
+/* Write through a process-authorized descriptor; see vfs_file_write_granted(). */
 int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
 {
     return vfs_file_write_user_process_impl(file, private_data, flags, addr, offset, size, proc, true);

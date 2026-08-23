@@ -228,7 +228,7 @@ void lapic_timer_try_upgrade(void)
     lapic_write(LAPIC_REG_TIMER, IRQ_0 | APIC_LVT_TSC_DEADLINE);
     wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + tsc_get_cpu_frequency() / TIMER_HZ);
 
-    plogk("apic: LAPIC timer upgraded to TSC-deadline one-shot (%llu Hz TSC).\n", (unsigned long long)tsc_get_cpu_frequency());
+    plogk("apic: LAPIC timer upgraded to TSC-deadline one-shot (%llu Hz TSC)\n", (unsigned long long)tsc_get_cpu_frequency());
 }
 
 /* Initialize I/O APIC */

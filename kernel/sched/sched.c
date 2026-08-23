@@ -655,10 +655,8 @@ static void insert_sleep_deadline_locked(task_t *task)
         }
         if (!ilist_insert_before(position, &task->sched_node)) return;
 
-        if (attempt > 0 || !ilist_is_linked(&task->sched_node)) {
-            panic("sched: sleep-queue insert rejected (task %llu %s) - ring corrupt", task->pid, task->name);
-        }
-        plogk("sched: stale sleep-queue link on task %llu (%s); recovering\n", task->pid, task->name);
+        if (attempt > 0 || !ilist_is_linked(&task->sched_node)) { panic("sched: sleep-queue insert rejected (task %llu %s) - ring corrupt.", task->pid, task->name); }
+        plogk("sched: stale sleep-queue link on task %llu (%s); recovering.\n", task->pid, task->name);
         (void)ilist_remove(&task->sched_node);
         task->wait_queue = NULL;
     }
@@ -677,10 +675,8 @@ static void insert_timer_deadline_locked(task_t *task)
         }
         if (!ilist_insert_before(position, &task->timer_node)) return;
 
-        if (attempt > 0 || !ilist_is_linked(&task->timer_node)) {
-            panic("sched: timer-queue insert rejected (task %llu %s) - ring corrupt", task->pid, task->name);
-        }
-        plogk("sched: stale timer-queue link on task %llu (%s); recovering\n", task->pid, task->name);
+        if (attempt > 0 || !ilist_is_linked(&task->timer_node)) { panic("sched: timer-queue insert rejected (task %llu %s) - ring corrupt.", task->pid, task->name); }
+        plogk("sched: stale timer-queue link on task %llu (%s); recovering.\n", task->pid, task->name);
         (void)ilist_remove(&task->timer_node);
     }
 }
@@ -1885,6 +1881,7 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
             sleep       = 1;
         }
     }
+
     /* wake_reason != NONE with wait_queue set cannot happen: finish_wait_locked detaches before publishing the reason, both under scheduler.lock. */
     spin_unlock(&scheduler.lock);
 

@@ -214,10 +214,10 @@ void timer_handle_frame(syscall_frame_t *frame)
         uint64_t base_interval = TIMER_HZ / 100U;
         if (!base_interval) base_interval = 1;
 
-        uint64_t monotonic_ns   = timer_monotonic_ns();
-        uint64_t last           = __atomic_load_n(&timer_deferred_last_tick, __ATOMIC_RELAXED);
-        bool     due            = now_ticks - last >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns)
-                       || timerfd_deferred_due(monotonic_ns);
+        uint64_t monotonic_ns = timer_monotonic_ns();
+        uint64_t last         = __atomic_load_n(&timer_deferred_last_tick, __ATOMIC_RELAXED);
+        bool     due
+            = now_ticks - last >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns) || timerfd_deferred_due(monotonic_ns);
         if (due && __atomic_compare_exchange_n(&timer_deferred_last_tick, &last, now_ticks, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) timer_queue_deferred_work();
     }
 

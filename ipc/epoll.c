@@ -773,8 +773,8 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
      */
     const uint64_t slice_ticks = TIMER_HZ; // re-scan at least once per second
 
-    uint64_t deadline     = 0;
-    bool     infinite     = timeout < 0;
+    uint64_t deadline = 0;
+    bool     infinite = timeout < 0;
     if (!infinite) {
         uint64_t ticks = ((uint64_t)timeout * EPOLL_TICKS_PER_SEC + 999) / 1000;
         deadline       = sched_ticks() + ticks;

@@ -2348,7 +2348,6 @@ static int procfs_stat(void *file, vfs_node_t node)
                 free(pids);
                 break;
             }
-
             procfs_deactivate_pid_nodes(node);
 
             for (size_t pos = 0; pos < pid_count; pos++) {
