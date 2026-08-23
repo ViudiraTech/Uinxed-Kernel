@@ -1524,11 +1524,11 @@ size_t vfs_write(vfs_node_t file, const void *addr, size_t offset, size_t size)
     return (size_t)ret;
 }
 
-/* Read from a file node as a specific process, enforcing its permissions. */
-int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
+/* Read from a file node as a specific process, optionally enforcing its permissions. */
+static int64_t vfs_file_read_process_impl(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc, bool check_access)
 {
     if (!file || !addr) return -EINVAL;
-    if (vfs_access_check_process(file, VFS_ACCESS_R, proc)) return -EACCES;
+    if (check_access && vfs_access_check_process(file, VFS_ACCESS_R, proc)) return -EACCES;
     do_update(file);
     if (file->type & file_dir) return -EISDIR;
 
@@ -1558,20 +1558,37 @@ int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flag
     return result;
 }
 
+/*
+ * Read through an already-authorized descriptor.  Access rights are decided
+ * once at open time and travel with the open file description across setuid,
+ * fork and exec; re-checking the current fsuid here would revoke access that
+ * was legitimately granted (e.g. a shell inheriting its terminal from su).
+ */
+int64_t vfs_file_read_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
+{
+    return vfs_file_read_process_impl(file, private_data, flags, addr, offset, size, proc, false);
+}
+
+/* Read from a file node as a specific process, enforcing its permissions. */
+int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
+{
+    return vfs_file_read_process_impl(file, private_data, flags, addr, offset, size, proc, true);
+}
+
 /* Read a file node as the current process. */
 int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     return vfs_file_read_process(file, private_data, flags, addr, offset, size, process_current());
 }
 
-/* Write to a file node as a specific process, enforcing its permissions. */
-int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
+/* Write to a file node as a specific process, optionally enforcing its permissions. */
+static int64_t vfs_file_write_process_impl(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, bool check_access)
 {
     int64_t ret;
 
     if (!file || !addr) return -EINVAL;
     if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
-    if (vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
+    if (check_access && vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
     do_update(file);
     if (file->type & file_dir) return -EISDIR;
 
@@ -1602,6 +1619,18 @@ int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t fla
     return ret;
 }
 
+/* Write through an already-authorized descriptor; see vfs_file_read_granted(). */
+int64_t vfs_file_write_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
+{
+    return vfs_file_write_process_impl(file, private_data, flags, addr, offset, size, proc, false);
+}
+
+/* Write to a file node as a specific process, enforcing its permissions. */
+int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
+{
+    return vfs_file_write_process_impl(file, private_data, flags, addr, offset, size, proc, true);
+}
+
 /* Write a file node as the current process. */
 int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
@@ -1616,7 +1645,7 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
  * (pipes and no-copy devices) can consume them directly; all existing
  * callbacks retain their old semantics through this bounded fallback.
  */
-int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
+static int64_t vfs_file_read_user_process_impl(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc, bool check_access)
 {
     if (!file || (!addr && size)) return -EINVAL;
     if (!user_range_ok(addr, size)) return -EFAULT;
@@ -1629,7 +1658,7 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
      * particularly expensive for small-block streaming workloads.
      */
     if ((file->type & (file_stream | file_pipe)) && read_user != vfs_empty_callback.file_read_user) {
-        if (vfs_access_check_process(file, VFS_ACCESS_R, proc)) return -EACCES;
+        if (check_access && vfs_access_check_process(file, VFS_ACCESS_R, proc)) return -EACCES;
 
         int64_t ret = read_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
@@ -1645,7 +1674,7 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
      */
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
     if (!mapping && read_user != vfs_empty_callback.file_read_user) {
-        if (vfs_access_check_process(file, VFS_ACCESS_R, proc)) return -EACCES;
+        if (check_access && vfs_access_check_process(file, VFS_ACCESS_R, proc)) return -EACCES;
         do_update(file);
         if (file->type & file_dir) return -EISDIR;
 
@@ -1668,7 +1697,8 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
     int64_t result = 0;
     while (done < size) {
         size_t  chunk = size - done < capacity ? size - done : capacity;
-        int64_t ret   = vfs_file_read_process(file, private_data, flags, tmp, offset + done, chunk, proc);
+        int64_t ret
+            = check_access ? vfs_file_read_process(file, private_data, flags, tmp, offset + done, chunk, proc) : vfs_file_read_granted(file, private_data, flags, tmp, offset + done, chunk, proc);
         if (ret < 0) {
             result = done ? (int64_t)done : ret;
             goto out;
@@ -1691,7 +1721,18 @@ out:
     return result;
 }
 
-int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
+/* Read through an already-authorized descriptor; see vfs_file_read_granted(). */
+int64_t vfs_file_read_user_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
+{
+    return vfs_file_read_user_process_impl(file, private_data, flags, addr, offset, size, proc, false);
+}
+
+int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
+{
+    return vfs_file_read_user_process_impl(file, private_data, flags, addr, offset, size, proc, true);
+}
+
+static int64_t vfs_file_write_user_process_impl(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, bool check_access)
 {
     if (!file || (!addr && size)) return -EINVAL;
     if (!user_range_ok(addr, size)) return -EFAULT;
@@ -1704,7 +1745,7 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
      */
     if ((file->type & (file_stream | file_pipe)) && write_user != vfs_empty_callback.file_write_user) {
         if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
-        if (vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
+        if (check_access && vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
 
         int64_t ret = write_user(file, private_data, flags, addr, offset, size, proc);
         if (ret > 0 && (uint64_t)ret > size) return -EIO;
@@ -1715,7 +1756,7 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
     if (!mapping && write_user != vfs_empty_callback.file_write_user) {
         if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
-        if (vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
+        if (check_access && vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
         do_update(file);
         if (file->type & file_dir) return -EISDIR;
 
@@ -1731,7 +1772,7 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
 
     if (!size) {
         uint8_t empty = 0;
-        return vfs_file_write_process(file, private_data, flags, &empty, offset, 0, proc);
+        return check_access ? vfs_file_write_process(file, private_data, flags, &empty, offset, 0, proc) : vfs_file_write_granted(file, private_data, flags, &empty, offset, 0, proc);
     }
 
     size_t   capacity = size < VFS_USER_IO_CHUNK ? size : VFS_USER_IO_CHUNK;
@@ -1746,7 +1787,8 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
             result = done ? (int64_t)done : -EFAULT;
             goto out;
         }
-        int64_t ret = vfs_file_write_process(file, private_data, flags, tmp, offset + done, chunk, proc);
+        int64_t ret
+            = check_access ? vfs_file_write_process(file, private_data, flags, tmp, offset + done, chunk, proc) : vfs_file_write_granted(file, private_data, flags, tmp, offset + done, chunk, proc);
         if (ret < 0) {
             result = done ? (int64_t)done : ret;
             goto out;
@@ -1763,6 +1805,17 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
 out:
     free(tmp);
     return result;
+}
+
+/* Write through an already-authorized descriptor; see vfs_file_read_granted(). */
+int64_t vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
+{
+    return vfs_file_write_user_process_impl(file, private_data, flags, addr, offset, size, proc, false);
+}
+
+int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
+{
+    return vfs_file_write_user_process_impl(file, private_data, flags, addr, offset, size, proc, true);
 }
 
 /* Check whether the node's mount subtree is read-only. */

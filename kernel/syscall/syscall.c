@@ -1192,6 +1192,48 @@ static int64_t sys_unlink(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t 
     return ret;
 }
 
+/* rmdir syscall: remove an empty directory */
+static int64_t sys_rmdir(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (!path) return -EFAULT;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    char input[SYSCALL_PATH_MAX];
+    int  ret = copy_path_from_user(path, input);
+    if (ret != EOK) return ret;
+
+    /* POSIX: rmdir(".") and rmdir("..") fail with EINVAL. */
+    size_t len = strlen(input);
+    while (len > 1 && input[len - 1] == '/') input[--len] = '\0';
+    const char *leaf = strrchr(input, '/');
+    leaf             = leaf ? leaf + 1 : input;
+    if (streq(leaf, ".") || streq(leaf, "..")) return -EINVAL;
+
+    vfs_node_t node = open_path_at(proc, AT_FDCWD, path, true, &ret);
+    if (!node) return ret;
+    if (!(node->type & file_dir)) {
+        vfs_close(node);
+        return -ENOTDIR;
+    }
+    if (node == get_rootdir()) {
+        vfs_close(node);
+        return -EINVAL;
+    }
+    if (node->is_mount) {
+        vfs_close(node);
+        return -EBUSY;
+    }
+    ret = vfs_delete(node);
+    vfs_close(node);
+    return ret;
+}
+
 static int64_t sys_unlinkat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4679,7 +4721,7 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FCHDIR]                 = sys_fchdir_impl,
     [SYS_RENAME]                 = sys_rename,
     [SYS_MKDIR]                  = sys_mkdir,
-    [SYS_RMDIR]                  = sys_unlink,
+    [SYS_RMDIR]                  = sys_rmdir,
     [SYS_CREAT]                  = sys_creat,
     [SYS_LINK]                   = sys_link,
     [SYS_UNLINK]                 = sys_unlink,

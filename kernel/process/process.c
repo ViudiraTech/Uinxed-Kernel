@@ -1115,7 +1115,7 @@ int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
         return -EBADF;
     }
 
-    int64_t ret = vfs_file_read_process(file->node, file->private_data, flags, buf, offset, size, proc);
+    int64_t ret = vfs_file_read_granted(file->node, file->private_data, flags, buf, offset, size, proc);
     if (!positionless) {
         if (ret >= 0) {
             spin_lock(&file->lock);
@@ -1175,7 +1175,7 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
         return -EROFS;
     }
 
-    int64_t ret = vfs_file_write_process(file->node, file->private_data, flags, buf, offset, size, proc);
+    int64_t ret = vfs_file_write_granted(file->node, file->private_data, flags, buf, offset, size, proc);
     if (!positionless) {
         if (ret >= 0) {
             spin_lock(&file->lock);
@@ -1217,7 +1217,7 @@ int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
         return -EBADF;
     }
 
-    int64_t ret = vfs_file_read_user_process(file->node, file->private_data, flags, buf, offset, size, proc);
+    int64_t ret = vfs_file_read_user_granted(file->node, file->private_data, flags, buf, offset, size, proc);
     if (!positionless) {
         if (ret >= 0) {
             spin_lock(&file->lock);
@@ -1264,7 +1264,7 @@ int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t s
         return -EROFS;
     }
 
-    int64_t ret = vfs_file_write_user_process(file->node, file->private_data, flags, buf, offset, size, proc);
+    int64_t ret = vfs_file_write_user_granted(file->node, file->private_data, flags, buf, offset, size, proc);
     if (!positionless) {
         if (ret >= 0) {
             spin_lock(&file->lock);
@@ -1296,7 +1296,7 @@ int64_t process_fd_pread_user(process_t *proc, int fd, void *buf, size_t size, u
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
-    int64_t ret = vfs_file_read_user_process(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
+    int64_t ret = vfs_file_read_user_granted(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
     process_file_io_unlock(file);
     process_file_put_light(file, borrowed);
     return ret;
@@ -1325,7 +1325,7 @@ int64_t process_fd_pwrite_user(process_t *proc, int fd, const void *buf, size_t 
         process_file_put_light(file, borrowed);
         return -EROFS;
     }
-    int64_t ret = vfs_file_write_user_process(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
+    int64_t ret = vfs_file_write_user_granted(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
     process_file_io_unlock(file);
     process_file_put_light(file, borrowed);
     return ret;
