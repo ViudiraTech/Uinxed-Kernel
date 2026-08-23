@@ -667,10 +667,6 @@ static int seccomp_prepare_filter(uint64_t flags, uint64_t user_filter, struct s
 
     struct seccomp_filter *filter = calloc(1, sizeof(*filter));
     if (!filter) return -ENOMEM;
-    if ((size_t)user_program.len > SIZE_MAX / sizeof(*filter->program)) {
-        free(filter);
-        return -EOVERFLOW;
-    }
     filter->program = malloc((size_t)user_program.len * sizeof(*filter->program));
     if (!filter->program) {
         free(filter);
@@ -899,7 +895,17 @@ static struct seccomp_filter *seccomp_get_nth_filter(task_t *target, uint64_t of
     }
     uint64_t               from_head = count - offset - 1U;
     struct seccomp_filter *filter    = target->seccomp_filter;
-    while (from_head--) filter = filter->prev;
+
+    /*
+     * offset < count (checked above), so from_head <= count-1 steps stay
+     * inside the counted chain; filter is never NULL here.  The explicit
+     * guard keeps clang's path-sensitive analyzer satisfied.
+     */
+    while (from_head-- && filter) filter = filter->prev;
+    if (!filter) {
+        spin_unlock(&proc->seccomp_lock);
+        return NULL;
+    }
     seccomp_filter_get(filter);
     spin_unlock(&proc->seccomp_lock);
     return filter;
@@ -1017,8 +1023,8 @@ bool seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *resu
 
         switch (action) {
             case SECCOMP_RET_ALLOW :
-                return true;
             case SECCOMP_RET_LOG :
+                /* LOG is already recorded above; it is treated as ALLOW. */
                 return true;
             case SECCOMP_RET_ERRNO :
                 *result = -(int64_t)(payload > SECCOMP_MAX_ERRNO ? SECCOMP_MAX_ERRNO : payload);
@@ -1042,8 +1048,8 @@ bool seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *resu
             }
             case SECCOMP_RET_KILL_THREAD :
                 process_exit(-SIGSYS);
+                break; // unreachable: process_exit never returns
             case SECCOMP_RET_KILL_PROCESS :
-                process_exit_group(-SIGSYS);
             default :
                 process_exit_group(-SIGSYS);
         }

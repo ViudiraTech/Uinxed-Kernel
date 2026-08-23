@@ -1843,6 +1843,15 @@ void process_exit(int exit_code)
     }
 
     signal_flush_task(current);
+
+    /*
+     * If this task still owns PI futexes, release them (owner-died handoff)
+     * before the task is reaped: each held mutex pins a task_ref on us that
+     * would otherwise leak our task_t + kernel stack forever and wedge the
+     * mutex.
+     */
+    futex_pi_owner_exit(current);
+
     spin_lock(&process_table_lock);
     bool sibling_exit = proc->thread_count > 1;
     if (sibling_exit) {
@@ -1864,7 +1873,7 @@ void process_exit(int exit_code)
         if (current->clear_child_tid) {
             uint32_t zero = 0;
             if (copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero))) {
-                plogk("process_exit: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
+                plogk("process: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
             } else {
                 sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
             }
@@ -2299,6 +2308,18 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         return NULL;
     }
 
+    /*
+     * VMA file processing below (vfs_node_retain / vfs_cache_mapping_pin /
+     * memfd_vma_retain) can sleep on the VFS namespace lock.  It must NOT run
+     * while holding scheduler.lock with IRQs masked: a contended
+     * vfs_ns_lock() calls wait_queue_prepare()/wait_queue_sleep(), which
+     * re-acquire scheduler.lock and self-deadlock the fork (recursive spin).
+     * The parent's mmap_lock still guards mmap_list, so drop scheduler.lock
+     * and unmask IRQs for the duration of the copy, then restore both.
+     */
+    spin_unlock(&scheduler.lock);
+    enable_intr();
+
     for (vm_area_t *vma = parent->mmap_list; vma; vma = vma->next) {
         vm_area_t *copy = vm_area_alloc(vma->start, vma->end, vma->flags);
         if (!copy) {
@@ -2306,7 +2327,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             if (error) *error = -ENOMEM;
             process_free(child);
             spin_unlock(&parent->mmap_lock);
-            spin_unlock(&scheduler.lock);
             return NULL;
         }
         copy->type            = vma->type;
@@ -2322,7 +2342,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             if (error) *error = -ENOENT;
             process_free(child);
             spin_unlock(&parent->mmap_lock);
-            spin_unlock(&scheduler.lock);
             return NULL;
         }
         if (copy->vm_file && copy->vm_pagecache) (void)vfs_cache_mapping_pin(copy->vm_file);
@@ -2338,7 +2357,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             if (error) *error = -ENOMEM;
             process_free(child);
             spin_unlock(&parent->mmap_lock);
-            spin_unlock(&scheduler.lock);
             return NULL;
         }
 
@@ -2360,10 +2378,12 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             if (error) *error = -ENOMEM;
             process_free(child);
             spin_unlock(&parent->mmap_lock);
-            spin_unlock(&scheduler.lock);
             return NULL;
         }
     }
+
+    disable_intr();
+    spin_lock(&scheduler.lock);
 
     memcpy(&child_task->context, &current->context, sizeof(task_context_t));
     child_task->thread.fs_base = current->thread.fs_base;

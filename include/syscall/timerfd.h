@@ -31,6 +31,7 @@ typedef struct timerfd_ctx {
         uint64_t     interval_ns;
         uint64_t     deadline_ns;
         int          armed;
+        int          closed;
         spinlock_t   lock;
         wait_queue_t wq;
         ilist_node_t timers;

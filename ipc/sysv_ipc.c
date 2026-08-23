@@ -44,6 +44,7 @@
 /* Internal structures */
 
 typedef struct sem_array {
+        kref_t        refs;
         ipc_perm_t    perm;
         uint64_t      ctime;
         uint64_t      otime;
@@ -91,6 +92,7 @@ typedef struct msg_msg {
 } msg_msg_t;
 
 typedef struct msg_queue {
+        kref_t       refs;
         ipc_perm_t   perm;
         uint64_t     stime;
         uint64_t     rtime;
@@ -282,6 +284,80 @@ static int ipc_id_remove(void **table, uint16_t *seq_table, int max, spinlock_t 
     return 0;
 }
 
+/*
+ * Free a semaphore set once its table reference and all operation references
+ * have gone away (the last one is always an operation that finished, so the
+ * wait queues are empty by the time this runs).
+ */
+static void sem_array_release(kref_t *ref)
+{
+    sem_array_t *sem = (sem_array_t *)((uint8_t *)ref - offsetof(sem_array_t, refs));
+
+    free(sem->waitq);
+    free(sem->semzcnt);
+    free(sem->semcnt);
+    free(sem->sempid);
+    free(sem->values);
+    free(sem);
+}
+
+/* Free a message queue once its table reference and all operation references have gone away. */
+static void msg_queue_release(kref_t *ref)
+{
+    msg_queue_t *q   = (msg_queue_t *)((uint8_t *)ref - offsetof(msg_queue_t, refs));
+    msg_msg_t   *msg = q->head;
+
+    while (msg) {
+        msg_msg_t *next = msg->next;
+        free(msg);
+        msg = next;
+    }
+    free(q);
+}
+
+/*
+ * Pin a semaphore set for a syscall.  The reference is taken under the table
+ * lock so IPC_RMID cannot free the set between the lookup and the pin.
+ */
+static sem_array_t *sem_lookup(int semid)
+{
+    int idx = semid & IPC_ID_MASK;
+    if (idx < 0 || idx >= SEM_MAX_SETS) return NULL;
+    uint16_t seq = (uint16_t)((semid >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK);
+
+    spin_lock(&sem_global_lock);
+    sem_array_t *sem = sem_sets[idx];
+    if (!sem || sem_seq[idx] != seq || !kref_get_unless_zero(&sem->refs)) sem = NULL;
+    spin_unlock(&sem_global_lock);
+    return sem;
+}
+
+/* Release an operation reference on a semaphore set. */
+static void sem_put(sem_array_t *sem)
+{
+    if (sem) (void)kref_put(&sem->refs, sem_array_release);
+}
+
+/* Pin a message queue for a syscall. */
+static msg_queue_t *msg_lookup(int msqid)
+{
+    int idx = msqid & IPC_ID_MASK;
+    if (idx < 0 || idx >= MSG_MAX_QUEUES) return NULL;
+    uint16_t seq = (uint16_t)((msqid >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK);
+
+    spin_lock(&msg_global_lock);
+    msg_queue_t *q = msg_queues[idx];
+    if (!q || msg_seq[idx] != seq || !kref_get_unless_zero(&q->refs)) q = NULL;
+    spin_unlock(&msg_global_lock);
+    return q;
+}
+
+/* Release an operation reference on a message queue. */
+static void msg_put(msg_queue_t *q)
+{
+    if (q) (void)kref_put(&q->refs, msg_queue_release);
+}
+
 /* Find the undo record for a process/semaphore pair. */
 static sem_undo_t *sem_undo_find(process_t *proc, int semid)
 {
@@ -369,6 +445,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
         return -ENOMEM;
     }
     memset(sem, 0, sizeof(sem_array_t));
+    kref_init(&sem->refs); // the table slot owns this reference
 
     sem->values = malloc(sizeof(uint16_t) * (uint32_t)nsems);
     if (sem->values == NULL) {
@@ -459,16 +536,24 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
     if (nsops == 0 || nsops > SEMOPM) return -EINVAL;
     if (sops == NULL) return -EFAULT;
 
-    sem_array_t *sem = (sem_array_t *)ipc_id_lookup((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, semid);
+    /*
+     * sem_lookup pins the set: IPC_RMID cannot free it while we hold this
+     * reference, so the waiter path below can safely re-lock after waking.
+     */
+    sem_array_t *sem = sem_lookup(semid);
     if (sem == NULL) return -EINVAL;
 
     /* Copy user sembuf array into kernel memory */
     size_t    sop_size = nsops * sizeof(sembuf_t);
     sembuf_t *ksops    = malloc(sop_size);
-    if (ksops == NULL) return -ENOMEM;
+    if (ksops == NULL) {
+        sem_put(sem);
+        return -ENOMEM;
+    }
 
     if (copy_from_user(ksops, sops, sop_size) != 0) {
         free(ksops);
+        sem_put(sem);
         return -EFAULT;
     }
 
@@ -476,6 +561,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
     for (size_t i = 0; i < nsops; i++) {
         if (ksops[i].sem_num >= sem->nsems) {
             free(ksops);
+            sem_put(sem);
             return -EFBIG;
         }
     }
@@ -483,6 +569,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
     int ret = ipc_perm_check(&sem->perm, 0222);
     if (ret < 0) {
         free(ksops);
+        sem_put(sem);
         return ret;
     }
 
@@ -492,6 +579,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
             ret = ipc_perm_check(&sem->perm, 0444);
             if (ret < 0) {
                 free(ksops);
+                sem_put(sem);
                 return ret;
             }
             break;
@@ -511,6 +599,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
         undo_adj = malloc(sizeof(int16_t) * sem->nsems);
         if (undo_adj == NULL) {
             free(ksops);
+            sem_put(sem);
             return -ENOMEM;
         }
         memset(undo_adj, 0, sizeof(int16_t) * sem->nsems);
@@ -526,6 +615,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
         if (copy_from_user(&user_deadline, timeout, sizeof(uint64_t)) != 0) {
             free(undo_adj);
             free(ksops);
+            sem_put(sem);
             return -EFAULT;
         }
         deadline    = user_deadline;
@@ -539,6 +629,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
             spin_unlock(&sem->lock);
             free(undo_adj);
             free(ksops);
+            sem_put(sem);
             return -EIDRM;
         }
 
@@ -564,6 +655,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
                 spin_unlock(&sem->lock);
                 free(undo_adj);
                 free(ksops);
+                sem_put(sem);
                 return -EAGAIN;
             }
 
@@ -572,6 +664,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
                 spin_unlock(&sem->lock);
                 free(undo_adj);
                 free(ksops);
+                sem_put(sem);
                 return -EAGAIN;
             }
 
@@ -656,16 +749,15 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
 
         free(undo_adj);
         free(ksops);
+        sem_put(sem);
         return 0;
     }
 }
 
-/* sys_semctl - semaphore control operations */
-int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
+/* Core semaphore control; @sem is pinned by the caller. */
+static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uint64_t arg)
 {
     cmd &= ~IPC_64;
-    sem_array_t *sem = (sem_array_t *)ipc_id_lookup((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, semid);
-    if (sem == NULL) return -EINVAL;
 
     switch (cmd) {
         case IPC_RMID : {
@@ -679,15 +771,14 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             sem->deleted = 1;
             spin_unlock(&sem->lock);
 
-            /* Wake all waiters */
+            /* Wake all waiters; they observe deleted and return -EIDRM. */
             for (uint32_t i = 0; i < sem->nsems; i++) wait_queue_wake_all(&sem->waitq[i]);
 
-            free(sem->waitq);
-            free(sem->semzcnt);
-            free(sem->semcnt);
-            free(sem->sempid);
-            free(sem->values);
-            free(sem);
+            /*
+             * Drop the table reference; the set is freed only when the last
+             * operation reference (ours) is released by sys_semctl.
+             */
+            sem_put(sem);
             return 0;
         }
         case IPC_SET : {
@@ -865,6 +956,18 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
         default :
             return -EINVAL;
     }
+}
+
+/* sys_semctl - semaphore control operations */
+int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
+{
+    /* sem_lookup pins the set so IPC_RMID (which drops the table reference) cannot free it while we operate on it. */
+    sem_array_t *sem = sem_lookup(semid);
+    if (sem == NULL) return -EINVAL;
+
+    int64_t result = semctl_core(sem, semid, semnum, cmd, arg);
+    sem_put(sem);
+    return result;
 }
 
 /* Increment the attach count when a VMA maps a shared-memory segment. */
@@ -1360,6 +1463,7 @@ int64_t sys_msgget(key_t key, int msgflg)
         return -ENOMEM;
     }
     memset(q, 0, sizeof(msg_queue_t));
+    kref_init(&q->refs); // the table slot owns this reference
 
     q->qbytes = MSGMNB;
     q->ctime  = ipc_now_seconds();
@@ -1390,22 +1494,37 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
     if (msgsz > MSGMAX) return -EINVAL;
     if (msgp == NULL) return -EFAULT;
 
-    msg_queue_t *q = (msg_queue_t *)ipc_id_lookup((void **)msg_queues, msg_seq, MSG_MAX_QUEUES, &msg_global_lock, msqid);
+    /*
+     * msg_lookup pins the queue: IPC_RMID cannot free it while we are
+     * blocked on send_wq (the queue is only freed when the last reference,
+     * ours, is released on every exit path below).
+     */
+    msg_queue_t *q = msg_lookup(msqid);
     if (q == NULL) return -EINVAL;
 
     int ret = ipc_perm_check(&q->perm, 0222);
-    if (ret < 0) return ret;
+    if (ret < 0) {
+        msg_put(q);
+        return ret;
+    }
 
     /* Read the message type from user space */
     int64_t mtype;
-    if (copy_from_user(&mtype, msgp, sizeof(int64_t)) != 0) return -EFAULT;
-    if (mtype <= 0) return -EINVAL;
+    if (copy_from_user(&mtype, msgp, sizeof(int64_t)) != 0) {
+        msg_put(q);
+        return -EFAULT;
+    }
+    if (mtype <= 0) {
+        msg_put(q);
+        return -EINVAL;
+    }
 
     /* Allocate kernel message buffer */
     size_t     msg_total = sizeof(msg_msg_t) + msgsz;
     msg_msg_t *msg       = malloc(msg_total);
     if (msg == NULL) {
         plogk("sysv_ipc: Msgsnd buffer allocation failed (msqid %d, %lu bytes)\n", msqid, (unsigned long)msg_total);
+        msg_put(q);
         return -ENOMEM;
     }
     memset(msg, 0, msg_total);
@@ -1417,6 +1536,7 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
     /* Copy message data from user space */
     if (copy_from_user(msg->data, (const char *)msgp + sizeof(int64_t), msgsz) != 0) {
         free(msg);
+        msg_put(q);
         return -EFAULT;
     }
 
@@ -1425,6 +1545,7 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
     if (q->deleted) {
         spin_unlock(&q->lock);
         free(msg);
+        msg_put(q);
         return -EIDRM;
     }
 
@@ -1433,6 +1554,7 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
         if (msgflg & IPC_NOWAIT) {
             spin_unlock(&q->lock);
             free(msg);
+            msg_put(q);
             return -EAGAIN;
         }
         wait_queue_prepare(&q->send_wq);
@@ -1443,6 +1565,7 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
         if (q->deleted) {
             spin_unlock(&q->lock);
             free(msg);
+            msg_put(q);
             return -EIDRM;
         }
     }
@@ -1465,6 +1588,7 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
 
     /* Wake up a receiver */
     wait_queue_wake_all(&q->recv_wq);
+    msg_put(q);
     return 0;
 }
 
@@ -1474,16 +1598,21 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
     if (msgp == NULL) return -EFAULT;
     if (msgsz == 0) return -EINVAL;
 
-    msg_queue_t *q = (msg_queue_t *)ipc_id_lookup((void **)msg_queues, msg_seq, MSG_MAX_QUEUES, &msg_global_lock, msqid);
+    /* msg_lookup pins the queue across the blocking recv_wq wait. */
+    msg_queue_t *q = msg_lookup(msqid);
     if (q == NULL) return -EINVAL;
 
     int ret = ipc_perm_check(&q->perm, 0444);
-    if (ret < 0) return ret;
+    if (ret < 0) {
+        msg_put(q);
+        return ret;
+    }
 
     spin_lock(&q->lock);
 
     if (q->deleted) {
         spin_unlock(&q->lock);
+        msg_put(q);
         return -EIDRM;
     }
 
@@ -1534,6 +1663,7 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
         /* No message found */
         if (msgflg & IPC_NOWAIT) {
             spin_unlock(&q->lock);
+            msg_put(q);
             return -ENOMSG;
         }
 
@@ -1544,6 +1674,7 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
 
         if (q->deleted) {
             spin_unlock(&q->lock);
+            msg_put(q);
             return -EIDRM;
         }
     }
@@ -1565,6 +1696,7 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
             copy_size = msgsz;
         } else {
             free(msg);
+            msg_put(q);
             return -E2BIG;
         }
     }
@@ -1572,12 +1704,14 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
     /* Copy message type to user */
     if (copy_to_user(msgp, &msg->type, sizeof(int64_t)) != 0) {
         free(msg);
+        msg_put(q);
         return -EFAULT;
     }
 
     /* Copy message data to user */
     if (copy_to_user((char *)msgp + sizeof(int64_t), msg->data, copy_size) != 0) {
         free(msg);
+        msg_put(q);
         return -EFAULT;
     }
 
@@ -1585,15 +1719,14 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
 
     /* Wake up a sender */
     wait_queue_wake_all(&q->send_wq);
+    msg_put(q);
     return (int64_t)copy_size;
 }
 
-/* sys_msgctl - message queue control operations */
-int64_t sys_msgctl(int msqid, int cmd, void *buf)
+/* Core message-queue control; @q is pinned by the caller. */
+static int64_t msgctl_core(msg_queue_t *q, int msqid, int cmd, void *buf)
 {
     cmd &= ~IPC_64;
-    msg_queue_t *q = (msg_queue_t *)ipc_id_lookup((void **)msg_queues, msg_seq, MSG_MAX_QUEUES, &msg_global_lock, msqid);
-    if (q == NULL) return -EINVAL;
 
     switch (cmd) {
         case IPC_RMID : {
@@ -1607,21 +1740,17 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             q->deleted = 1;
             spin_unlock(&q->lock);
 
-            /* Wake all waiters */
+            /* Wake all waiters; they observe deleted and return -EIDRM. */
             wait_queue_wake_all(&q->recv_wq);
             wait_queue_wake_all(&q->send_wq);
 
-            /* Free all messages in the queue */
-            msg_msg_t *m = q->head;
-            while (m != NULL) {
-                msg_msg_t *next = m->next;
-                free(m);
-                m = next;
-            }
-            free(q);
+            /*
+             * Drop the table reference; the queue and its messages are freed
+             * only when the last operation reference (ours) is released by sys_msgctl.
+             */
+            msg_put(q);
             return 0;
         }
-
         case IPC_SET : {
             int ret = ipc_owner_check(&q->perm);
             if (ret < 0) return ret;
@@ -1642,7 +1771,6 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             wait_queue_wake_all(&q->send_wq);
             return 0;
         }
-
         case IPC_STAT : {
             int ret = ipc_perm_check(&q->perm, 0444);
             if (ret < 0) return ret;
@@ -1676,7 +1804,6 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             info.msgtql = MSG_MAX_QUEUES * 16;
             info.msgseg = MSG_MAX_QUEUES * 64;
             if (copy_to_user(buf, &info, sizeof(msginfo_t)) != 0) return -EFAULT;
-
             if (cmd == MSG_INFO) {
                 spin_lock(&msg_global_lock);
                 int used = 0;
@@ -1687,7 +1814,6 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             }
             return MSG_MAX_QUEUES;
         }
-
         case MSG_STAT : {
             if (buf == NULL) return -EFAULT;
             int idx = msqid & IPC_ID_MASK;
@@ -1718,6 +1844,18 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
         default :
             return -EINVAL;
     }
+}
+
+/* sys_msgctl - message queue control operations */
+int64_t sys_msgctl(int msqid, int cmd, void *buf)
+{
+    /* msg_lookup pins the queue so IPC_RMID cannot free it while we operate on it. */
+    msg_queue_t *q = msg_lookup(msqid);
+    if (q == NULL) return -EINVAL;
+
+    int64_t result = msgctl_core(q, msqid, cmd, buf);
+    msg_put(q); // NOLINT(clang-analyzer-unix.Malloc): msg_lookup's pin keeps q alive until this final put
+    return result;
 }
 
 /* sysv_ipc_init - initialize all System V IPC subsystems */

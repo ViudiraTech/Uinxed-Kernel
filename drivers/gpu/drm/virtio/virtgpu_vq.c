@@ -95,10 +95,12 @@ static void virtgpu_irq_fini(struct virtio_gpu_device *vgdev)
 {
     if (!vgdev || !vgdev->irq_enabled) return;
     __atomic_store_n(&virtgpu_irq_device, NULL, __ATOMIC_RELEASE);
-    if (vgdev->msix_enabled)
-        pci_disable_msix(vgdev->vp_dev->pci_dev);
-    else
-        pci_disable_msi(vgdev->vp_dev->pci_dev);
+    if (vgdev->vp_dev) {
+        if (vgdev->msix_enabled)
+            pci_disable_msix(vgdev->vp_dev->pci_dev);
+        else
+            pci_disable_msi(vgdev->vp_dev->pci_dev);
+    }
     vgdev->irq_enabled  = false;
     vgdev->msix_enabled = false;
     vgdev->irq_vector   = -1;

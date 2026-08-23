@@ -12,6 +12,7 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <net/abi/inet.h>
 #include <net/core/endian.h>
 #include <net/ipv4/icmp.h>
 
@@ -224,8 +225,14 @@ static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
         endpoint->queue_bytes += (uint32_t)length;
         icmp_event_callback_t callback = endpoint->event_callback;
         void                 *context  = endpoint->event_context;
+
+        /* Pin the inet wrapper so a concurrent close cannot free it while the callback runs. */
+        if (callback) inet_sock_ref(context);
         spin_unlock(&endpoint->lock);
-        if (callback) callback(endpoint, ICMP_READY_READ, context);
+        if (callback) {
+            callback(endpoint, ICMP_READY_READ, context);
+            inet_sock_unref(context);
+        }
     }
     spin_unlock(&icmp_table_lock);
 }

@@ -230,7 +230,7 @@ void drm_mode_config_cleanup(struct drm_device *dev)
             {
                 struct drm_framebuffer *fb = container_of(node, struct drm_framebuffer, head);
                 drm_framebuffer_cleanup(fb);
-                free(fb);
+                drm_framebuffer_put(fb);
             }
             node = next;
         }

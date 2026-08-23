@@ -570,9 +570,16 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
             out[1] = '\n';
             count  = 2;
         }
-        spin_lock(&tty->output_lock);
+
+        /*
+         * emit() may block (a pty slave waits for master buffer space), so it
+         * must not run under a spinlock: sleeping with IRQs masked stalls the
+         * CPU and deadlocks a peer writer spinning on output_lock.  The driver
+         * serialises each emit (the pty pair lock), so releasing output_lock
+         * here only permits interleaving at emit boundaries, which is the
+         * standard tty behaviour.
+         */
         int emitted = tty->ops.emit(tty->context, out, count, flags);
-        spin_unlock(&tty->output_lock);
         if (emitted < 0) return done ? (int64_t)done : emitted;
         if (emitted < (int)count) break;
         done++;
@@ -774,9 +781,8 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
                 vfs_poll_source_notify(&tty->poll_source, POLLOUT);
             }
             if ((value == TCIOFF || value == TCION) && tty->ops.emit) {
-                spin_lock(&tty->output_lock);
+                /* emit() can block (pty slave flow); never hold a spinlock across it. */
                 int emitted = tty->ops.emit(tty->context, &flow_char, 1, 0);
-                spin_unlock(&tty->output_lock);
                 return emitted == 1 ? 0 : -EIO;
             }
             return 0;

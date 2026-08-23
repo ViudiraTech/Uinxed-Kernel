@@ -228,6 +228,13 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffe
     uint8_t *out  = (uint8_t *)buffer;
     uint8_t  left = numsects;
 
+    /*
+     * Serialise the whole transfer under the per-port lock: slot allocation,
+     * the shared cmd_tbl/dma_buf, and the DMA buffer copy all race a
+     * concurrent I/O on the same port (two CPUs reading different files on
+     * the same disk).  Completion is polled, so no IRQ path needs the lock.
+     */
+    spin_lock(&port->lock);
     while (left) {
         uint8_t  chunk = (left > SATA_DMA_MAX_SECTORS) ? SATA_DMA_MAX_SECTORS : left;
         uint32_t bytes = (uint32_t)chunk * 512;
@@ -249,12 +256,14 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffe
         int slot = ahci_find_slot(port);
         if (slot < 0) {
             plogk("ahci: Port %u: no free command slot for read at LBA %llu\n", port_idx, (unsigned long long)lba);
+            spin_unlock(&port->lock);
             return -EBUSY;
         }
 
         int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, port->dma_buf_phys, bytes);
         if (ret != 0) {
             plogk("ahci: Port %u: read error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
+            spin_unlock(&port->lock);
             return ret;
         }
 
@@ -263,7 +272,7 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffe
         lba += chunk;
         left -= chunk;
     }
-
+    spin_unlock(&port->lock);
     return 0;
 }
 
@@ -278,6 +287,8 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
     const uint8_t *in   = (const uint8_t *)buffer;
     uint8_t        left = numsects;
 
+    /* Serialise the whole transfer under the per-port lock (see read path). */
+    spin_lock(&port->lock);
     while (left) {
         uint8_t  chunk = (left > SATA_DMA_MAX_SECTORS) ? SATA_DMA_MAX_SECTORS : left;
         uint32_t bytes = (uint32_t)chunk * 512;
@@ -301,12 +312,14 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
         int slot = ahci_find_slot(port);
         if (slot < 0) {
             plogk("ahci: Port %u: no free command slot for write at LBA %llu\n", port_idx, (unsigned long long)lba);
+            spin_unlock(&port->lock);
             return -EBUSY;
         }
 
         int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 1, port->dma_buf_phys, bytes);
         if (ret != 0) {
             plogk("ahci: Port %u: write error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
+            spin_unlock(&port->lock);
             return ret;
         }
 
@@ -314,7 +327,7 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
         lba += chunk;
         left -= chunk;
     }
-
+    spin_unlock(&port->lock);
     return 0;
 }
 
@@ -338,6 +351,7 @@ int ahci_flush_cache(uint8_t drive)
     memset(&cfis, 0, sizeof(cfis));
     cfis.fis_type = FIS_TYPE_REG_H2D;
     cfis.c        = 1;
+
     /* AHCI data I/O uses the 48-bit command set, so pair it with FLUSH CACHE EXT. */
     cfis.command = ATA_CMD_CACHE_FLUSH_EXT;
     cfis.device  = 1 << 6;
@@ -420,8 +434,10 @@ void init_ahci(void)
 
         ahci_port_state_t *port = &ahci_ports[ahci_port_count];
         memset(port, 0, sizeof(*port));
-        port->port_mmio = hba_mmio + 0x100 + (size_t)i * 0x80;
-        port->port_no   = (uint8_t)i;
+        port->port_mmio   = hba_mmio + 0x100 + (size_t)i * 0x80;
+        port->port_no     = (uint8_t)i;
+        port->lock.lock   = 0;
+        port->lock.rflags = 0;
 
         /*
          * PI describes implemented controller ports, not attached devices.

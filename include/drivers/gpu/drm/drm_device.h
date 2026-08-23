@@ -467,6 +467,16 @@ struct drm_framebuffer {
         const struct drm_framebuffer_funcs *funcs;
         int                                 id;
         struct drm_file                    *file; // file that created it (for cleanup)
+
+        /*
+         * Reference count.  Starts at 1 when registered in fb_idr;
+         * drm_framebuffer_lookup() takes a reference and callers release it
+         * with drm_framebuffer_put() after use, so drm_mode_rmfb()/release
+         * cannot free the framebuffer out from under an in-flight SETCRTC.
+         * Freed when the count reaches zero (after drm_framebuffer_cleanup
+         * has unregistered it).
+         */
+        int refcount;
 };
 
 /* Per-plane state entry inside an atomic transaction. */
@@ -900,6 +910,8 @@ int                         drm_mode_addfb2(struct drm_device *dev, void *data, 
 int                         drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, const struct drm_framebuffer_funcs *funcs);
 struct drm_framebuffer     *drm_framebuffer_lookup(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
 void                        drm_framebuffer_cleanup(struct drm_framebuffer *fb);
+void                        drm_framebuffer_get(struct drm_framebuffer *fb);
+void                        drm_framebuffer_put(struct drm_framebuffer *fb);
 int                         drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_priv);

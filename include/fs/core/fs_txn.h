@@ -14,6 +14,7 @@
 #include <drivers/block/core/blockdev.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 #define FS_TXN_METADATA     0x0001U
@@ -44,7 +45,20 @@ typedef struct fs_txn_log {
         int                         aborted;
         int                         last_error;
         int                         transaction_active;
-        spinlock_t                  lock;
+
+        /*
+         * Sleepable log mutex.  fs_txn_commit() performs real disk I/O
+         * (blockdev_write_bytes / blockdev_flush) that may complete by
+         * interrupt; a spinlock would mask IRQs and deadlock the CPU on such
+         * a device.  The busy flag is guarded by the brief guard spinlock and
+         * contention sleeps on the two-phase wait queue (the vfs_ns_lock()
+         * pattern).  All fs_txn callers are process context, so sleeping is
+         * legal; the lock is held across the whole commit so no concurrent
+         * reader/writer can bypass to the device mid-commit.
+         */
+        spinlock_t   guard;
+        bool         busy;
+        wait_queue_t wq;
 } fs_txn_log_t;
 
 typedef struct fs_txn {
@@ -67,6 +81,12 @@ void fs_txn_log_destroy(fs_txn_log_t *log);
 /* Run backend recovery for the log. */
 int fs_txn_recover(fs_txn_log_t *log);
 
+/* Wait for log to become free, using two-phase wait queue. Process context only. */
+void fs_txn_log_lock(fs_txn_log_t *log);
+
+/* Release log lock and wake all waiters. */
+void fs_txn_log_unlock(fs_txn_log_t *log);
+
 /* Begin a new transaction on the log. */
 int fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction);
 
@@ -81,6 +101,23 @@ int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data,
 
 /* Read a byte range through the transaction. */
 int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t size);
+
+/*
+ * The four *_active helpers serve a block/byte-range I/O through the
+ * volume's currently-active transaction, if any.  The active-transaction
+ * pointer is read and the transaction's buffer list is walked under the log
+ * lock, so a concurrent commit/abort cannot clear the pointer and free the
+ * buffers while they are in use.  Each returns 0 when no transaction is
+ * active (the caller must fall back to a direct device I/O), 1 when the
+ * request was served, or a negative errno.  The active-transaction pointer
+ * is the fs-private field published by the filesystem (e.g. extfs
+ * sb->active_transaction); the filesystem must update it under the same log
+ * lock in its begin/commit/abort paths.
+ */
+int fs_txn_read_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t home_block, void *data);
+int fs_txn_stage_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t home_block, const void *data, uint32_t flags);
+int fs_txn_read_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t offset, void *data, size_t size);
+int fs_txn_stage_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t offset, const void *data, size_t size, uint32_t flags);
 
 /* Commit the transaction and write the metadata to its home blocks. */
 int fs_txn_commit(fs_txn_t *transaction);

@@ -152,6 +152,15 @@ struct task {
         struct rt_mutex *blocked_on;  // mutex this task is blocked on, or NULL
 
         /*
+         * rt_mutexes currently owned by this task.  futex_pi_owner_exit()
+         * walks this list instead of the global futex hash, so task exit is
+         * O(owned mutexes) rather than O(futex buckets).  Guarded by
+         * pi_owned_lock; lock order is mutex->lock -> pi_owned_lock.
+         */
+        spinlock_t   pi_owned_lock;
+        ilist_node_t pi_owned;
+
+        /*
          * Active copy_{to,from}_user() exception fixup.  Keeping this in the
          * task (rather than a CPU global) makes it survive preemption and
          * keeps simultaneous uaccess operations on different CPUs separate.
@@ -166,6 +175,17 @@ struct task {
         ptrace_state_t         ptrace;  // Linux ptrace state is per-thread
         uint64_t               flags;   // PF_KTHREAD etc.
         kthread_info_t         kthread; // kernel-thread lifecycle (PF_KTHREAD only)
+
+        /*
+         * Reference count.  task_alloc_status() starts it at 1; task_free()
+         * drops that base reference after removing the task from the PID hash
+         * and tearing down scheduler-independent resources.  A cross-context
+         * holder (e.g. a futex PI owner pointer obtained via
+         * pid_find_task_get()) takes an extra reference with task_ref() and
+         * releases it with task_put(); the task_t and its kernel stack are
+         * freed only when the count reaches zero.
+         */
+        uint32_t refcount;
 };
 
 /* Initialize a wait queue */
@@ -222,7 +242,13 @@ task_t *task_alloc(const char *name);
 /* Allocate a task and preserve the Linux errno for admission failures. */
 task_t *task_alloc_status(const char *name, int *error);
 
-/* Free a task structure */
+/* Take a reference on a task that is known to be alive. */
+void task_ref(task_t *task);
+
+/* Drop a reference on a task, freeing it at zero. */
+void task_put(task_t *task);
+
+/* Free a task structure (drops the base reference; frees at zero). */
 void task_free(task_t *task);
 
 /* Copy a name into a task's name field */
@@ -230,5 +256,12 @@ void task_name_copy(task_t *task, const char *name);
 
 /* Find a task by PID (for PI futex) */
 task_t *pid_find_task(uint64_t pid);
+
+/*
+ * Find a task by PID and take a reference on it, or NULL if it is no longer
+ * in the PID hash (i.e. already freed or dying).  The reference must be
+ * released with task_put() when the caller is done with the pointer.
+ */
+task_t *pid_find_task_get(uint64_t pid);
 
 #endif // INCLUDE_TASK_H_

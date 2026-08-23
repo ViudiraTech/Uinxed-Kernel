@@ -181,8 +181,15 @@ static void swapper_run_init(void)
                     process_fd_close(init, std_fd);
                 plogk("swapper/0: Unable to open an initial console.\n");
             } else {
-                if (process_fd_dup2(init, 0, 1) != EOK) plogk("init: dup2 stdout failed.\n");
-                if (process_fd_dup2(init, 0, 2) != EOK) plogk("init: dup2 stderr failed.\n");
+                /*
+                 * process_fd_dup2() returns the NEW descriptor number (1 or 2)
+                 * on success, like Linux; only a negative value is an error.
+                 * Comparing against EOK (0) misreported every successful dup.
+                 */
+                int dup_stdout = process_fd_dup2(init, 0, 1);
+                if (dup_stdout < 0) plogk("init: dup2 stdout failed (err=%d)\n", dup_stdout);
+                int dup_stderr = process_fd_dup2(init, 0, 2);
+                if (dup_stderr < 0) plogk("init: dup2 stderr failed (err=%d)\n", dup_stderr);
                 (void)tty_console_acquire(init, O_RDWR);
             }
         }

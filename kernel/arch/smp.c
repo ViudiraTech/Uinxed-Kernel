@@ -119,8 +119,17 @@ int smp_handle_nmi(void)
     uint64_t generation;
     do {
         generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
-        if (__atomic_load_n(&tlb_shootdown_ack[cpu_id], __ATOMIC_ACQUIRE) >= generation) return 0;
-
+        if (__atomic_load_n(&tlb_shootdown_ack[cpu_id], __ATOMIC_ACQUIRE) >= generation) {
+            /*
+             * Nothing to flush for this generation: the NMI is a late or
+             * duplicated shootdown delivery (flush_tlb_all() re-arms the NMI
+             * past a deadline, and the original may already have been
+             * processed and acked).  This is expected, not fatal - report it
+             * as handled so the ISR returns instead of panicking.  Before
+             * smp_ready the early return above already panics on a real NMI.
+             */
+            return 1;
+        }
         flush_local_tlb_all();
         __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
     } while (__atomic_load_n(&tlb_shootdown_generation, __ATOMIC_RELAXED) != generation);

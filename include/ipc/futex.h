@@ -49,6 +49,9 @@
 
 #define FUTEX2_VALID_MASK (FUTEX2_SIZE_MASK | FUTEX2_PRIVATE | FUTEX2_CLOCK_REALTIME)
 
+/* Task structure */
+typedef struct task task_t;
+
 /* The futex_waitv descriptor used by futex_requeue() (and futex_waitv). */
 struct futex_waitv {
         uint64_t val;
@@ -73,6 +76,9 @@ int futex_wake(uint32_t *uaddr, int nr_wake, uint64_t bitset);
 
 /* Initialize the futex subsystem. */
 void futex_init(void);
+
+/* Release PI mutexes owned by a task that is exiting (owner-died handoff). */
+void futex_pi_owner_exit(task_t *exiting);
 
 /* Weak default realtime-clock hook (overridable by the syscall clock layer). */
 uint64_t futex_realtime_ticks(void);

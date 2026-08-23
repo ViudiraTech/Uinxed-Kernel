@@ -255,6 +255,15 @@ struct inet_backend_ops {
         size_t (*proc_read)(enum inet_proc_file file, char *buf, size_t capacity);
 };
 
+/*
+ * Pin / release an inet socket wrapper across a transport event callback.
+ * The transport RX/timer paths take a transient reference before invoking
+ * the callback and release it afterwards, so a concurrent core_close() cannot
+ * free the wrapper (which the callback reads) while the callback runs.
+ */
+void inet_sock_ref(void *sock);
+void inet_sock_unref(void *sock);
+
 /* Backend registry: install and query the active inet protocol implementation. */
 int                            inet_backend_register(const struct inet_backend_ops *ops);
 const struct inet_backend_ops *inet_backend_get(void);

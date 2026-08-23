@@ -128,6 +128,9 @@ static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
             struct drm_plane_state *current = state->planes[i].state;
             struct drm_plane_state *old     = state->planes[i].old_state;
             struct drm_plane_state *new     = state->planes[i].new_state;
+
+            /* Release the lookup reference held by the plane state's fb. */
+            if (current && current->fb) drm_framebuffer_put(current->fb);
             free(current);
             if (old && old != current) free(old);
             if (new &&new != current &&new != old) free(new);
@@ -269,6 +272,15 @@ struct drm_plane_state *drm_atomic_get_plane_state(struct drm_atomic_state *stat
     if (plane->state) {
         memcpy(plane_entry->state, plane->state, sizeof(*plane_entry->state));
         plane_entry->state->zpos_changed = false;
+
+        /*
+         * The atomic state owns a reference on whatever fb it holds:
+         * drm_atomic_state_default_clear() puts ->fb for every plane state.
+         * The memcpy borrows plane->state->fb, so take a reference here; a
+         * caller that overwrites ->fb (SETPLANE / SETCRTC / atomic fb-id)
+         * must put the old one to keep the count balanced.
+         */
+        if (plane_entry->state->fb) drm_framebuffer_get(plane_entry->state->fb);
     }
 
     return plane_entry->state;
@@ -288,7 +300,7 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         size_t                       new_count = state->num_connector + 1;
         struct drm_connector       **new_connectors;
         struct drm_connector_state **new_states;
-        if (new_count > SIZE_MAX / sizeof(*new_connectors) || new_count > SIZE_MAX / sizeof(*new_states)) {
+        if (new_count > SIZE_MAX / sizeof(struct drm_connector *) || new_count > SIZE_MAX / sizeof(struct drm_connector_state *)) {
             DRM_ERROR("Connector count %zu overflow.\n", new_count);
             return NULL;
         }
@@ -602,8 +614,16 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 
             if (!plane_state || !plane_entry->ptr) continue;
 
-            /* Apply framebuffer, including a complete plane disable. */
+            /*
+             * Apply framebuffer, including a complete plane disable. The
+             * committed plane state keeps its own reference so the atomic
+             * state's lookup reference can be dropped on state free.
+             */
             if (plane_entry->ptr->state) {
+                if (plane_entry->ptr->state->fb != plane_state->fb) {
+                    drm_framebuffer_put(plane_entry->ptr->state->fb);
+                    if (plane_state->fb) drm_framebuffer_get(plane_state->fb);
+                }
                 plane_entry->ptr->state->fb               = plane_state->fb;
                 plane_entry->ptr->state->crtc             = plane_state->crtc;
                 plane_entry->ptr->state->src              = plane_state->src;

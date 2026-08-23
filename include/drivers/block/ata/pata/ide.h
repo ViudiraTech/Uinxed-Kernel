@@ -12,6 +12,7 @@
 #define INCLUDE_IDE_H_
 
 #include <libs/std/stdint.h>
+#include <sync/spin_lock.h>
 
 #define ATA_SR_BSY   0x80
 #define ATA_SR_DRDY  0x40
@@ -108,6 +109,20 @@ typedef struct {
         uint16_t ctrl;
         uint16_t bmide;
         uint8_t  nIEN;
+
+        /*
+         * Serialises the channel's shared registers across concurrent I/O on
+         * the same channel (two CPUs accessing drives on one cable).  The ATA
+         * path is polled, so the spinlock may be held across an access; the
+         * IRQ-driven ATAPI path releases it around the interrupt wait.
+         */
+        spinlock_t lock;
+
+        /*
+         * Per-channel interrupt-completion flag (the IRQ handlers for IRQ14
+         * and IRQ15 are split so each knows its channel).
+         */
+        volatile uint8_t irq_pending;
 } ide_channel_registers_t;
 
 typedef struct {
@@ -124,13 +139,12 @@ typedef struct {
 
 extern ide_channel_registers_t channels[2];
 extern ide_device_t            ide_devices[4];
-extern volatile uint8_t        ide_irq_invoked;
 
 /* Detect and initialize the IDE controllers and their drives */
 void init_ide(void);
 
-/* Wait for the IDE IRQ to fire, returning 0 on success or -1 on timeout */
-int ide_wait_irq(void);
+/* Wait for the IDE IRQ on a channel to fire */
+int ide_wait_irq(uint8_t channel);
 
 /* Read a byte from a register of an IDE channel */
 uint8_t ide_read(uint8_t channel, uint8_t reg);

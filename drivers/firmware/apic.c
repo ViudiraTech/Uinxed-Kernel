@@ -109,6 +109,17 @@ void local_apic_init(void)
     }
 
     lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
+
+    /*
+     * Mask the external LVT entries (LINT0=0x350, LINT1=0x370).  On reset
+     * LINT1 is programmed for NMI delivery; if the pin floats or a device
+     * asserts it, a spurious NMI fires (observed as a "Kernel fatal error:
+     * NMI" panic as soon as userspace starts and devices go active).  The
+     * TLB-shootdown NMI used by flush_tlb_all() is delivered through the
+     * ICR, not these pins, so masking them is safe.
+     */
+    lapic_write(0x350, 1U << 16); // LVT LINT0: masked
+    lapic_write(0x370, 1U << 16); // LVT LINT1: masked
     lapic_write(LAPIC_REG_TIMER, IRQ_0);
     lapic_write(LAPIC_REG_TIMER_DIV, 11);
     lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));

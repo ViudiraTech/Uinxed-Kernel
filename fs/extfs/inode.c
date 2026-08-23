@@ -594,7 +594,14 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         status = extfs_write_block(sb, (uint32_t)block, buffer);
     } else if (status == EOK) {
         extfs_free_block(sb, (uint32_t)block);
+
+        /*
+         * Snapshot the transaction's error under the log lock: the pointer
+         * is detached before the buffers are freed, so a stale read here would walk freed memory.
+         */
+        fs_txn_log_lock(&sb->transaction_log);
         if (sb->active_transaction && sb->active_transaction->error) status = sb->active_transaction->error;
+        fs_txn_log_unlock(&sb->transaction_log);
     }
     free(buffer);
     if (status == EOK) h->ei.i_file_acl = 0;

@@ -157,6 +157,8 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
     uint8_t  max_blocks = (uint8_t)(SATAPI_DMA_BYTES / blk_size);
     if (!max_blocks) return -E2BIG;
 
+    /* Serialise with concurrent I/O on the same port (shared cmd_tbl/dma_buf). */
+    spin_lock(&port->lock);
     while (left) {
         uint8_t  chunk       = left > max_blocks ? max_blocks : left;
         uint32_t total_bytes = (uint32_t)chunk * blk_size;
@@ -175,11 +177,13 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
         int slot = satapi_find_slot(port);
         if (slot < 0) {
             plogk("ahci-satapi: drive %u: no free command slot for read at LBA %u\n", drive, lba);
+            spin_unlock(&port->lock);
             return -EBUSY;
         }
         int ret = satapi_issue_packet(port, slot, cdb, 12, SATAPI_PROT_PIO, 0, port->dma_buf_phys, total_bytes);
         if (ret != 0) {
             plogk("ahci-satapi: drive %u: read error at LBA %u: %d\n", drive, lba, ret);
+            spin_unlock(&port->lock);
             return ret;
         }
         memcpy(out, port->dma_buf, total_bytes);
@@ -187,6 +191,7 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
         lba += chunk;
         left -= chunk;
     }
+    spin_unlock(&port->lock);
     return 0;
 }
 
@@ -194,11 +199,14 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
 uint8_t ahci_satapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit, uint8_t direction, void *buf, size_t *xfer_len)
 {
     if (drive >= AHCI_MAX_DEVICES || !ahci_satapi_devices[drive].reserved) return 0xFF;
-
     ahci_port_state_t *port = &ahci_ports[ahci_satapi_devices[drive].port_idx];
 
+    spin_lock(&port->lock);
     int slot = satapi_find_slot(port);
-    if (slot < 0) return 0xFE;
+    if (slot < 0) {
+        spin_unlock(&port->lock);
+        return 0xFE;
+    }
 
     int ret;
     if (direction == SATAPI_PROT_NODATA) {
@@ -212,7 +220,7 @@ uint8_t ahci_satapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte
             *xfer_len = copy_len;
         }
     }
-
+    spin_unlock(&port->lock);
     return (uint8_t)(ret != 0 ? 0xFF : 0);
 }
 

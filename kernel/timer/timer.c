@@ -179,6 +179,9 @@ void timer_handle_frame(syscall_frame_t *frame) __attribute__((used, noinline));
 void timer_handle_frame(syscall_frame_t *frame)
 {
     disable_intr();
+
+    /* Drain any NMI-parked message: a maskable IRQ can never interrupt a spinlock holder, so plogk() is safe here. */
+    nmi_log_flush();
     uint32_t cpu_id      = get_current_cpu_id();
     task_t  *interrupted = current_task();
     if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, (frame->cs & 3U) == 3U);

@@ -1183,7 +1183,13 @@ INTERRUPT_BEGIN static void hda_interrupt_handler(interrupt_frame_t *frame)
         if (rirb_sts & 0x01) hda_read16(RIRBWP);
     }
 
-    /* Handle stream interrupts */
+    /*
+     * Handle stream interrupts.  The stream state (allocated, buf_size,
+     * period_frags, pcm_file) is mutated by hda_audio_set_params() under
+     * hda_ctrl.lock, so the ISR must read it under the same lock to avoid
+     * dereferencing a reallocated/freed DMA buffer.
+     */
+    spin_lock(&hda_ctrl.lock);
     for (int s = 0; s < HDA_MAX_STREAMS; s++) {
         if (!(intsts & (1u << s))) continue;
         if (!hda_ctrl.streams[s].allocated) continue;
@@ -1192,7 +1198,6 @@ INTERRUPT_BEGIN static void hda_interrupt_handler(interrupt_frame_t *frame)
         if (sts & SD_STS_DMA_COMPLETE) {
             /* DMA completed a BDL entry - update position */
             hda_ctrl.streams[s].hw_pos += hda_ctrl.streams[s].buf_size / hda_ctrl.streams[s].period_frags;
-
             if (hda_ctrl.streams[s].hw_pos >= hda_ctrl.streams[s].buf_size) hda_ctrl.streams[s].hw_pos = 0;
 
             /* Notify the PCM layer */
@@ -1221,6 +1226,7 @@ INTERRUPT_BEGIN static void hda_interrupt_handler(interrupt_frame_t *frame)
             sd_write8(s, SD_STS, SD_STS_DESC_ERROR);
         }
     }
+    spin_unlock(&hda_ctrl.lock);
     send_eoi();
     irq_leave_gs(frame);
 }
