@@ -419,7 +419,7 @@ static int virtgpu_kms_initial_try_mode(struct virtio_gpu_device *vgdev, struct 
 err_free_fb:
     /* cleanup's drm_gem_object_put() frees obj when its refcount drops. */
     drm_framebuffer_cleanup(fb);
-    free(fb);
+    drm_framebuffer_put(fb);
     return ret;
 err_free_obj:
     virtgpu_gem_free_object(&obj->base);

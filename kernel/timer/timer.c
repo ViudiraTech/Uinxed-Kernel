@@ -148,6 +148,16 @@ uint64_t timer_monotonic_resolution_ns(void)
     return TIMER_TICK_NS;
 }
 
+/*
+ * Whether the monotonic timeline advances on its own.  When neither TSC nor
+ * HPET exists, timer_monotonic_ns() degenerates to scheduler ticks, and the
+ * tick base must keep being driven by interrupt counting.
+ */
+int timer_monotonic_highres(void)
+{
+    return tsc_clocksource_available() || hpet_available();
+}
+
 /* Return the realtime clock in nanoseconds, saturating at INT64_MAX */
 int64_t timer_realtime_ns(void)
 {
@@ -179,22 +189,36 @@ void timer_handle_frame(syscall_frame_t *frame) __attribute__((used, noinline));
 void timer_handle_frame(syscall_frame_t *frame)
 {
     disable_intr();
-    uint32_t cpu_id      = get_current_cpu_id();
-    task_t  *interrupted = current_task();
+
+    /*
+     * Re-arm the local timer before any processing.  In TSC-deadline mode the
+     * timer is one-shot: arming first keeps the tick period exact even when
+     * the handling below runs long (a late arm would fire immediately and
+     * self-correct, but arming early avoids the extra IRQ entirely).  Legacy
+     * periodic mode re-arms itself in hardware and this call is a no-op.
+     */
+    lapic_timer_rearm_tick();
+
+    /* Drain any NMI-parked message: a maskable IRQ can never interrupt a spinlock holder, so plogk() is safe here. */
+    nmi_log_flush();
+    task_t *interrupted = current_task();
     if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, (frame->cs & 3U) == 3U);
     send_eoi();
-    if (cpu_id == 0 && timer_deferred_registered) {
+    if (timer_deferred_registered) {
+        /*
+         * Any CPU may claim this bottom-half pass; the compare-exchange keeps
+         * it single-flight without pinning the work to one CPU, so a stalled
+         * CPU can no longer stall TTY/timerfd/vblank/itimer servicing.
+         */
         uint64_t now_ticks     = sched_ticks();
         uint64_t base_interval = TIMER_HZ / 100U;
         if (!base_interval) base_interval = 1;
 
-        uint64_t monotonic_ns = timer_monotonic_ns();
-        bool     due          = now_ticks - timer_deferred_last_tick >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns)
-                   || timerfd_deferred_due(monotonic_ns);
-        if (due) {
-            timer_deferred_last_tick = now_ticks;
-            timer_queue_deferred_work();
-        }
+        uint64_t monotonic_ns   = timer_monotonic_ns();
+        uint64_t last           = __atomic_load_n(&timer_deferred_last_tick, __ATOMIC_RELAXED);
+        bool     due            = now_ticks - last >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns)
+                       || timerfd_deferred_due(monotonic_ns);
+        if (due && __atomic_compare_exchange_n(&timer_deferred_last_tick, &last, now_ticks, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) timer_queue_deferred_work();
     }
 
     /* Keep CPU-local/global maintenance ahead of the possible context switch. */

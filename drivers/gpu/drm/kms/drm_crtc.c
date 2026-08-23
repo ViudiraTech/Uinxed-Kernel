@@ -270,7 +270,10 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
             ret = -ENOMEM;
             goto out;
         }
-        plane_state->crtc          = crtc_req->mode_valid ? crtc : NULL;
+        plane_state->crtc = crtc_req->mode_valid ? crtc : NULL;
+
+        /* The atomic state owns a reference on its previous fb; replace it with the SETCRTC lookup reference (or NULL when disabling). */
+        if (plane_state->fb) drm_framebuffer_put(plane_state->fb);
         plane_state->fb            = crtc_req->mode_valid ? fb : NULL;
         plane_state->src           = (struct drm_rect) {0, 0, crtc_req->mode_valid ? (int32_t)(fb->width << 16) : 0, crtc_req->mode_valid ? (int32_t)(fb->height << 16) : 0};
         plane_state->dst           = (struct drm_rect) {(int32_t)crtc_req->x, (int32_t)crtc_req->y, crtc_req->mode_valid ? (int32_t)(crtc_req->x + mode.hdisplay) : 0,

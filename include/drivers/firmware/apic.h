@@ -29,6 +29,14 @@
 #define LAPIC_REG_SPURIOUS      0xf0
 #define LAPIC_REG_TIMER_DIV     0x3e0
 
+/* LVT timer mode bits */
+#define APIC_LVT_MASKED       (1U << 16)
+#define APIC_LVT_PERIODIC     (1U << 17)
+#define APIC_LVT_TSC_DEADLINE (1U << 18)
+
+/* IA32_TSC_DEADLINE: one-shot deadline in absolute TSC cycles (SDM Ch.10.5.4) */
+#define MSR_IA32_TSC_DEADLINE 0x6e0
+
 #define APIC_ICR_LOW  0x300
 #define APIC_ICR_HIGH 0x310
 
@@ -135,6 +143,18 @@ uint64_t lapic_id(void);
 
 /* Initialize local APIC */
 void local_apic_init(void);
+
+/* Whether this CPU's LAPIC timer runs in TSC-deadline one-shot mode */
+int lapic_timer_is_tsc_deadline(void);
+
+/* Re-arm the LAPIC timer for the next periodic tick (TSC-deadline mode only; no-op in legacy periodic mode) */
+void lapic_timer_rearm_tick(void);
+
+/*
+ * Switch the BSP LAPIC timer to TSC-deadline mode after tsc_init(); must run
+ * between tsc_init() and smp_init() so APs boot directly into deadline mode.
+ */
+void lapic_timer_try_upgrade(void);
 
 /* Initialize I/O APIC */
 void io_apic_init(void);

@@ -99,15 +99,47 @@ static void timerfd_vfs_open(void *parent, const char *name, vfs_node_t node)
     (void)node;
 }
 
-/* VFS close callback: unlink the timer from the global list */
+/* Mark the timer closed and wake every blocked reader/poller. */
+static void timerfd_ctx_close(timerfd_ctx_t *ctx)
+{
+    if (!ctx) return;
+    spin_lock(&ctx->lock);
+    ctx->closed = 1;
+    spin_unlock(&ctx->lock);
+    wait_queue_wake_all(&ctx->wq);
+}
+
+/* VFS close callback: unlink the timer from the global list, wake readers. */
 static void timerfd_vfs_close(void *current)
 {
     timerfd_ctx_t *ctx = (timerfd_ctx_t *)current;
     if (!ctx) return;
 
+    /*
+     * Take timerfd_list_lock before ctx->lock, the same order timerfd_tick()
+     * uses (list_lock -> ctx->lock).  The two are acquired/released
+     * sequentially here, never nested, but keeping the order consistent with
+     * the tick removes any chance of an AB-BA inversion if a future path
+     * nests them.  Unlinking first also means the tick can no longer reach
+     * this ctx once we mark it closed.
+     */
     spin_lock(&timerfd_list_lock);
     if (ctx->timers.next != &ctx->timers) ilist_remove(&ctx->timers);
     spin_unlock(&timerfd_list_lock);
+
+    timerfd_ctx_close(ctx);
+}
+
+/*
+ * Last descriptor closed.  A reader blocked in timerfd_vfs_read() may still
+ * hold a transient file reference, so the ctx is not freed yet - wake it now
+ * so it observes ->closed and returns instead of sleeping forever on a
+ * disarmed timer.
+ */
+static void timerfd_vfs_descriptor_close(vfs_node_t node, void *private_data)
+{
+    (void)private_data;
+    timerfd_ctx_close(node ? (timerfd_ctx_t *)node->handle : NULL);
 }
 
 /* VFS read callback: consume the expiration count, blocking on empty */
@@ -120,15 +152,33 @@ static size_t timerfd_vfs_read(void *file, void *addr, size_t offset, size_t siz
 
     spin_lock(&ctx->lock);
 
+    if (ctx->closed) {
+        spin_unlock(&ctx->lock);
+        return (size_t)-1;
+    }
+
     if (ctx->expire_count == 0) {
         if (ctx->flags & TFD_NONBLOCK) {
             spin_unlock(&ctx->lock);
             return (size_t)-1;
         }
+
+        /*
+         * Two-phase wait under the lock: timerfd_tick() increments
+         * expire_count under ctx->lock and then wakes the queue, so the
+         * wakeup cannot be lost between this emptiness check and the sleep
+         * (a plain wait_queue_wait() here would lose a one-shot wake and
+         * hang forever on a one-shot timer).
+         */
+        wait_queue_prepare(&ctx->wq);
         spin_unlock(&ctx->lock);
-        wait_queue_wait(&ctx->wq);
+        wait_queue_sleep();
         spin_lock(&ctx->lock);
 
+        if (ctx->closed) {
+            spin_unlock(&ctx->lock);
+            return (size_t)-1;
+        }
         if (ctx->expire_count == 0) {
             spin_unlock(&ctx->lock);
             return (size_t)-1;
@@ -152,7 +202,11 @@ static int timerfd_vfs_poll(void *file, size_t events)
 
     int revents = 0;
     spin_lock(&ctx->lock);
-    if (ctx->expire_count > 0) revents |= 0x001;
+    if (ctx->closed) {
+        revents |= 0x001 | 0x010; // POLLIN | POLLHUP
+    } else if (ctx->expire_count > 0) {
+        revents |= 0x001;
+    }
     spin_unlock(&ctx->lock);
     return revents & (int)events;
 }
@@ -309,14 +363,22 @@ int sys_timerfd_create(int clockid, int flags)
 
     uint64_t fd_flags = O_RDONLY;
     if (flags & TFD_CLOEXEC) fd_flags |= O_CLOEXEC;
-    int fd = process_fd_install(proc, node, fd_flags);
-    if (fd < 0) {
-        vfs_close(node);
-        return fd;
-    }
+
+    /*
+     * Link the ctx into the global timer list BEFORE publishing the fd.  A
+     * concurrent close() of the new descriptor otherwise runs before the
+     * insertion, unlinks nothing (the node is not linked yet) and frees the
+     * ctx, leaving the creator to insert into freed memory.
+     */
     spin_lock(&timerfd_list_lock);
     ilist_insert_before(&timerfd_list, &((timerfd_ctx_t *)node->handle)->timers);
     spin_unlock(&timerfd_list_lock);
+
+    int fd = process_fd_install(proc, node, fd_flags);
+    if (fd < 0) {
+        vfs_close(node); // now linked: timerfd_vfs_close() unlinks + frees
+        return fd;
+    }
     return fd;
 }
 
@@ -511,25 +573,26 @@ void timerfd_init(void)
         plogk("timerfd: Failed to allocate callback.\n");
         return;
     }
-    cb->mount     = timerfd_stub_mount;
-    cb->unmount   = timerfd_stub_unmount;
-    cb->open      = timerfd_vfs_open;
-    cb->close     = timerfd_vfs_close;
-    cb->read      = timerfd_vfs_read;
-    cb->write     = timerfd_stub_write;
-    cb->readlink  = timerfd_stub_readlink;
-    cb->mkdir     = timerfd_stub_mk;
-    cb->mkfile    = timerfd_stub_mk;
-    cb->link      = timerfd_stub_mk;
-    cb->symlink   = timerfd_stub_mk;
-    cb->stat      = timerfd_stub_stat;
-    cb->ioctl     = timerfd_stub_ioctl;
-    cb->dup       = timerfd_stub_dup;
-    cb->poll      = timerfd_vfs_poll;
-    cb->file_read = timerfd_vfs_file_read;
-    cb->free      = timerfd_vfs_free;
-    cb->delete    = timerfd_stub_del;
-    cb->rename    = timerfd_stub_rename;
+    cb->mount                 = timerfd_stub_mount;
+    cb->unmount               = timerfd_stub_unmount;
+    cb->open                  = timerfd_vfs_open;
+    cb->close                 = timerfd_vfs_close;
+    cb->file_descriptor_close = timerfd_vfs_descriptor_close;
+    cb->read                  = timerfd_vfs_read;
+    cb->write                 = timerfd_stub_write;
+    cb->readlink              = timerfd_stub_readlink;
+    cb->mkdir                 = timerfd_stub_mk;
+    cb->mkfile                = timerfd_stub_mk;
+    cb->link                  = timerfd_stub_mk;
+    cb->symlink               = timerfd_stub_mk;
+    cb->stat                  = timerfd_stub_stat;
+    cb->ioctl                 = timerfd_stub_ioctl;
+    cb->dup                   = timerfd_stub_dup;
+    cb->poll                  = timerfd_vfs_poll;
+    cb->file_read             = timerfd_vfs_file_read;
+    cb->free                  = timerfd_vfs_free;
+    cb->delete                = timerfd_stub_del;
+    cb->rename                = timerfd_stub_rename;
 
     timerfd_fsid = vfs_regist(cb);
     if (timerfd_fsid < 0) {

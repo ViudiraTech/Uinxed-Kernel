@@ -324,8 +324,12 @@ static int xhci_submit_periodic(xhci_transfer_t *transfer)
     return EOK;
 }
 
-/* Resolve a transfer event to its pending transfer and report it. */
-static void xhci_handle_transfer_event(xhci_controller_t *controller, const xhci_trb_t *event)
+/*
+ * Resolve a transfer event to its pending transfer and report it.
+ * Periodic completions are not run here: they are appended to @deferred so
+ * xhci_process_events can invoke them after releasing the event lock.
+ */
+static void xhci_handle_transfer_event(xhci_controller_t *controller, const xhci_trb_t *event, xhci_transfer_t **deferred, int *deferred_count)
 {
     uint8_t slot_id = event->control >> 24;
     uint8_t dci     = (event->control >> 16) & 0x1f;
@@ -341,15 +345,26 @@ static void xhci_handle_transfer_event(xhci_controller_t *controller, const xhci
     transfer->actual    = residual <= transfer->length ? transfer->length - residual : 0;
     __atomic_store_n(&slot->pending[dci], NULL, __ATOMIC_RELEASE);
     if (transfer->periodic) {
-        if (transfer->active && transfer->complete) transfer->complete(transfer->endpoint, transfer->dma_virtual, transfer->actual, transfer->status, transfer->context);
-        if (transfer->active && xhci_submit_periodic(transfer) != EOK) transfer->active = false;
+        /*
+         * Defer the completion callback and the resubmission until the
+         * event lock is dropped.  The callback can re-enter the HCD (e.g. a
+         * HID lock-key press synchronously issues a SET_REPORT control
+         * transfer for the LED), which would re-lock event_lock on the same
+         * CPU and self-deadlock.  The array is sized XHCI_EVENT_TRBS, the
+         * maximum number of events one drain can observe, so it cannot
+         * overflow.  xhci_interrupt_stop clears transfer->active under
+         * event_lock before freeing, so the deferred pass observes a
+         * consistent active flag (the narrow disconnect-vs-completion window
+         * is closed by interrupt_stop running the clear under the lock).
+         */
+        if (*deferred_count >= 0 && (unsigned)*deferred_count < XHCI_EVENT_TRBS) deferred[(*deferred_count)++] = transfer;
     } else {
         __atomic_store_n(&transfer->completed, true, __ATOMIC_RELEASE);
     }
 }
 
 /* Dispatch one event-ring entry by its TRB type. */
-static void xhci_handle_event(xhci_controller_t *controller, const xhci_trb_t *event)
+static void xhci_handle_event(xhci_controller_t *controller, const xhci_trb_t *event, xhci_transfer_t **deferred, int *deferred_count)
 {
     uint8_t type = (event->control & XHCI_TRB_TYPE_MASK) >> XHCI_TRB_TYPE_SHIFT;
     if (type == XHCI_TRB_COMMAND_COMPLETION) {
@@ -360,7 +375,7 @@ static void xhci_handle_event(xhci_controller_t *controller, const xhci_trb_t *e
             __atomic_store_n(&wait->completed, true, __ATOMIC_RELEASE);
         }
     } else if (type == XHCI_TRB_TRANSFER_EVENT) {
-        xhci_handle_transfer_event(controller, event);
+        xhci_handle_transfer_event(controller, event, deferred, deferred_count);
     } else if (type == XHCI_TRB_PORT_STATUS_CHANGE) {
         uint8_t port_id = (event->parameter >> 24) & 0xff;
         if (port_id && port_id <= controller->max_ports) {
@@ -372,9 +387,15 @@ static void xhci_handle_event(xhci_controller_t *controller, const xhci_trb_t *e
     }
 }
 
-/* Drain the event ring and re-arm the interrupter. */
+/*
+ * Drain the event ring and re-arm the interrupter.  Periodic completion
+ * callbacks run after the lock is dropped so they may re-enter the HCD.
+ */
 static void xhci_process_events(xhci_controller_t *controller)
 {
+    xhci_transfer_t *deferred[XHCI_EVENT_TRBS];
+    int              deferred_count = 0;
+
     uint64_t flags = spin_lock_irqsave(&controller->event_lock);
     while (1) {
         xhci_trb_t *source = &controller->event_ring[controller->event_dequeue];
@@ -386,13 +407,21 @@ static void xhci_process_events(xhci_controller_t *controller)
             controller->event_dequeue = 0;
             controller->event_cycle ^= 1;
         }
-        xhci_handle_event(controller, &event);
+        xhci_handle_event(controller, &event, deferred, &deferred_count);
     }
     uint64_t dequeue = controller->event_ring_physical + (uint64_t)controller->event_dequeue * sizeof(xhci_trb_t);
     xhci_write64(controller->runtime + XHCI_RT_INTERRUPTER0, XHCI_IR_ERDP, dequeue | XHCI_ERDP_EHB);
     uint32_t iman = xhci_read32(controller->runtime + XHCI_RT_INTERRUPTER0, XHCI_IR_IMAN);
     xhci_write32(controller->runtime + XHCI_RT_INTERRUPTER0, XHCI_IR_IMAN, iman | XHCI_IMAN_IP | XHCI_IMAN_IE);
     spin_unlock_irqrestore(&controller->event_lock, flags);
+
+    for (int i = 0; i < deferred_count; i++) {
+        xhci_transfer_t *transfer = deferred[i];
+
+        if (!transfer->active) continue;
+        if (transfer->complete) transfer->complete(transfer->endpoint, transfer->dma_virtual, transfer->actual, transfer->status, transfer->context);
+        if (transfer->active && xhci_submit_periodic(transfer) != EOK) transfer->active = false;
+    }
 }
 
 /* Poll the event ring until a completion flag is set or a timeout hits. */
@@ -559,10 +588,19 @@ static void xhci_interrupt_stop(usb_endpoint_t *usb_endpoint)
     xhci_endpoint_state_t *endpoint = usb_endpoint ? usb_endpoint->hc_private : NULL;
     xhci_transfer_t       *transfer = endpoint ? endpoint->periodic : NULL;
     if (!transfer) return;
-    transfer->active = false;
-    uint8_t dci      = xhci_endpoint_dci(usb_endpoint);
+    uint8_t dci = xhci_endpoint_dci(usb_endpoint);
+
+    /*
+     * STOP_ENDPOINT drains the event ring (xhci_command -> xhci_wait_flag ->
+     * xhci_process_events).  Any periodic completion observed there runs its
+     * deferred callback synchronously before xhci_command returns, so it
+     * completes before we clear pending and free below.  Clear transfer->active
+     * under event_lock so a concurrent event drain on another CPU sees the
+     * flag consistently with the free that follows.
+     */
     (void)xhci_command(transfer->slot->controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_STOP_ENDPOINT) | ((uint32_t)dci << 16) | ((uint32_t)transfer->slot->slot_id << 24), NULL);
-    uint64_t flags = spin_lock_irqsave(&transfer->slot->controller->event_lock);
+    uint64_t flags   = spin_lock_irqsave(&transfer->slot->controller->event_lock);
+    transfer->active = false;
     if (__atomic_load_n(&transfer->slot->pending[dci], __ATOMIC_ACQUIRE) == transfer) __atomic_store_n(&transfer->slot->pending[dci], NULL, __ATOMIC_RELEASE);
     endpoint->periodic = NULL;
     spin_unlock_irqrestore(&transfer->slot->controller->event_lock, flags);

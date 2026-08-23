@@ -14,6 +14,7 @@
 #include <libs/list/circular_list.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 /* Netlink socket address */
@@ -206,13 +207,29 @@ typedef struct nl_sock {
         uint32_t   recv_queue_len; // number of messages queued
         uint32_t   recv_queue_max; // max messages (prevents DoS)
         uint32_t   recv_queue_bytes;
-        spinlock_t recv_lock; // protects recv_queue
+        spinlock_t recv_lock; // protects recv_queue and recv_wq
 
-        /* Blocking support */
-        void *blocked_task; // task_t waiting on recv
+        /*
+         * Two-phase wait queue for blocked recvmsg().  Membership is
+         * prepared under recv_lock and woken by nl_queue_datagram under the
+         * same lock, closing the lost-wakeup window that a side-table
+         * blocked_task pointer left open.
+         */
+        wait_queue_t recv_wq;
 
         /* Back-pointer to the generic socket */
         struct socket *sk;
+
+        /*
+         * Reader pinning: the socket holds one reference, each in-flight
+         * recvmsg takes one transient reference, and the last put frees the
+         * receive queue and this struct.  netlink_close() drops the socket's
+         * reference after setting ->closed and waking recv_wq, so a reader
+         * that wakes concurrently still observes a live ->closed flag and
+         * returns without touching freed state.
+         */
+        uint32_t refs;
+        int      closed;
 } nl_sock_t;
 
 /* Internal: one queued netlink message */

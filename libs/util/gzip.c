@@ -412,7 +412,7 @@ int gzip_decompress(const uint8_t *input, size_t input_size, uint8_t **output, s
     }
 
     size_t expected_size = load_le32(input + input_size - 4);
-    if (expected_size > 32 * 1024 * 1024) {
+    if (expected_size > (size_t)32 * 1024 * 1024) {
         plogk("gzip: ISIZE %zu exceeds 32MB limit.\n", expected_size);
         return -EFBIG;
     }

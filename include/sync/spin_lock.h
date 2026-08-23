@@ -27,6 +27,9 @@ void spin_unlock_irqrestore(spinlock_t *lock, uint64_t rflags);
 /* Lock a spinlock */
 void spin_lock(spinlock_t *lock);
 
+/* Try to lock a spinlock without spinning; 1 = acquired, 0 = contended (spin_unlock releases it) */
+int spin_trylock(spinlock_t *lock);
+
 /* Unlock a spinlock */
 void spin_unlock(spinlock_t *lock);
 

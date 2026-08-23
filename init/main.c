@@ -25,6 +25,7 @@
 #include <drivers/char/chrdev.h>
 #include <drivers/char/tpm/tpm.h>
 #include <drivers/firmware/acpi.h>
+#include <drivers/firmware/apic.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
@@ -181,8 +182,15 @@ static void swapper_run_init(void)
                     process_fd_close(init, std_fd);
                 plogk("swapper/0: Unable to open an initial console.\n");
             } else {
-                if (process_fd_dup2(init, 0, 1) != EOK) plogk("init: dup2 stdout failed.\n");
-                if (process_fd_dup2(init, 0, 2) != EOK) plogk("init: dup2 stderr failed.\n");
+                /*
+                 * process_fd_dup2() returns the NEW descriptor number (1 or 2)
+                 * on success, like Linux; only a negative value is an error.
+                 * Comparing against EOK (0) misreported every successful dup.
+                 */
+                int dup_stdout = process_fd_dup2(init, 0, 1);
+                if (dup_stdout < 0) plogk("init: dup2 stdout failed (err=%d)\n", dup_stdout);
+                int dup_stderr = process_fd_dup2(init, 0, 2);
+                if (dup_stderr < 0) plogk("init: dup2 stderr failed (err=%d)\n", dup_stderr);
                 (void)tty_console_acquire(init, O_RDWR);
             }
         }
@@ -298,6 +306,7 @@ void kernel_entry(void)
     acpi_init();                                                   // Advanced Configuration and Power Interface
     tpm_init();                                                    // Trusted Platform Module
     tsc_init();                                                    // Time Stamp Counter
+    lapic_timer_try_upgrade();                                     // Switch BSP LAPIC timer to TSC-deadline now that TSC is calibrated (before APs boot)
     smp_init();                                                    // Symmetric Multiprocessing
     parport_pc_init();                                             // PC Parallel Port (SPP)
                                                                    //

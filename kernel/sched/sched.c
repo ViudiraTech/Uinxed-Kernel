@@ -17,6 +17,7 @@
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer/timer.h>
 #include <libs/list/intrusive_list.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -71,7 +72,7 @@ sched_domain_cpu_t *cpu_sched_domains;
 static task_t       boot_task = {.pid = 0, .name = "swapper"};
 static uint8_t      boot_stack_marker;
 static task_t      *ap_boot_tasks;
-static uint32_t     next_task_cpu;
+static uint32_t     next_task_cpu; // shared wake-placement cursor: atomic RMW (__atomic_*) on every CPU
 
 /* Forward declarations */
 
@@ -483,6 +484,23 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
     if (!task || task->state == TASK_ZOMBIE || task->state == TASK_IDLE) return;
     if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
 
+    /*
+     * Every runnable task has a kernel stack (fork/kthread/ELF setup set
+     * context.rsp before enqueue).  A task without one - e.g. a stale
+     * ap_boot_task that some wake path reached, or the victim of a double
+     * enqueue after rbtree corruption - must never enter the ready tree:
+     * selecting it would load a zero %rsp in context_switch and hard
+     * triple-fault the CPU.  Refuse it and log instead.
+     */
+    if (!task->context.rsp) {
+        static uint64_t last_log;
+        if (scheduler.ticks - last_log >= 1000) {
+            plogk("sched: refusing to enqueue task %llu (%s) with no kernel stack.\n", task->pid, task->name);
+            last_log = scheduler.ticks;
+        }
+        return;
+    }
+
     eevdf_rq_t *rq = &cpu_rqs[cpu_id];
 
     spin_lock(&rq->lock);
@@ -619,27 +637,52 @@ void request_task_cpu(task_t *task)
 /* Insert a sleeping task into the deadline-ordered sleep queue. */
 static void insert_sleep_deadline_locked(task_t *task)
 {
-    ilist_node_t *position = scheduler.sleep_queue.next;
+    /*
+     * A rejected insert means this task's sched_node is still linked somewhere
+     * (a previous wait never completed its detach) or the ring is damaged.
+     * Panicking here took down the whole machine over a recoverable case seen
+     * in the field (video-refresh re-sleeping on a stale link); instead,
+     * detach whatever the node is still holding and re-insert, logging loudly
+     * so the underlying protocol bug remains visible.
+     */
+    for (unsigned attempt = 0;; attempt++) {
+        ilist_node_t *position = scheduler.sleep_queue.next;
 
-    while (position != &scheduler.sleep_queue) {
-        task_t *queued = sched_node_to_task(position);
-        if (task->wake_tick < queued->wake_tick) break;
-        position = position->next;
+        while (position != &scheduler.sleep_queue) {
+            task_t *queued = sched_node_to_task(position);
+            if (task->wake_tick < queued->wake_tick) break;
+            position = position->next;
+        }
+        if (!ilist_insert_before(position, &task->sched_node)) return;
+
+        if (attempt > 0 || !ilist_is_linked(&task->sched_node)) {
+            panic("sched: sleep-queue insert rejected (task %llu %s) - ring corrupt", task->pid, task->name);
+        }
+        plogk("sched: stale sleep-queue link on task %llu (%s); recovering\n", task->pid, task->name);
+        (void)ilist_remove(&task->sched_node);
+        task->wait_queue = NULL;
     }
-    if (ilist_insert_before(position, &task->sched_node)) panic("sched: sleep-queue insert rejected (task %llu %s)", task->pid, task->name);
 }
 
 /* Insert a timed wait into the separately-linked deadline queue. */
 static void insert_timer_deadline_locked(task_t *task)
 {
-    ilist_node_t *position = scheduler.timer_queue.next;
+    for (unsigned attempt = 0;; attempt++) {
+        ilist_node_t *position = scheduler.timer_queue.next;
 
-    while (position != &scheduler.timer_queue) {
-        task_t *queued = timer_node_to_task(position);
-        if (task->wake_tick < queued->wake_tick) break;
-        position = position->next;
+        while (position != &scheduler.timer_queue) {
+            task_t *queued = timer_node_to_task(position);
+            if (task->wake_tick < queued->wake_tick) break;
+            position = position->next;
+        }
+        if (!ilist_insert_before(position, &task->timer_node)) return;
+
+        if (attempt > 0 || !ilist_is_linked(&task->timer_node)) {
+            panic("sched: timer-queue insert rejected (task %llu %s) - ring corrupt", task->pid, task->name);
+        }
+        plogk("sched: stale timer-queue link on task %llu (%s); recovering\n", task->pid, task->name);
+        (void)ilist_remove(&task->timer_node);
     }
-    if (ilist_insert_before(position, &task->timer_node)) panic("sched: timer-queue insert rejected (task %llu %s)", task->pid, task->name);
 }
 
 /* Put a task to sleep until a wake tick */
@@ -729,6 +772,7 @@ static void sched_domain_add(uint32_t cpu, uint8_t level, uint16_t flags, uint32
 /* Build a nested SMT -> package -> system domain chain for every logical CPU. */
 static void sched_domain_build(void)
 {
+    if (!cpu_scheduler_count) return;
     cpu_sched_domains = calloc(cpu_scheduler_count, sizeof(*cpu_sched_domains));
     if (!cpu_sched_domains) panic("sched: Cannot allocate scheduling domains.");
     for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
@@ -821,8 +865,7 @@ static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev
             score += SCHED_NICE_0_LOAD / 4ULL;
         else if (cpu_topology_same_package(cpu, prev_cpu))
             score += SCHED_NICE_0_LOAD / 16ULL;
-        else
-            score += SCHED_NICE_0_LOAD / 4ULL;
+        /* different package: no locality bonus */
     }
 
     /* WF_SYNC-like hint: the waker may block/yield soon, so stacking is a bit cheaper. */
@@ -856,7 +899,7 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
     if (!cpu_rqs[prev_cpu].online) prev_cpu = this_cpu;
     if (rq_is_idle_cpu(prev_cpu)) return prev_cpu;
 
-    uint32_t            start    = (next_task_cpu++) % cpu_scheduler_count;
+    uint32_t            start    = __atomic_fetch_add(&next_task_cpu, 1, __ATOMIC_RELAXED) % cpu_scheduler_count;
     sched_domain_cpu_t *topology = &cpu_sched_domains[prev_cpu];
 
     /* Search nearby idle physical cores before considering SMT siblings. */
@@ -901,7 +944,7 @@ uint32_t choose_task_cpu_locked(void)
     if (!cpu_rqs || !cpu_scheduler_count) return 0;
     if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) return 0;
 
-    uint32_t start = (next_task_cpu++) % cpu_scheduler_count;
+    uint32_t start = __atomic_fetch_add(&next_task_cpu, 1, __ATOMIC_RELAXED) % cpu_scheduler_count;
     uint32_t best  = UINT32_MAX;
 
     /* Spread independent new work across physical cores first. */
@@ -1198,10 +1241,17 @@ void sched_init(void)
     ap_boot_tasks = calloc(cpu_scheduler_count, sizeof(task_t));
     if (!cpu_rqs || !ap_boot_tasks) panic("sched: Cannot allocate per-CPU scheduler state.");
 
-    for (uint32_t i = 0; i < cpu_scheduler_count; i++) {
-        rb_init_root(&cpu_rqs[i].timeline);
-        cpu_rqs[i].online = 1;
-    }
+    for (uint32_t i = 0; i < cpu_scheduler_count; i++) rb_init_root(&cpu_rqs[i].timeline);
+
+    /*
+     * Every runqueue is online from the start.  smp_init() already waited for
+     * all APs to finish ap_entry (IDT, GS base, syscall MSRs and Local APIC
+     * installed) before returning, and sched_init() runs after that, so no AP
+     * can be half-booted here.  (sched_ap_online() is called from ap_entry
+     * before cpu_rqs exists and is therefore a no-op - do NOT rely on it to
+     * mark APs online.)
+     */
+    for (uint32_t i = 0; i < cpu_scheduler_count; i++) cpu_rqs[i].online = 1;
     sched_domain_build();
 
     next_task_cpu = 0;
@@ -1276,14 +1326,21 @@ void sched_ipi_reschedule(void)
     __atomic_store_n(&cpu_rqs[cpu_id].resched_pending, 0, __ATOMIC_RELEASE);
     if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) return;
 
-    /* A group-exit IPI must also retire a CPU-bound thread in userspace. */
-    task_t *current = current_task();
-    if (current && current->process && __atomic_load_n(&current->process->signal.group_exit, __ATOMIC_ACQUIRE))
-        process_exit(__atomic_load_n(&current->process->signal.group_exit_code, __ATOMIC_RELAXED));
+    /*
+     * A group-exit IPI retires a CPU-bound thread in userspace.  The exit
+     * itself is NOT performed here: process_exit() runs file-descriptor
+     * teardown, copy_to_user and socket close, which can block, and must not
+     * run in an interrupt handler.  group_exit is already published, so the
+     * thread's next return to user space (via the timer IRQ's
+     * signal_deliver_if_pending()) will run process_exit_group() in ordinary
+     * process context at the latest; forcing a reschedule here simply makes
+     * that return prompt.
+     */
+    __atomic_store_n(&cpu_rqs[cpu_id].need_resched, 1, __ATOMIC_RELEASE);
 
     spin_lock(&cpu_rqs[cpu_id].lock);
-    current    = cpu_rqs[cpu_id].curr;
-    bool ready = has_ready_task() || (current && current->state != TASK_RUNNING && current != cpu_rqs[cpu_id].idle);
+    task_t *current = cpu_rqs[cpu_id].curr;
+    bool    ready   = has_ready_task() || (current && current->state != TASK_RUNNING && current != cpu_rqs[cpu_id].idle);
     spin_unlock(&cpu_rqs[cpu_id].lock);
 
     /* A reschedule IPI is preemption, not a userspace voluntary yield. */
@@ -1410,6 +1467,16 @@ static void sched_switch(bool voluntary)
         next->state      = TASK_RUNNING;
         next->time_slice = 0;
     }
+
+    /*
+     * context_switch() loads next->context.rsp into %rsp and returns through
+     * it, so selecting a task with no valid kernel stack is a hard triple
+     * fault (CPU reset, impossible to debug).  This can only happen if the
+     * runqueue tree has been corrupted by a double-enqueue or a task without
+     * a stack (e.g. a stale ap_boot_task) was woken and enqueued - turn it
+     * into a debuggable panic instead.
+     */
+    if (!next->context.rsp) panic("sched: selected task %llu (%s) has no kernel stack (runqueue corruption?)", next->pid, next->name);
 
     __atomic_store_n(&next->on_cpu, 1, __ATOMIC_RELEASE);
     __atomic_store_n(&rq->curr, next, __ATOMIC_RELAXED);
@@ -1654,8 +1721,33 @@ void wait_queue_prepare(wait_queue_t *queue)
     task_t     *curr = local_current();
 
     if (curr->wait_queue || ilist_is_linked(&curr->sched_node)) {
-        spin_unlock(&scheduler.lock);
-        panic("sched: prepare on task %llu (%s) already waiting (queue=%p)", curr->pid, curr->name, (void *)curr->wait_queue);
+        /*
+         * A task is somehow still in a wait queue while preparing a fresh
+         * wait - the previous prepare never completed (no sleep/cancel/wake),
+         * or a wake failed to detach it.  This used to be a panic (seen on
+         * Xorg's epoll_wait re-entry), but a stale membership is recoverable:
+         * detach whatever is linked, clear the state, and let this prepare
+         * run clean.
+         */
+        bool had_wakeup = curr->wake_reason != TASK_WAKE_NONE;
+        plogk("sched: stale wait state on task %llu (%s) queue=%p state=%d wake_reason=%d; recovering%s\n", (unsigned long long)curr->pid, curr->name, (void *)curr->wait_queue, (int)curr->state,
+              (int)curr->wake_reason, had_wakeup ? " (pending wakeup)" : "");
+        if (ilist_is_linked(&curr->sched_node)) (void)ilist_remove(&curr->sched_node);
+        curr->wait_queue = NULL;
+        if (had_wakeup) {
+            /*
+             * A wakeup is pending but the task was never detached.  Consume
+             * it and do NOT re-link: the caller re-checks its condition, and
+             * blocking here would discard the wakeup and potentially sleep
+             * forever.  wait_queue_sleep sees no prepared wait and continues.
+             */
+            curr->wake_reason = TASK_WAKE_NONE;
+            curr->wake_tick   = 0;
+            spin_unlock(&scheduler.lock);
+            return;
+        }
+        curr->wake_reason = TASK_WAKE_NONE;
+        curr->wake_tick   = 0;
     }
 
     spin_lock(&rq->lock);
@@ -1766,7 +1858,24 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
     int     sleep = 0;
 
     spin_lock(&scheduler.lock);
-    if (curr->wait_queue == queue && curr->wake_reason == TASK_WAKE_NONE) {
+    if (!curr->wait_queue) {
+        /*
+         * Woken (or cancelled) between prepare and commit: nothing to
+         * commit.  Consume any pending wakeup so a later bare block does
+         * not mistake it for fresh work.
+         */
+        curr->wake_reason = TASK_WAKE_NONE;
+    } else if (curr->wake_reason == TASK_WAKE_NONE) {
+        /*
+         * Commit on WHICHEVER queue currently holds the node.  A concurrent
+         * FUTEX_REQUEUE may legally have moved us after prepare(); bailing
+         * out here used to strand the task RUNNING-but-still-linked on the
+         * destination queue - later wakes popped the phantom node and
+         * stomped a running task's wake state, and the victim's next
+         * unconditional sleep hit a linked sched_node ("sleep-queue insert
+         * rejected").  Blocking here also restores proper semantics: a
+         * requeued waiter sleeps until its target is woken or it times out.
+         */
         if (deadline_ticks <= scheduler.ticks) {
             finish_wait_locked(curr, TASK_WAKE_TIMEOUT);
         } else {
@@ -1776,12 +1885,7 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
             sleep       = 1;
         }
     }
-
-    /*
-     * If the task was concurrently requeued to another queue (futex
-     * FUTEX_REQUEUE family) or already woken, neither branch runs; the task
-     * simply does not commit to this timed sleep and its owner re-evaluates.
-     */
+    /* wake_reason != NONE with wait_queue set cannot happen: finish_wait_locked detaches before publishing the reason, both under scheduler.lock. */
     spin_unlock(&scheduler.lock);
 
     if (sleep) sched_yield();
@@ -1891,6 +1995,43 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
     return count;
 }
 
+/*
+ * Advance the global tick base.
+ *
+ * With a high-resolution clocksource (invariant TSC or HPET) the tick count is
+ * DERIVED from timer_monotonic_ns() instead of counting interrupts: any CPU
+ * that reaches this point can pull the base forward, and the try-lock makes
+ * concurrent callers collapse into one.  A stalled CPU therefore can no longer
+ * freeze every timeout in the system (futex/poll/nanosleep deadlines all read
+ * scheduler.ticks), and missed ticks self-correct on the next pass.  This
+ * mirrors Linux's separation of clocksource-driven timekeeping from the
+ * per-CPU clock-event device.
+ *
+ * Without a high-res source the monotonic read degenerates to scheduler ticks
+ * themselves, so fall back to the historical CPU0-owned +1-per-IRQ scheme.
+ */
+static void sched_advance_global_ticks(void)
+{
+    if (!timer_monotonic_highres()) {
+        if (get_current_cpu_id() != 0) return;
+        spin_lock(&scheduler.lock);
+        scheduler.ticks++;
+        wake_sleeping_tasks();
+        spin_unlock(&scheduler.lock);
+        return;
+    }
+
+    /* Contended: another CPU is advancing the base right now; nothing to do. */
+    if (!spin_trylock(&scheduler.lock)) return;
+
+    uint64_t target = timer_monotonic_ns() / TIMER_TICK_NS;
+    if (target > scheduler.ticks) {
+        scheduler.ticks = target;
+        wake_sleeping_tasks();
+    }
+    spin_unlock(&scheduler.lock);
+}
+
 /* sched_tick - periodic tick accounting and preemption */
 void sched_tick(bool user_mode)
 {
@@ -1931,13 +2072,8 @@ void sched_tick(bool user_mode)
     }
     spin_unlock(&rq->lock);
 
-    /* CPU 0 owns the global time base and ordered timer queues. */
-    if (cpu_id == 0) {
-        spin_lock(&scheduler.lock);
-        scheduler.ticks++;
-        wake_sleeping_tasks();
-        spin_unlock(&scheduler.lock);
-    }
+    /* Global time base and ordered sleep/timer queues: any CPU may drive them. */
+    sched_advance_global_ticks();
 
     /* Each CPU periodically pulls work through its nested scheduling domains. */
     uint64_t now = __atomic_load_n(&scheduler.ticks, __ATOMIC_RELAXED);

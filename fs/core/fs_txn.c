@@ -16,33 +16,82 @@
 #include <mem/heap.h>
 #include <process/sched.h>
 
-/* Wait until the log is idle, then mark it active. */
-static void fs_txn_claim_log(fs_txn_log_t *log)
+/* Wait for log to become free, using two-phase wait queue. Process context only. */
+void fs_txn_log_lock(fs_txn_log_t *log)
 {
     for (;;) {
-        spin_lock(&log->lock);
-        if (!log->transaction_active) {
-            log->transaction_active = 1;
-            spin_unlock(&log->lock);
+        spin_lock(&log->guard);
+        if (!log->busy) {
+            log->busy = true;
+            spin_unlock(&log->guard);
             return;
         }
-        spin_unlock(&log->lock);
-        sched_yield();
+        wait_queue_prepare(&log->wq);
+        spin_unlock(&log->guard);
+        wait_queue_sleep();
     }
 }
 
-/* Mark the log as no longer active. */
-static void fs_txn_release_log(fs_txn_log_t *log)
+/* Release log lock and wake all waiters. */
+void fs_txn_log_unlock(fs_txn_log_t *log)
 {
-    spin_lock(&log->lock);
-    log->transaction_active = 0;
-    spin_unlock(&log->lock);
+    spin_lock(&log->guard);
+    log->busy = false;
+    spin_unlock(&log->guard);
+    wait_queue_wake_all(&log->wq);
 }
 
-/* Free all staged buffers of a transaction. */
+/*
+ * Wait until the log has no active transaction AND the mutex is free (the
+ * previous transaction's commit/abort fully finished), then claim it.  This
+ * serialises fs_txn_begin() so two threads can never publish overlapping
+ * active-transaction pointers.  Claimers sleep on the same wait queue that
+ * fs_txn_log_unlock() wakes.
+ */
+static void fs_txn_claim_log(fs_txn_log_t *log)
+{
+    for (;;) {
+        spin_lock(&log->guard);
+        if (!log->transaction_active && !log->busy) {
+            log->transaction_active = 1;
+            spin_unlock(&log->guard);
+            return;
+        }
+        wait_queue_prepare(&log->wq);
+        spin_unlock(&log->guard);
+        wait_queue_sleep();
+    }
+}
+
+/* Mark the log as no longer active; caller holds the log mutex. */
+static void fs_txn_release_log_locked(fs_txn_log_t *log)
+{
+    spin_lock(&log->guard);
+    log->transaction_active = 0;
+    spin_unlock(&log->guard);
+}
+
+/* Mark the log as no longer active (self-locking, wakes claimers). */
+static void fs_txn_release_log(fs_txn_log_t *log)
+{
+    spin_lock(&log->guard);
+    log->transaction_active = 0;
+    spin_unlock(&log->guard);
+    wait_queue_wake_all(&log->wq);
+}
+
+/*
+ * Free all staged buffers of a transaction.  The caller holds the log mutex: the
+ * buffer list is serialised against concurrent readers/writers
+ * (fs_txn_read_active/stage_active) by that lock, and fs_txn_finish() runs
+ * under it (fs_txn_commit/abort are invoked with the lock held by the FS
+ * wrapper).  Freeing without it would let a concurrent active-helper walk
+ * freed nodes.
+ */
 static void fs_txn_release_buffers(fs_txn_t *transaction)
 {
     fs_txn_buffer_t *buffer = transaction->buffers;
+
     while (buffer) {
         fs_txn_buffer_t *next = buffer->next;
         free(buffer->data);
@@ -94,9 +143,11 @@ static int fs_txn_write_home(fs_txn_t *transaction, uint32_t required_flags)
 static void fs_txn_finish(fs_txn_t *transaction)
 {
     fs_txn_log_t *log = transaction->log;
+
+    /* Caller holds the log mutex (see fs_txn_commit/abort). */
     fs_txn_release_buffers(transaction);
     transaction->active = 0;
-    fs_txn_release_log(log);
+    fs_txn_release_log_locked(log);
 }
 
 /* Initialize a transaction log bound to a block device. */
@@ -107,6 +158,7 @@ int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t
         return -EINVAL;
     }
     memset(log, 0, sizeof(*log));
+    wait_queue_init(&log->wq);
     log->device              = *device;
     log->ops                 = ops;
     log->backend_context     = backend_context;
@@ -170,8 +222,8 @@ int fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction)
     return EOK;
 }
 
-/* Stage a whole block for later write-out by the transaction. */
-int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, uint32_t flags)
+/* Stage a whole block for later write-out by the transaction. Caller must hold the log lock (see fs_txn_stage). */
+static int fs_txn_stage_locked(fs_txn_t *transaction, uint64_t home_block, const void *data, uint32_t flags)
 {
     fs_txn_buffer_t *buffer;
     if (!transaction || !transaction->active || !data) {
@@ -220,8 +272,21 @@ int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, u
     return EOK;
 }
 
-/* Read a whole block, honoring data staged by the transaction. */
-int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data)
+/* Stage a whole block for later write-out by the transaction. */
+int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, uint32_t flags)
+{
+    if (!transaction) return -EINVAL;
+    fs_txn_log_t *log    = transaction->log;
+    int           status = -EINVAL;
+
+    fs_txn_log_lock(log);
+    status = fs_txn_stage_locked(transaction, home_block, data, flags);
+    fs_txn_log_unlock(log);
+    return status;
+}
+
+/* Read a whole block, honoring data staged by the transaction. Caller must hold the log lock (see fs_txn_read). */
+static int fs_txn_read_locked(fs_txn_t *transaction, uint64_t home_block, void *data)
 {
     fs_txn_buffer_t *buffer;
     int              status;
@@ -242,6 +307,19 @@ int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data)
     }
     status = blockdev_read_bytes(&transaction->log->device, home_block * (uint64_t)transaction->log->block_size, data, transaction->log->block_size);
     if (status != EOK) plogk("fs_txn: Read home_block %llu failed (drive %u, status %d)\n", (unsigned long long)home_block, transaction->log->device.drive, status);
+    return status;
+}
+
+/* Read a whole block, honoring data staged by the transaction. */
+int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data)
+{
+    if (!transaction) return -EINVAL;
+    fs_txn_log_t *log    = transaction->log;
+    int           status = -EINVAL;
+
+    fs_txn_log_lock(log);
+    status = fs_txn_read_locked(transaction, home_block, data);
+    fs_txn_log_unlock(log);
     return status;
 }
 
@@ -270,22 +348,24 @@ int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t
         plogk("fs_txn: Read_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size, block_size);
         return -ENOMEM;
     }
+    int           status = EOK;
+    fs_txn_log_t *log    = transaction->log;
+
+    fs_txn_log_lock(log);
     while (size) {
         uint64_t logical = offset / block_size;
         uint32_t within  = (uint32_t)(offset % block_size);
         size_t   chunk   = size < block_size - within ? size : block_size - within;
-        int      status  = fs_txn_read(transaction, logical, block);
-        if (status != EOK) {
-            free(block);
-            return status;
-        }
+        status           = fs_txn_read_locked(transaction, logical, block);
+        if (status != EOK) break;
         memcpy(output, block + within, chunk);
         output += chunk;
         offset += chunk;
         size -= chunk;
     }
+    fs_txn_log_unlock(log);
     free(block);
-    return EOK;
+    return status;
 }
 
 /* Stage a byte range, reading the surrounding home blocks first. */
@@ -303,29 +383,177 @@ int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data,
         plogk("fs_txn: Stage_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size, block_size);
         return -ENOMEM;
     }
+    int           status = EOK;
+    fs_txn_log_t *log    = transaction->log;
+
+    fs_txn_log_lock(log);
     while (size) {
         uint64_t logical = offset / block_size;
         uint32_t within  = (uint32_t)(offset % block_size);
         size_t   chunk   = size < block_size - within ? size : block_size - within;
-        int      status  = fs_txn_read(transaction, logical, block);
+        status           = fs_txn_read_locked(transaction, logical, block);
         if (status == EOK) {
             memcpy(block + within, input, chunk);
-            status = fs_txn_stage(transaction, logical, block, flags);
+            status = fs_txn_stage_locked(transaction, logical, block, flags);
         }
         if (status != EOK) {
             transaction->error = status;
-            free(block);
-            return status;
+            break;
         }
         input += chunk;
         offset += chunk;
         size -= chunk;
     }
+    fs_txn_log_unlock(log);
     free(block);
-    return EOK;
+    return status;
 }
 
-/* Commit the transaction and write the metadata to its home blocks. */
+/*
+ * Serve a whole-block read through the volume's currently-active
+ * transaction, if any.  The active-transaction pointer is read and the
+ * transaction's buffer list is walked under the log lock, so a concurrent
+ * commit cannot clear the pointer and free the buffers while they are in
+ * use.
+ *
+ * Returns 0 when no transaction is active (the caller must fall back to a
+ * direct device read), 1 when the block was served, or a negative errno.
+ */
+int fs_txn_read_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t home_block, void *data)
+{
+    if (!log || !active_pp || !data) return -EINVAL;
+
+    fs_txn_log_lock(log);
+    fs_txn_t *transaction = *active_pp;
+    if (!transaction) {
+        fs_txn_log_unlock(log);
+        return 0;
+    }
+    int status = fs_txn_read_locked(transaction, home_block, data);
+    fs_txn_log_unlock(log);
+    return status < 0 ? status : 1;
+}
+
+/*
+ * Serve a whole-block write through the volume's currently-active
+ * transaction, staging it.  Same locking contract and return convention as
+ * fs_txn_read_active(): 0 = no active transaction (the caller writes the
+ * device directly), 1 = staged, or a negative errno.
+ */
+int fs_txn_stage_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t home_block, const void *data, uint32_t flags)
+{
+    if (!log || !active_pp || !data) return -EINVAL;
+
+    fs_txn_log_lock(log);
+    fs_txn_t *transaction = *active_pp;
+    if (!transaction) {
+        fs_txn_log_unlock(log);
+        return 0;
+    }
+    int status = fs_txn_stage_locked(transaction, home_block, data, flags);
+    if (status != EOK) transaction->error = status;
+    fs_txn_log_unlock(log);
+    return status < 0 ? status : 1;
+}
+
+/*
+ * Serve a byte-range read through the volume's currently-active
+ * transaction, if any.  Same locking contract and return convention as
+ * fs_txn_read_active().
+ */
+int fs_txn_read_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t offset, void *data, size_t size)
+{
+    if (!size) return EOK;
+    if (!log || !active_pp || !data) return -EINVAL;
+    if (!log->block_size) return -EINVAL;
+
+    uint8_t *block = malloc(log->block_size);
+    if (!block) {
+        plogk("fs_txn: Read_bytes_active block allocation failed (offset %llu, size %zu)\n", (unsigned long long)offset, size);
+        return -ENOMEM;
+    }
+
+    uint8_t *output = data;
+    int      status = EOK;
+    fs_txn_log_lock(log);
+    fs_txn_t *transaction = *active_pp;
+    if (!transaction) {
+        fs_txn_log_unlock(log);
+        free(block);
+        return 0;
+    }
+    while (size) {
+        uint64_t logical = offset / log->block_size;
+        uint32_t within  = (uint32_t)(offset % log->block_size);
+        size_t   chunk   = size < log->block_size - within ? size : log->block_size - within;
+        status           = fs_txn_read_locked(transaction, logical, block);
+        if (status != EOK) break;
+        memcpy(output, block + within, chunk);
+        output += chunk;
+        offset += chunk;
+        size -= chunk;
+    }
+    fs_txn_log_unlock(log);
+    free(block);
+    return status < 0 ? status : 1;
+}
+
+/*
+ * Serve a byte-range write through the volume's currently-active
+ * transaction, staging it.  Same locking contract and return convention as
+ * fs_txn_read_active().
+ */
+int fs_txn_stage_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t offset, const void *data, size_t size, uint32_t flags)
+{
+    if (!size) return EOK;
+    if (!log || !active_pp || !data) return -EINVAL;
+    if (!log->block_size) return -EINVAL;
+
+    uint8_t *block = malloc(log->block_size);
+    if (!block) {
+        plogk("fs_txn: Stage_bytes_active block allocation failed (offset %llu, size %zu)\n", (unsigned long long)offset, size);
+        return -ENOMEM;
+    }
+
+    const uint8_t *input  = data;
+    int            status = EOK;
+    fs_txn_log_lock(log);
+    fs_txn_t *transaction = *active_pp;
+    if (!transaction) {
+        fs_txn_log_unlock(log);
+        free(block);
+        return 0;
+    }
+    while (size) {
+        uint64_t logical = offset / log->block_size;
+        uint32_t within  = (uint32_t)(offset % log->block_size);
+        size_t   chunk   = size < log->block_size - within ? size : log->block_size - within;
+        status           = fs_txn_read_locked(transaction, logical, block);
+        if (status == EOK) {
+            memcpy(block + within, input, chunk);
+            status = fs_txn_stage_locked(transaction, logical, block, flags);
+        }
+        if (status != EOK) {
+            transaction->error = status;
+            break;
+        }
+        input += chunk;
+        offset += chunk;
+        size -= chunk;
+    }
+    fs_txn_log_unlock(log);
+    free(block);
+    return status < 0 ? status : 1;
+}
+
+/*
+ * Commit the transaction and write the metadata to its home blocks.
+ * The caller must hold the log mutex: the buffer-list walks in this function
+ * (fs_txn_write_home / log_block) and the final fs_txn_finish() free must be
+ * serialised against concurrent fs_txn_read_active()/fs_txn_stage_active(),
+ * and the FS wrapper keeps *active_pp published until commit completes so no
+ * concurrent I/O bypasses the transaction mid-commit.
+ */
 int fs_txn_commit(fs_txn_t *transaction)
 {
     fs_txn_buffer_t *buffer;
@@ -336,15 +564,15 @@ int fs_txn_commit(fs_txn_t *transaction)
         plogk("fs_txn: Commit invalid arguments.\n");
         return -EINVAL;
     }
-    log = transaction->log;
-    if (transaction->error) status = transaction->error;
 
+    log = transaction->log;
+
+    if (transaction->error) status = transaction->error;
     if (status == EOK && log->ops && log->ops->begin) status = log->ops->begin(log->backend_context, transaction->transaction_id, transaction->used);
 
     /* Ordered data must reach stable storage before the metadata commit record. */
     if (status == EOK) status = fs_txn_write_home(transaction, FS_TXN_ORDERED_DATA);
     if (status == EOK && transaction->used) status = fs_txn_flush(log);
-
     if (status == EOK && log->ops && log->ops->log_block) {
         for (buffer = transaction->buffers; buffer; buffer = buffer->next) {
             if (!(buffer->flags & FS_TXN_METADATA)) continue;
@@ -354,12 +582,10 @@ int fs_txn_commit(fs_txn_t *transaction)
     }
     if (status == EOK && log->ops && log->ops->commit) status = log->ops->commit(log->backend_context, transaction->transaction_id);
     if (status == EOK && log->ops && transaction->used) status = fs_txn_flush(log);
-
     if (status == EOK) status = fs_txn_write_home(transaction, FS_TXN_METADATA);
     if (status == EOK && transaction->used) status = fs_txn_flush(log);
     if (status == EOK && log->ops && log->ops->checkpoint) status = log->ops->checkpoint(log->backend_context, transaction->transaction_id);
     if (status == EOK && log->ops && transaction->used) status = fs_txn_flush(log);
-
     if (status != EOK) {
         plogk("fs_txn: Commit failed (transaction %u, drive %u, status %d, buffers %u)\n", transaction->transaction_id, log->device.drive, status, transaction->used);
         log->aborted    = 1;
@@ -370,7 +596,7 @@ int fs_txn_commit(fs_txn_t *transaction)
     return status;
 }
 
-/* Abort the transaction, recording the given error. */
+/* Abort the transaction, recording the given error.  Caller holds the log mutex. */
 void fs_txn_abort(fs_txn_t *transaction, int error)
 {
     if (!transaction || !transaction->active) return;

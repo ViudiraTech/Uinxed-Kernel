@@ -264,6 +264,29 @@ static void procfs_deactivate_pid_nodes(vfs_node_t root)
 }
 
 /*
+ * Cached PID snapshot of the /proc root directory.
+ *
+ * Task managers re-enumerate /proc constantly, and every pathname open under
+ * /proc refreshes the root along the way (do_update -> procfs_stat).  Each
+ * rebuild walks the child list once per live PID, which is O(P^2) under the
+ * global VFS namespace lock - enough to freeze htop/top/xfce4-taskmanager on
+ * a busy desktop.  Like Linux's dentry cache, keep the last live PID set:
+ * when a refresh observes an unchanged set the children are already accurate
+ * and active, so the rebuild collapses into one O(P) comparison.
+ */
+static pid_t *procfs_root_pid_cache;
+static size_t procfs_root_pid_cache_count;
+static bool   procfs_root_pid_cache_valid;
+
+/* True when the cached PID set matches the freshly snapshotted one. */
+static bool procfs_root_pid_set_unchanged(const pid_t *pids, size_t count)
+{
+    if (!procfs_root_pid_cache_valid || procfs_root_pid_cache_count != count) return false;
+    if (count && memcmp(procfs_root_pid_cache, pids, count * sizeof(*pids)) != 0) return false;
+    return true;
+}
+
+/*
  * CPU count used when generating per-CPU procfs content, floored at 1 and
  * capped so the `int` remaining accounting and the buffer sizes stay within
  * range. No x86 platform exceeds this many logical CPUs today.
@@ -2308,8 +2331,6 @@ static int procfs_stat(void *file, vfs_node_t node)
             (void)procfs_ensure_child(node, "self", PROCFS_SELF_LINK, 0, 0, file_symlink);
             (void)procfs_ensure_child(node, "thread-self", PROCFS_SELF_LINK, 0, 1, file_symlink);
 
-            procfs_deactivate_pid_nodes(node);
-
             /*
              * procfs_stat() runs under the VFS namespace lock.  Do not take
              * and then drop process references here: process_put() is allowed
@@ -2321,6 +2342,15 @@ static int procfs_stat(void *file, vfs_node_t node)
             pid_t *pids = malloc(PROCESS_TABLE_SIZE * sizeof(*pids));
             if (!pids) return -ENOMEM;
             size_t pid_count = process_snapshot_pids(pids, PROCESS_TABLE_SIZE);
+
+            if (procfs_root_pid_set_unchanged(pids, pid_count)) {
+                /* Same live set: every PID child is already active and bound; skip the O(P^2) rebuild. */
+                free(pids);
+                break;
+            }
+
+            procfs_deactivate_pid_nodes(node);
+
             for (size_t pos = 0; pos < pid_count; pos++) {
                 char  pid_str[16];
                 pid_t pid = pids[pos];
@@ -2329,7 +2359,11 @@ static int procfs_stat(void *file, vfs_node_t node)
                     (void)procfs_ensure_child(node, pid_str, PROCFS_PID_DIR, pid, 0, file_dir);
                 }
             }
-            free(pids);
+
+            free(procfs_root_pid_cache);
+            procfs_root_pid_cache       = pids;
+            procfs_root_pid_cache_count = pid_count;
+            procfs_root_pid_cache_valid = true;
             break;
         }
         case PROCFS_PID_DIR : {

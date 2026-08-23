@@ -537,7 +537,7 @@ void drm_release(struct drm_file *file)
         uint32_t                fb_id = fb->base.id;
         if (drm_mode_rmfb(dev, &fb_id, file)) {
             drm_framebuffer_cleanup(fb);
-            free(fb);
+            drm_framebuffer_put(fb);
         }
     }
 

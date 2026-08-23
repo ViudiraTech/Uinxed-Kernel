@@ -70,8 +70,6 @@ static void sock_blocked_register(socket_t *sk, task_t *task);
 static void sock_blocked_unregister(socket_t *sk);
 static void sock_blocked_wake(socket_t *sk);
 static void sock_blocked_wake_all(socket_t *sk);
-static void socket_ref(socket_t *sk);
-static void socket_unref(socket_t *sk);
 static void socket_poll_notify(socket_t *sk, uint32_t events);
 static void socket_disconnect_peer(socket_t *sk);
 
@@ -396,6 +394,7 @@ static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int ab
     return -EADDRNOTAVAIL;
 }
 
+/* Add a bound address to the registry */
 static int sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen, int abstract)
 {
     spin_lock(&sock_bound_lock);
@@ -445,6 +444,7 @@ static int sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addr
     return -ENOMEM;
 }
 
+/* Remove a bound address from the registry */
 static void sock_bound_remove(socket_t *sk)
 {
     spin_lock(&sock_bound_lock);
@@ -457,6 +457,7 @@ static void sock_bound_remove(socket_t *sk)
     spin_unlock(&sock_bound_lock);
 }
 
+/* Format the UNIX socket table for display */
 size_t socket_format_unix_table(char *buffer, size_t capacity)
 {
     if (!buffer || !capacity) return 0;
@@ -692,7 +693,7 @@ static void socket_poll_notify(socket_t *sk, uint32_t events)
 }
 
 /* Take a reference on a socket that is already protected by an owner/lock. */
-static void socket_ref(socket_t *sk)
+void socket_ref(socket_t *sk)
 {
     if (sk) (void)__atomic_add_fetch(&sk->refcount, 1, __ATOMIC_ACQ_REL);
 }
@@ -817,7 +818,7 @@ static void socket_destroy(socket_t *sk)
 }
 
 /* Drop a reference on a socket, freeing it when none remain. */
-static void socket_unref(socket_t *sk)
+void socket_unref(socket_t *sk)
 {
     if (!sk) return;
     uint32_t old = __atomic_fetch_sub(&sk->refcount, 1, __ATOMIC_ACQ_REL);

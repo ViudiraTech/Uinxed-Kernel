@@ -464,8 +464,21 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
         frames -= done;
 
         if (card->ops->start && pf->state == SNDRV_PCM_STATE_PREPARED && (snd_pcm_sframes_t)pcm_ring_buffer_avail(pf) >= (snd_pcm_sframes_t)pf->start_threshold) {
-            card->ops->start(card);
+            /*
+             * Start the PCM as soon as the threshold is crossed so the DMA
+             * begins while the remaining frames are still being copied,
+             * instead of waiting for the whole write() to complete.
+             * card->ops->start runs without pf->lock: the HDA start path takes
+             * hda_ctrl.lock, and the HDA ISR takes hda_ctrl.lock then
+             * pf->lock - calling start under pf->lock would invert that order
+             * and AB-BA deadlock on SMP.  Once RUNNING, the PREPARED guard
+             * above prevents a second start.
+             */
             pf->state = SNDRV_PCM_STATE_RUNNING;
+            spin_unlock(&pf->lock);
+            card->ops->start(card);
+            spin_lock(&pf->lock);
+            continue;
         }
 
         if (pf->period_event) pf->period_event = 0;
@@ -535,6 +548,8 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
     }
     pf->fmt = fmt;
 
+    /* Rebuilding the ring buffer must be serialised with the read/write data path, which touches pf->ring_buf under pf->lock. */
+    spin_lock(&pf->lock);
     if (pf->ring_buf) pcm_ring_buffer_destroy(pf);
 
     size_t fb         = frame_bytes(&fmt);
@@ -548,7 +563,11 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
     pf->period_bytes    = pf->period_size * fb;
 
     int r = pcm_ring_buffer_init(pf, buf_frames);
-    if (r != EOK) return r;
+    if (r != EOK) {
+        spin_unlock(&pf->lock);
+        return r;
+    }
+    spin_unlock(&pf->lock);
     if (pf->card->ops->set_params) pf->card->ops->set_params(pf->card, &fmt, buf_frames * fb, pf->period_bytes);
 
     params.buffer_size  = (unsigned int)pf->boundary;
@@ -652,8 +671,10 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
         case SNDRV_PCM_IOCTL_HW_PARAMS :
             return audio_hw_params_ioctl(pf, arg);
         case SNDRV_PCM_IOCTL_HW_FREE :
+            spin_lock(&pf->lock);
             pcm_ring_buffer_destroy(pf);
             pf->state = SNDRV_PCM_STATE_OPEN;
+            spin_unlock(&pf->lock);
             return EOK;
         case SNDRV_PCM_IOCTL_SW_PARAMS :
             return audio_sw_params_ioctl(pf, arg);
@@ -755,12 +776,16 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
                 if (status != EOK) return status;
             }
             pf->fmt = fmt;
+
+            /* Rebuilding the ring buffer must be serialised with the data path (write/read use ring_buf under pf->lock). */
+            spin_lock(&pf->lock);
             if (pf->ring_buf) pcm_ring_buffer_destroy(pf);
             pf->period_size     = 1024;
             pf->start_threshold = 2048;
             pf->avail_min       = 1024;
             pf->period_bytes    = pf->period_size * frame_bytes(&fmt);
             status              = pcm_ring_buffer_init(pf, 16384);
+            spin_unlock(&pf->lock);
             if (card->ops->set_params) card->ops->set_params(card, &fmt, 16384 * frame_bytes(&fmt), pf->period_bytes);
             return status;
         }

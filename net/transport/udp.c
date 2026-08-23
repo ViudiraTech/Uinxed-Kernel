@@ -12,6 +12,7 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <net/abi/inet.h>
 #include <net/core/endian.h>
 #include <net/ipv4/icmp.h>
 #include <net/transport/udp.h>
@@ -423,9 +424,18 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     udp_event_callback_t cb_udp  = target->event_callback;
     void                *ctx_udp = target->event_context;
     wait_queue_wake_all(&target->wait);
+
+    /*
+     * Pin the inet wrapper (event_context) before dropping the lock so a
+     * concurrent core_close() cannot free it while the callback runs.
+     */
+    if (cb_udp) inet_sock_ref(ctx_udp);
     spin_unlock(&target->lock);
     spin_unlock(&udp_table_lock);
-    if (cb_udp) cb_udp(target, UDP_READY_READ, ctx_udp);
+    if (cb_udp) {
+        cb_udp(target, UDP_READY_READ, ctx_udp);
+        inet_sock_unref(ctx_udp);
+    }
     net_pbuf_free(packet);
     return 0;
 bad:
@@ -498,9 +508,15 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     udp_event_callback_t cb_udp6  = target->event_callback;
     void                *ctx_udp6 = target->event_context;
     wait_queue_wake_all(&target->wait);
+
+    /* Pin the inet wrapper so a concurrent core_close() cannot free it while the callback reads sock->event_* / sock->wait. */
+    if (cb_udp6) inet_sock_ref(ctx_udp6);
     spin_unlock(&target->lock);
     spin_unlock(&udp_table_lock);
-    if (cb_udp6) cb_udp6(target, UDP_READY_READ, ctx_udp6);
+    if (cb_udp6) {
+        cb_udp6(target, UDP_READY_READ, ctx_udp6);
+        inet_sock_unref(ctx_udp6);
+    }
     net_pbuf_free(packet);
     return 0;
 bad:

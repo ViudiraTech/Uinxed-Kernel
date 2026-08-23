@@ -455,7 +455,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     uintptr_t load_bias = compute_load_bias(&ehdr, phdr, interp_base);
 
     /* Stream the linker through a small window instead of copying its entire file per exec. */
-    source.window_capacity = 64U * 1024U;
+    source.window_capacity = (size_t)64U * 1024U;
     source.window          = malloc(source.window_capacity);
     if (!source.window) source.window_capacity = 0;
 

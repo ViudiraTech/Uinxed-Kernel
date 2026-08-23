@@ -47,27 +47,16 @@ static uint64_t extfs_block_offset(extfs_sb_info_t *sb, uint32_t block)
 /* Raw byte read, routed through the active transaction when one exists. */
 static int extfs_disk_read(extfs_sb_info_t *sb, uint64_t offset, void *buf, size_t size)
 {
-    uint8_t *out = buf;
-    if (sb->active_transaction && sb->block_size) {
-        uint8_t *block = malloc(sb->block_size);
-        if (!block) return -ENOMEM;
-        while (size) {
-            uint64_t logical = offset / sb->block_size;
-            uint32_t within  = (uint32_t)(offset % sb->block_size);
-            size_t   chunk   = size < sb->block_size - within ? size : sb->block_size - within;
-            int      status  = fs_txn_read(sb->active_transaction, logical, block);
-            if (status != EOK) {
-                free(block);
-                return status;
-            }
-            memcpy(out, block + within, chunk);
-            out += chunk;
-            offset += chunk;
-            size -= chunk;
-        }
-        free(block);
-        return EOK;
-    }
+    /*
+     * The active-transaction pointer is read and the transaction's buffers
+     * are walked under the log lock, so a concurrent commit cannot free the
+     * transaction out from under us (fs_txn_read_bytes_active returns 0 when
+     * no transaction is active and we fall through to the device).
+     */
+    int served = sb->block_size ? fs_txn_read_bytes_active(&sb->transaction_log, &sb->active_transaction, offset, buf, size) : 0;
+    if (served > 0) return EOK;
+    if (served < 0) return served;
+
     int status = blockdev_read_bytes(&sb->device, offset, buf, size);
     if (status != EOK) plogk("extfs: Drive %u: block read failed at byte %llu (size %llu): %d\n", sb->device.drive, (unsigned long long)offset, (unsigned long long)size, status);
     return status;
@@ -173,35 +162,10 @@ int extfs_update_bitmap_checksum(extfs_sb_info_t *sb, uint32_t group, int inode_
 /* Raw byte write, staged through the active transaction when one exists. */
 static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *buf, size_t size)
 {
-    const uint8_t *input = buf;
-    if (sb->active_transaction && sb->block_size) {
-        uint8_t *block = malloc(sb->block_size);
-        if (!block) {
-            plogk("extfs: Drive %u: transaction write buffer allocation failed.\n", sb->device.drive);
-            return -ENOMEM;
-        }
-        while (size) {
-            uint64_t logical = offset / sb->block_size;
-            uint32_t within  = (uint32_t)(offset % sb->block_size);
-            size_t   chunk   = size < sb->block_size - within ? size : sb->block_size - within;
-            int      status  = fs_txn_read(sb->active_transaction, logical, block);
-            if (status == EOK) {
-                memcpy(block + within, input, chunk);
-                status = fs_txn_stage(sb->active_transaction, logical, block, FS_TXN_METADATA);
-            }
-            if (status != EOK) {
-                plogk("extfs: Drive %u: transaction write failed at block %llu (%d)\n", sb->device.drive, (unsigned long long)logical, status);
-                sb->active_transaction->error = status;
-                free(block);
-                return status;
-            }
-            input += chunk;
-            offset += chunk;
-            size -= chunk;
-        }
-        free(block);
-        return EOK;
-    }
+    int served = sb->block_size ? fs_txn_stage_bytes_active(&sb->transaction_log, &sb->active_transaction, offset, buf, size, FS_TXN_METADATA) : 0;
+    if (served > 0) return EOK;
+    if (served < 0) return served;
+
     int status = blockdev_write_bytes(&sb->device, offset, buf, size);
     if (status != EOK) plogk("extfs: Drive %u: block write failed at byte %llu (size %llu): %d\n", sb->device.drive, (unsigned long long)offset, (unsigned long long)size, status);
     return status;
@@ -214,7 +178,9 @@ int extfs_read_block(extfs_sb_info_t *sb, uint32_t phys_block, void *buf)
         if (sb && sb->es) plogk("extfs: Drive %u: read of block %u out of range (count %llu)\n", sb->device.drive, phys_block, (unsigned long long)sb->blocks_count);
         return -EIO;
     }
-    if (sb->active_transaction) return fs_txn_read(sb->active_transaction, phys_block, buf);
+    int served = fs_txn_read_active(&sb->transaction_log, &sb->active_transaction, phys_block, buf);
+    if (served > 0) return EOK;
+    if (served < 0) return served;
     return extfs_disk_read(sb, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
 
@@ -226,13 +192,11 @@ int extfs_write_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
         plogk("extfs: Drive %u: write to block %u out of range (count %llu)\n", sb->device.drive, phys_block, (unsigned long long)sb->blocks_count);
         return -EIO;
     }
-    if (sb->active_transaction) {
-        int status = fs_txn_stage(sb->active_transaction, phys_block, buf, FS_TXN_METADATA);
-        if (status != EOK) {
-            plogk("extfs: Drive %u: metadata stage of block %u failed (%d)\n", sb->device.drive, phys_block, status);
-            sb->active_transaction->error = status;
-        }
-        return status;
+    int served = fs_txn_stage_active(&sb->transaction_log, &sb->active_transaction, phys_block, buf, FS_TXN_METADATA);
+    if (served > 0) return EOK;
+    if (served < 0) {
+        plogk("extfs: Drive %u: metadata stage of block %u failed (%d)\n", sb->device.drive, phys_block, served);
+        return served;
     }
     return extfs_disk_write(sb, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
@@ -245,13 +209,11 @@ int extfs_write_data_block(extfs_sb_info_t *sb, uint32_t phys_block, const void 
         plogk("extfs: Drive %u: data write to block %u out of range (count %llu)\n", sb->device.drive, phys_block, (unsigned long long)sb->blocks_count);
         return -EIO;
     }
-    if (sb->active_transaction) {
-        int status = fs_txn_stage(sb->active_transaction, phys_block, buf, FS_TXN_ORDERED_DATA);
-        if (status != EOK) {
-            plogk("extfs: Drive %u: data stage of block %u failed (%d)\n", sb->device.drive, phys_block, status);
-            sb->active_transaction->error = status;
-        }
-        return status;
+    int served = fs_txn_stage_active(&sb->transaction_log, &sb->active_transaction, phys_block, buf, FS_TXN_ORDERED_DATA);
+    if (served > 0) return EOK;
+    if (served < 0) {
+        plogk("extfs: Drive %u: data stage of block %u failed (%d)\n", sb->device.drive, phys_block, served);
+        return served;
     }
     return blockdev_write_bytes(&sb->device, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
@@ -259,11 +221,32 @@ int extfs_write_data_block(extfs_sb_info_t *sb, uint32_t phys_block, const void 
 /* Begin a transaction, making it the volume's active one. */
 int extfs_transaction_begin(extfs_sb_info_t *sb, fs_txn_t *transaction, uint32_t credits)
 {
-    int status;
-    if (!sb || !transaction || sb->active_transaction || !sb->transaction_log_initialized) return -EINVAL;
+    int  status;
+    bool busy;
+
+    if (!sb || !transaction || !sb->transaction_log_initialized) return -EINVAL;
     if (sb->read_only) return -EROFS;
+
+    /*
+     * Read the active pointer under the log lock: the publish here and the
+     * clear in commit/abort happen under the same lock, so this check is
+     * data-race-free.  Mutual exclusion between two concurrent begins is
+     * provided by fs_txn_begin()->fs_txn_claim_log() (only one transaction
+     * owns the log at a time); the check is a fast-path rejection, and a
+     * begin that passes it but finds the log already claimed simply waits.
+     */
+    fs_txn_log_lock(&sb->transaction_log);
+    busy = sb->active_transaction != NULL;
+    fs_txn_log_unlock(&sb->transaction_log);
+    if (busy) return -EINVAL;
+
     status = fs_txn_begin(&sb->transaction_log, credits, transaction);
-    if (status == EOK) sb->active_transaction = transaction;
+    if (status == EOK) {
+        /* Publish under the log lock so readers take a consistent snapshot. */
+        fs_txn_log_lock(&sb->transaction_log);
+        sb->active_transaction = transaction;
+        fs_txn_log_unlock(&sb->transaction_log);
+    }
     return status;
 }
 
@@ -271,8 +254,22 @@ int extfs_transaction_begin(extfs_sb_info_t *sb, fs_txn_t *transaction, uint32_t
 int extfs_transaction_commit(extfs_sb_info_t *sb, fs_txn_t *transaction)
 {
     if (!sb || !transaction || sb->active_transaction != transaction) return -EINVAL;
-    sb->active_transaction = 0;
+
+    /*
+     * Keep active_transaction published for the whole commit and hold the
+     * log lock across it.  fs_txn_read_active()/fs_txn_stage_active() read
+     * *active_pp under the same lock, so a concurrent reader/writer either
+     * stages through the transaction (before commit starts) or falls back to
+     * the device (after commit and the pointer clear, both under the lock) -
+     * it can never bypass to the device while the commit is still flushing
+     * ordered data, metadata or the checkpoint, which would observe (or
+     * interleave with) a half-committed state.  fs_txn_commit() requires the
+     * lock for its buffer-list walks and for the final free.
+     */
+    fs_txn_log_lock(&sb->transaction_log);
     int status             = fs_txn_commit(transaction);
+    sb->active_transaction = 0;
+    fs_txn_log_unlock(&sb->transaction_log);
     if (status != EOK) sb->read_only = 1;
     return status;
 }
@@ -281,8 +278,11 @@ int extfs_transaction_commit(extfs_sb_info_t *sb, fs_txn_t *transaction)
 void extfs_transaction_abort(extfs_sb_info_t *sb, fs_txn_t *transaction, int error)
 {
     if (!sb || !transaction || sb->active_transaction != transaction) return;
+    fs_txn_log_lock(&sb->transaction_log);
     sb->active_transaction = 0;
     fs_txn_abort(transaction, error);
+    fs_txn_log_unlock(&sb->transaction_log);
+
     /* Discard allocator counter changes that only existed in the aborted transaction. */
     if (blockdev_read_bytes(&sb->device, 1024, sb->es, sizeof(*sb->es)) != EOK) {
         sb->read_only = 1;

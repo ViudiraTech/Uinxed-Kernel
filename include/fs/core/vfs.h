@@ -353,12 +353,21 @@ int  vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *ph
 int  vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end);
 
 /* Per-open operations, falling back to the legacy node callbacks. */
-int64_t            vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
-int64_t            vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
-int64_t            vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
-int64_t            vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
-int64_t            vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
-int64_t            vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+/*
+ * Descriptor-backed I/O on an open file description that was already
+ * authorized at open time.  Credentials are not re-evaluated so inherited
+ * descriptors keep working across setuid (su) and exec.
+ */
+int64_t            vfs_file_read_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+int64_t            vfs_file_write_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+int64_t            vfs_file_read_user_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+int64_t            vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
 int                vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
 int                vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
 int                vfs_mount_is_readonly(vfs_node_t node);

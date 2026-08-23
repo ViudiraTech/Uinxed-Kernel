@@ -21,8 +21,7 @@
 #include <sync/signal.h>
 #include <syscall/syscall.h>
 
-void page_fault_entry(void);
-
+void     page_fault_entry(void);
 uint64_t nmi_spurious_count;
 
 #define USER_CS 0x1B
@@ -173,19 +172,27 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
 {
     irq_enter_gs(frame);
+
     /* NMI handlers must not be interrupted by ordinary IRQs. */
     disable_intr();
     if (smp_handle_nmi()) {
         irq_leave_gs_no_preempt(frame);
         return;
     }
+
     /*
-     * Do not printk from NMI context.  A spurious NMI may arrive while the
-     * console/serial lock is held with IRQs disabled; logging here would
-     * turn harmless platform NMIs into a self-deadlock or double fault.
-     * The counter remains visible through /proc/interrupts.
-    */
+     * Not a TLB-shootdown NMI: an unknown hardware NMI (LINT1 assertion,
+     * NMI button, watchdog).  Mirror Linux's default_do_nmi() - log it and
+     * continue, a real NMI must not be fatal.  plogk() cannot run here (it
+     * would spin forever against a lock the interrupted context holds), so
+     * park the message and let the timer tick drain it through the normal
+     * log, reaching every enabled console just like any other message.
+     * Also count it, visible through /proc/interrupts.
+     */
     (void)__atomic_add_fetch(&nmi_spurious_count, 1, __ATOMIC_RELAXED);
+    char msg[NMI_LOG_MSG_SIZE];
+    int  n = snprintf(msg, sizeof(msg), "NMI received for unknown reason on CPU %u (RIP %p)\n", get_current_cpu_id(), (void *)frame->rip);
+    if (n > 0) nmi_log_message(msg, (size_t)n);
     irq_leave_gs_no_preempt(frame);
 }
 INTERRUPT_END

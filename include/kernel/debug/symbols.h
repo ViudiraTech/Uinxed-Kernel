@@ -23,4 +23,7 @@ typedef struct {
 /* Get symbol information */
 sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_address);
 
+/* Runtime address just past the last kernel function (from the ELF symtab). */
+uintptr_t kernel_text_end(void);
+
 #endif // INCLUDE_SYMBOLS_H_

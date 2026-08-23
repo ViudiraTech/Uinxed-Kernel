@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/smp.h>
 #include <drivers/tty/tty.h>
 #include <kernel/printk.h>
 #include <libs/std/stdarg.h>
@@ -60,6 +61,68 @@ void plogk(const char *format, ...)
 #else
     (void)format;
 #endif
+}
+
+/*
+ * NMI-safe logging: per-CPU message slot + deferred drain.
+ *
+ * plogk() cannot run in NMI context: it takes plogk_lock and the console
+ * writes take port->lock / tty_flush_spinlock, all held with IRQs masked.
+ * An NMI (non-maskable) can interrupt a holder and spin forever, hanging the
+ * CPU.  Instead, the NMI handler formats the message and parks it in a
+ * per-CPU slot; the periodic timer tick (a maskable interrupt, which can
+ * never interrupt a lock holder because every spinlock disables IRQs) drains
+ * the slot through the ordinary plogk() path.
+ *
+ * Each CPU only ever touches its own slot, and writer (NMI) and drainer
+ * (timer) run nested on that same CPU, never concurrently: an NMI returns
+ * before the next maskable interrupt can run (the NMI gate masks IF), so a
+ * plain slot is race-free.  Two NMIs before a tick keep the first message;
+ * an NMI during the drain copies a fresh message into the slot after busy is
+ * cleared, so it waits for the next tick instead of being lost.
+ */
+#define NMI_LOG_MAX_CPUS 256
+
+struct nmi_log_slot {
+        char msg[NMI_LOG_MSG_SIZE];
+        bool busy;
+};
+
+static struct nmi_log_slot nmi_log_slots[NMI_LOG_MAX_CPUS];
+static uint64_t            nmi_log_lost[NMI_LOG_MAX_CPUS]; // dropped per CPU
+
+/* Park a message for the current CPU's next timer tick (NMI context). */
+void nmi_log_message(const char *msg, size_t len)
+{
+    uint32_t cpu = get_current_cpu_id();
+    if (cpu >= NMI_LOG_MAX_CPUS) return;
+    struct nmi_log_slot *s = &nmi_log_slots[cpu];
+    if (s->busy) {
+        __atomic_add_fetch(&nmi_log_lost[cpu], 1, __ATOMIC_RELAXED);
+        return; // keep the first of two pending messages
+    }
+    if (len >= NMI_LOG_MSG_SIZE) len = NMI_LOG_MSG_SIZE - 1;
+    memcpy(s->msg, msg, len);
+    s->msg[len] = '\0';
+    s->busy     = true;
+}
+
+/* Drain the current CPU's pending NMI message through plogk(). */
+void nmi_log_flush(void)
+{
+    uint32_t cpu = get_current_cpu_id();
+    if (cpu >= NMI_LOG_MAX_CPUS) return;
+    struct nmi_log_slot *s = &nmi_log_slots[cpu];
+
+    /* Report dropped messages (first-wins policy) before the pending one. */
+    uint64_t lost = __atomic_exchange_n(&nmi_log_lost[cpu], 0, __ATOMIC_RELAXED);
+    if (lost) plogk("nmi_log: %llu message%s lost due to overflow.\n", (unsigned long long)lost, lost == 1 ? "" : "s");
+
+    if (!s->busy) return;
+    char local[NMI_LOG_MSG_SIZE];
+    memcpy(local, s->msg, NMI_LOG_MSG_SIZE);
+    s->busy = false; // a new NMI may now overwrite the slot
+    plogk("%s", local);
 }
 
 /* Handler of unsafe buf writing */

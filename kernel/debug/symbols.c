@@ -74,3 +74,58 @@ sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_addr
     }
     return sym_info;
 }
+
+/*
+ * Return the runtime address just past the last kernel function.  Preferred
+ * source is the end of the executable PT_LOAD segment from the ELF program
+ * headers (survives a stripped symtab and tracks the real code layout); the
+ * symbol table's highest STT_FUNC end is the fallback.  Only when no usable
+ * ELF metadata exists is the fixed 64 MB window used.  Stack-scan bounds
+ * therefore follow the actual code extent instead of a magic number, so valid
+ * return addresses past the real text end are not missed and padding between
+ * text end and any fallback window is not falsely reported.
+ */
+uintptr_t kernel_text_end(void)
+{
+    uintptr_t   base    = kernel_address_request.response && kernel_address_request.response->virtual_base ? (uintptr_t)kernel_address_request.response->virtual_base : KERNEL_BASE_ADDRESS;
+    Elf64_Ehdr *ehdr    = kernel_file_request.response && kernel_file_request.response->kernel_file ? (Elf64_Ehdr *)kernel_file_request.response->kernel_file->address : NULL;
+    Elf64_Addr  max_end = 0;
+
+    if (!ehdr) return base + 0x4000000; // fallback: no kernel ELF available
+
+    /* Preferred: end of the executable PT_LOAD segment(s). */
+    {
+        Elf64_Phdr *phdr = (Elf64_Phdr *)((char *)ehdr + ehdr->e_phoff);
+        for (Elf64_Half i = 0; i < ehdr->e_phnum; ++i) {
+            if (phdr[i].type != PT_LOAD || !(phdr[i].flags & PF_X)) continue;
+            Elf64_Addr end = phdr[i].vaddr + phdr[i].memsz;
+            if (end > max_end) max_end = end;
+        }
+    }
+    if (max_end) return base + max_end;
+
+    /* Fallback: the highest STT_FUNC symbol end from the symtab. */
+    {
+        Elf64_Shdr *shdr     = (Elf64_Shdr *)((char *)ehdr + ehdr->e_shoff);
+        const char *shstrtab = (const char *)ehdr + shdr[ehdr->e_shstrndx].sh_offset;
+        Elf64_Sym  *sym      = 0;
+        size_t      sym_size = 0;
+        for (Elf64_Half i = 0; i < ehdr->e_shnum; ++i) {
+            const char *sh_name = shstrtab + shdr[i].sh_name;
+            if (!strcmp(sh_name, ".symtab")) {
+                sym      = (Elf64_Sym *)((char *)ehdr + shdr[i].sh_offset);
+                sym_size = shdr[i].sh_size / sizeof(Elf64_Sym);
+            }
+        }
+        if (sym) {
+            for (size_t i = 0; i < sym_size; ++i) {
+                if (ELF64_ST_TYPE(sym[i].st_info) != STT_FUNC) continue;
+                Elf64_Addr end = sym[i].st_value + sym[i].st_size;
+                if (end > max_end) max_end = end;
+            }
+        }
+    }
+    if (max_end) return base + max_end;
+
+    return base + 0x4000000; // last resort: no usable ELF metadata
+}

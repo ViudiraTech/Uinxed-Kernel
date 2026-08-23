@@ -14,6 +14,7 @@
 #include <drivers/firmware/acpi.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <sync/spin_lock.h>
 
 /* TPM hardware addresses and sizes */
 
@@ -261,6 +262,13 @@ struct tpm_device {
         void    *crb_rsp_buf;  // CRB response buffer
         uint32_t crb_cmd_size; // CRB command buffer size
         uint32_t crb_sm;       // CRB start method
+
+        /*
+         * Serialises the single hardware FIFO/locality across concurrent
+         * /dev/tpm0 access (a second request must not re-issue REQUEST_USE
+         * and overwrite the FIFO while a command is being received).
+         */
+        spinlock_t lock;
 };
 
 /* Initialize TPM subsystem (auto-detection, interface init, startup) */

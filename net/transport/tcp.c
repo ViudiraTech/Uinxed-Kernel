@@ -13,6 +13,7 @@
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <net/abi/inet.h>
 #include <net/core/endian.h>
 #include <net/transport/tcp.h>
 #include <process/sched.h>
@@ -399,7 +400,17 @@ void tcp_close(tcp_endpoint_t *endpoint)
         spin_lock(&tcp_table_lock);
         for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++)
             if (tcp_table[i] == endpoint) tcp_table[i] = NULL;
-        spin_unlock(&tcp_table_lock);
+
+        /*
+         * Re-acquire the endpoint lock under the table lock so a tcp_input()
+         * that looked this endpoint up before the removal (and is still
+         * processing under its lock) drains before we free it.  table_lock ->
+         * endpoint->lock is the established order, so this cannot deadlock.
+         * Holding the table lock through the parent-queue cleanup also
+         * serialises against tcp_accept(), which takes the table lock to pop.
+         */
+        spin_lock(&endpoint->lock);
+        spin_unlock(&endpoint->lock);
         if (endpoint->parent) {
             tcp_endpoint_t *parent = endpoint->parent;
             spin_lock(&parent->lock);
@@ -410,6 +421,7 @@ void tcp_close(tcp_endpoint_t *endpoint)
             }
             spin_unlock(&parent->lock);
         }
+        spin_unlock(&tcp_table_lock);
         wait_queue_wake_all(&endpoint->wait);
         tcp_records_free(records);
         tcp_ooo_free(ooo);
@@ -448,6 +460,18 @@ void tcp_close(tcp_endpoint_t *endpoint)
             }
         }
         tcp_table[i] = NULL;
+
+        /*
+         * Serialise against a tcp_input() that is mid-handshake on this
+         * child: it holds child->lock while processing (after dropping the
+         * table lock), so taking it here prevents freeing the endpoint while
+         * it is in use.  The child is already removed from the table, so no
+         * new lookup can reach it; freeing while holding the lock releases
+         * the lock together with the object.  Closing the residual window
+         * between a table lookup and the child->lock acquisition requires
+         * endpoint refcounting.
+         */
+        spin_lock(&child->lock);
         tcp_records_free(child->tx_head);
         tcp_ooo_free(child->ooo_head);
         free(child->rx_data);
@@ -549,6 +573,16 @@ int tcp_listen(tcp_endpoint_t *endpoint, unsigned backlog)
 tcp_endpoint_t *tcp_accept(tcp_endpoint_t *endpoint)
 {
     if (!endpoint) return NULL;
+
+    /*
+     * Serialise the pop against every teardown path: tcp_close() (both the
+     * listener child-freeing loop and the standalone CLOSED teardown) and
+     * tcp_timer() hold tcp_table_lock while they decide to free an endpoint,
+     * so taking it here closes the window where close frees a child that
+     * accept() has just dequeued.  table_lock -> endpoint->lock matches the
+     * order tcp_input() uses, so there is no lock inversion.
+     */
+    spin_lock(&tcp_table_lock);
     spin_lock(&endpoint->lock);
     tcp_endpoint_t *accepted = NULL;
     for (unsigned n = 0; n < TCP_ACCEPT_MAX; n++) {
@@ -563,6 +597,7 @@ tcp_endpoint_t *tcp_accept(tcp_endpoint_t *endpoint)
         }
     }
     spin_unlock(&endpoint->lock);
+    spin_unlock(&tcp_table_lock);
     return accepted;
 }
 
@@ -1138,9 +1173,15 @@ static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uin
     child->data_retries       = listener->data_retries;
     child->keepalive_enabled  = listener->keepalive_enabled;
     child->parent             = listener;
-    spin_lock(&child->lock);
+
+    /*
+     * Emit the SYN-ACK without taking child->lock: the child is exclusively
+     * owned here (the caller holds tcp_table_lock, so no RX lookup, timer or
+     * accept can reach it).  Taking child->lock while the caller holds
+     * listener->lock would invert the child->lock -> parent->lock order used
+     * by the handshake-completion path and deadlock on SMP.
+     */
     int status = tcp_emit(child, child->snd_una, child->rcv_nxt, TCP_FLAG_SYN | TCP_FLAG_ACK, NULL, 0, 1);
-    spin_unlock(&child->lock);
     if (status) {
         for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++)
             if (tcp_table[i] == child) tcp_table[i] = NULL;
@@ -1177,9 +1218,13 @@ static int tcp_passive_open6(tcp_endpoint_t *listener, const ipv6_info_t *ip, ui
     child->peer_mss        = peer_mss;
     child->last_received   = sched_ticks();
     child->parent          = listener;
-    spin_lock(&child->lock);
+
+    /*
+     * Same exclusivity as tcp_passive_open(): the caller holds tcp_table_lock,
+     * so no child->lock is needed for the SYN-ACK and no listener->lock ->
+     * child->lock order is created (which would invert the completion path).
+     */
     int status = tcp_emit(child, child->snd_una, child->rcv_nxt, TCP_FLAG_SYN | TCP_FLAG_ACK, NULL, 0, 1);
-    spin_unlock(&child->lock);
     if (status) {
         for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++)
             if (tcp_table[i] == child) tcp_table[i] = NULL;
@@ -1298,8 +1343,12 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
             tcp_event_callback_t cb_parent  = parent->event_callback;
             void                *ctx_parent = parent->event_context;
             wait_queue_wake_all(&parent->wait);
+            if (cb_parent) inet_sock_ref(ctx_parent);
             spin_unlock(&parent->lock);
-            if (cb_parent) cb_parent(parent, TCP_READY_ACCEPT | TCP_READY_READ, ctx_parent);
+            if (cb_parent) {
+                cb_parent(parent, TCP_READY_ACCEPT | TCP_READY_READ, ctx_parent);
+                inet_sock_unref(ctx_parent);
+            }
         }
     } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2 && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING
                && endpoint->state != TCP_LAST_ACK) {
@@ -1422,8 +1471,12 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
         tcp_event_callback_t cb_rst  = endpoint->event_callback;
         void                *ctx_rst = endpoint->event_context;
         wait_queue_wake_all(&endpoint->wait);
+        if (cb_rst) inet_sock_ref(ctx_rst);
         spin_unlock(&endpoint->lock);
-        if (cb_rst) cb_rst(endpoint, TCP_READY_ERROR | TCP_READY_READ | TCP_READY_HANGUP, ctx_rst);
+        if (cb_rst) {
+            cb_rst(endpoint, TCP_READY_ERROR | TCP_READY_READ | TCP_READY_HANGUP, ctx_rst);
+            inet_sock_unref(ctx_rst);
+        }
         net_pbuf_free(packet);
         return -ECONNRESET;
     }
@@ -1545,8 +1598,12 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
             tcp_event_callback_t cb_parent  = parent->event_callback;
             void                *ctx_parent = parent->event_context;
             wait_queue_wake_all(&parent->wait);
+            if (cb_parent) inet_sock_ref(ctx_parent);
             spin_unlock(&parent->lock);
-            if (cb_parent) cb_parent(parent, TCP_READY_ACCEPT | TCP_READY_READ, ctx_parent);
+            if (cb_parent) {
+                cb_parent(parent, TCP_READY_ACCEPT | TCP_READY_READ, ctx_parent);
+                inet_sock_unref(ctx_parent);
+            }
         }
     } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2 && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING
                && endpoint->state != TCP_LAST_ACK) {
@@ -1598,8 +1655,20 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     tcp_event_callback_t cb    = endpoint->event_callback;
     void                *ctx   = endpoint->event_context;
     wait_queue_wake_all(&endpoint->wait);
+
+    /*
+     * Pin the inet wrapper (event_context) before dropping the lock: the
+     * callback reads sock->event_* and sock->wait, and a concurrent
+     * core_close() must not be able to free the wrapper while it runs.  The
+     * endpoint itself is only dereferenced under its lock, so the transient
+     * socket pin is sufficient.
+     */
+    if (cb) inet_sock_ref(ctx);
     spin_unlock(&endpoint->lock);
-    if (cb) cb(endpoint, ready, ctx);
+    if (cb) {
+        cb(endpoint, ready, ctx);
+        inet_sock_unref(ctx);
+    }
     net_pbuf_free(packet);
     return 0;
 bad:
@@ -1688,10 +1757,18 @@ void tcp_timer(uint64_t now_ticks)
                 deferred_cb[deferred_count]    = endpoint->event_callback;
                 deferred_ctx[deferred_count]   = endpoint->event_context;
                 deferred_ready[deferred_count] = tcp_ready_locked(endpoint);
+
+                /* Pin the inet wrapper so a concurrent close cannot free it before the deferred callback runs. */
+                if (deferred_cb[deferred_count]) inet_sock_ref(deferred_ctx[deferred_count]);
                 deferred_count++;
                 spin_unlock(&endpoint->lock);
             } else {
-                spin_unlock(&endpoint->lock);
+                /*
+                 * Orphaned and failed: free while still holding endpoint->lock
+                 * so a concurrent tcp_input() cannot use a freed endpoint.
+                 * It is removed from the table first, so no new lookup can
+                 * reach it; freeing releases the lock with the object.
+                 */
                 tcp_table[i] = NULL;
                 tcp_records_free(endpoint->tx_head);
                 tcp_ooo_free(endpoint->ooo_head);
@@ -1700,19 +1777,25 @@ void tcp_timer(uint64_t now_ticks)
             }
         } else {
             int destroy = endpoint->orphaned && endpoint->state == TCP_CLOSED;
-            spin_unlock(&endpoint->lock);
             if (destroy) {
+                /* Free while holding endpoint->lock, as above. */
                 tcp_table[i] = NULL;
                 tcp_records_free(endpoint->tx_head);
                 tcp_ooo_free(endpoint->ooo_head);
                 free(endpoint->rx_data);
                 free(endpoint);
+            } else {
+                spin_unlock(&endpoint->lock);
             }
         }
     }
     spin_unlock(&tcp_table_lock);
-    for (int i = 0; i < deferred_count; i++)
-        if (deferred_cb[i]) deferred_cb[i](deferred_ep[i], deferred_ready[i], deferred_ctx[i]);
+    for (int i = 0; i < deferred_count; i++) {
+        if (deferred_cb[i]) {
+            deferred_cb[i](deferred_ep[i], deferred_ready[i], deferred_ctx[i]);
+            inet_sock_unref(deferred_ctx[i]);
+        }
+    }
 }
 
 /* Poll the ready-event mask without blocking (used by select/poll) */
@@ -1773,6 +1856,7 @@ void tcp_set_event_callback(tcp_endpoint_t *endpoint, tcp_event_callback_t callb
     if (callback) callback(endpoint, ready, context);
 }
 
+/* Set IPv6-only flag under spinlock protection */
 void tcp_set_v6only(tcp_endpoint_t *endpoint, int enabled)
 {
     if (!endpoint) return;
@@ -1781,6 +1865,7 @@ void tcp_set_v6only(tcp_endpoint_t *endpoint, int enabled)
     spin_unlock(&endpoint->lock);
 }
 
+/* Return wait queue pointer, or NULL if endpoint is invalid */
 wait_queue_t *tcp_wait_queue(tcp_endpoint_t *endpoint)
 {
     return endpoint ? &endpoint->wait : NULL;

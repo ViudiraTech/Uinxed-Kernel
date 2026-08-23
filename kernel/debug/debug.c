@@ -54,7 +54,70 @@ static bool frame_pointer_plausible(uintptr_t fp)
         uintptr_t base = (uintptr_t)cpu->tss_stack;
         if (fp >= base && fp < base + sizeof(tss_stack_t)) return true;
     }
+
+    /*
+     * Fallback: the current stack grows down, so live frame pointers live in
+     * the window above the current RSP.  This covers the early-boot stack
+     * (boot_task.kernel_stack is only a single marker byte, not the real
+     * stack the boot path runs on) and any stack not described by a
+     * task/CPU descriptor - without it, a panic during early boot reports an
+     * empty backtrace.
+     */
+    uintptr_t sp;
+    __asm__ volatile("movq %%rsp, %0" : "=r"(sp));
+    if (fp >= sp && fp < sp + 0x20000) return true;
     return false;
+}
+
+/*
+ * Fallback unwinder: when the frame-pointer chain is unusable - most
+ * commonly because the panic ran in an interrupt/exception handler that
+ * interrupted user mode (RBP is then a user pointer, outside every kernel
+ * stack) - scan the current kernel stack for 8-byte values that land in the
+ * kernel text window and print them as candidate return addresses.
+ */
+static void stack_scan(uintptr_t sp)
+{
+    uintptr_t base = 0, top = 0;
+    task_t   *task = current_task();
+    if (task) {
+        if (task->process && task->process->kernel_stack) {
+            base = (uintptr_t)task->process->kernel_stack;
+            top  = base + PROCESS_KERNEL_STACK;
+        } else if (task->kernel_stack) {
+            base = (uintptr_t)task->kernel_stack;
+            top  = base + TASK_KERNEL_STACK;
+        }
+    }
+    if (!top) {
+        cpu_processor_t *cpu = get_current_cpu();
+        if (cpu && cpu->tss_stack) {
+            base = (uintptr_t)cpu->tss_stack;
+            top  = base + sizeof(tss_stack_t);
+        }
+    }
+    if (!top) {
+        /* Early boot / unknown stack: scan the window above the current RSP (see frame_pointer_plausible). */
+        base = sp;
+        top  = sp + 0x20000;
+    }
+    if (!top || sp < base || sp >= top) return;
+
+    uintptr_t current_address = kernel_address_request.response->virtual_base;
+    uintptr_t text_end        = kernel_text_end(); // real code end from the ELF symtab
+    int       printed         = 0;
+
+    plogk("Stack scan (frame pointer chain unavailable):\n");
+    for (uintptr_t p = sp; p + 8 <= top && printed < 32; p += 8) {
+        uintptr_t val = *(uintptr_t *)p;
+        if (val < current_address || val >= text_end) continue;
+        sym_info_t sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, val);
+        if (sym_info.name)
+            plogk("  [<0x%016zx>] `%s`+0x%lx/0x%lx\n", val, sym_info.name, val - current_address, sym_info.size);
+        else
+            plogk("  [<0x%016zx>] unknown\n", val);
+        printed++;
+    }
 }
 
 /* Dump stack */
@@ -106,6 +169,18 @@ void dump_stack(void)
             rbp = rbp->next;
         }
         ++frame_count;
+    }
+
+    /*
+     * The RBP chain is untrustworthy when it yielded almost nothing - panic
+     * from an ISR that interrupted user mode is the classic case.  Fall back
+     * to a stack scan so the report always contains at least a hint of where
+     * the fault happened.
+     */
+    if (frame_count < 2) {
+        uintptr_t sp;
+        __asm__ volatile("movq %%rsp, %0" : "=r"(sp));
+        stack_scan(sp);
     }
     plogk(" </TASK>\n");
 }

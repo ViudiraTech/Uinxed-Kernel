@@ -313,6 +313,13 @@ void socket_init(void);
 /* Attach a socket to a process fd table */
 int socket_fd_install(socket_t *sk);
 
+/*
+ * Pin / release a socket across a table lookup (e.g. netlink unicast
+ * delivery to a destination socket that may be closed concurrently).
+ */
+void socket_ref(socket_t *sk);
+void socket_unref(socket_t *sk);
+
 /* Sendmmsg/recvmmsg */
 int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags);
 int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeout);
