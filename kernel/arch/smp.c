@@ -489,6 +489,7 @@ void smp_init(void)
     cpus              = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
     tlb_shootdown_ack = calloc(cpu_count, sizeof(*tlb_shootdown_ack));
     if (!cpus || !tlb_shootdown_ack) panic("smp: Cannot allocate CPU state.");
+
     /* aligned_alloc() does not clear memory; never expose stale per-CPU state. */
     memset(cpus, 0, sizeof(cpu_processor_t) * cpu_count);
     plogk("smp: Found %d CPUs.\n", cpu_count);
@@ -550,9 +551,7 @@ void smp_init(void)
         cpus[i].fpu.fpu_irq_saved  = 0;
         /* Allocate kernel stack for each CPU */
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
-        if (!cpus[i].kernel_stack) {
-            panic("smp: failed to allocate kernel stack for CPU %u", i);
-        }
+        if (!cpus[i].kernel_stack) { panic("smp: failed to allocate kernel stack for CPU %u", i); }
 
         /* Special handling for BSP */
         if (i == 0) {
@@ -571,22 +570,14 @@ void smp_init(void)
             continue;
         }
         cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
-        if (!cpus[i].gdt) {
-            panic("smp: failed to allocate GDT for CPU %u", i);
-        }
+        if (!cpus[i].gdt) { panic("smp: failed to allocate GDT for CPU %u", i); }
         memset(cpus[i].gdt, 0, sizeof(gdt_t)); // Clear dirty data
         cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
-        if (!cpus[i].tss_stack) {
-            panic("smp: failed to allocate TSS stack for CPU %u", i);
-        }
+        if (!cpus[i].tss_stack) { panic("smp: failed to allocate TSS stack for CPU %u", i); }
         cpus[i].nmi_stack = malloc(sizeof(tss_stack_t));
-        if (!cpus[i].nmi_stack) {
-            panic("smp: failed to allocate NMI stack for CPU %u", i);
-        }
+        if (!cpus[i].nmi_stack) { panic("smp: failed to allocate NMI stack for CPU %u", i); }
         cpus[i].tss = (tss_t *)aligned_alloc(16, ALIGN_UP(sizeof(tss_t), 16));
-        if (!cpus[i].tss) {
-            panic("smp: failed to allocate TSS for CPU %u", i);
-        }
+        if (!cpus[i].tss) { panic("smp: failed to allocate TSS for CPU %u", i); }
         memset(cpus[i].tss, 0, sizeof(tss_t)); // Clear dirty data
 
         /* Configure the AP entry point */

@@ -686,8 +686,8 @@ int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
 void page_destroy_user_space(page_directory_t *directory)
 {
     if (!directory || !directory->table) return;
-
     spin_lock(&directory->lock);
+
     /*
      * Page-table teardown releases frames immediately below.  A different
      * CPU may still have this address space loaded, or may retain a stale

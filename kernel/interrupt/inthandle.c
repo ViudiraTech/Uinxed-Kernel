@@ -21,8 +21,7 @@
 #include <sync/signal.h>
 #include <syscall/syscall.h>
 
-void page_fault_entry(void);
-
+void     page_fault_entry(void);
 uint64_t nmi_spurious_count;
 
 #define USER_CS 0x1B
@@ -173,6 +172,7 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
 {
     irq_enter_gs(frame);
+
     /* NMI handlers must not be interrupted by ordinary IRQs. */
     disable_intr();
     if (smp_handle_nmi()) {

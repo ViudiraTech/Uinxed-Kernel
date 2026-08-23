@@ -320,14 +320,16 @@ typedef struct {
 } signal_mcontext_t;
 
 typedef struct {
-        uint64_t         uc_flags;
-        uint64_t         uc_link;
+        uint64_t          uc_flags;
+        uint64_t          uc_link;
         stack_t           uc_stack;
         signal_mcontext_t uc_mcontext;
+
         /* Linux reserves 128 bytes for the user-visible signal mask. */
-        uint64_t          uc_sigmask[16];
+        uint64_t uc_sigmask[16];
+
         /* Embedded FXSAVE/XSAVE area, addressed by uc_mcontext.fpregs. */
-        uint8_t           fpstate[4096];
+        uint8_t fpstate[4096];
 } signal_ucontext_t;
 
 _Static_assert(offsetof(signal_ucontext_t, uc_mcontext) == 40, "x86-64 ucontext mcontext offset");

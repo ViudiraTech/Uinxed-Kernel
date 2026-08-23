@@ -1916,6 +1916,7 @@ int vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *phy
     if (!file || !physical) return -EINVAL;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
     if (!mapping) return -EOPNOTSUPP;
+
     /*
      * Reclaim publishes PC_PAGE_EVICTING before unlinking a page.  A fault
      * racing that short window can legitimately receive -ENOENT from
