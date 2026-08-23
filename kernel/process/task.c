@@ -64,7 +64,10 @@ static pid_entry_t *pid_hash_remove(task_t *task)
     return NULL;
 }
 
-/* Find a task by PID. */
+/*
+ * Find a task by PID.  Returns a raw pointer with no reference; the caller
+ * must not use it after any point where the task could be reaped.
+ */
 task_t *pid_find_task(uint64_t pid)
 {
     uint32_t idx  = pid_hash_index(pid);
@@ -74,6 +77,29 @@ task_t *pid_find_task(uint64_t pid)
     for (pid_entry_t *entry = pid_hash[idx]; entry; entry = entry->next) {
         if (entry->task->pid == pid) {
             task = entry->task;
+            break;
+        }
+    }
+    spin_unlock(&pid_hash_lock);
+    return task;
+}
+
+/*
+ * Find a task by PID and pin it with a reference, or NULL if it is no longer
+ * in the hash (already reaped/freed or in the middle of task_free's hash
+ * removal).  The reference is taken under the hash lock so a concurrent
+ * task_free() cannot free the task between the lookup and the pin.
+ */
+task_t *pid_find_task_get(uint64_t pid)
+{
+    uint32_t idx  = pid_hash_index(pid);
+    task_t  *task = NULL;
+
+    spin_lock(&pid_hash_lock);
+    for (pid_entry_t *entry = pid_hash[idx]; entry; entry = entry->next) {
+        if (entry->task->pid == pid) {
+            task = entry->task;
+            task_ref(task);
             break;
         }
     }
@@ -140,6 +166,7 @@ task_t *task_alloc_status(const char *name, int *error)
         if (error) *error = -ENOMEM;
         return NULL;
     }
+    task->refcount = 1; // the base reference, released by task_free()
 
     pid_entry_t *pid_entry = malloc(sizeof(pid_entry_t));
     if (!pid_entry) {
@@ -185,6 +212,9 @@ task_t *task_alloc_status(const char *name, int *error)
     ilist_init(&task->timer_node);
     ilist_init(&task->thread_node);
     ilist_init(&task->cgroup_node);
+    ilist_init(&task->pi_owned);
+    task->pi_owned_lock.lock   = 0;
+    task->pi_owned_lock.rflags = 0;
     wait_queue_init(&task->kthread.exit_wait);
 
     if (cgroup_root()) parent = current_task();
@@ -223,11 +253,40 @@ task_t *task_alloc(const char *name)
     return task_alloc_status(name, NULL);
 }
 
-/* Destroy a task, releasing its PID entry, kernel stack and FPU state */
+/* Take a reference on a task that is known to be alive. */
+void task_ref(task_t *task)
+{
+    if (task) (void)__atomic_add_fetch(&task->refcount, 1, __ATOMIC_ACQ_REL);
+}
+
+/*
+ * Drop a reference on a task, freeing the task_t and its kernel stack when
+ * the count reaches zero.  The final putter must be the only user of the task.
+ */
+void task_put(task_t *task)
+{
+    if (!task) return;
+    if (__atomic_sub_fetch(&task->refcount, 1, __ATOMIC_RELEASE) == 0) {
+        free(task->kernel_stack);
+        fpu_task_destroy(task);
+        free(task);
+    }
+}
+
+/*
+ * Destroy a task, releasing its PID entry, kernel stack and FPU state.
+ * Drops the base reference; the memory is freed only when the last
+ * cross-context reference (e.g. a futex PI owner pointer) is released.
+ */
 void task_free(task_t *task)
 {
     if (!task) return;
 
+    /*
+     *The task is dead from the scheduler's point of view: detach it from
+     * the PID hash (so pid_find_task_get() no longer hands out references)
+     * and run per-task teardown before dropping the base reference.
+     */
     seccomp_task_release(task);
     cgroup_task_exit(task);
 
@@ -235,7 +294,5 @@ void task_free(task_t *task)
     pid_entry_t *pid_entry = pid_hash_remove(task);
     spin_unlock(&pid_hash_lock);
     free(pid_entry);
-    free(task->kernel_stack);
-    fpu_task_destroy(task);
-    free(task);
+    task_put(task);
 }

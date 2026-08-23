@@ -149,8 +149,67 @@ void rt_mutex_init(rt_mutex_t *mutex, uint32_t *uaddr)
     mutex->owner_died  = 0;
     mutex->lock.lock   = 0;
     mutex->lock.rflags = 0;
+    mutex->refs        = 1; // the owning futex entry holds the initial reference
     wait_queue_init(&mutex->wq);
     rb_init_root(&mutex->pi_waiters);
+    ilist_init(&mutex->pi_owned_node);
+}
+
+/*
+ * Change the owner of a PI mutex, keeping the owner's task->pi_owned list in
+ * sync (futex_pi_owner_exit() walks it instead of the global futex hash).
+ * Caller holds mutex->lock.  Lock order: mutex->lock -> owner->pi_owned_lock.
+ */
+void pi_mutex_set_owner(rt_mutex_t *mutex, task_t *old_owner, task_t *new_owner)
+{
+    /*
+     * No ownership change (covers old == new != NULL, e.g. the contended-lock
+     * path re-confirming the word's tid is the current owner, and old == new
+     * == NULL): leave the owned list untouched.  Re-inserting the node into
+     * the same owner's list would corrupt it.
+     */
+    if (old_owner == new_owner) return;
+    if (old_owner) {
+        spin_lock(&old_owner->pi_owned_lock);
+        ilist_remove(&mutex->pi_owned_node);
+        spin_unlock(&old_owner->pi_owned_lock);
+    }
+
+    mutex->owner = new_owner;
+
+    if (new_owner) {
+        spin_lock(&new_owner->pi_owned_lock);
+        ilist_insert_before(&new_owner->pi_owned, &mutex->pi_owned_node);
+        spin_unlock(&new_owner->pi_owned_lock);
+    }
+}
+
+/*
+ * Take a reference on an rt_mutex.  Must be taken under the futex bucket
+ * lock so it cannot race entry cleanup, which drops the entry's own ref.
+ */
+void rt_mutex_ref(rt_mutex_t *mutex)
+{
+    __atomic_add_fetch(&mutex->refs, 1, __ATOMIC_RELAXED);
+}
+
+/*
+ * Drop a reference; the last reference frees the mutex.  Safe in any
+ * context: the atomic transition to zero is observed by exactly one caller,
+ * which must have finished using the mutex.
+ */
+void rt_mutex_unref(rt_mutex_t *mutex)
+{
+    if (__atomic_sub_fetch(&mutex->refs, 1, __ATOMIC_RELEASE) == 0) {
+        /*
+         * Destroyed: release the owner reference the mutex held (defensive;
+         * an owned mutex is never reported empty by futex_entry_empty, so
+         * the owner should already have released it).
+         */
+        task_t *owner = mutex->owner;
+        if (owner) task_put(owner);
+        free(mutex);
+    }
 }
 
 /* Try to acquire the mutex without blocking. */
@@ -163,7 +222,8 @@ int rt_mutex_trylock(rt_mutex_t *mutex, task_t *self)
         spin_unlock(&mutex->lock);
         return -EAGAIN;
     }
-    mutex->owner      = self;
+    task_ref(self); // mutex holds an owner reference
+    pi_mutex_set_owner(mutex, mutex->owner, self);
     mutex->owner_died = 0;
     self->base_weight = self->weight;
     self->pi_weight   = self->weight;
@@ -181,7 +241,8 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
     for (;;) {
         spin_lock(&mutex->lock);
         if (!mutex->owner) {
-            mutex->owner      = self;
+            task_ref(self); // mutex holds an owner reference
+            pi_mutex_set_owner(mutex, mutex->owner, self);
             mutex->owner_died = 0;
             self->base_weight = self->weight;
             self->pi_weight   = self->weight;
@@ -270,11 +331,14 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
         return -EPERM;
     }
 
-    mutex->owner = NULL;
+    /* The mutex releases its owner reference on self. */
+    task_put(self);
+    pi_mutex_set_owner(mutex, self, NULL);
     task_t *next = rt_mutex_wake_top_waiter(mutex);
     if (next) {
         /* Optimistic hand-off: @next owns the mutex from this point on. */
-        mutex->owner = next;
+        task_ref(next); // mutex holds an owner reference on @next
+        pi_mutex_set_owner(mutex, NULL, next);
     }
 
     spin_unlock(&mutex->lock);

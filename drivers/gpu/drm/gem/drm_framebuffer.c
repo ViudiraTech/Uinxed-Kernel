@@ -62,10 +62,15 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, con
 
     fb->id = (int)fb->base.id;
 
+    /* The idr registration owns the initial reference. */
+    fb->refcount = 1;
+
+    /* Serialise the fb_list / fbs_head intrusive lists with cleanup(). */
+    spin_lock(&dev->mode_config.fb_lock);
     ilist_insert_after(&dev->mode_config.fb_list, &fb->head);
     if (fb->file) ilist_insert_after(&fb->file->fbs_head, &fb->filp_head);
-
     dev->mode_config.num_fb++;
+    spin_unlock(&dev->mode_config.fb_lock);
 
     return 0;
 }
@@ -395,6 +400,8 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
         return -ENOENT;
     }
 
+    /* Pin the framebuffer so the plane work below cannot race a concurrent release of the last reference. */
+    drm_framebuffer_get(fb);
     spin_unlock(&dev->mode_config.fb_lock);
 
     for (ilist_node_t *node = dev->mode_config.plane_list.next; node != &dev->mode_config.plane_list; node = node->next) {
@@ -404,11 +411,13 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
             struct drm_crtc              *crtc    = plane->state->crtc;
             struct drm_crtc_helper_funcs *helpers = (struct drm_crtc_helper_funcs *)crtc->helper_private;
             if (!helpers || !helpers->page_flip) {
+                drm_framebuffer_put(fb);
                 DRM_ERROR("Rmfb: crtc %u has no page_flip helper.\n", crtc->base.id);
                 return -EBUSY;
             }
             int ret = helpers->page_flip(crtc, NULL, NULL, 0);
             if (ret) {
+                drm_framebuffer_put(fb);
                 DRM_ERROR("Rmfb: page_flip to NULL fb failed (ret=%d)\n", ret);
                 return ret;
             }
@@ -418,8 +427,14 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
         plane->fb_id       = 0;
         plane->crtc_id     = 0;
     }
+
+    /*
+     * Unregister, then drop both the registered reference and the pin we
+     * took above; the framebuffer is freed when any remaining lookup references are released.
+     */
     drm_framebuffer_cleanup(fb);
-    free(fb);
+    drm_framebuffer_put(fb);
+    drm_framebuffer_put(fb); // NOLINT(clang-analyzer-unix.Malloc): cleanup() does not release fb's own reference; the two puts drop the registered ref and the pin
 
     return 0;
 }
@@ -625,26 +640,47 @@ void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
         }
     }
 
+    spin_lock(&dev->mode_config.fb_lock);
     ilist_remove(&fb->head);
     if (fb->file) {
         ilist_remove(&fb->filp_head);
         fb->file = NULL;
     }
+    drm_idr_remove(&dev->mode_config.fb_idr, (uint32_t)fb->id);
+    if (dev->mode_config.num_fb > 0) dev->mode_config.num_fb--;
+    spin_unlock(&dev->mode_config.fb_lock);
 
     if (dev) {
-        spin_lock(&dev->mode_config.fb_lock);
-        drm_idr_remove(&dev->mode_config.fb_idr, (uint32_t)fb->id);
-        spin_unlock(&dev->mode_config.fb_lock);
-
         spin_lock(&dev->mode_config.idr_mutex);
         drm_idr_remove(&dev->mode_config.object_idr, fb->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
-
-        if (dev->mode_config.num_fb > 0) dev->mode_config.num_fb--;
     }
 }
 
-/* Look up a framebuffer by ID. Returns the framebuffer pointer or NULL if not found. */
+/* Take a reference on a framebuffer known to be alive. */
+void drm_framebuffer_get(struct drm_framebuffer *fb)
+{
+    if (fb) (void)__atomic_add_fetch(&fb->refcount, 1, __ATOMIC_ACQ_REL);
+}
+
+/*
+ * Drop a reference, freeing the framebuffer at zero.  The caller must have
+ * already unregistered it with drm_framebuffer_cleanup() (which removes it
+ * from fb_idr and the lists); the freed-at-zero transition only happens for
+ * the last transient reference.
+ */
+void drm_framebuffer_put(struct drm_framebuffer *fb)
+{
+    if (!fb) return;
+    if (__atomic_sub_fetch(&fb->refcount, 1, __ATOMIC_RELEASE) == 0) free(fb);
+}
+
+/*
+ * Look up a framebuffer by ID and take a reference on it, or NULL if not
+ * found.  The reference is taken under fb_lock, so drm_mode_rmfb()/release
+ * cannot free the framebuffer between the lookup and the pin.  The caller
+ * must release it with drm_framebuffer_put().
+ */
 struct drm_framebuffer *drm_framebuffer_lookup(struct drm_device *dev, struct drm_file *file_priv, uint32_t id)
 {
     struct drm_framebuffer *fb;
@@ -658,6 +694,7 @@ struct drm_framebuffer *drm_framebuffer_lookup(struct drm_device *dev, struct dr
 
     spin_lock(&dev->mode_config.fb_lock);
     fb = drm_idr_find(&dev->mode_config.fb_idr, id);
+    drm_framebuffer_get(fb);
     spin_unlock(&dev->mode_config.fb_lock);
 
     return fb;

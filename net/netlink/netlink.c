@@ -419,7 +419,14 @@ static uint32_t nl_alloc_pid(void)
     return pid;
 }
 
-/* Find a socket by PID in a protocol's multicast table */
+/*
+ * Find a socket by PID in a protocol's multicast table and take a reference
+ * on it.  The reference is taken under the table lock, and netlink_close
+ * removes the socket from the table (under the same lock) before dropping
+ * its last reference, so a socket found here is guaranteed to stay alive
+ * until the caller releases it with socket_unref().  Callers that only test
+ * for existence must also release the reference.
+ */
 static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
 {
     nl_mcast_table_t *tab;
@@ -433,6 +440,7 @@ static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
             nl_sock_t *ns = nl_sk(tab->entries[i].sk);
             if (ns && ns->nl_pid == pid) {
                 struct socket *sk = tab->entries[i].sk;
+                socket_ref(sk);
                 spin_unlock(&tab->lock);
                 return sk;
             }
@@ -531,6 +539,7 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
         free(sk);
         return NULL;
     }
+    ns->refs = 1; // owned by sk->priv
 
     /* Initialise generic socket fields */
     sk->state    = SOCK_STATE_UNCONNECTED;
@@ -539,11 +548,13 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     sk->protocol = (uint16_t)protocol;
     sk->flags    = 0;
     sk->refcount = 1;
+
     /*
      * Generic socket teardown wakes waiters for every family.  Initialise
      * the common wait queue here as well as in AF_UNIX/INET allocators.
      */
     wait_queue_init(&sk->waitq);
+    wait_queue_init(&ns->recv_wq);
     sk->priv     = ns;
     sk->sndbuf   = NL_SOCK_RECV_BUF_SIZE;
     sk->rcvbuf   = NL_SOCK_RECV_BUF_SIZE;
@@ -579,19 +590,21 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     return sk;
 }
 
-void netlink_close(struct socket *sk)
+/* Pin an nl_sock for a transient user (an in-flight recvmsg). */
+static nl_sock_t *nl_sock_ref(nl_sock_t *ns)
 {
-    nl_sock_t *ns;
-    clist_t    node;
-    clist_t    next;
+    if (ns) (void)__atomic_add_fetch(&ns->refs, 1, __ATOMIC_ACQ_REL);
+    return ns;
+}
 
-    if (!sk) return;
+/* Drop a reference; the last one frees the receive queue and the socket. */
+static void nl_sock_put(nl_sock_t *ns)
+{
+    clist_t node;
+    clist_t next;
 
-    ns = nl_sk(sk);
     if (!ns) return;
-
-    /* Unsubscribe from multicast */
-    nl_mcast_unsubscribe(ns->nl_protocol, sk);
+    if (__atomic_sub_fetch(&ns->refs, 1, __ATOMIC_ACQ_REL) != 0) return;
 
     /* Free receive queue */
     spin_lock(&ns->recv_lock);
@@ -605,8 +618,44 @@ void netlink_close(struct socket *sk)
     ns->recv_queue_bytes = 0;
     spin_unlock(&ns->recv_lock);
 
-    sk->priv = NULL;
     free(ns);
+}
+
+/* cleanup-attribute target for recvmsg's transient reference. */
+static void nl_sock_cleanup(nl_sock_t **p)
+{
+    if (p && *p) nl_sock_put(*p);
+}
+
+void netlink_close(struct socket *sk)
+{
+    nl_sock_t *ns;
+
+    if (!sk) return;
+
+    ns = nl_sk(sk);
+    if (!ns) return;
+
+    /* Unsubscribe from multicast */
+    nl_mcast_unsubscribe(ns->nl_protocol, sk);
+
+    /*
+     * Mark the socket closed and wake any reader blocked on recv_wq.  The
+     * socket holds one reference and each in-flight recvmsg holds a transient
+     * reference, so the queue and ns are only freed by the last put: a reader
+     * woken here still observes a live ->closed flag (checked under
+     * recv_lock) and returns instead of touching freed state.  Freeing ns
+     * unconditionally after the wake, as the old code did, left a reader's
+     * sched_node linked into freed memory and let a woken reader re-lock a
+     * freed recv_lock.
+     */
+    spin_lock(&ns->recv_lock);
+    ns->closed = 1;
+    spin_unlock(&ns->recv_lock);
+    wait_queue_wake_all(&ns->recv_wq);
+
+    sk->priv = NULL;
+    nl_sock_put(ns);
 }
 
 /* Bind */
@@ -633,12 +682,22 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
     /* Set or auto-assign port ID */
     if (addr->nl_pid == 0) {
         uint32_t candidate = sk->pid;
-        if (!candidate || nl_mcast_find_by_pid(ns->nl_protocol, candidate)) candidate = nl_alloc_pid();
+        if (!candidate) {
+            candidate = nl_alloc_pid();
+        } else {
+            struct socket *in_use = nl_mcast_find_by_pid(ns->nl_protocol, candidate);
+            if (in_use) {
+                socket_unref(in_use);
+                candidate = nl_alloc_pid();
+            }
+        }
         ns->nl_pid = candidate;
     } else {
-        /* Check if PID is already in use */
+        /* Check if PID is already in use.  The find_by_pid lookup pins the socket; release the pin regardless of the conflict outcome. */
         struct socket *existing = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
-        if (existing && existing != sk) {
+        bool           conflict = existing && existing != sk;
+        if (existing) socket_unref(existing);
+        if (conflict) {
             plogk("netlink: Bind failed, pid %u already in use.\n", (unsigned)addr->nl_pid);
             spin_unlock(&sk->lock);
             return -EADDRINUSE;
@@ -687,7 +746,6 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
     nl_sock_t *ns = nl_sk(sk);
     nl_msg_t  *msg;
     clist_t    node;
-    task_t    *blocked = NULL;
 
     if (!ns || !data || !len) return -EINVAL;
     msg = nl_msg_alloc(data, len, sender_pid, sender_groups, sender_uid, sender_gid);
@@ -726,16 +784,21 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
     }
     ns->recv_queue_len++;
     ns->recv_queue_bytes += len;
-    blocked          = ns->blocked_task;
-    ns->blocked_task = NULL;
+
+    /*
+     * Wake a blocked reader while still holding recv_lock, the same lock the
+     * reader holds across wait_queue_prepare().  This is the two-phase wait
+     * contract: the reader is linked into recv_wq before it sleeps, so the
+     * wakeup cannot be lost.
+     */
+    wait_queue_wake_all(&ns->recv_wq);
     spin_unlock(&ns->recv_lock);
 
-    if (blocked) task_wakeup(blocked);
     /*
      * Most netlink consumers, including eudevd, wait through epoll rather
      * than blocking directly in recvmsg(2).  Queueing a datagram must publish
-     * POLLIN through the socket's VFS poll source; waking only blocked_task
-     * leaves epoll_wait(-1) asleep while uevents accumulate in this queue.
+     * POLLIN through the socket's VFS poll source; waking only the direct
+     * waiter leaves epoll_wait(-1) asleep while uevents accumulate.
      */
     if (sk->node) vfs_poll_notify(sk->node, 0x0001U);
     return EOK;
@@ -808,6 +871,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
             struct socket *dest = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
             if (!dest) return -ECONNREFUSED;
             int ret = nl_queue_datagram(dest, buf, (uint32_t)len, ns->nl_pid, addr->nl_groups, sk->uid, sk->gid);
+            socket_unref(dest);
             return ret ? ret : (int)len;
         }
 
@@ -889,6 +953,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         if (!dest_sk) return -ECONNREFUSED;
 
         int ret = nl_queue_datagram(dest_sk, buf, nlhdr_len, ns->nl_pid, addr->nl_groups, sk->uid, sk->gid);
+        socket_unref(dest_sk);
         return ret ? ret : (int)nlhdr_len;
     }
 
@@ -916,17 +981,23 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
 /* Receive the next datagram, blocking if empty unless MSG_DONTWAIT. */
 int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid, int *msg_flags)
 {
-    nl_sock_t *ns;
+    nl_sock_t *ns __attribute__((cleanup(nl_sock_cleanup))) = NULL;
     nl_msg_t  *msg;
     int        is_nonblock;
     int        peek;
     uint32_t   copy_len;
     uint32_t   full_len;
-
     if (!sk || !buf) return -EINVAL;
 
     ns = nl_sk(sk);
     if (!ns) return -EINVAL;
+
+    /*
+     * Pin ns for the whole call.  netlink_close() may run concurrently (when
+     * the last socket reference drops); the transient reference keeps ns and
+     * its queue alive until this recvmsg observes ->closed and returns.
+     */
+    nl_sock_ref(ns);
 
     is_nonblock = ((flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK)) ? 1 : 0;
     peek        = (flags & MSG_PEEK) ? 1 : 0;
@@ -935,6 +1006,10 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
 
     /* Wait for messages */
     while (ns->recv_queue_len == 0) {
+        if (ns->closed) {
+            spin_unlock(&ns->recv_lock);
+            return -EBADF;
+        }
         if (ns->overrun && !ns->no_enobufs) {
             ns->overrun = 0;
             spin_unlock(&ns->recv_lock);
@@ -945,34 +1020,25 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
             return -EAGAIN;
         }
 
-        /* Register with the socket's blocked-task tracking */
-        spin_unlock(&ns->recv_lock);
-
-        /* Use the socket's own blocking mechanism */
-        spin_lock(&sk->lock);
-        /* Check again after re-acquiring lock */
-        spin_lock(&ns->recv_lock);
-        if (ns->recv_queue_len > 0) {
-            spin_unlock(&ns->recv_lock);
-            spin_unlock(&sk->lock);
-            goto dequeue;
-        }
-
         /*
-         * Block current task on this socket.
-         * Keep recv_lock held while setting blocked_task so that
-         * netlink_broadcast/unicast can't miss the wakeup.
+         * Two-phase wait: link the task into recv_wq under recv_lock, then
+         * sleep.  nl_queue_datagram enqueues and wakes under the same lock,
+         * so no wakeup can be lost between this emptiness check and the
+         * sleep.  The socket lock is not needed here; recv_lock serialises
+         * the queue and the wait-queue membership.
          */
-        ns->blocked_task = current_task();
+        wait_queue_prepare(&ns->recv_wq);
         spin_unlock(&ns->recv_lock);
-        spin_unlock(&sk->lock);
-        task_block();
-        spin_lock(&sk->lock);
+        wait_queue_sleep();
         spin_lock(&ns->recv_lock);
-        ns->blocked_task = NULL;
-        spin_unlock(&sk->lock);
+
+        /* Re-check: a concurrent netlink_close() may have woken us to die. */
+        if (ns->closed) {
+            spin_unlock(&ns->recv_lock);
+            return -EBADF;
+        }
     }
-dequeue:
+
     /* Get the first message */
     {
         clist_t head = clist_head(ns->recv_queue);
@@ -987,8 +1053,8 @@ dequeue:
     /* Copy to user */
     full_len = msg->len;
     copy_len = full_len;
-    if (copy_len > len) copy_len = (uint32_t)len;
 
+    if (copy_len > len) copy_len = (uint32_t)len;
     if (copy_len) memcpy(buf, msg->data, copy_len);
 
     /* Fill in sender address */
@@ -1001,7 +1067,6 @@ dequeue:
     if (sender_uid) *sender_uid = msg->sender_uid;
     if (sender_gid) *sender_gid = msg->sender_gid;
     if (msg_flags) *msg_flags = copy_len < full_len ? MSG_TRUNC : 0;
-
     if (!peek) {
         /* Remove from queue */
         ns->recv_queue = clist_delete(ns->recv_queue, msg);
@@ -1011,7 +1076,6 @@ dequeue:
     }
 
     spin_unlock(&ns->recv_lock);
-
     return (flags & MSG_TRUNC) ? (int)full_len : (int)copy_len;
 }
 

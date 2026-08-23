@@ -171,7 +171,9 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         int32_t                 extent;
         if (!s) return -ENOMEM;
         if (prop == config->prop_fb_id) {
-            s->fb = value ? drm_framebuffer_lookup(state->dev, file_priv, (uint32_t)value) : NULL;
+            struct drm_framebuffer *old_fb = s->fb;
+            s->fb                          = value ? drm_framebuffer_lookup(state->dev, file_priv, (uint32_t)value) : NULL;
+            if (old_fb) drm_framebuffer_put(old_fb);
             if (value && !s->fb) {
                 DRM_ERROR("Plane fb %u not found.\n", (uint32_t)value);
                 return -ENOENT;
@@ -380,11 +382,6 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             ret = -EFAULT;
             goto out;
         }
-        if ((size_t)atomic->count_objs > SIZE_MAX / sizeof(*objs) || (size_t)atomic->count_objs > SIZE_MAX / sizeof(*count_props)) {
-            DRM_ERROR("Object count %u overflow.\n", atomic->count_objs);
-            ret = -EOVERFLOW;
-            goto out;
-        }
         objs        = malloc((size_t)atomic->count_objs * sizeof(*objs));
         count_props = malloc((size_t)atomic->count_objs * sizeof(*count_props));
         if (!objs || !count_props) {
@@ -411,11 +408,6 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         if (!atomic->props_ptr || !atomic->prop_values_ptr) {
             DRM_ERROR("Missing props/prop_values pointers.\n");
             ret = -EFAULT;
-            goto out;
-        }
-        if ((size_t)total_props > SIZE_MAX / sizeof(*props) || (size_t)total_props > SIZE_MAX / sizeof(*prop_values)) {
-            DRM_ERROR("Prop count %u overflow.\n", total_props);
-            ret = -EOVERFLOW;
             goto out;
         }
         props       = malloc((size_t)total_props * sizeof(*props));
@@ -660,6 +652,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     }
 
     drm_mode_object_put(&crtc->base);
+    drm_framebuffer_put(fb);
 
     return ret;
 err_flip:
@@ -669,6 +662,7 @@ err_flip:
     spin_unlock(&crtc->commit_lock);
     if (e) free(e);
     drm_mode_object_put(&crtc->base);
+    drm_framebuffer_put(fb);
     return ret ? ret : -EINVAL;
 }
 

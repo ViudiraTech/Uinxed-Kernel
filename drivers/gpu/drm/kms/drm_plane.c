@@ -260,9 +260,12 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
         goto out;
     }
     plane_state->crtc = crtc;
-    plane_state->fb   = fb;
-    plane_state->src  = (struct drm_rect) {(int32_t)plane_req->src_x, (int32_t)plane_req->src_y, (int32_t)(plane_req->src_x + plane_req->src_w), (int32_t)(plane_req->src_y + plane_req->src_h)};
-    plane_state->dst  = (struct drm_rect) {plane_req->crtc_x, plane_req->crtc_y, plane_req->crtc_x + (int32_t)plane_req->crtc_w, plane_req->crtc_y + (int32_t)plane_req->crtc_h};
+
+    /* The atomic state owns a reference on its previous fb (memcpy in drm_atomic_get_plane_state); replace it with the lookup reference. */
+    if (plane_state->fb) drm_framebuffer_put(plane_state->fb);
+    plane_state->fb  = fb;
+    plane_state->src = (struct drm_rect) {(int32_t)plane_req->src_x, (int32_t)plane_req->src_y, (int32_t)(plane_req->src_x + plane_req->src_w), (int32_t)(plane_req->src_y + plane_req->src_h)};
+    plane_state->dst = (struct drm_rect) {plane_req->crtc_x, plane_req->crtc_y, plane_req->crtc_x + (int32_t)plane_req->crtc_w, plane_req->crtc_y + (int32_t)plane_req->crtc_h};
     if (crtc) {
         crtc_state = drm_atomic_get_crtc_state(state, crtc);
         if (!crtc_state) {
@@ -330,6 +333,7 @@ void drm_plane_cleanup(struct drm_plane *plane)
     free(plane->name);
     plane->name = NULL;
 
+    if (plane->state && plane->state->fb) drm_framebuffer_put(plane->state->fb);
     free(plane->state);
     plane->state = NULL;
 

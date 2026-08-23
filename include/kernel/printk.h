@@ -37,6 +37,11 @@ void printk(const char *format, ...);
 /* Kernel print log */
 void plogk(const char *format, ...);
 
+/* NMI-safe logging: park a message from NMI context, drain via plogk later. */
+#define NMI_LOG_MSG_SIZE 256
+void nmi_log_message(const char *msg, size_t len);
+void nmi_log_flush(void);
+
 /* Handler of unsafe buf writing */
 uint8_t unsafe_buf_write(writer *writer, char c);
 

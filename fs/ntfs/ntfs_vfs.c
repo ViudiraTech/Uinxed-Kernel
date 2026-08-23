@@ -1476,11 +1476,29 @@ static int ntfs_clear_owned_dirty(ntfs_mount_t *mnt)
 /* Begin a transaction, setting the dirty flag first if needed. */
 static int ntfs_transaction_begin(ntfs_mount_t *mnt, fs_txn_t *transaction, u32 credits)
 {
-    int status;
-    if (!mnt || !transaction || !credits || mnt->active_transaction || !mnt->transaction_log_initialized) return -EINVAL;
+    int  status;
+    bool busy;
+
+    if (!mnt || !transaction || !credits || !mnt->transaction_log_initialized) return -EINVAL;
+
+    /*
+     * Read the active pointer under the log lock (the publish here and the
+     * clear in finish happen under the same lock, so the check is
+     * data-race-free).  Mutual exclusion between concurrent begins is
+     * provided by fs_txn_begin()->fs_txn_claim_log(); the check is a
+     * fast-path rejection.
+     */
+    fs_txn_log_lock(&mnt->transaction_log);
+    busy = mnt->active_transaction != NULL;
+    fs_txn_log_unlock(&mnt->transaction_log);
+    if (busy) return -EINVAL;
+
     status = fs_txn_begin(&mnt->transaction_log, credits, transaction);
     if (status == EOK) {
+        /* Publish under the log lock so dev_read/dev_write see a consistent snapshot and can never read a pointer that is being freed. */
+        fs_txn_log_lock(&mnt->transaction_log);
         mnt->active_transaction = transaction;
+        fs_txn_log_unlock(&mnt->transaction_log);
     } else if (mnt->dirty_owned) {
         (void)ntfs_clear_owned_dirty(mnt);
     }
@@ -1491,13 +1509,26 @@ static int ntfs_transaction_begin(ntfs_mount_t *mnt, fs_txn_t *transaction, u32 
 static int ntfs_transaction_finish(ntfs_mount_t *mnt, fs_txn_t *transaction, int status)
 {
     if (!mnt || !transaction || mnt->active_transaction != transaction) return -EINVAL;
-    mnt->active_transaction = NULL;
+
+    /*
+     * Hold the log lock for the whole finish and only detach
+     * active_transaction after commit/abort completes.  fs_txn_read_active()/
+     * fs_txn_stage_active() read *active_pp under the same lock, so a
+     * concurrent reader/writer either stages through the transaction or falls
+     * back to the device after the pointer clear - never bypassing the device
+     * while commit is still flushing ordered data/metadata/checkpoint.
+     */
+    fs_txn_log_lock(&mnt->transaction_log);
     if (status != EOK) {
         fs_txn_abort(transaction, status);
+        mnt->active_transaction = NULL;
+        fs_txn_log_unlock(&mnt->transaction_log);
         (void)ntfs_clear_owned_dirty(mnt);
         return status;
     }
-    status = fs_txn_commit(transaction);
+    status                  = fs_txn_commit(transaction);
+    mnt->active_transaction = NULL;
+    fs_txn_log_unlock(&mnt->transaction_log);
     if (status == EOK) {
         status = ntfs_clear_owned_dirty(mnt);
     } else {
@@ -1511,16 +1542,20 @@ static int ntfs_transaction_finish(ntfs_mount_t *mnt, fs_txn_t *transaction, int
 static int dev_read(ntfs_mount_t *mnt, u64 byte_off, u8 *buf, size_t size)
 {
     if (!mnt || !buf || byte_off > UINT64_MAX - size) return -EINVAL;
-    if (!mnt->active_transaction) return blockdev_read_bytes(&mnt->dev, byte_off, buf, size);
-    return fs_txn_read_bytes(mnt->active_transaction, byte_off, buf, size);
+    int served = fs_txn_read_bytes_active(&mnt->transaction_log, &mnt->active_transaction, byte_off, buf, size);
+    if (served > 0) return EOK;
+    if (served < 0) return served;
+    return blockdev_read_bytes(&mnt->dev, byte_off, buf, size);
 }
 
 /* Device write, staged through the active transaction. */
 static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size)
 {
     if (!mnt || !buf || mnt->dev.read_only || byte_off > UINT64_MAX - size) return mnt && mnt->dev.read_only ? -EROFS : -EINVAL;
-    if (!mnt->active_transaction) return blockdev_write_bytes(&mnt->dev, byte_off, buf, size);
-    return fs_txn_stage_bytes(mnt->active_transaction, byte_off, buf, size, FS_TXN_METADATA);
+    int served = fs_txn_stage_bytes_active(&mnt->transaction_log, &mnt->active_transaction, byte_off, buf, size, FS_TXN_METADATA);
+    if (served > 0) return EOK;
+    if (served < 0) return served;
+    return blockdev_write_bytes(&mnt->dev, byte_off, buf, size);
 }
 
 /* Decode a runlist into vcn/lcn/run triples, handling sparse runs. */

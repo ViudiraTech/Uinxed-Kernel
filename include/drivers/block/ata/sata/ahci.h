@@ -12,6 +12,7 @@
 #define INCLUDE_AHCI_H_
 
 #include <libs/std/stdint.h>
+#include <sync/spin_lock.h>
 
 /* SATA signature values */
 #define SATA_SIG_ATA   0x00000101
@@ -366,6 +367,15 @@ typedef struct {
         uint64_t          ct_phys;
         uint8_t          *dma_buf;
         uint64_t          dma_buf_phys;
+
+        /*
+         * Serialises command-slot allocation and the shared per-port
+         * cmd_tbl/dma_buf across concurrent I/O on the same port (two CPUs
+         * issuing reads for different files on the same disk).  Completion is
+         * polled, so holding it across a command does not deadlock against an
+         * IRQ path.
+         */
+        spinlock_t lock;
 } ahci_port_state_t;
 
 extern ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];

@@ -277,14 +277,19 @@ void extfs_free_block(extfs_sb_info_t *sb, uint32_t block)
     if (bit >= extfs_blocks_in_group(sb, group)) return;
     int status = extfs_free_bit_in_bitmap(sb, group, 0, sb->group_desc[group].bg_block_bitmap, bit);
     if (status != EOK) {
+        /* active_transaction is valid for the whole commit: it is cleared only after fs_txn_commit() has freed every buffer, still under the lock. */
+        fs_txn_log_lock(&sb->transaction_log);
         if (sb->active_transaction) sb->active_transaction->error = status;
+        fs_txn_log_unlock(&sb->transaction_log);
         return;
     }
     sb->group_desc[group].bg_free_blocks_count++;
     sb->es->s_free_blocks_count++;
     status = extfs_write_group_desc(sb, group, &sb->group_desc[group]);
     if (status == EOK) status = extfs_write_super(sb);
+    fs_txn_log_lock(&sb->transaction_log);
     if (status != EOK && sb->active_transaction) sb->active_transaction->error = status;
+    fs_txn_log_unlock(&sb->transaction_log);
 }
 
 /* Allocate an inode number from the first group with a free slot. */
@@ -350,14 +355,19 @@ void extfs_free_inode(extfs_sb_info_t *sb, uint32_t ino)
     if (ino < sb->s_first_ino || bit >= extfs_inodes_in_group(sb, group)) return;
     int status = extfs_free_bit_in_bitmap(sb, group, 1, sb->group_desc[group].bg_inode_bitmap, bit);
     if (status != EOK) {
+        /* active_transaction is valid for the whole commit: it is cleared only after fs_txn_commit() has freed every buffer, still under the lock. */
+        fs_txn_log_lock(&sb->transaction_log);
         if (sb->active_transaction) sb->active_transaction->error = status;
+        fs_txn_log_unlock(&sb->transaction_log);
         return;
     }
     sb->group_desc[group].bg_free_inodes_count++;
     sb->es->s_free_inodes_count++;
     status = extfs_write_group_desc(sb, group, &sb->group_desc[group]);
     if (status == EOK) status = extfs_write_super(sb);
+    fs_txn_log_lock(&sb->transaction_log);
     if (status != EOK && sb->active_transaction) sb->active_transaction->error = status;
+    fs_txn_log_unlock(&sb->transaction_log);
 }
 
 /* Adjust the used-directory counter of an inode's group. */

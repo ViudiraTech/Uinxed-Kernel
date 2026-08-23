@@ -576,8 +576,23 @@ void net_init(void)
 int netdev_rx(net_device_t *device, net_pbuf_t *packet)
 {
     if (!packet) return -EINVAL;
-    if (!device || !device->registered || !(device->flags & NETDEV_F_UP)) {
-        if (device) device->stats.rx_dropped++;
+    if (!device) {
+        net_pbuf_free(packet);
+        return -ENETDOWN;
+    }
+
+    /*
+     * Snapshot the liveness flags under the device lock: netdev_unregister()
+     * clears registered/UP under the same lock, so an unlocked read here
+     * could deliver a packet during teardown.
+     */
+    spin_lock(&device->lock);
+    bool up = device->registered && (device->flags & NETDEV_F_UP);
+    spin_unlock(&device->lock);
+    if (!up) {
+        spin_lock(&device->lock);
+        device->stats.rx_dropped++;
+        spin_unlock(&device->lock);
         net_pbuf_free(packet);
         return -ENETDOWN;
     }
@@ -597,10 +612,17 @@ int netdev_rx(net_device_t *device, net_pbuf_t *packet)
 int netdev_tx(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet) return -EINVAL;
-    if (!device->registered || (device->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) != (NETDEV_F_UP | NETDEV_F_RUNNING)) return -ENETDOWN;
+
+    /* Snapshot the liveness flags under the device lock (see netdev_rx). */
+    spin_lock(&device->lock);
+    bool up = device->registered && (device->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) == (NETDEV_F_UP | NETDEV_F_RUNNING);
+    spin_unlock(&device->lock);
+
+    if (!up) return -ENETDOWN;
     size_t length = packet->length;
     int    status = device->ops->xmit(device, packet);
     spin_lock(&device->lock);
+
     if (!status) {
         device->stats.tx_packets++;
         device->stats.tx_bytes += length;

@@ -79,8 +79,15 @@ static void cpu_to_be32(uint32_t x, uint8_t out[4])
 int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
 {
     int rc;
-
     if (!dev || !buf) return -1;
+
+    /*
+     * Serialise the single hardware FIFO/locality across concurrent access
+     * (two /dev/tpm0 writers would otherwise re-issue REQUEST_USE and
+     * overwrite the FIFO mid-receive).  The transmit is polled, so holding a
+     * spinlock across it is safe.
+     */
+    spin_lock(&dev->lock);
     for (uint32_t retry = 0; retry < TPM_RETRY; retry++) {
         rc = dev->request_locality(dev, 0);
         if (rc < 0) {
@@ -103,8 +110,10 @@ int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
             tpm_udelay(1000);
             continue;
         }
+        spin_unlock(&dev->lock);
         return rc;
     }
+    spin_unlock(&dev->lock);
     plogk("tpm: Transmit failed after %u attempts.\n", TPM_RETRY);
     return -1;
 }
@@ -118,20 +127,21 @@ static int tpm2_send_command(tpm_device_t *dev, uint32_t cc, const uint8_t *para
     cpu_to_be16(TPM2_ST_NO_SESSIONS, &cmd_buf[0]);
     cpu_to_be32(10 + param_len, &cmd_buf[2]);
     cpu_to_be32(cc, &cmd_buf[6]);
-    if (params && param_len > 0) memcpy(&cmd_buf[10], params, param_len);
 
+    if (params && param_len > 0) memcpy(&cmd_buf[10], params, param_len);
     int rc = tpm_transmit(dev, cmd_buf, sizeof(cmd_buf), 10 + param_len);
+
     if (rc < 0) return rc;
     if (rc < TPM_HEADER_SIZE) return -1;
-
     uint32_t rsp_code = be32_to_cpu(*(uint32_t *)&cmd_buf[6]);
+
     /*
      * TPM warnings (bit 10: TPM_RETRY, bit 11: TPM_DOING_SELFTEST etc.)
      * are not hard errors; the response data may still be valid.
      */
     if (rsp_code != 0 && !(rsp_code & 0x800)) return -(int)rsp_code;
-
     uint32_t data_len = (uint32_t)rc - 10;
+
     if (data_len > rsp_buf_size) data_len = (uint32_t)rsp_buf_size;
     if (rsp_buf && data_len > 0) memcpy(rsp_buf, &cmd_buf[10], data_len);
     return (int)data_len;
@@ -290,7 +300,8 @@ int tpm_init(void)
     return 0;
 #endif
     memset(&g_tpm_device, 0, sizeof(g_tpm_device));
-    g_tpm_device.locality = -1;
+    g_tpm_device.locality  = -1;
+    g_tpm_device.lock.lock = 0;
 
     tpm2_table_t *tpm2 = (tpm2_table_t *)find_table("TPM2");
     tcpa_table_t *tcpa = (tcpa_table_t *)find_table("TCPA");

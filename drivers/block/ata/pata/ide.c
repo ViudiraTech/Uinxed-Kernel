@@ -38,33 +38,48 @@ ide_device_t            ide_devices[4];
 uint8_t    ide_buf[2048] = {0};
 static int package[2];
 
-/* Interrupt status bit */
-volatile uint8_t ide_irq_invoked = 0;
+/* Per-channel interrupt-completion flag (channels[].irq_pending). */
 
-/* IDE interrupt handling function */
-INTERRUPT_BEGIN static void ide_irq(interrupt_frame_t *frame)
+/* IDE interrupt handling for the primary channel (IRQ14). */
+INTERRUPT_BEGIN static void ide_irq_primary(interrupt_frame_t *frame)
 {
     irq_enter_gs(frame);
     (void)frame;
     disable_intr();
-    ide_irq_invoked = 1;
+    channels[ATA_PRIMARY].irq_pending = 1;
     send_eoi();
     enable_intr();
     irq_leave_gs(frame);
 }
 INTERRUPT_END
 
-/* Waiting for IDE interrupt to be triggered */
-int ide_wait_irq(void)
+/* IDE interrupt handling for the secondary channel (IRQ15). */
+INTERRUPT_BEGIN static void ide_irq_secondary(interrupt_frame_t *frame)
+{
+    irq_enter_gs(frame);
+    (void)frame;
+    disable_intr();
+    channels[ATA_SECONDARY].irq_pending = 1;
+    send_eoi();
+    enable_intr();
+    irq_leave_gs(frame);
+}
+INTERRUPT_END
+
+/*
+ * Wait for IDE interrupt on a channel. TODO: unused (ATA uses polling,
+ * ATAPI sets nIEN), kept for future interrupt-driven ATA support.
+ */
+int ide_wait_irq(uint8_t channel)
 {
     int tout = IDE_IRQ_TIMEOUT;
-    while (!ide_irq_invoked) {
+    while (!channels[channel].irq_pending) {
         if (--tout <= 0) {
-            plogk("ide: IRQ timeout.\n");
+            plogk("ide: IRQ timeout on channel %u\n", channel);
             return -1;
         }
     }
-    ide_irq_invoked = 0;
+    channels[channel].irq_pending = 0;
     return 0;
 }
 
@@ -73,6 +88,11 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 {
     int j, k, count = 0;
     for (int i = 0; i < 4; i++) ide_devices[i].reserved = 0;
+    for (int i = 0; i < 2; i++) {
+        channels[i].lock.lock   = 0;
+        channels[i].lock.rflags = 0;
+        channels[i].irq_pending = 0;
+    }
     plogk("ide: BAR0 = 0x%03x, BAR1 = 0x%03x, BAR2 = 0x%03x, BAR3 = 0x%03x, BAR4 = 0x%03x\n", BAR0, BAR1, BAR2, BAR3, BAR4);
 
     /* Detect the I/O ports of the IDE controller */
@@ -259,8 +279,8 @@ void init_ide(void)
     if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) return;
     bar_reg.parent = ide_pci_request.response->device;
     pci_write_command_status(bar_reg.parent, (pci_read_command_status(bar_reg.parent) & 0xFFFF) | 1u);
-    register_interrupt_handler(IRQ_14, (void *)ide_irq, 0, 0x8e);
-    register_interrupt_handler(IRQ_15, (void *)ide_irq, 0, 0x8e);
+    register_interrupt_handler(IRQ_14, (void *)ide_irq_primary, 0, 0x8e);
+    register_interrupt_handler(IRQ_15, (void *)ide_irq_secondary, 0, 0x8e);
 
     for (uint32_t idx = 0; idx < 6; idx++) {
         bars[idx] = get_base_address_register(bar_reg.parent, idx);
@@ -351,13 +371,17 @@ uint8_t ide_polling(uint8_t channel, uint32_t advanced_check)
 /* Soft reset the ATA device */
 void ide_soft_reset(uint8_t drive)
 {
-    uint8_t channel        = ide_devices[drive].channel;
-    ide_irq_invoked        = 0;
-    channels[channel].nIEN = 0x04;
+    uint8_t channel = ide_devices[drive].channel;
+
+    channels[channel].irq_pending = 0;
+    channels[channel].nIEN        = 0x04;
+
     ide_write(channel, ATA_REG_CONTROL, 0x04);
     nsleep(5000);
-    ide_irq_invoked        = 0;
-    channels[channel].nIEN = 0x00;
+
+    channels[channel].irq_pending = 0;
+    channels[channel].nIEN        = 0x00;
+
     ide_write(channel, ATA_REG_CONTROL, 0x00);
     nsleep(5000);
     ide_polling(channel, 0);
@@ -411,9 +435,12 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
     uint16_t cyl, i;
     uint8_t  head, sect, err;
 
-    ide_irq_invoked        = 0;
-    channels[channel].nIEN = 0x02;
+    /* Serialise the channel's shared registers across concurrent I/O. The ATA path is polled, so no IRQ is needed while the lock is held. */
+    spin_lock(&channels[channel].lock);
+    channels[channel].irq_pending = 0;
+    channels[channel].nIEN        = 0x02;
     ide_write(channel, ATA_REG_CONTROL, 0x02);
+
     if (lba >= 0x10000000) {
         lba_mode  = 2;
         lba_io[0] = (lba & 0x000000ff) >> 0;
@@ -445,7 +472,10 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
         head      = (lba + 1 - sect) % ((uint64_t)16 * 63) / (63);
     }
 
-    if (ide_polling(channel, 0) != 0) return 3;
+    if (ide_polling(channel, 0) != 0) {
+        spin_unlock(&channels[channel].lock);
+        return 3;
+    }
     if (lba_mode == 0)
         ide_write(channel, ATA_REG_HDDEVSEL, 0xa0 | (slavebit << 4) | head);
     else
@@ -472,7 +502,10 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
         uint16_t *word_ = edi;
         for (i = 0; i < numsects; i++) {
             err = ide_polling(channel, 1);
-            if (err != 0) return err;
+            if (err != 0) {
+                spin_unlock(&channels[channel].lock);
+                return err;
+            }
             insl(bus, (uint32_t *)(word_ + (size_t)i * words), words / 2);
         }
     } else {
@@ -487,6 +520,7 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
         err = ide_polling(channel, 0);
         if (err != 0) plogk("ide: PIO write flush poll error %u on drive %u LBA %llu\n", err, drive, (unsigned long long)lba);
     }
+    spin_unlock(&channels[channel].lock);
     return 0;
 }
 

@@ -691,34 +691,34 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
      * HotSpot uses the third SA_SIGINFO argument to inspect RIP/RSP and the
      * fault context while handling SIGSEGV/SIGBUS/SIGILL.
      */
-    uint64_t *gregs = sig_frame.ucontext.uc_mcontext.gregs;
-    gregs[0]  = frame->r8;
-    gregs[1]  = frame->r9;
-    gregs[2]  = frame->r10;
-    gregs[3]  = frame->r11;
-    gregs[4]  = frame->r12;
-    gregs[5]  = frame->r13;
-    gregs[6]  = frame->r14;
-    gregs[7]  = frame->r15;
-    gregs[8]  = frame->rdi;
-    gregs[9]  = frame->rsi;
-    gregs[10] = frame->rbp;
-    gregs[11] = frame->rbx;
-    gregs[12] = frame->rdx;
-    gregs[13] = frame->rax;
-    gregs[14] = frame->rcx;
-    gregs[15] = frame->rsp;
-    gregs[16] = frame->rip;
-    gregs[17] = frame->rflags;
-    gregs[18] = frame->cs & 0xffff;
-    gregs[19] = 0;
-    gregs[20] = 0;
-    gregs[21] = old_mask;
-    gregs[22] = 0;
+    uint64_t *gregs                  = sig_frame.ucontext.uc_mcontext.gregs;
+    gregs[0]                         = frame->r8;
+    gregs[1]                         = frame->r9;
+    gregs[2]                         = frame->r10;
+    gregs[3]                         = frame->r11;
+    gregs[4]                         = frame->r12;
+    gregs[5]                         = frame->r13;
+    gregs[6]                         = frame->r14;
+    gregs[7]                         = frame->r15;
+    gregs[8]                         = frame->rdi;
+    gregs[9]                         = frame->rsi;
+    gregs[10]                        = frame->rbp;
+    gregs[11]                        = frame->rbx;
+    gregs[12]                        = frame->rdx;
+    gregs[13]                        = frame->rax;
+    gregs[14]                        = frame->rcx;
+    gregs[15]                        = frame->rsp;
+    gregs[16]                        = frame->rip;
+    gregs[17]                        = frame->rflags;
+    gregs[18]                        = frame->cs & 0xffff;
+    gregs[19]                        = 0;
+    gregs[20]                        = 0;
+    gregs[21]                        = old_mask;
+    gregs[22]                        = 0;
     sig_frame.ucontext.uc_sigmask[0] = old_mask;
-    sig_frame.ucontext.uc_stack = task->signal_altstack;
+    sig_frame.ucontext.uc_stack      = task->signal_altstack;
 
-    size_t fpstate_size = fpu_signal_state_size();
+    size_t fpstate_size                   = fpu_signal_state_size();
     sig_frame.ucontext.uc_mcontext.fpregs = sp + offsetof(signal_user_frame_t, ucontext) + offsetof(signal_ucontext_t, fpstate);
     if (fpstate_size) {
         if (fpstate_size > sizeof(sig_frame.ucontext.fpstate) || fpu_signal_save(current_task(), sig_frame.ucontext.fpstate, sizeof(sig_frame.ucontext.fpstate))) return -EFAULT;
@@ -1810,8 +1810,7 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
 
     size_t expected_fpstate = fpu_signal_state_size();
     if (expected_fpstate) {
-        if (expected_fpstate > sizeof(sig_frame.ucontext.fpstate) || fpu_signal_restore(current_task(), sig_frame.ucontext.fpstate, expected_fpstate))
-            return -EINVAL;
+        if (expected_fpstate > sizeof(sig_frame.ucontext.fpstate) || fpu_signal_restore(current_task(), sig_frame.ucontext.fpstate, expected_fpstate)) return -EINVAL;
     }
 
     /* Restore blocked signal mask */
@@ -1841,6 +1840,7 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
     frame->rax = gregs[13];
     frame->rcx = gregs[14];
     frame->rip = gregs[16];
+
     /*
      * User-visible arithmetic/debug flags plus mandatory bit 1 and IF.
      * Clear IOPL, NT and VM so IRETQ cannot enter an invalid privilege state.

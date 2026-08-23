@@ -755,14 +755,19 @@ static void evdev_apply_led(int led, bool on)
     size_t             notify_count = 0;
     uint8_t            leds         = 0;
 
+    /*
+     * evdev_led_state is written both from the keyboard IRQ (lock-key press)
+     * and process context (EVIOCSLED), so the bit update and the snapshot
+     * must be atomic: a plain load-modify-store would lose one update.
+     */
     if (on)
-        set_bit(led, evdev_led_state);
+        (void)__atomic_fetch_or(&evdev_led_state[led / 32], 1U << (led % 32), __ATOMIC_RELAXED);
     else
-        clear_bit(led, evdev_led_state);
+        (void)__atomic_fetch_and(&evdev_led_state[led / 32], ~(1U << (led % 32)), __ATOMIC_RELAXED);
 
-    if (test_bit(LED_NUML, evdev_led_state)) leds |= 1U << LED_NUML;
-    if (test_bit(LED_CAPSL, evdev_led_state)) leds |= 1U << LED_CAPSL;
-    if (test_bit(LED_SCROLLL, evdev_led_state)) leds |= 1U << LED_SCROLLL;
+    if (__atomic_load_n(&evdev_led_state[LED_NUML / 32], __ATOMIC_ACQUIRE) & (1U << (LED_NUML % 32))) leds |= 1U << LED_NUML;
+    if (__atomic_load_n(&evdev_led_state[LED_CAPSL / 32], __ATOMIC_ACQUIRE) & (1U << (LED_CAPSL % 32))) leds |= 1U << LED_CAPSL;
+    if (__atomic_load_n(&evdev_led_state[LED_SCROLLL / 32], __ATOMIC_ACQUIRE) & (1U << (LED_SCROLLL % 32))) leds |= 1U << LED_SCROLLL;
 
     /* Snapshot devices and notify callbacks, then act outside the table lock. */
     spin_lock(&evdev_table_lock);

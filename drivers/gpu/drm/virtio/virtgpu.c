@@ -93,16 +93,35 @@ static int virtgpu_open(struct drm_device *dev, struct drm_file *file)
 /* Lazily create the 3D context if it has not been created yet. */
 static int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_fpriv *vfpriv)
 {
-    int ret = 0;
+    int  ret         = 0;
+    bool need_create = false;
 
     if (!vfpriv || !vgdev->has_virgl) return -EINVAL;
+
+    /*
+     * Snapshot the flag, then run the host command outside the spinlock:
+     * virtgpu_cmd_ctx_create() sleeps on the host response (the virtqueue
+     * wait), and sleeping while holding a spinlock (IRQs masked) stalls the
+     * CPU and deadlocks on the default single-CPU target.
+     */
     spin_lock(&vfpriv->context_lock);
-    if (!vfpriv->context_created) {
+    need_create = !vfpriv->context_created;
+    spin_unlock(&vfpriv->context_lock);
+
+    if (need_create) {
         uint32_t nlen = vfpriv->explicit_debug_name ? (uint32_t)strlen(vfpriv->debug_name) : 0;
         ret           = virtgpu_cmd_ctx_create(vgdev, vfpriv->ctx_id, vfpriv->context_init, vfpriv->explicit_debug_name ? vfpriv->debug_name : NULL, nlen);
-        if (!ret) vfpriv->context_created = true;
+
+        /*
+         * Publish under the lock; a concurrent creator that raced us either
+         * succeeded (its create is the one that won) or failed against an
+         * already-created context, which is success for us too.
+         */
+        spin_lock(&vfpriv->context_lock);
+        if (!ret && !vfpriv->context_created) vfpriv->context_created = true;
+        if (ret && vfpriv->context_created) ret = 0;
+        spin_unlock(&vfpriv->context_lock);
     }
-    spin_unlock(&vfpriv->context_lock);
     return ret;
 }
 
@@ -115,6 +134,8 @@ int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio
     if (!vgdev || !obj || !ctx_id || !obj->hw_res_handle) return -EINVAL;
     attachment = malloc(sizeof(*attachment));
     if (!attachment) return -ENOMEM;
+
+    /* Check for an existing attachment under the lock, then run the host command outside it (it sleeps on the host response). */
     spin_lock(&obj->context_lock);
     for (struct virtio_gpu_context_attachment *cur = obj->context_attachments; cur; cur = cur->next) {
         if (cur->ctx_id == ctx_id) {
@@ -123,14 +144,27 @@ int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio
             return 0;
         }
     }
+    spin_unlock(&obj->context_lock);
+
     ret = virtgpu_cmd_ctx_attach_resource(vgdev, ctx_id, obj->hw_res_handle);
     if (!ret) {
+        spin_lock(&obj->context_lock);
+
+        /* Re-check under the lock: a racing thread may have attached the same ctx_id while we were waiting on the host. */
+        for (struct virtio_gpu_context_attachment *cur = obj->context_attachments; cur; cur = cur->next) {
+            if (cur->ctx_id == ctx_id) {
+                spin_unlock(&obj->context_lock);
+                free(attachment);
+                return 0;
+            }
+        }
         attachment->ctx_id       = ctx_id;
         attachment->next         = obj->context_attachments;
         obj->context_attachments = attachment;
+        spin_unlock(&obj->context_lock);
+    } else {
+        free(attachment);
     }
-    spin_unlock(&obj->context_lock);
-    if (ret) free(attachment);
     return ret;
 }
 
@@ -150,10 +184,30 @@ int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio
         return 0;
     }
     attachment = *link;
-    ret        = obj->hw_res_handle ? virtgpu_cmd_ctx_detach_resource(vgdev, ctx_id, obj->hw_res_handle) : 0;
-    if (!ret) *link = attachment->next;
     spin_unlock(&obj->context_lock);
-    if (!ret) free(attachment);
+
+    /* Host command runs outside the spinlock (it sleeps on the response). */
+    ret = obj->hw_res_handle ? virtgpu_cmd_ctx_detach_resource(vgdev, ctx_id, obj->hw_res_handle) : 0;
+    spin_lock(&obj->context_lock);
+
+    /*
+     * Re-scan: a concurrent detach of the same ctx_id may have removed this
+     * attachment while the host command ran.  Only unlink+free if the node
+     * found in the first scan is still the one at this position; otherwise
+     * the other detach owns the free and releasing the stale pointer here would double-free it.
+     * The attachment list is short (typically 1-2 contexts per object), so
+     * the O(n) re-scan is cheap.
+     */
+    link = &obj->context_attachments;
+    while (*link && (*link)->ctx_id != ctx_id) link = &(*link)->next;
+    if (*link && !ret && *link == attachment) {
+        *link = (*link)->next;
+    } else if (*link != attachment) {
+        attachment = NULL; // another thread detached and freed it
+    }
+    spin_unlock(&obj->context_lock);
+
+    if (attachment && !ret) free(attachment);
     return ret;
 }
 
@@ -662,24 +716,33 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
     if (!found || !max_size) return -EINVAL;
     copy_size = args->size < max_size ? args->size : max_size;
 
+    /* Fast path: cached capability data. */
     spin_lock(&vgdev->capset_lock);
     if (cache->data && cache->cached_version == args->cap_set_ver) {
         caps_data = cache->data;
     } else {
+        spin_unlock(&vgdev->capset_lock);
+
         caps_data = malloc(max_size);
-        if (!caps_data) {
-            spin_unlock(&vgdev->capset_lock);
-            return -ENOMEM;
-        }
+        if (!caps_data) return -ENOMEM;
+
+        /* The host command sleeps on the response; it must not run under a spinlock (IRQs masked) or the single-CPU target deadlocks. */
         ret = virtgpu_cmd_get_capset(vgdev, args->cap_set_id, args->cap_set_ver, caps_data, max_size);
         if (ret) {
             free(caps_data);
-            spin_unlock(&vgdev->capset_lock);
             return ret;
         }
-        free(cache->data);
-        cache->data           = caps_data;
-        cache->cached_version = args->cap_set_ver;
+
+        /* Publish the cache under the lock; a racing ioctl may have already cached the same (or a newer) version, in which case it wins. */
+        spin_lock(&vgdev->capset_lock);
+        if (!cache->data || cache->cached_version != args->cap_set_ver) {
+            free(cache->data);
+            cache->data           = caps_data;
+            cache->cached_version = args->cap_set_ver;
+        } else {
+            free(caps_data);
+            caps_data = cache->data;
+        }
     }
 
     user_copy = malloc(copy_size);
@@ -687,6 +750,8 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
         spin_unlock(&vgdev->capset_lock);
         return -ENOMEM;
     }
+
+    /* Copy out under the lock so the cached buffer cannot be freed/replaced by a racing ioctl while we read it. */
     memcpy(user_copy, caps_data, copy_size);
     spin_unlock(&vgdev->capset_lock);
     ret = copy_to_user((void *)(uintptr_t)args->addr, user_copy, copy_size) ? -EFAULT : 0;
@@ -840,8 +905,15 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
     vfpriv->ring_idx_mask       = ring_mask;
     vfpriv->explicit_debug_name = seen_name;
     if (seen_name) memcpy(vfpriv->debug_name, debug_name, sizeof(debug_name));
+    spin_unlock(&vfpriv->context_lock);
+
+    /* The host command sleeps on the response; it must not run under a spinlock (IRQs masked) or the single-CPU target deadlocks. */
     ret = virtgpu_cmd_ctx_create(vgdev, vfpriv->ctx_id, context_init, seen_name ? vfpriv->debug_name : NULL, seen_name ? (uint32_t)strlen(vfpriv->debug_name) : 0);
-    if (!ret) vfpriv->context_created = true;
+
+    /* Publish under the lock; a racing creator that won sets the flag and turns our failure (context already exists at the host) into success. */
+    spin_lock(&vfpriv->context_lock);
+    if (!ret && !vfpriv->context_created) vfpriv->context_created = true;
+    if (ret && vfpriv->context_created) ret = 0;
     spin_unlock(&vfpriv->context_lock);
     if (ret) return ret;
 

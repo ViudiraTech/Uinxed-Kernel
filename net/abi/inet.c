@@ -74,7 +74,35 @@ typedef struct inet_core_socket {
                 tcp_endpoint_t  *tcp;
                 icmp_endpoint_t *icmp;
         } endpoint;
+
+        /*
+         * Reference count.  The owning generic socket_t holds one reference;
+         * the RX/timer paths take a transient reference (inet_sock_ref) before
+         * invoking a transport event callback and release it afterwards, so a
+         * concurrent core_close() cannot free this wrapper while a callback
+         * (which reads sock->event_* and sock->wait) is still running.  Freed
+         * when the count reaches zero.
+         */
+        uint32_t refcount;
 } inet_core_socket_t;
+
+/* Pin an inet socket wrapper for the duration of an event callback. */
+void inet_sock_ref(void *sock)
+{
+    inet_core_socket_t *inet = sock;
+    if (inet) (void)__atomic_add_fetch(&inet->refcount, 1, __ATOMIC_ACQ_REL);
+}
+
+/* Release a transient reference, freeing the wrapper at zero. */
+void inet_sock_unref(void *sock)
+{
+    inet_core_socket_t *inet = sock;
+    if (!inet) return;
+    if (__atomic_sub_fetch(&inet->refcount, 1, __ATOMIC_RELEASE) == 0) {
+        free(inet->rx_data);
+        free(inet);
+    }
+}
 
 #define INET_POLLIN        0x001
 #define INET_POLLOUT       0x004
@@ -107,39 +135,52 @@ static int inet_timed_out(uint64_t deadline)
 static void inet_tcp_event(tcp_endpoint_t *endpoint, uint32_t events, void *context)
 {
     (void)endpoint;
-    (void)events;
     inet_core_socket_t *sock = context;
+
     spin_lock(&sock->event_lock);
     sock->event_generation++;
+
     void (*callback)(void *argument, uint32_t events) = sock->event_callback;
-    void *argument                                    = sock->event_argument;
-    spin_unlock(&sock->event_lock);
-    wait_queue_wake_all(&sock->wait);
-    uint32_t poll_events = 0;
+    void    *argument                                 = sock->event_argument;
+    uint32_t poll_events                              = 0;
+
     if (events & (TCP_READY_READ | TCP_READY_ACCEPT)) poll_events |= INET_POLLIN;
     if (events & TCP_READY_WRITE) poll_events |= INET_POLLOUT;
     if (events & TCP_READY_ERROR) poll_events |= INET_POLLERR;
     if (events & TCP_READY_HANGUP) poll_events |= INET_POLLHUP;
+
+    /*
+     * Invoke the callback while holding event_lock: core_close clears
+     * event_callback/event_argument under the same lock before the generic
+     * socket is freed, so the callback either runs while sk is still alive
+     * or observes NULL.  socket_poll_notify is non-blocking.
+     */
     if (callback) callback(argument, poll_events);
+
+    spin_unlock(&sock->event_lock);
+    wait_queue_wake_all(&sock->wait);
 }
 
 /* Forward UDP endpoint events to the socket wait queue and poll callback. */
 static void inet_udp_event(udp_endpoint_t *endpoint, uint32_t events, void *context)
 {
     (void)endpoint;
-    (void)events;
     inet_core_socket_t *sock = context;
+
     spin_lock(&sock->event_lock);
     sock->event_generation++;
+
     void (*callback)(void *argument, uint32_t events) = sock->event_callback;
-    void *argument                                    = sock->event_argument;
-    spin_unlock(&sock->event_lock);
-    wait_queue_wake_all(&sock->wait);
-    uint32_t poll_events = 0;
+    void    *argument                                 = sock->event_argument;
+    uint32_t poll_events                              = 0;
+
     if (events & UDP_READY_READ) poll_events |= INET_POLLIN;
     if (events & UDP_READY_WRITE) poll_events |= INET_POLLOUT;
     if (events & UDP_READY_ERROR) poll_events |= INET_POLLERR;
     if (callback) callback(argument, poll_events);
+
+    spin_unlock(&sock->event_lock);
+    wait_queue_wake_all(&sock->wait);
 }
 
 /* Forward ICMP endpoint events to the socket wait queue and poll callback. */
@@ -147,16 +188,20 @@ static void inet_icmp_event(icmp_endpoint_t *endpoint, uint32_t events, void *co
 {
     (void)endpoint;
     inet_core_socket_t *sock = context;
+
     spin_lock(&sock->event_lock);
     sock->event_generation++;
+
     void (*callback)(void *argument, uint32_t events) = sock->event_callback;
-    void *argument                                    = sock->event_argument;
-    spin_unlock(&sock->event_lock);
-    wait_queue_wake_all(&sock->wait);
-    uint32_t poll_events = 0;
+    void    *argument                                 = sock->event_argument;
+    uint32_t poll_events                              = 0;
+
     if (events & ICMP_READY_READ) poll_events |= INET_POLLIN;
     if (events & ICMP_READY_WRITE) poll_events |= INET_POLLOUT;
     if (callback) callback(argument, poll_events);
+
+    spin_unlock(&sock->event_lock);
+    wait_queue_wake_all(&sock->wait);
 }
 
 /* Snapshot the current event generation for later change detection. */
@@ -337,17 +382,21 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
         plogk("inet: Socket alloc failed.\n");
         return -ENOMEM;
     }
+
     sock->family              = family;
     sock->type                = type;
     sock->protocol            = protocol;
     sock->flags               = flags;
+    sock->refcount            = 1; /* owned by the generic socket_t */
     sock->sndbuf              = SOCK_BUF_SIZE;
     sock->rcvbuf              = SOCK_BUF_SIZE;
     sock->ipv6_unicast_hops   = 64;
     sock->ipv6_multicast_hops = 1;
     sock->ipv6_multicast_loop = 1;
     sock->ip_ttl              = 64;
+
     wait_queue_init(&sock->wait);
+
     if (type == SOCK_DGRAM)
         sock->endpoint.udp = udp_open_family((uint16_t)family);
     else if (type == SOCK_STREAM)
@@ -381,19 +430,40 @@ static void core_close(void *context)
 {
     inet_core_socket_t *sock = context;
     if (!sock) return;
+
+    /*
+     * Clear the poll callback under event_lock so an in-flight event callback
+     * (also holding event_lock) either sees NULL and skips, or has already
+     * completed - never dereferences the generic socket after it is freed.
+     * Also snapshot pending_accept under the same lock so it cannot race an
+     * accept()/poll() that is concurrently claiming or publishing it.
+     */
+    tcp_endpoint_t *pending = NULL;
+    spin_lock(&sock->event_lock);
+
+    sock->event_callback = NULL;
+    sock->event_argument = NULL;
+
+    if (sock->type == SOCK_STREAM) pending = sock->pending_accept;
+    spin_unlock(&sock->event_lock);
     if (sock->type == SOCK_DGRAM) {
         udp_set_event_callback(sock->endpoint.udp, NULL, NULL);
         udp_close(sock->endpoint.udp);
     } else if (sock->type == SOCK_STREAM) {
         tcp_set_event_callback(sock->endpoint.tcp, NULL, NULL);
-        if (sock->pending_accept) tcp_close(sock->pending_accept);
+        if (pending) tcp_close(pending);
         tcp_close(sock->endpoint.tcp);
-        free(sock->rx_data);
     } else {
         icmp_set_event_callback(sock->endpoint.icmp, NULL, NULL);
         icmp_close(sock->endpoint.icmp);
     }
-    free(sock);
+
+    /*
+     * Drop the generic socket's ownership reference instead of freeing
+     * directly: a transport event callback (RX/timer) may hold a transient
+     * reference and still be reading sock->event_* / sock->wait.
+     */
+    inet_sock_unref(sock);
 }
 
 /* Bind the endpoint to a local address/port. */
@@ -521,9 +591,20 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
 {
     inet_core_socket_t *listener = context;
     if (listener->type != SOCK_STREAM) return -EOPNOTSUPP;
+
+    /*
+     * pending_accept is published by core_poll() and consumed here; guard it
+     * with event_lock so accept() and poll() cannot both claim the same
+     * connection (double wrap -> double close).
+     */
+    spin_lock(&listener->event_lock);
+
     tcp_endpoint_t *endpoint = listener->pending_accept;
     listener->pending_accept = NULL;
-    uint64_t deadline        = listener->rcvtimeo_ticks ? sched_ticks() + listener->rcvtimeo_ticks : 0;
+
+    spin_unlock(&listener->event_lock);
+
+    uint64_t deadline = listener->rcvtimeo_ticks ? sched_ticks() + listener->rcvtimeo_ticks : 0;
     while (!endpoint) {
         uint64_t generation = inet_event_snapshot(listener);
         endpoint            = tcp_accept(listener->endpoint.tcp);
@@ -532,16 +613,19 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
         int wait_status = inet_event_wait(listener, generation, deadline);
         if (wait_status) return wait_status;
     }
+
     inet_core_socket_t *sock = calloc(1, sizeof(*sock));
     if (!sock) {
         plogk("inet: Accept socket alloc failed.\n");
         tcp_close(endpoint);
         return -ENOMEM;
     }
+
     sock->type                = SOCK_STREAM;
     sock->family              = listener->family;
     sock->protocol            = IPPROTO_TCP;
     sock->flags               = flags;
+    sock->refcount            = 1; /* owned by the generic socket_t */
     sock->sndbuf              = listener->sndbuf;
     sock->rcvbuf              = listener->rcvbuf;
     sock->sndtimeo_ticks      = listener->sndtimeo_ticks;
@@ -556,17 +640,21 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
     sock->ipv6_tclass         = listener->ipv6_tclass;
     sock->ipv6_recverr        = listener->ipv6_recverr;
     sock->ipv6_mtu_discover   = listener->ipv6_mtu_discover;
+
     wait_queue_init(&sock->wait);
+
     sock->local_address = listener->local_address;
     sock->local_port    = listener->local_port;
     sock->endpoint.tcp  = endpoint;
     sock->rx_data       = malloc(TCP_RX_BUFFER_MAX);
+
     if (!sock->rx_data) {
         plogk("inet: Accept socket RX buffer alloc failed (%u bytes)\n", (unsigned)TCP_RX_BUFFER_MAX);
         tcp_close(endpoint);
         free(sock);
         return -ENOMEM;
     }
+
     tcp_set_event_callback(sock->endpoint.tcp, inet_tcp_event, sock);
     tcp_endpoint_info_t info;
     if (!tcp_get_info(endpoint, &info)) {
@@ -649,6 +737,13 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
         uint64_t deadline = sock->rcvtimeo_ticks ? sched_ticks() + sock->rcvtimeo_ticks : 0;
         for (;;) {
             uint64_t generation = inet_event_snapshot(sock);
+
+            /*
+             * Serialise the wrapper RX buffer (rx_data/rx_length) under
+             * event_lock so concurrent recv()/poll() on the same socket do
+             * not interleave the fill, the copy and the memmove consume.
+             */
+            spin_lock(&sock->event_lock);
             (void)inet_tcp_fill(sock);
             size_t available = sock->rx_length;
             if (available) {
@@ -659,7 +754,10 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
                     memmove(sock->rx_data, sock->rx_data + take, sock->rx_length - take);
                     sock->rx_length -= take;
                 }
+                spin_unlock(&sock->event_lock);
                 if (!(flags & MSG_WAITALL) || copied == len || (flags & MSG_PEEK)) return (int)copied;
+            } else {
+                spin_unlock(&sock->event_lock);
             }
             tcp_state_t state = tcp_get_state(sock->endpoint.tcp);
             if (state == TCP_CLOSE_WAIT || state == TCP_CLOSED || state == TCP_TIME_WAIT) return (int)copied;
@@ -996,12 +1094,18 @@ static int core_poll(void *context, size_t events)
             if (udp_receive(sock->endpoint.udp, NULL, 0, &info, 1) >= 0) ready |= INET_POLLIN;
         }
     } else if (sock->listening) {
+        spin_lock(&sock->event_lock);
         if (!sock->pending_accept) sock->pending_accept = tcp_accept(sock->endpoint.tcp);
         if (sock->pending_accept) ready |= INET_POLLIN;
+        spin_unlock(&sock->event_lock);
     } else {
         tcp_state_t state = tcp_get_state(sock->endpoint.tcp);
+
+        /* Serialise rx_data/rx_length with concurrent recv() (see core_recvfrom). */
+        spin_lock(&sock->event_lock);
         (void)inet_tcp_fill(sock);
         if (sock->rx_length || state == TCP_CLOSE_WAIT || state == TCP_CLOSED || state == TCP_TIME_WAIT) ready |= INET_POLLIN;
+        spin_unlock(&sock->event_lock);
         if (state == TCP_ESTABLISHED || state == TCP_CLOSE_WAIT) ready |= INET_POLLOUT;
         if (sock->connecting && state != TCP_SYN_SENT) {
             ready |= INET_POLLOUT;
