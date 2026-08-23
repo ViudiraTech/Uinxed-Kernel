@@ -23,6 +23,8 @@
 
 void page_fault_entry(void);
 
+uint64_t nmi_spurious_count;
+
 #define USER_CS 0x1B
 
 /* Check whether the interrupt came from user mode */
@@ -171,11 +173,20 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
 {
     irq_enter_gs(frame);
+    /* NMI handlers must not be interrupted by ordinary IRQs. */
+    disable_intr();
     if (smp_handle_nmi()) {
-        irq_leave_gs(frame);
+        irq_leave_gs_no_preempt(frame);
         return;
     }
-    panic("Kernel fatal error: NMI");
+    /*
+     * Do not printk from NMI context.  A spurious NMI may arrive while the
+     * console/serial lock is held with IRQs disabled; logging here would
+     * turn harmless platform NMIs into a self-deadlock or double fault.
+     * The counter remains visible through /proc/interrupts.
+    */
+    (void)__atomic_add_fetch(&nmi_spurious_count, 1, __ATOMIC_RELAXED);
+    irq_leave_gs_no_preempt(frame);
 }
 INTERRUPT_END
 
@@ -332,7 +343,7 @@ void isr_registe_handle(void)
 {
     register_interrupt_handler(ISR_0, (void *)ISR_0_handle, 0, 0x8e);
     register_interrupt_handler(ISR_1, (void *)ISR_1_handle, 0, 0x8e);
-    register_interrupt_handler(ISR_2, (void *)ISR_2_handle, 0, 0x8e);
+    register_interrupt_handler(ISR_2, (void *)ISR_2_handle, 2, 0x8e);
 
     /* User processes may execute INT3; expose the breakpoint gate at DPL=3. */
 

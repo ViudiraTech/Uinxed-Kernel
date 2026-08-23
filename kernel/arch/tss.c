@@ -16,6 +16,7 @@
 
 /* Task state segment definition */
 tss_stack_t tss_stack;
+tss_stack_t nmi_stack;
 tss_t       tss0;
 
 /* Initialize TSS */
@@ -30,10 +31,12 @@ void tss_init(void)
 
     gdt0.entries[7] = (((low_base | mid_base) | limit) | access_byte);
     gdt0.entries[8] = high_base;
-    tss0.ist[0]     = ((uint64_t)&tss_stack) + sizeof(tss_stack_t);
+    tss0.ist[0]     = ALIGN_DOWN(((uint64_t)&tss_stack) + sizeof(tss_stack_t), 16);
+    tss0.ist[1]     = ALIGN_DOWN(((uint64_t)&nmi_stack) + sizeof(tss_stack_t), 16);
 
     plogk("tss: TSS descriptor configured (address = %p, limit = 0x%04x)\n", &tss0, sizeof(tss_t) - 1);
     plogk("tss: IST0 stack = %p\n", tss0.ist[0]);
+    plogk("tss: IST1 stack = %p\n", tss0.ist[1]);
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x38) : "memory");
     plogk("tss: TR register loaded with selector 0x%04x\n", 0x38);
 }

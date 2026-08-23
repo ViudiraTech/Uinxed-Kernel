@@ -19,6 +19,7 @@
 #include <kernel/cmdline/cmdline.h>
 #include <kernel/config.h>
 #include <kernel/errno.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
@@ -743,7 +744,7 @@ static void gen_info_interrupts(procfs_file_t *pf)
         vector++;
     }
     if (remaining > 0) {
-        n = snprintf(p, remaining, "NMI:          0          0   Non-maskable interrupts\n");
+        n = snprintf(p, remaining, "NMI:   %10llu   %10llu   Non-maskable interrupts\n", (unsigned long long)nmi_spurious_count, 0ULL);
         if (n >= 0 && n < remaining) {
             p += n;
             remaining -= n;

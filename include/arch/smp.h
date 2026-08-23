@@ -99,6 +99,7 @@ typedef struct cpu_processor {
         uint32_t            capacity;
         gdt_t              *gdt;
         tss_stack_t        *tss_stack;
+        tss_stack_t        *nmi_stack;
         tss_t              *tss;
         kernel_stack_t     *kernel_stack;
         syscall_cpu_state_t syscall;

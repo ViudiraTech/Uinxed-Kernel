@@ -162,8 +162,10 @@ typedef struct {
         int si_signo;
         int si_errno;
         int si_code;
+        int __pad0;
         union {
-                int _pad[29];
+                /* Linux x86-64 siginfo_t is exactly 128 bytes. */
+                int _pad[28];
 
                 /* kill / tkill / tgkill */
                 struct {
@@ -221,6 +223,8 @@ typedef struct {
                 } _sigsys;
         } _sifields;
 } siginfo_t;
+
+_Static_assert(sizeof(siginfo_t) == 128, "x86-64 siginfo_t ABI size");
 
 #define si_pid       _sifields._kill._pid
 #define si_uid       _sifields._kill._uid
@@ -307,34 +311,35 @@ typedef struct {
 #define SS_ONSTACK 1
 #define SS_DISABLE 2
 
-/* Signal user-frame (on user stack for sigreturn) */
+/* x86-64 Linux/musl ucontext ABI used as the third SA_SIGINFO argument. */
 
 typedef struct {
-        /* Handler's return address (restorer trampoline) - bottom of frame */
-        uint64_t pretcode;
+        uint64_t gregs[23];
+        uint64_t fpregs;
+        uint64_t reserved1[8];
+} signal_mcontext_t;
 
-        /* Signal info passed via RSI */
-        siginfo_t info;
+typedef struct {
+        uint64_t         uc_flags;
+        uint64_t         uc_link;
+        stack_t           uc_stack;
+        signal_mcontext_t uc_mcontext;
+        /* Linux reserves 128 bytes for the user-visible signal mask. */
+        uint64_t          uc_sigmask[16];
+        /* Embedded FXSAVE/XSAVE area, addressed by uc_mcontext.fpregs. */
+        uint8_t           fpstate[4096];
+} signal_ucontext_t;
 
-        /* Old blocked mask to restore on sigreturn */
-        sigset_t old_mask;
+_Static_assert(offsetof(signal_ucontext_t, uc_mcontext) == 40, "x86-64 ucontext mcontext offset");
+_Static_assert(offsetof(signal_ucontext_t, uc_sigmask) == 296, "x86-64 ucontext sigmask offset");
+_Static_assert(offsetof(signal_ucontext_t, fpstate) == 424, "x86-64 ucontext fpstate offset");
 
-        /* Full register context (saved from syscall_frame_t) */
-        uint64_t rax, rbx, rcx, rdx;
-        uint64_t rsi, rdi, rbp;
-        uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
-        uint64_t rip, rflags, rsp, cs, ss;
-
-        /*
-         * Kernel-private signal ABI payload.  libc only uses pretcode; this
-         * area preserves the interrupted x87/SSE/AVX state across a handler.
-         */
-        uint32_t fpstate_magic;
-        uint32_t fpstate_size;
-        uint8_t  fpstate[4096];
-} __attribute__((packed)) signal_user_frame_t;
-
-#define SIGNAL_FPSTATE_MAGIC 0x46505331U
+/* Handler's return address, siginfo and a complete Linux-compatible context. */
+typedef struct {
+        uint64_t          pretcode;
+        siginfo_t         info;
+        signal_ucontext_t ucontext;
+} signal_user_frame_t;
 
 /* Return values for signal_deliver_one */
 #define SIG_DELIV_HANDLED 0

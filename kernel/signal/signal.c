@@ -615,15 +615,16 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
  * frame so that the process enters the signal handler when it
  * returns to userspace.
  *
- * We save the full register context + old signal mask into a
- * signal_user_frame_t on the user stack, then redirect the syscall
- * frame's rip/rsp/rdi/rsi/rdx so the handler runs.
+ * We save the full register context + old signal mask in a Linux-compatible
+ * ucontext_t inside signal_user_frame_t, then redirect the syscall frame's
+ * rip/rsp/rdi/rsi/rdx so the handler runs.
  *
  * The saved context is restored by sys_rt_sigreturn().
  *
  * NOTE: The interrupt-delivery path (user_exception, page_fault_handle)
  * creates a minimal syscall_frame_t with only rip/cs/rflags/rsp/ss.
- * For those paths, rdi/rsi/rdx/rax/rbx/rcx in the sigframe are 0;
+ * For those paths, the general registers not present in the interrupt frame
+ * are 0 in the ucontext;
  * the important thing is that rip/rflags/rsp are saved and restored
  * correctly. The signal handler will get its signal number in rdi
  * from the caller (which propagates sigframe.rdi back).
@@ -685,36 +686,42 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
     /* Copy siginfo */
     memcpy(&sig_frame.info, info, sizeof(siginfo_t));
 
-    /* Save old blocked mask (from BEFORE this signal's mask was applied) */
-    sig_frame.old_mask = old_mask;
-
-    /* Save full register context from the syscall/interrupt frame */
-    sig_frame.rax    = frame->rax;
-    sig_frame.rbx    = frame->rbx;
-    sig_frame.rcx    = frame->rcx;
-    sig_frame.rdx    = frame->rdx;
-    sig_frame.rsi    = frame->rsi;
-    sig_frame.rdi    = frame->rdi;
-    sig_frame.rbp    = frame->rbp;
-    sig_frame.r8     = frame->r8;
-    sig_frame.r9     = frame->r9;
-    sig_frame.r10    = frame->r10;
-    sig_frame.r11    = frame->r11;
-    sig_frame.r12    = frame->r12;
-    sig_frame.r13    = frame->r13;
-    sig_frame.r14    = frame->r14;
-    sig_frame.r15    = frame->r15;
-    sig_frame.rip    = frame->rip;
-    sig_frame.rflags = frame->rflags;
-    sig_frame.rsp    = frame->rsp;
-    sig_frame.cs     = frame->cs;
-    sig_frame.ss     = frame->ss;
+    /*
+     * Linux x86-64 exposes gregs in this exact order through ucontext_t.
+     * HotSpot uses the third SA_SIGINFO argument to inspect RIP/RSP and the
+     * fault context while handling SIGSEGV/SIGBUS/SIGILL.
+     */
+    uint64_t *gregs = sig_frame.ucontext.uc_mcontext.gregs;
+    gregs[0]  = frame->r8;
+    gregs[1]  = frame->r9;
+    gregs[2]  = frame->r10;
+    gregs[3]  = frame->r11;
+    gregs[4]  = frame->r12;
+    gregs[5]  = frame->r13;
+    gregs[6]  = frame->r14;
+    gregs[7]  = frame->r15;
+    gregs[8]  = frame->rdi;
+    gregs[9]  = frame->rsi;
+    gregs[10] = frame->rbp;
+    gregs[11] = frame->rbx;
+    gregs[12] = frame->rdx;
+    gregs[13] = frame->rax;
+    gregs[14] = frame->rcx;
+    gregs[15] = frame->rsp;
+    gregs[16] = frame->rip;
+    gregs[17] = frame->rflags;
+    gregs[18] = frame->cs & 0xffff;
+    gregs[19] = 0;
+    gregs[20] = 0;
+    gregs[21] = old_mask;
+    gregs[22] = 0;
+    sig_frame.ucontext.uc_sigmask[0] = old_mask;
+    sig_frame.ucontext.uc_stack = task->signal_altstack;
 
     size_t fpstate_size = fpu_signal_state_size();
+    sig_frame.ucontext.uc_mcontext.fpregs = sp + offsetof(signal_user_frame_t, ucontext) + offsetof(signal_ucontext_t, fpstate);
     if (fpstate_size) {
-        if (fpstate_size > sizeof(sig_frame.fpstate) || fpu_signal_save(current_task(), sig_frame.fpstate, sizeof(sig_frame.fpstate))) return -EFAULT;
-        sig_frame.fpstate_magic = SIGNAL_FPSTATE_MAGIC;
-        sig_frame.fpstate_size  = (uint32_t)fpstate_size;
+        if (fpstate_size > sizeof(sig_frame.ucontext.fpstate) || fpu_signal_save(current_task(), sig_frame.ucontext.fpstate, sizeof(sig_frame.ucontext.fpstate))) return -EFAULT;
     }
 
     /* Write the entire frame to user stack */
@@ -724,7 +731,7 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
     frame->rdi = (uint64_t)sig;
     if (sa->sa_flags & SA_SIGINFO) {
         frame->rsi = sp + offsetof(signal_user_frame_t, info);
-        frame->rdx = sp + offsetof(signal_user_frame_t, old_mask);
+        frame->rdx = sp + offsetof(signal_user_frame_t, ucontext);
     } else {
         frame->rsi = 0;
         frame->rdx = 0;
@@ -833,7 +840,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
         sigemptyset(&sa->sa_mask);
     }
 
-    /* Set up the signal frame on the user stack (saves old_mask for sigreturn) */
+    /* Set up the signal frame on the user stack (including old_mask). */
     int frame_status = signal_setup_frame(frame, sig, &action, info, old_mask);
     if (frame_status < 0) {
         plogk("signal: Failed to set up frame for sig %d tgid %llu tid %llu rsp %p: %d\n", sig, proc->task ? proc->task->pid : 0, task->pid, (void *)frame->rsp, frame_status);
@@ -1789,16 +1796,7 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
     if (!proc) return -ESRCH;
     if (!frame) return -EFAULT;
 
-    /*
-     * Stack layout at the time sigreturn is called:
-     *
-     * The restorer trampoline was called via the handler's `ret`
-     * instruction, which popped the pretcode from user stack.
-     * After the pop, user RSP points to the first byte after
-     * pretcode, which is offsetof(signal_user_frame_t, info).
-     *
-     * The signal_user_frame_t starts at (user_RSP - 8).
-     */
+    /* The restorer popped pretcode, so the frame starts at user RSP - 8. */
     signal_user_frame_t sig_frame;
     if (frame->rsp < sizeof(uint64_t)) return -EFAULT;
     if (copy_from_user(&sig_frame, (void *)(frame->rsp - 8), sizeof(signal_user_frame_t))) return -EFAULT;
@@ -1807,11 +1805,12 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
      * Never feed arbitrary selectors/non-canonical state to IRETQ: malformed
      * user frames must become SIGSEGV, not a kernel-mode #GP.
      */
-    if (sig_frame.cs != 0x33 || sig_frame.ss != 0x2b || !sig_frame.rip || sig_frame.rip >= PROCESS_USER_STACK_TOP || !sig_frame.rsp || sig_frame.rsp >= PROCESS_USER_STACK_TOP) return -EINVAL;
+    uint64_t *gregs = sig_frame.ucontext.uc_mcontext.gregs;
+    if ((gregs[18] & 0xffff) != 0x33 || !gregs[16] || gregs[16] >= PROCESS_USER_STACK_TOP || !gregs[15] || gregs[15] >= PROCESS_USER_STACK_TOP) return -EINVAL;
 
     size_t expected_fpstate = fpu_signal_state_size();
     if (expected_fpstate) {
-        if (sig_frame.fpstate_magic != SIGNAL_FPSTATE_MAGIC || sig_frame.fpstate_size != expected_fpstate || fpu_signal_restore(current_task(), sig_frame.fpstate, sig_frame.fpstate_size))
+        if (expected_fpstate > sizeof(sig_frame.ucontext.fpstate) || fpu_signal_restore(current_task(), sig_frame.ucontext.fpstate, expected_fpstate))
             return -EINVAL;
     }
 
@@ -1820,36 +1819,36 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
     task_t         *task  = current_task();
     if (!task) return -ESRCH;
     spin_lock(&state->lock);
-    task->signal_blocked = sig_frame.old_mask;
+    task->signal_blocked = sig_frame.ucontext.uc_sigmask[0];
     sigdelset(&task->signal_blocked, SIGKILL);
     sigdelset(&task->signal_blocked, SIGSTOP);
     spin_unlock(&state->lock);
 
     /* Restore all saved registers */
-    frame->rax = sig_frame.rax;
-    frame->rbx = sig_frame.rbx;
-    frame->rcx = sig_frame.rcx;
-    frame->rdx = sig_frame.rdx;
-    frame->rsi = sig_frame.rsi;
-    frame->rdi = sig_frame.rdi;
-    frame->rbp = sig_frame.rbp;
-    frame->r8  = sig_frame.r8;
-    frame->r9  = sig_frame.r9;
-    frame->r10 = sig_frame.r10;
-    frame->r11 = sig_frame.r11;
-    frame->r12 = sig_frame.r12;
-    frame->r13 = sig_frame.r13;
-    frame->r14 = sig_frame.r14;
-    frame->r15 = sig_frame.r15;
-    frame->rip = sig_frame.rip;
+    frame->r8  = gregs[0];
+    frame->r9  = gregs[1];
+    frame->r10 = gregs[2];
+    frame->r11 = gregs[3];
+    frame->r12 = gregs[4];
+    frame->r13 = gregs[5];
+    frame->r14 = gregs[6];
+    frame->r15 = gregs[7];
+    frame->rdi = gregs[8];
+    frame->rsi = gregs[9];
+    frame->rbp = gregs[10];
+    frame->rbx = gregs[11];
+    frame->rdx = gregs[12];
+    frame->rax = gregs[13];
+    frame->rcx = gregs[14];
+    frame->rip = gregs[16];
     /*
      * User-visible arithmetic/debug flags plus mandatory bit 1 and IF.
      * Clear IOPL, NT and VM so IRETQ cannot enter an invalid privilege state.
      */
     const uint64_t user_rflags
         = (1ULL << 0) | (1ULL << 2) | (1ULL << 4) | (1ULL << 6) | (1ULL << 7) | (1ULL << 8) | (1ULL << 9) | (1ULL << 10) | (1ULL << 11) | (1ULL << 16) | (1ULL << 18) | (1ULL << 21);
-    frame->rflags = (sig_frame.rflags & user_rflags) | (1ULL << 1) | (1ULL << 9);
-    frame->rsp    = sig_frame.rsp;
+    frame->rflags = (gregs[17] & user_rflags) | (1ULL << 1) | (1ULL << 9);
+    frame->rsp    = gregs[15];
     frame->cs     = 0x33;
     frame->ss     = 0x2b;
 

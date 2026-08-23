@@ -1880,18 +1880,31 @@ int vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *phy
     if (!file || !physical) return -EINVAL;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
     if (!mapping) return -EOPNOTSUPP;
-    pagecache_page_t *page = pagecache_get_page(mapping, index, 1);
-    if (!page) return -ENOMEM;
-    int result = pagecache_lock_page(page, 1);
-    if (!result) {
-        if (dirty) pagecache_mark_dirty(page);
-        *physical = pagecache_page_physical(page);
-        if (frame_retain_range(*physical, 1)) result = -ENOMEM;
-        pagecache_unlock_page(page);
+    /*
+     * Reclaim publishes PC_PAGE_EVICTING before unlinking a page.  A fault
+     * racing that short window can legitimately receive -ENOENT from
+     * pagecache_lock_page(); treating it as a bad userspace address turns a
+     * transient SMP cache race into SIGSEGV.  Drop the reference and retry so
+     * the next lookup can install or find the replacement page.
+     */
+    for (unsigned attempt = 0; attempt < 4; attempt++) {
+        pagecache_page_t *page = pagecache_get_page(mapping, index, 1);
+        if (!page) return -ENOMEM;
+        int result = pagecache_lock_page(page, 1);
+        if (!result) {
+            if (dirty) pagecache_mark_dirty(page);
+            *physical = pagecache_page_physical(page);
+            if (frame_retain_range(*physical, 1)) result = -ENOMEM;
+            pagecache_unlock_page(page);
+            pagecache_put_page(page);
+            if (!result) pagecache_mmap_readahead(mapping, index);
+            return result;
+        }
+        pagecache_put_page(page);
+        if (result != -ENOENT) return result;
+        __asm__ volatile("pause");
     }
-    pagecache_put_page(page);
-    if (!result) pagecache_mmap_readahead(mapping, index);
-    return result;
+    return -EAGAIN;
 }
 
 /* Mark every cached page in a byte range as dirty. */

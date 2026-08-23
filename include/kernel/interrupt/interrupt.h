@@ -48,8 +48,17 @@ static inline void irq_leave_gs(interrupt_frame_t *frame)
     }
 }
 
+/* Leave an NMI/other non-preemptible entry without entering the scheduler. */
+static inline void irq_leave_gs_no_preempt(interrupt_frame_t *frame)
+{
+    if ((frame->cs & 3) == 3) __asm__ volatile("swapgs" ::: "memory");
+}
+
 /* Empty function handling */
 extern void (*empty_handle[256])(interrupt_frame_t *frame);
+
+/* Spurious NMIs that arrived with no pending TLB shootdown */
+extern uint64_t nmi_spurious_count;
 
 /* Register ISR interrupt processing */
 void isr_registe_handle(void);

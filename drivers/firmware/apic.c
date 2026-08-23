@@ -163,7 +163,13 @@ void lapic_timer_stop(void)
 void send_ipi(uint32_t apic_id, uint32_t command)
 {
     if (x2apic_mode) {
-        wrmsr(0x800 + (APIC_ICR_LOW >> 4), ((uint64_t)(apic_id & 0b1111) << 32) | command);
+        /*
+         * IA32_X2APIC_ICR carries the complete 32-bit destination in
+         * bits 63:32.  Limiting it to four bits routes an IPI for APIC IDs
+         * 16, 32, ... to the wrong logical CPU (or to nobody), which makes
+         * the TLB shootdown wait forever on larger SMP machines.
+         */
+        wrmsr(0x800 + (APIC_ICR_LOW >> 4), ((uint64_t)apic_id << 32) | command);
     } else {
         lapic_write(APIC_ICR_HIGH, apic_id << 24);
         lapic_write(APIC_ICR_LOW, command);

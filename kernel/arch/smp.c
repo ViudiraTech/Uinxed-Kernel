@@ -373,6 +373,7 @@ static void ap_init_tss(cpu_processor_t *cpu)
     cpu->gdt->entries[7] = (((low_base | mid_base) | limit) | access_byte);
     cpu->gdt->entries[8] = high_base;
     cpu->tss->ist[0]     = ALIGN_DOWN(((uint64_t)cpu->tss_stack) + sizeof(tss_stack_t), 16);
+    cpu->tss->ist[1]     = ALIGN_DOWN(((uint64_t)cpu->nmi_stack) + sizeof(tss_stack_t), 16);
 
     /* Set kernel stack */
     pointer_cast_t cast;
@@ -479,6 +480,8 @@ void smp_init(void)
     cpus              = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
     tlb_shootdown_ack = calloc(cpu_count, sizeof(*tlb_shootdown_ack));
     if (!cpus || !tlb_shootdown_ack) panic("smp: Cannot allocate CPU state.");
+    /* aligned_alloc() does not clear memory; never expose stale per-CPU state. */
+    memset(cpus, 0, sizeof(cpu_processor_t) * cpu_count);
     plogk("smp: Found %d CPUs.\n", cpu_count);
 
     /*
@@ -539,14 +542,14 @@ void smp_init(void)
         /* Allocate kernel stack for each CPU */
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
         if (!cpus[i].kernel_stack) {
-            plogk("smp: failed to allocate kernel stack for CPU %u\n", i);
-            continue;
+            panic("smp: failed to allocate kernel stack for CPU %u", i);
         }
 
         /* Special handling for BSP */
         if (i == 0) {
             cpus[i].gdt       = &gdt0;
             cpus[i].tss_stack = &tss_stack;
+            cpus[i].nmi_stack = &nmi_stack;
             cpus[i].tss       = &tss0;
 
             pointer_cast_t cast;
@@ -560,31 +563,20 @@ void smp_init(void)
         }
         cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
         if (!cpus[i].gdt) {
-            plogk("smp: failed to allocate GDT for CPU %u\n", i);
-            free(cpus[i].kernel_stack);
-            cpus[i].kernel_stack = NULL;
-            continue;
+            panic("smp: failed to allocate GDT for CPU %u", i);
         }
         memset(cpus[i].gdt, 0, sizeof(gdt_t)); // Clear dirty data
         cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
         if (!cpus[i].tss_stack) {
-            plogk("smp: failed to allocate TSS stack for CPU %u\n", i);
-            free(cpus[i].gdt);
-            cpus[i].gdt = NULL;
-            free(cpus[i].kernel_stack);
-            cpus[i].kernel_stack = NULL;
-            continue;
+            panic("smp: failed to allocate TSS stack for CPU %u", i);
+        }
+        cpus[i].nmi_stack = malloc(sizeof(tss_stack_t));
+        if (!cpus[i].nmi_stack) {
+            panic("smp: failed to allocate NMI stack for CPU %u", i);
         }
         cpus[i].tss = (tss_t *)aligned_alloc(16, ALIGN_UP(sizeof(tss_t), 16));
         if (!cpus[i].tss) {
-            plogk("smp: failed to allocate TSS for CPU %u\n", i);
-            free(cpus[i].tss_stack);
-            cpus[i].tss_stack = NULL;
-            free(cpus[i].gdt);
-            cpus[i].gdt = NULL;
-            free(cpus[i].kernel_stack);
-            cpus[i].kernel_stack = NULL;
-            continue;
+            panic("smp: failed to allocate TSS for CPU %u", i);
         }
         memset(cpus[i].tss, 0, sizeof(tss_t)); // Clear dirty data
 
@@ -604,6 +596,6 @@ void smp_init(void)
     while (__atomic_load_n(&ap_ready_count, __ATOMIC_ACQUIRE) < cpu_count - 1) __asm__ volatile("pause");
     if (cpu_support_rdtscp()) __atomic_store_n(&smp_tsc_aux_ready, 1, __ATOMIC_RELEASE);
     __atomic_store_n(&smp_ready, 1, __ATOMIC_RELEASE);
-    for (size_t i = 0; i < cpu_count; i++) plogk("smp: CPU %03u: tss_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].kernel_stack);
+    for (size_t i = 0; i < cpu_count; i++) plogk("smp: CPU %03u: tss_stack = %p, nmi_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].nmi_stack, cpus[i].kernel_stack);
     plogk("smp: All APs are up, total %llu CPUs.\n", cpu_count);
 }

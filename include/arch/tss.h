@@ -38,6 +38,7 @@ typedef uint8_t tss_stack_t[TSS_IST_STACK_SIZE];
 
 extern tss_t       tss0;
 extern tss_stack_t tss_stack;
+extern tss_stack_t nmi_stack;
 
 /* Initialize TSS */
 void tss_init(void);

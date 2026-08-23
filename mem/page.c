@@ -688,6 +688,15 @@ void page_destroy_user_space(page_directory_t *directory)
     if (!directory || !directory->table) return;
 
     spin_lock(&directory->lock);
+    /*
+     * Page-table teardown releases frames immediately below.  A different
+     * CPU may still have this address space loaded, or may retain a stale
+     * translation after a context switch.  Invalidate every CPU before any
+     * leaf/table frame can be reused.  The shootdown uses NMI, so it remains
+     * safe while directory->lock is held and does not deadlock against a
+     * target CPU currently in a page-table operation.
+     */
+    flush_tlb_all();
     page_table_t *root = directory->table;
     destroy_user_entries(directory);
     directory->table = NULL;
