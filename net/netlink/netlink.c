@@ -11,6 +11,7 @@
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer/timer.h>
 #include <libs/kobject/kobject.h>
 #include <libs/list/circular_list.h>
 #include <libs/std/stddef.h>
@@ -1026,10 +1027,15 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
          * so no wakeup can be lost between this emptiness check and the
          * sleep.  The socket lock is not needed here; recv_lock serialises
          * the queue and the wait-queue membership.
+         *
+         * Safety-net: block in bounded slices and re-check on expiry so a
+         * missed notify anywhere in the poll-source chain degrades to a
+         * one-second latency instead of a wedged reader.
          */
+        uint64_t slice_deadline = sched_ticks() + TIMER_HZ;
         wait_queue_prepare(&ns->recv_wq);
         spin_unlock(&ns->recv_lock);
-        wait_queue_sleep();
+        (void)wait_queue_wait_timed(&ns->recv_wq, slice_deadline);
         spin_lock(&ns->recv_lock);
 
         /* Re-check: a concurrent netlink_close() may have woken us to die. */

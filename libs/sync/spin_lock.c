@@ -29,6 +29,23 @@ uint64_t spin_lock_irqsave(spinlock_t *lock)
     return rflags;
 }
 
+/* Try to lock a spinlock without spinning; returns 1 on success */
+int spin_trylock(spinlock_t *lock)
+{
+    uint64_t rflags;
+    __asm__ volatile("pushfq; pop %0; cli" : "=r"(rflags)::"memory");
+
+    if (__atomic_exchange_n(&lock->lock, 1, __ATOMIC_ACQUIRE)) {
+        /* Contended: restore the interrupt state we just cleared. */
+        __asm__ volatile("push %0; popfq" : : "r"(rflags) : "memory", "cc");
+        return 0;
+    }
+
+    /* Waiters cannot overwrite compatibility state before owning the lock. */
+    lock->rflags = rflags;
+    return 1;
+}
+
 /* Unlock and restore caller-owned interrupt state. */
 void spin_unlock_irqrestore(spinlock_t *lock, uint64_t rflags)
 {

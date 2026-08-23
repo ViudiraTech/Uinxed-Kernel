@@ -25,6 +25,7 @@
 #include <drivers/char/chrdev.h>
 #include <drivers/char/tpm/tpm.h>
 #include <drivers/firmware/acpi.h>
+#include <drivers/firmware/apic.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
@@ -305,6 +306,7 @@ void kernel_entry(void)
     acpi_init();                                                   // Advanced Configuration and Power Interface
     tpm_init();                                                    // Trusted Platform Module
     tsc_init();                                                    // Time Stamp Counter
+    lapic_timer_try_upgrade();                                     // Switch BSP LAPIC timer to TSC-deadline now that TSC is calibrated (before APs boot)
     smp_init();                                                    // Symmetric Multiprocessing
     parport_pc_init();                                             // PC Parallel Port (SPP)
                                                                    //

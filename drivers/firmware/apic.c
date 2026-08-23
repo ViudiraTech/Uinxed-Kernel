@@ -14,6 +14,7 @@
 #include <boot/limine.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
+#include <drivers/time/tsc.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
@@ -25,6 +26,13 @@
 #define CPUID_FEAT_ECX_X2APIC (1 << 21)
 
 int x2apic_mode = -1;
+
+/*
+ * LAPIC timer mode shared by every CPU (written once on the BSP before APs
+ * boot, read from timer IRQ context): -1 undetermined, 0 legacy calibrated
+ * periodic, 1 TSC-deadline one-shot.
+ */
+int apic_lapic_timer_mode = -1;
 
 pointer_cast_t lapic_ptr;
 pointer_cast_t ioapic_ptr;
@@ -106,6 +114,17 @@ void local_apic_init(void)
         }
         x2apic_mode = smp_request.response && (smp_request.response->flags & 1) && (ecx & CPUID_FEAT_ECX_X2APIC);
         plogk("apic: Local APIC: %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
+
+        /*
+         * CPUID.01H:ECX[24] TSC_DEADLINE: the LVTT can select deadline mode,
+         * where a write of an absolute TSC value to IA32_TSC_DEADLINE arms a
+         * one-shot interrupt (Linux "lapic-deadline" clockevent).  Requires
+         * the calibrated TSC frequency; tsc_init() runs before SMP boot.
+         */
+        uint32_t eax2, ebx2, ecx2, edx2;
+        cpuid(0x00000001, &eax2, &ebx2, &ecx2, &edx2);
+        apic_lapic_timer_mode = ((ecx2 >> 24) & 1U) && tsc_get_cpu_frequency() != 0 ? 1 : 0;
+        plogk("apic: LAPIC timer mode: %s\n", apic_lapic_timer_mode == 1 ? "TSC-deadline one-shot" : "calibrated periodic");
     }
 
     lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
@@ -120,6 +139,25 @@ void local_apic_init(void)
      */
     lapic_write(0x350, 1U << 16); // LVT LINT0: masked
     lapic_write(0x370, 1U << 16); // LVT LINT1: masked
+
+    if (apic_lapic_timer_mode == 1) {
+        /*
+         * Deadline mode: no counter calibration is needed and every tick is
+         * exactly TIMER_TICK_NS regardless of the LAPIC input clock.  The
+         * handler re-arms via lapic_timer_rearm_tick().  The divide-configuration
+         * register is ignored in this mode.
+         *
+         * In xAPIC mode the LVTT write and the TSC_DEADLINE MSR write are not
+         * serialized with each other; order them LVTT-first like Linux's
+         * __setup_APIC_LVTT so the MSR write always lands after the mode is
+         * selected.
+         */
+        lapic_write(LAPIC_REG_TIMER_DIV, 11);
+        lapic_write(LAPIC_REG_TIMER, IRQ_0 | APIC_LVT_TSC_DEADLINE);
+        wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + tsc_get_cpu_frequency() / TIMER_HZ);
+        return;
+    }
+
     lapic_write(LAPIC_REG_TIMER, IRQ_0);
     lapic_write(LAPIC_REG_TIMER_DIV, 11);
     lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));
@@ -130,8 +168,67 @@ void local_apic_init(void)
     uint64_t lapic_timer              = (~(uint32_t)0) - lapic_read(LAPIC_REG_TIMER_CURCNT);
     uint64_t calibrated_timer_initial = (uint64_t)((uint64_t)(lapic_timer * 1000) / TIMER_HZ);
 
-    lapic_write(LAPIC_REG_TIMER, lapic_read(LAPIC_REG_TIMER) | 1 << 17);
+    lapic_write(LAPIC_REG_TIMER, lapic_read(LAPIC_REG_TIMER) | APIC_LVT_PERIODIC);
     lapic_write(LAPIC_REG_TIMER_INITCNT, calibrated_timer_initial);
+}
+
+/* Whether this CPU's LAPIC timer runs in TSC-deadline one-shot mode */
+int lapic_timer_is_tsc_deadline(void)
+{
+    /*
+     * Written once on the BSP before APs boot and never changed afterwards;
+     * timer IRQ context reads it without locking.
+     */
+    return __atomic_load_n(&apic_lapic_timer_mode, __ATOMIC_RELAXED) == 1;
+}
+
+/* Re-arm the LAPIC timer for the next periodic tick (TSC-deadline mode only) */
+void lapic_timer_rearm_tick(void)
+{
+    if (!lapic_timer_is_tsc_deadline()) return;
+    /* Absolute TSC deadline one tick out; a late re-arm fires immediately, self-correcting drift. */
+    wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + tsc_get_cpu_frequency() / TIMER_HZ);
+}
+
+/*
+ * Switch the BSP's LAPIC timer to TSC-deadline mode once tsc_init() has
+ * produced a calibrated frequency.
+ *
+ * acpi_init() arms the BSP timer before tsc_init() runs, so local_apic_init()
+ * always sees an uncalibrated TSC on its first call and selects legacy
+ * periodic mode.  This must be invoked between tsc_init() and smp_init():
+ * APs then observe the upgraded mode and program deadline directly, skipping
+ * their own calibration busy-wait entirely.
+ */
+void lapic_timer_try_upgrade(void)
+{
+    if (__atomic_load_n(&apic_lapic_timer_mode, __ATOMIC_RELAXED) == 1) return;
+    if (!tsc_get_cpu_frequency()) return;
+
+    uint32_t eax, ebx, ecx, edx;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+    if (!((ecx >> 24) & 1U)) {
+        plogk("apic: TSC-deadline mode not supported by this CPU; staying periodic.\n");
+        return;
+    }
+
+    /*
+     * Publish the new mode BEFORE reprogramming: the timer IRQ handler reads
+     * it via lapic_timer_is_tsc_deadline() to decide whether to re-arm.  The
+     * BSP timer may fire during the switch (interrupts are still disabled or
+     * the vector not yet unmasked this early), and a handler racing here with
+     * the old periodic hardware simply finds the deadline MSR armed and no
+     * pending INITCNT - both states produce exactly one tick.
+     */
+    __atomic_store_n(&apic_lapic_timer_mode, 1, __ATOMIC_RELEASE);
+
+    /* Disarm the legacy counter, then select deadline mode and arm one tick out. */
+    lapic_write(LAPIC_REG_TIMER_INITCNT, 0);
+    lapic_write(LAPIC_REG_TIMER_DIV, 11);
+    lapic_write(LAPIC_REG_TIMER, IRQ_0 | APIC_LVT_TSC_DEADLINE);
+    wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + tsc_get_cpu_frequency() / TIMER_HZ);
+
+    plogk("apic: LAPIC timer upgraded to TSC-deadline one-shot (%llu Hz TSC).\n", (unsigned long long)tsc_get_cpu_frequency());
 }
 
 /* Initialize I/O APIC */
@@ -166,8 +263,14 @@ void send_eoi(void)
 /* Stop the local APIC timer */
 void lapic_timer_stop(void)
 {
+    if (lapic_timer_is_tsc_deadline()) {
+        /* A deadline in the past disarms the timer; the LVT mask below keeps it silent. */
+        wrmsr(MSR_IA32_TSC_DEADLINE, 0);
+        lapic_write(LAPIC_REG_TIMER, IRQ_0 | APIC_LVT_TSC_DEADLINE | APIC_LVT_MASKED);
+        return;
+    }
     lapic_write(LAPIC_REG_TIMER_INITCNT, 0);
-    lapic_write(LAPIC_REG_TIMER, (1 << 16));
+    lapic_write(LAPIC_REG_TIMER, IRQ_0 | APIC_LVT_MASKED);
 }
 
 /* Send interrupt handling instruction */

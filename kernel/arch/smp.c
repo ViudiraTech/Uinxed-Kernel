@@ -297,7 +297,15 @@ void flush_tlb_all(void)
         uint64_t deadline = rdtsc() + resend_period;
         while (__atomic_load_n(&tlb_shootdown_ack[i], __ATOMIC_ACQUIRE) < generation) {
             if (rdtsc() > deadline) {
+                /*
+                 * NMI delivery can be dropped under virtualization.  Re-arm
+                 * the NMI AND ping the fixed-vector handler, which performs
+                 * the same full local flush before acking the current
+                 * generation - a truthful ack by construction, so a lost NMI
+                 * is repaired instead of masked.
+                 */
                 send_ipi(cpus[i].lapic_id, IPI_NMI | APIC_ICR_PHYSICAL);
+                send_ipi(cpus[i].lapic_id, IPI_TLB_SHOOTDOWN | APIC_ICR_PHYSICAL);
                 deadline = rdtsc() + resend_period;
             }
             __asm__ volatile("pause");

@@ -118,6 +118,9 @@ uint64_t timer_monotonic_resolution_ns(void);
 void     timer_realtime_set_ns(int64_t nanoseconds);
 uint32_t timer_realtime_seconds32(void);
 
+/* Whether CLOCK_MONOTONIC is backed by a source independent of scheduler ticks (TSC/HPET). */
+int timer_monotonic_highres(void);
+
 /* Periodic timer interrupt entry (fixed full-register assembly frame). */
 void timer_handle(void);
 

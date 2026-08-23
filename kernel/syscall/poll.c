@@ -263,10 +263,19 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
             continue;
         }
 
-        if (timeout->infinite)
-            wait_queue_sleep();
-        else
-            (void)wait_queue_wait_timed(&context.wq, timeout->deadline_tick);
+        /*
+         * Safety-net: block in bounded slices even for "infinite" polls.
+         * Expiry just falls through to the next scan; the condition checks
+         * above decide whether to keep waiting.  This converts any residual
+         * lost-wakeup bug in a driver's poll source from an unrecoverable
+         * hang into a sub-second hiccup.
+         */
+        uint64_t wait_deadline = timeout->infinite ? sched_ticks() + TIMER_HZ : timeout->deadline_tick;
+        if (!timeout->infinite && sched_ticks() >= wait_deadline) {
+            /* Deadline already passed while we were preparing: rescan once. */
+            continue;
+        }
+        (void)wait_queue_wait_timed(&context.wq, wait_deadline);
     }
 
     poll_watches_release(watches, nfds);

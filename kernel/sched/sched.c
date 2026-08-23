@@ -637,27 +637,52 @@ void request_task_cpu(task_t *task)
 /* Insert a sleeping task into the deadline-ordered sleep queue. */
 static void insert_sleep_deadline_locked(task_t *task)
 {
-    ilist_node_t *position = scheduler.sleep_queue.next;
+    /*
+     * A rejected insert means this task's sched_node is still linked somewhere
+     * (a previous wait never completed its detach) or the ring is damaged.
+     * Panicking here took down the whole machine over a recoverable case seen
+     * in the field (video-refresh re-sleeping on a stale link); instead,
+     * detach whatever the node is still holding and re-insert, logging loudly
+     * so the underlying protocol bug remains visible.
+     */
+    for (unsigned attempt = 0;; attempt++) {
+        ilist_node_t *position = scheduler.sleep_queue.next;
 
-    while (position != &scheduler.sleep_queue) {
-        task_t *queued = sched_node_to_task(position);
-        if (task->wake_tick < queued->wake_tick) break;
-        position = position->next;
+        while (position != &scheduler.sleep_queue) {
+            task_t *queued = sched_node_to_task(position);
+            if (task->wake_tick < queued->wake_tick) break;
+            position = position->next;
+        }
+        if (!ilist_insert_before(position, &task->sched_node)) return;
+
+        if (attempt > 0 || !ilist_is_linked(&task->sched_node)) {
+            panic("sched: sleep-queue insert rejected (task %llu %s) - ring corrupt", task->pid, task->name);
+        }
+        plogk("sched: stale sleep-queue link on task %llu (%s); recovering\n", task->pid, task->name);
+        (void)ilist_remove(&task->sched_node);
+        task->wait_queue = NULL;
     }
-    if (ilist_insert_before(position, &task->sched_node)) panic("sched: sleep-queue insert rejected (task %llu %s)", task->pid, task->name);
 }
 
 /* Insert a timed wait into the separately-linked deadline queue. */
 static void insert_timer_deadline_locked(task_t *task)
 {
-    ilist_node_t *position = scheduler.timer_queue.next;
+    for (unsigned attempt = 0;; attempt++) {
+        ilist_node_t *position = scheduler.timer_queue.next;
 
-    while (position != &scheduler.timer_queue) {
-        task_t *queued = timer_node_to_task(position);
-        if (task->wake_tick < queued->wake_tick) break;
-        position = position->next;
+        while (position != &scheduler.timer_queue) {
+            task_t *queued = timer_node_to_task(position);
+            if (task->wake_tick < queued->wake_tick) break;
+            position = position->next;
+        }
+        if (!ilist_insert_before(position, &task->timer_node)) return;
+
+        if (attempt > 0 || !ilist_is_linked(&task->timer_node)) {
+            panic("sched: timer-queue insert rejected (task %llu %s) - ring corrupt", task->pid, task->name);
+        }
+        plogk("sched: stale timer-queue link on task %llu (%s); recovering\n", task->pid, task->name);
+        (void)ilist_remove(&task->timer_node);
     }
-    if (ilist_insert_before(position, &task->timer_node)) panic("sched: timer-queue insert rejected (task %llu %s)", task->pid, task->name);
 }
 
 /* Put a task to sleep until a wake tick */
@@ -1833,7 +1858,24 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
     int     sleep = 0;
 
     spin_lock(&scheduler.lock);
-    if (curr->wait_queue == queue && curr->wake_reason == TASK_WAKE_NONE) {
+    if (!curr->wait_queue) {
+        /*
+         * Woken (or cancelled) between prepare and commit: nothing to
+         * commit.  Consume any pending wakeup so a later bare block does
+         * not mistake it for fresh work.
+         */
+        curr->wake_reason = TASK_WAKE_NONE;
+    } else if (curr->wake_reason == TASK_WAKE_NONE) {
+        /*
+         * Commit on WHICHEVER queue currently holds the node.  A concurrent
+         * FUTEX_REQUEUE may legally have moved us after prepare(); bailing
+         * out here used to strand the task RUNNING-but-still-linked on the
+         * destination queue - later wakes popped the phantom node and
+         * stomped a running task's wake state, and the victim's next
+         * unconditional sleep hit a linked sched_node ("sleep-queue insert
+         * rejected").  Blocking here also restores proper semantics: a
+         * requeued waiter sleeps until its target is woken or it times out.
+         */
         if (deadline_ticks <= scheduler.ticks) {
             finish_wait_locked(curr, TASK_WAKE_TIMEOUT);
         } else {
@@ -1843,12 +1885,7 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
             sleep       = 1;
         }
     }
-
-    /*
-     * If the task was concurrently requeued to another queue (futex
-     * FUTEX_REQUEUE family) or already woken, neither branch runs; the task
-     * simply does not commit to this timed sleep and its owner re-evaluates.
-     */
+    /* wake_reason != NONE with wait_queue set cannot happen: finish_wait_locked detaches before publishing the reason, both under scheduler.lock. */
     spin_unlock(&scheduler.lock);
 
     if (sleep) sched_yield();
@@ -1958,6 +1995,43 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
     return count;
 }
 
+/*
+ * Advance the global tick base.
+ *
+ * With a high-resolution clocksource (invariant TSC or HPET) the tick count is
+ * DERIVED from timer_monotonic_ns() instead of counting interrupts: any CPU
+ * that reaches this point can pull the base forward, and the try-lock makes
+ * concurrent callers collapse into one.  A stalled CPU therefore can no longer
+ * freeze every timeout in the system (futex/poll/nanosleep deadlines all read
+ * scheduler.ticks), and missed ticks self-correct on the next pass.  This
+ * mirrors Linux's separation of clocksource-driven timekeeping from the
+ * per-CPU clock-event device.
+ *
+ * Without a high-res source the monotonic read degenerates to scheduler ticks
+ * themselves, so fall back to the historical CPU0-owned +1-per-IRQ scheme.
+ */
+static void sched_advance_global_ticks(void)
+{
+    if (!timer_monotonic_highres()) {
+        if (get_current_cpu_id() != 0) return;
+        spin_lock(&scheduler.lock);
+        scheduler.ticks++;
+        wake_sleeping_tasks();
+        spin_unlock(&scheduler.lock);
+        return;
+    }
+
+    /* Contended: another CPU is advancing the base right now; nothing to do. */
+    if (!spin_trylock(&scheduler.lock)) return;
+
+    uint64_t target = timer_monotonic_ns() / TIMER_TICK_NS;
+    if (target > scheduler.ticks) {
+        scheduler.ticks = target;
+        wake_sleeping_tasks();
+    }
+    spin_unlock(&scheduler.lock);
+}
+
 /* sched_tick - periodic tick accounting and preemption */
 void sched_tick(bool user_mode)
 {
@@ -1998,13 +2072,8 @@ void sched_tick(bool user_mode)
     }
     spin_unlock(&rq->lock);
 
-    /* CPU 0 owns the global time base and ordered timer queues. */
-    if (cpu_id == 0) {
-        spin_lock(&scheduler.lock);
-        scheduler.ticks++;
-        wake_sleeping_tasks();
-        spin_unlock(&scheduler.lock);
-    }
+    /* Global time base and ordered sleep/timer queues: any CPU may drive them. */
+    sched_advance_global_ticks();
 
     /* Each CPU periodically pulls work through its nested scheduling domains. */
     uint64_t now = __atomic_load_n(&scheduler.ticks, __ATOMIC_RELAXED);

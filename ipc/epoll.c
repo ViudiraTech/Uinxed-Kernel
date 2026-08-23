@@ -761,8 +761,21 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 
     int64_t ret;
 
-    uint64_t deadline = 0;
-    if (timeout > 0) {
+    /*
+     * Safety-net deadline: an infinite epoll_wait blocks in bounded slices and
+     * re-scans on expiry.  The two-phase wait protocol makes a lost wakeup
+     * impossible as long as every notifier follows it, but a single protocol
+     * violation anywhere in a driver then wedges the waiter FOREVER (observed
+     * as udev stalls during coldplug on large-SMP machines).  Re-checking the
+     * readiness scan once per second costs one pass over the registered fds
+     * and converts any residual lost-wakeup bug from an unrecoverable hang
+     * into a sub-second hiccup.
+     */
+    const uint64_t slice_ticks = TIMER_HZ; // re-scan at least once per second
+
+    uint64_t deadline     = 0;
+    bool     infinite     = timeout < 0;
+    if (!infinite) {
         uint64_t ticks = ((uint64_t)timeout * EPOLL_TICKS_PER_SEC + 999) / 1000;
         deadline       = sched_ticks() + ticks;
     }
@@ -781,9 +794,15 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
             break;
         }
 
-        if (timeout == 0 || (deadline && sched_ticks() >= deadline)) {
-            ret = 0;
-            break;
+        uint64_t wait_deadline = 0;
+        if (infinite) {
+            wait_deadline = sched_ticks() + slice_ticks;
+        } else {
+            if (timeout == 0 || (deadline && sched_ticks() >= deadline)) {
+                ret = 0;
+                break;
+            }
+            wait_deadline = deadline;
         }
 
         if (epoll_signal_pending(proc)) {
@@ -809,10 +828,8 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
             ret = -ERESTARTSYS;
             break;
         }
-        if (deadline)
-            (void)wait_queue_wait_timed(&epi->wq, deadline);
-        else
-            wait_queue_sleep();
+        int timed_out = wait_queue_wait_timed(&epi->wq, wait_deadline) == -ETIMEDOUT;
+        (void)timed_out;
         spin_lock(&epi->lock);
     }
 
