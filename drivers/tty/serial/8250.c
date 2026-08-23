@@ -95,6 +95,7 @@ static int uart8250_tx_write(uart_port_t *port, const uint8_t *data, size_t len)
     while (queued < len && port->tx_count < UART_TX_BUF_SIZE) {
         port->tx_buf[port->tx_head] = data[queued++];
         port->tx_head               = (port->tx_head + 1) % UART_TX_BUF_SIZE;
+        port->tx_count++;
     }
     uart8250_tx_chars_locked(port);
 
