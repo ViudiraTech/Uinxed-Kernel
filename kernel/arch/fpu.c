@@ -13,6 +13,7 @@
 #include <arch/smp.h>
 #include <kernel/debug/debug.h>
 #include <kernel/printk.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -46,6 +47,7 @@ static size_t   fpu_save_size   = FPU_FXSAVE_SIZE;
 static uint64_t fpu_xstate_mask = XCR0_FPU_MASK;
 static uint8_t  fpu_use_xsave;
 static uint8_t  fpu_use_xsaveopt;
+static uint8_t  fpu_config_ready;
 
 /*
  * Set only when fpu_init() actually enabled SSE in hardware (CR4.OSFXSR).
@@ -95,7 +97,8 @@ static inline void fpu_save(void *state)
     if (fpu_use_xsave) {
         uint32_t low  = (uint32_t)fpu_xstate_mask;
         uint32_t high = (uint32_t)(fpu_xstate_mask >> 32);
-        if (fpu_use_xsaveopt) {
+        /* AP feature validation may conservatively disable XSAVEOPT. */
+        if (__atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE)) {
             __asm__ volatile("xsaveopt64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
         } else {
             __asm__ volatile("xsave64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
@@ -153,8 +156,10 @@ static inline void fpu_restore_irq(uint64_t if_enabled)
 void fpu_init(void)
 {
     fpu_percpu_t *fp   = fpu_percpu();
+    bool          boot = !__atomic_load_n(&fpu_config_ready, __ATOMIC_ACQUIRE);
     fp->fpu_live       = NULL;
     fp->fpu_kernel_cnt = 0;
+    fp->fpu_irq_saved  = 0;
 
 #if CPU_FEATURE_FPU
     uint64_t cr0;
@@ -170,69 +175,88 @@ void fpu_init(void)
      * (LDMXCSR and the SSE/AVX instructions themselves raise #UD
      * otherwise).  This also applies to the XSAVE path.
      */
-    if (cpu_support_sse()) {
+    if ((boot && cpu_support_sse()) || (!boot && fpu_sse_enabled)) {
+        if (!cpu_support_sse()) panic("fpu: AP lacks SSE required by the boot CPU.");
         uint64_t cr4;
         __asm__ volatile("mov %%cr4, %0" : "=r"(cr4) : : "memory");
         cr4 |= (1ULL << CR4_OSFXSR_SHIFT);
         cr4 |= (1ULL << CR4_OSXMMEXCPT_SHIFT);
         __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
-        fpu_sse_enabled = 1;
+        if (boot) fpu_sse_enabled = 1;
     }
 #    endif
 
-    /*
-     * Prefer XSAVE/XRSTOR whenever the CPU and XCR0 support it.
-     * CR4.OSXSAVE must be written before reading the CPUID.1.ECX[27]
-     * OSXSAVE status bit (it reflects current CR4.OSXSAVE).
-     */
-    if (cpu_support_xsave() && cpu_xcr0_supports(XCR0_FPU_MASK)) {
-        uint64_t xcr0_mask = XCR0_FPU_MASK;
+    if (boot) {
+        /*
+         * The boot CPU publishes one system-wide XSAVE layout.  APs must use
+         * exactly that layout: allowing every AP to rewrite these globals and
+         * the shared initial-state template made startup a data race whose
+         * failure probability grew with CPU count.
+         */
+        if (cpu_support_xsave() && cpu_xcr0_supports(XCR0_FPU_MASK)) {
+            uint64_t xcr0_mask = XCR0_FPU_MASK;
 #    if CPU_FEATURE_AVX
-        if (cpu_support_avx() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT)) xcr0_mask |= XCR0_AVX_BIT;
+            if (cpu_support_avx() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT)) xcr0_mask |= XCR0_AVX_BIT;
 #        if CPU_FEATURE_AVX512
-        if (cpu_support_avx512f() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT | XCR0_AVX512_MASK)) xcr0_mask |= XCR0_AVX512_MASK;
+            if (cpu_support_avx512f() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT | XCR0_AVX512_MASK)) xcr0_mask |= XCR0_AVX512_MASK;
 #        endif
 #    endif
+            uint64_t cr4;
+            __asm__ volatile("mov %%cr4, %0" : "=r"(cr4) : : "memory");
+            cr4 |= (1ULL << CR4_OSXSAVE_SHIFT);
+            __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+
+            if (cpu_support_osxsave()) {
+                __asm__ volatile("xsetbv" : : "a"((uint32_t)xcr0_mask), "d"((uint32_t)(xcr0_mask >> 32)), "c"(0) : "memory");
+
+                uint32_t eax, ebx, ecx, edx;
+                cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
+                fpu_save_size = (ebx + FPU_STATE_ALIGNMENT - 1) & ~(FPU_STATE_ALIGNMENT - 1);
+
+                /* The pre-heap template is deliberately bounded. */
+                if (fpu_save_size > sizeof(fpu_initial_state)) {
+                    plogk("fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state.\n", fpu_save_size, sizeof(fpu_initial_state));
+                    xcr0_mask = XCR0_FPU_MASK;
+                    __asm__ volatile("xsetbv" : : "a"((uint32_t)xcr0_mask), "d"((uint32_t)(xcr0_mask >> 32)), "c"(0) : "memory");
+                    cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
+                    fpu_save_size = (ebx + FPU_STATE_ALIGNMENT - 1) & ~(FPU_STATE_ALIGNMENT - 1);
+                }
+                cpuid_count(0x0000000d, 1, &eax, &ebx, &ecx, &edx);
+
+                fpu_xstate_mask  = xcr0_mask;
+                fpu_use_xsave    = 1;
+                __atomic_store_n(&fpu_use_xsaveopt, (eax & 0x1) ? 1 : 0, __ATOMIC_RELEASE);
+            }
+        }
+        if (!fpu_use_xsave) {
+            fpu_save_size    = FPU_FXSAVE_SIZE;
+            fpu_xstate_mask  = XCR0_FPU_MASK;
+            fpu_use_xsave    = 0;
+            __atomic_store_n(&fpu_use_xsaveopt, 0, __ATOMIC_RELEASE);
+        }
+
+        fpu_state_set_initial(fpu_initial_state);
+        __atomic_store_n(&fpu_config_ready, 1, __ATOMIC_RELEASE);
+    } else if (fpu_use_xsave) {
+        /* Validate and install the boot CPU's immutable XCR0 contract. */
+        if (!cpu_support_xsave() || !cpu_xcr0_supports(fpu_xstate_mask)) panic("fpu: AP cannot support boot CPU XCR0 mask 0x%llx.", (unsigned long long)fpu_xstate_mask);
+
         uint64_t cr4;
         __asm__ volatile("mov %%cr4, %0" : "=r"(cr4) : : "memory");
         cr4 |= (1ULL << CR4_OSXSAVE_SHIFT);
         __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+        if (!cpu_support_osxsave()) panic("fpu: AP failed to enable OSXSAVE.");
+        __asm__ volatile("xsetbv" : : "a"((uint32_t)fpu_xstate_mask), "d"((uint32_t)(fpu_xstate_mask >> 32)), "c"(0) : "memory");
 
-        if (cpu_support_osxsave()) {
-            __asm__ volatile("xsetbv" : : "a"((uint32_t)xcr0_mask), "d"((uint32_t)(xcr0_mask >> 32)), "c"(0) : "memory");
-
-            uint32_t eax, ebx, ecx, edx;
-            cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
-            fpu_save_size = (ebx + FPU_STATE_ALIGNMENT - 1) & ~(FPU_STATE_ALIGNMENT - 1);
-
-            /*
-             * The heap is not available this early, so the initial-state
-             * template cannot be grown at runtime.  Rather than refuse to
-             * boot, drop back to legacy x87/SSE state (XCR0_FPU_MASK),
-             * whose XSAVE area always fits the static template.
-             */
-            if (fpu_save_size > sizeof(fpu_initial_state)) {
-                plogk("fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state.\n", fpu_save_size, sizeof(fpu_initial_state));
-                xcr0_mask = XCR0_FPU_MASK;
-                __asm__ volatile("xsetbv" : : "a"((uint32_t)xcr0_mask), "d"((uint32_t)(xcr0_mask >> 32)), "c"(0) : "memory");
-                cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
-                fpu_save_size = (ebx + FPU_STATE_ALIGNMENT - 1) & ~(FPU_STATE_ALIGNMENT - 1);
-            }
-            cpuid_count(0x0000000d, 1, &eax, &ebx, &ecx, &edx);
-
-            fpu_xstate_mask  = xcr0_mask;
-            fpu_use_xsave    = 1;
-            fpu_use_xsaveopt = (eax & 0x1) ? 1 : 0;
-        }
-    }
-    if (!fpu_use_xsave) {
-        fpu_save_size    = FPU_FXSAVE_SIZE;
-        fpu_xstate_mask  = XCR0_FPU_MASK;
-        fpu_use_xsave    = 0;
-        fpu_use_xsaveopt = 0;
+        uint32_t eax, ebx, ecx, edx;
+        cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
+        size_t local_size = (ebx + FPU_STATE_ALIGNMENT - 1) & ~(FPU_STATE_ALIGNMENT - 1);
+        if (local_size < fpu_save_size) panic("fpu: AP XSAVE area %zu is smaller than boot layout %zu.", local_size, fpu_save_size);
+        cpuid_count(0x0000000d, 1, &eax, &ebx, &ecx, &edx);
+        if (!(eax & 0x1)) __atomic_store_n(&fpu_use_xsaveopt, 0, __ATOMIC_RELEASE);
     }
 
-    fpu_state_set_initial(fpu_initial_state);
+    /* The template is immutable after the BSP publishes fpu_config_ready. */
     fpu_hw_reset_initial();
 #else
     (void)fp;

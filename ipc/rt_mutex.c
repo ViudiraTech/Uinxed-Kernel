@@ -9,6 +9,7 @@
  */
 
 #include <ipc/futex.h>
+#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/list/intrusive_list.h>
@@ -122,7 +123,9 @@ void pi_waiter_remove(task_t *waiter)
     rt_mutex_t *mutex = waiter->blocked_on;
 
     if (!mutex) return;
-    if (!rb_is_empty(&mutex->pi_waiters)) rb_erase_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_augment, NULL);
+    if (rb_erase_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_augment, NULL)) {
+        panic("rt_mutex: PI waiter %llu is not linked in its blocked-on tree", waiter->pid);
+    }
 
     waiter->blocked_on = NULL;
     pi_propagate_chain(mutex->owner);
@@ -136,7 +139,9 @@ void pi_waiter_remove(task_t *waiter)
 void pi_waiter_add(task_t *waiter, rt_mutex_t *mutex)
 {
     waiter->blocked_on = mutex;
-    rb_insert_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_less, pi_waiter_augment, NULL);
+    if (rb_insert_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_less, pi_waiter_augment, NULL)) {
+        panic("rt_mutex: duplicate/cross-tree PI waiter insertion for task %llu", waiter->pid);
+    }
     pi_propagate_chain(mutex->owner);
 }
 
@@ -300,7 +305,7 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
             continue;
         }
 
-        task_block();
+        wait_queue_sleep();
         waited = true;
 
         spin_lock(&mutex->lock);
@@ -374,7 +379,7 @@ task_t *rt_mutex_wake_top_waiter(rt_mutex_t *mutex)
     if (!leftmost) return NULL;
     task_t *top = rb_entry(leftmost, task_t, pi_node);
 
-    rb_erase_augmented(&mutex->pi_waiters, leftmost, pi_waiter_augment, NULL);
+    if (rb_erase_augmented(&mutex->pi_waiters, leftmost, pi_waiter_augment, NULL)) panic("rt_mutex: failed to pop leftmost PI waiter");
     top->blocked_on = NULL;
 
     return top;

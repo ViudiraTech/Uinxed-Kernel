@@ -467,14 +467,15 @@ struct drm_framebuffer {
         const struct drm_framebuffer_funcs *funcs;
         int                                 id;
         struct drm_file                    *file; // file that created it (for cleanup)
+        bool                                registered;
 
         /*
          * Reference count.  Starts at 1 when registered in fb_idr;
          * drm_framebuffer_lookup() takes a reference and callers release it
          * with drm_framebuffer_put() after use, so drm_mode_rmfb()/release
          * cannot free the framebuffer out from under an in-flight SETCRTC.
-         * Freed when the count reaches zero (after drm_framebuffer_cleanup
-         * has unregistered it).
+         * GEM backing references are released only when this count reaches
+         * zero, after drm_framebuffer_cleanup has made new lookups impossible.
          */
         int refcount;
 };

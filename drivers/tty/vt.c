@@ -48,6 +48,7 @@ static char           tty_vga_queue[TTY_VGA_QUEUE_SIZE] = {0};
 static char           tty_vga_flush_buf[TTY_BUF_SIZE]   = {0};
 static size_t         tty_vga_head                      = 0;
 static size_t         tty_vga_tail                      = 0;
+static uint64_t       tty_vga_dropped                   = 0;
 static tty_core_t     console_tty;
 #if CONFIG_VT
 static tty_core_t virtual_ttys[VT_TTY_COUNT - 2];
@@ -70,12 +71,8 @@ static void tty_vga_queue_push(char ch)
     size_t next = (tty_vga_head + 1) % TTY_VGA_QUEUE_SIZE;
 
     if (next == tty_vga_tail) {
-        static uint64_t last_log;
-        uint64_t        now = sched_ticks();
-        if (now - last_log >= 1000) {
-            plogk("tty: VGA output queue overflow, dropping console data.\n");
-            last_log = now;
-        }
+        /* Never recurse into printk while tty_flush_spinlock is held. */
+        __atomic_add_fetch(&tty_vga_dropped, 1, __ATOMIC_RELAXED);
         tty_vga_tail = (tty_vga_tail + 1) % TTY_VGA_QUEUE_SIZE;
     }
     tty_vga_queue[tty_vga_head] = ch;
@@ -162,6 +159,12 @@ void tty_deferred_flush(void)
     spin_lock(&tty_flush_spinlock);
     if (tty_vga_tail != tty_vga_head) tty_vga_flush_locked();
     spin_unlock(&tty_flush_spinlock);
+
+    /* Reporting outside the console lock avoids the overflow self-deadlock. */
+    if (fbcon_is_ready()) {
+        uint64_t dropped = __atomic_exchange_n(&tty_vga_dropped, 0, __ATOMIC_RELAXED);
+        if (dropped) plogk("tty: VGA output queue dropped %llu byte%s.\n", (unsigned long long)dropped, dropped == 1 ? "" : "s");
+    }
 }
 
 /* Lockless IRQ-side hint; the deferred pass verifies the queue under its lock. */
@@ -412,7 +415,9 @@ int tty_console_acquire(struct process *proc, uint64_t flags)
     if (pid <= 0 || proc->sid != pid || proc->pgid != pid) return -EPERM;
 
     vt_input_init();
-    return 0;
+    tty_core_t *tty = console_get_tty();
+    if (!tty) return -ENODEV;
+    return process_ctty_acquire(proc, tty, false, NULL, NULL);
 }
 
 #if CONFIG_VT

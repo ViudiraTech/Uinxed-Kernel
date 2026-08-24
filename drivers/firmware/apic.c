@@ -276,6 +276,17 @@ void lapic_timer_stop(void)
 /* Send interrupt handling instruction */
 void send_ipi(uint32_t apic_id, uint32_t command)
 {
+    /*
+     * xAPIC's destination and command live in two separate ICR MMIO
+     * registers.  An interrupt nested between those writes can issue a
+     * second IPI on this CPU and pair the first destination with the second
+     * command.  That becomes frequent with reschedule and TLB-shootdown IPIs
+     * on larger systems.  The ICR is per-local-APIC, so local IRQ exclusion
+     * is sufficient and avoids a global cross-CPU lock.
+     */
+    uint64_t rflags = get_rflags();
+    disable_intr();
+
     if (x2apic_mode) {
         /*
          * IA32_X2APIC_ICR carries the complete 32-bit destination in
@@ -292,9 +303,10 @@ void send_ipi(uint32_t apic_id, uint32_t command)
     while (lapic_read(APIC_ICR_LOW) & (1 << 12)) {
         if (--tout <= 0) {
             plogk("apic: IPI to APIC %u still pending (ICR=0x%x)\n", apic_id, command);
-            return;
+            break;
         }
     }
+    if (rflags & (1ULL << 9)) enable_intr();
 }
 
 /* Initialize APIC */

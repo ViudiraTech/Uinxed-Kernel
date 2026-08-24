@@ -225,13 +225,9 @@ static procfs_file_t *procfs_file_alloc(procfs_type_t type, pid_t pid, int subty
 }
 
 /* Get or create a child node, re-binding its procfs description. */
-static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, procfs_type_t type, pid_t pid, int subtype, uint16_t node_type)
+static vfs_node_t procfs_bind_child(vfs_node_t child, procfs_type_t type, pid_t pid, int subtype, uint16_t node_type)
 {
-    vfs_node_t child = procfs_find_child(parent, name);
-    if (!child) {
-        child = vfs_node_alloc(parent, name);
-        if (!child) return NULL;
-    }
+    if (!child) return NULL;
 
     procfs_file_t *pf = child->handle;
     if (!pf) {
@@ -250,6 +246,17 @@ static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, procf
     return child;
 }
 
+/* Get or create a child node, re-binding its procfs description. */
+static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, procfs_type_t type, pid_t pid, int subtype, uint16_t node_type)
+{
+    vfs_node_t child = procfs_find_child(parent, name);
+    if (!child) {
+        child = vfs_node_alloc(parent, name);
+        if (!child) return NULL;
+    }
+    return procfs_bind_child(child, type, pid, subtype, node_type);
+}
+
 /* Hide PID directory nodes whose process has exited. */
 static void procfs_deactivate_pid_nodes(vfs_node_t root)
 {
@@ -264,27 +271,17 @@ static void procfs_deactivate_pid_nodes(vfs_node_t root)
 }
 
 /*
- * Cached PID snapshot of the /proc root directory.
+ * Cached process-table generation for the /proc root directory.
  *
  * Task managers re-enumerate /proc constantly, and every pathname open under
  * /proc refreshes the root along the way (do_update -> procfs_stat).  Each
  * rebuild walks the child list once per live PID, which is O(P^2) under the
  * global VFS namespace lock - enough to freeze htop/top/xfce4-taskmanager on
- * a busy desktop.  Like Linux's dentry cache, keep the last live PID set:
- * when a refresh observes an unchanged set the children are already accurate
- * and active, so the rebuild collapses into one O(P) comparison.
+ * a busy desktop.  Membership changes bump one process-table generation, so
+ * the common unchanged refresh is a single O(1) comparison.
  */
-static pid_t *procfs_root_pid_cache;
-static size_t procfs_root_pid_cache_count;
-static bool   procfs_root_pid_cache_valid;
-
-/* True when the cached PID set matches the freshly snapshotted one. */
-static bool procfs_root_pid_set_unchanged(const pid_t *pids, size_t count)
-{
-    if (!procfs_root_pid_cache_valid || procfs_root_pid_cache_count != count) return false;
-    if (count && memcmp(procfs_root_pid_cache, pids, count * sizeof(*pids)) != 0) return false;
-    return true;
-}
+static bool     procfs_root_pid_cache_valid;
+static uint64_t procfs_root_pid_cache_generation;
 
 /*
  * CPU count used when generating per-CPU procfs content, floored at 1 and
@@ -1184,11 +1181,12 @@ typedef struct procfs_memory_stats {
         uint64_t text_bytes;
 } procfs_memory_stats_t;
 
-/* Count resident leaves rather than treating every lazy VMA page as present. */
-static void procfs_get_memory_stats(process_t *proc, procfs_memory_stats_t *stats)
+/* Use the maintained RSS counter; only statm still needs shared-VMA walks. */
+static void procfs_get_memory_stats(process_t *proc, procfs_memory_stats_t *stats, bool count_shared)
 {
     memset(stats, 0, sizeof(*stats));
     if (!proc || !proc->user_page_dir) return;
+    stats->resident_pages = page_count_resident(proc->user_page_dir);
 
     spin_lock(&proc->mmap_lock);
     for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
@@ -1198,9 +1196,7 @@ static void procfs_get_memory_stats(process_t *proc, procfs_memory_stats_t *stat
         if (vma->type == VM_REGION_STACK) stats->stack_bytes += vma->end - vma->start;
         if (vma->type == VM_REGION_CODE) stats->text_bytes += vma->end - vma->start;
 
-        uint64_t resident = page_count_present_range(proc->user_page_dir, vma->start, vma->end);
-        stats->resident_pages += resident;
-        if (vma->flags & VM_SHARED) stats->shared_pages += resident;
+        if (count_shared && (vma->flags & VM_SHARED)) stats->shared_pages += page_count_present_range(proc->user_page_dir, vma->start, vma->end);
         if (vma->type == VM_REGION_CODE) stats->text_pages += pages;
         if (vma->type == VM_REGION_DATA || vma->type == VM_REGION_HEAP || vma->type == VM_REGION_STACK) stats->data_pages += pages;
     }
@@ -1248,7 +1244,7 @@ static void gen_pid_status(procfs_file_t *pf)
 
     procfs_memory_stats_t memory;
     process_stats_t       stats;
-    procfs_get_memory_stats(proc, &memory);
+    procfs_get_memory_stats(proc, &memory, false);
     process_get_stats(proc, &stats);
     bool     no_new_privs;
     uint8_t  seccomp_mode;
@@ -1263,7 +1259,7 @@ static void gen_pid_status(procfs_file_t *pf)
     else
         strcpy(cpu_list, "0");
 
-    pid_t ppid = proc->parent ? proc->parent->task->pid : 0;
+    pid_t ppid = process_parent_pid(proc);
     int   n    = snprintf(buf, PROCFS_BUF_SIZE,
                           "Name:\t%s\n"
                                "State:\t%s\n"
@@ -1311,11 +1307,14 @@ static void gen_pid_status(procfs_file_t *pf)
 /* Generate /proc/<pid>/maps content. */
 static void gen_pid_maps(procfs_file_t *pf)
 {
-    process_t *proc = process_find(pf->pid);
+    process_t *proc = process_find_get(pf->pid);
     if (!proc) return;
 
     char *buf = malloc(PROCFS_BUF_SIZE);
-    if (!buf) return;
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
 
     char *p         = buf;
     int   remaining = PROCFS_BUF_SIZE;
@@ -1373,11 +1372,18 @@ static void gen_pid_maps(procfs_file_t *pf)
                 break;
         }
         n = snprintf(p, remaining, "%016lx-%016lx %s%c %08lx 00:00 0%s\n", vma->start, vma->end, perm, (vma->flags & VM_SHARED) ? 's' : 'p', 0UL, region_name);
+        if (n < 0) break;
+        if (n >= remaining) {
+            p += remaining - 1;
+            remaining = 1;
+            break;
+        }
         p += n;
         remaining -= n;
         vma = vma->next;
     }
     spin_unlock(&proc->mmap_lock);
+    process_put(proc);
 
     pf->content  = buf;
     pf->size     = (size_t)(p - buf);
@@ -1387,15 +1393,22 @@ static void gen_pid_maps(procfs_file_t *pf)
 /* Generate /proc/<pid>/cmdline content. */
 static void gen_pid_cmdline(procfs_file_t *pf)
 {
-    process_t *proc = process_find(pf->pid);
-    if (!proc) return;
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc || !proc->task) {
+        process_put(proc);
+        return;
+    }
 
     size_t len = strlen(proc->task->name);
     char  *buf = malloc(len + 1);
-    if (!buf) return;
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
 
     memcpy(buf, proc->task->name, len);
     buf[len]     = '\0';
+    process_put(proc);
     pf->content  = buf;
     pf->size     = len;
     pf->capacity = len + 1;
@@ -1430,16 +1443,23 @@ static void gen_pid_cgroup(procfs_file_t *pf)
 /* Generate /proc/<pid>/name content. */
 static void gen_pid_name(procfs_file_t *pf)
 {
-    process_t *proc = process_find(pf->pid);
-    if (!proc) return;
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc || !proc->task) {
+        process_put(proc);
+        return;
+    }
 
     char *buf = malloc(PROCESS_NAME_LEN + 2);
-    if (!buf) return;
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
 
     size_t len = strlen(proc->task->name);
     memcpy(buf, proc->task->name, len);
     buf[len]     = '\n';
     buf[len + 1] = '\0';
+    process_put(proc);
 
     pf->content  = buf;
     pf->size     = len + 1;
@@ -1449,16 +1469,23 @@ static void gen_pid_name(procfs_file_t *pf)
 /* Generate /proc/<pid>/comm content. */
 static void gen_pid_comm(procfs_file_t *pf)
 {
-    process_t *proc = process_find(pf->pid);
-    if (!proc) return;
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc || !proc->task) {
+        process_put(proc);
+        return;
+    }
 
     char *buf = malloc(PROCESS_NAME_LEN + 2);
-    if (!buf) return;
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
 
     size_t len = strlen(proc->task->name);
     memcpy(buf, proc->task->name, len);
     buf[len]     = '\n';
     buf[len + 1] = '\0';
+    process_put(proc);
 
     pf->content  = buf;
     pf->size     = len + 1;
@@ -1477,7 +1504,7 @@ static void gen_pid_statm(procfs_file_t *pf)
     }
 
     procfs_memory_stats_t memory;
-    procfs_get_memory_stats(proc, &memory);
+    procfs_get_memory_stats(proc, &memory, true);
     int n = snprintf(buf, 256, "%llu %llu %llu %llu %llu %llu %llu\n", (unsigned long long)memory.virtual_pages, (unsigned long long)memory.resident_pages, (unsigned long long)memory.shared_pages,
                      (unsigned long long)memory.text_pages, 0ULL, (unsigned long long)memory.data_pages, 0ULL);
     process_put(proc);
@@ -1562,31 +1589,6 @@ static void gen_pid_oom_score_adj(procfs_file_t *pf)
     pf->capacity = 16;
 }
 
-/* Resolve the Linux /proc/<pid>/fd/<n> target for an open file description. */
-static void procfs_fd_target(process_t *proc, int fd, char *target, size_t capacity)
-{
-    process_file_t *file;
-
-    if (!proc || !target || capacity < 2) return;
-    target[0] = '\0';
-    file      = process_fd_get(proc, fd);
-    if (!file) return;
-
-    if (file->node) {
-        if (!file->node->parent) {
-            /* Anonymous inodes (pipes, sockets, eventfds, ...). */
-            if (file->node->name && file->node->name[0]) {
-                (void)snprintf(target, capacity, "anon_inode:%s", file->node->name);
-            } else {
-                (void)snprintf(target, capacity, "anon_inode:[%llu]", (unsigned long long)file->node->inode);
-            }
-        } else if (vfs_node_path(file->node, target, capacity) != EOK) {
-            target[0] = '\0';
-        }
-    }
-    process_file_put(file);
-}
-
 /* Generate Linux-compatible /proc/<pid>/fdinfo/<fd> content. */
 static void gen_pid_fdinfo(procfs_file_t *pf)
 {
@@ -1639,7 +1641,7 @@ static void gen_pid_mem(procfs_file_t *pf)
     }
 
     procfs_memory_stats_t memory;
-    procfs_get_memory_stats(proc, &memory);
+    procfs_get_memory_stats(proc, &memory, false);
 
     int n = snprintf(buf, 256,
                      "VmaTotal:\t%llu kB\n"
@@ -1692,7 +1694,7 @@ static void gen_pid_stat(procfs_file_t *pf)
 
     char     name[PROCESS_NAME_LEN];
     uint32_t cpu_id    = proc->task->cpu_id;
-    pid_t    ppid      = proc->parent && proc->parent->task ? (pid_t)proc->parent->task->tgid : 0;
+    pid_t    ppid      = process_parent_pid(proc);
     pid_t    pgid      = proc->pgid;
     pid_t    sid       = proc->sid;
     int64_t  tty_nr    = 0;
@@ -1728,11 +1730,10 @@ static void gen_pid_stat(procfs_file_t *pf)
     }
     spin_unlock(&proc->mmap_lock);
 
-    process_stats_t       task_stats;
-    procfs_memory_stats_t memory_stats;
+    process_stats_t task_stats;
     process_get_stats(proc, &task_stats);
-    procfs_get_memory_stats(proc, &memory_stats);
-    uint32_t thread_count = task_stats.threads ? task_stats.threads : 1;
+    uint64_t resident_pages = page_count_resident(proc->user_page_dir);
+    uint32_t thread_count   = task_stats.threads ? task_stats.threads : 1;
 
     uint64_t rss_limit;
     spin_lock(&proc->rlimit_lock);
@@ -1755,7 +1756,7 @@ static void gen_pid_stat(procfs_file_t *pf)
                      "%llu %llu %llu %llu %llu %llu %llu %lld\n",
                      (int64_t)pf->pid, name, state_char, (int64_t)ppid, (int64_t)pgid, (int64_t)sid, tty_nr, tpgid, 0U, 0ULL, 0ULL, 0ULL, 0ULL, timer_ticks_to_user_ticks(task_stats.user_ticks),
                      timer_ticks_to_user_ticks(task_stats.system_ticks), 0LL, 0LL, 20LL, 0LL, (int64_t)thread_count, 0LL, timer_ticks_to_user_ticks(task_stats.start_tick), vsize,
-                     (int64_t)memory_stats.resident_pages, rss_limit, start_code, end_code, (uint64_t)PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, (int64_t)SIGCHLD,
+                     (int64_t)resident_pages, rss_limit, start_code, end_code, (uint64_t)PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, (int64_t)SIGCHLD,
                      (int64_t)cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL, start_data, end_data, start_brk, 0ULL, 0ULL, 0ULL, 0ULL, exit_code);
     process_put(proc);
 
@@ -2010,7 +2011,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 /* Try PID - numeric directory name */
                 char *end;
                 pid_t pid = (pid_t)strtol(name, &end, 10);
-                if (*end == '\0' && process_find(pid)) {
+                if (*end == '\0' && process_pid_exists(pid)) {
                     pf->type   = PROCFS_PID_DIR;
                     pf->pid    = pid;
                     node->type = file_dir;
@@ -2068,20 +2069,12 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             break;
         }
         case PROCFS_PID_FD_DIR : {
-            process_t *proc = process_find(ppf->pid);
-            if (!proc) {
+            char *end;
+            int   fd = (int)strtol(name, &end, 10);
+            if (*end != '\0' || !process_fd_exists(ppf->pid, fd)) {
                 free(pf);
                 return;
             }
-            char           *end;
-            int             fd   = (int)strtol(name, &end, 10);
-            process_file_t *file = NULL;
-            if (*end == '\0' && fd >= 0 && fd < PROCESS_MAX_FD) file = process_fd_get(proc, fd);
-            if (!file) {
-                free(pf);
-                return;
-            }
-            process_file_put(file);
             pf->type    = PROCFS_PID_FD_LINK;
             pf->pid     = ppf->pid;
             pf->subtype = fd;
@@ -2089,21 +2082,12 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             break;
         }
         case PROCFS_PID_FDINFO_DIR : {
-            process_t *proc = process_find_get(ppf->pid);
-            if (!proc) {
+            char *end;
+            int   fd = (int)strtol(name, &end, 10);
+            if (*end != '\0' || !process_fd_exists(ppf->pid, fd)) {
                 free(pf);
                 return;
             }
-            char           *end;
-            int             fd   = (int)strtol(name, &end, 10);
-            process_file_t *file = NULL;
-            if (*end == '\0' && fd >= 0 && fd < PROCESS_MAX_FD) file = process_fd_get(proc, fd);
-            process_put(proc);
-            if (!file) {
-                free(pf);
-                return;
-            }
-            process_file_put(file);
             pf->type    = PROCFS_PID_FDINFO_FILE;
             pf->pid     = ppf->pid;
             pf->subtype = fd;
@@ -2187,46 +2171,22 @@ static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t
             break;
         }
         case PROCFS_PID_FD_LINK : {
-            process_t *proc = process_find_get(pf->pid);
-            if (!proc) {
-                process_put(proc);
-                return 0;
-            }
-            procfs_fd_target(proc, pf->subtype, target, sizeof(target));
-            process_put(proc);
+            if (process_fd_path_snapshot(pf->pid, pf->subtype, target, sizeof(target)) != EOK) return 0;
             length = (int)strlen(target);
             break;
         }
         case PROCFS_PID_EXE_LINK : {
-            process_t *proc = process_find_get(pf->pid);
-            if (!proc) {
-                process_put(proc);
-                return 0;
-            }
-            (void)snprintf(target, sizeof(target), "%s", proc->exe_path[0] ? proc->exe_path : "/unknown");
-            process_put(proc);
+            if (process_path_snapshot(pf->pid, 0, target, sizeof(target)) != EOK) return 0;
             length = (int)strlen(target);
             break;
         }
         case PROCFS_PID_CWD_LINK : {
-            process_t *proc = process_find_get(pf->pid);
-            if (!proc) {
-                process_put(proc);
-                return 0;
-            }
-            (void)snprintf(target, sizeof(target), "%s", proc->cwd[0] ? proc->cwd : "/");
-            process_put(proc);
+            if (process_path_snapshot(pf->pid, 1, target, sizeof(target)) != EOK) return 0;
             length = (int)strlen(target);
             break;
         }
         case PROCFS_PID_ROOT_LINK : {
-            process_t *proc = process_find_get(pf->pid);
-            if (!proc) {
-                process_put(proc);
-                return 0;
-            }
-            (void)snprintf(target, sizeof(target), "%s", proc->root[0] ? proc->root : "/");
-            process_put(proc);
+            if (process_path_snapshot(pf->pid, 2, target, sizeof(target)) != EOK) return 0;
             length = (int)strlen(target);
             break;
         }
@@ -2339,34 +2299,53 @@ static int procfs_stat(void *file, vfs_node_t node)
              * sufficient for constructing /proc/<pid> names and also avoids
              * repeatedly locking the process table once per entry.
              */
-            pid_t *pids = malloc(PROCESS_TABLE_SIZE * sizeof(*pids));
-            if (!pids) return -ENOMEM;
-            size_t pid_count = process_snapshot_pids(pids, PROCESS_TABLE_SIZE);
+            /* Every /proc/<pid>/... pathname refreshes the root.  An atomic
+             * process-table generation makes the unchanged case O(1), rather
+             * than rescanning all 4096 PID slots and comparing an O(P) array
+             * for every file a task manager opens. */
+            uint64_t current_generation = process_table_generation_read();
+            if (procfs_root_pid_cache_valid && procfs_root_pid_cache_generation == current_generation) break;
 
-            if (procfs_root_pid_set_unchanged(pids, pid_count)) {
-                /* Same live set: every PID child is already active and bound; skip the O(P^2) rebuild. */
+            pid_t   *pids = malloc(PROCESS_TABLE_SIZE * sizeof(*pids));
+            if (!pids) return -ENOMEM;
+            vfs_node_t *pid_nodes = calloc(PROCESS_TABLE_SIZE, sizeof(*pid_nodes));
+            if (!pid_nodes) {
                 free(pids);
-                break;
+                return -ENOMEM;
             }
+            uint64_t snapshot_generation;
+            size_t   pid_count = process_snapshot_pids(pids, PROCESS_TABLE_SIZE, &snapshot_generation);
             procfs_deactivate_pid_nodes(node);
+
+            /* Index the resident PID dentries once.  Calling the generic
+             * name lookup for every PID makes the first task-manager refresh
+             * quadratic even though PID names are already a bounded integer
+             * namespace. */
+            for (clist_t link = node->child; link; link = link->next) {
+                vfs_node_t     child = link->data;
+                procfs_file_t *cpf   = child ? child->handle : NULL;
+                if (cpf && cpf->type == PROCFS_PID_DIR && cpf->pid > 0 && cpf->pid < PROCESS_TABLE_SIZE) pid_nodes[cpf->pid] = child;
+            }
 
             for (size_t pos = 0; pos < pid_count; pos++) {
                 char  pid_str[16];
                 pid_t pid = pids[pos];
                 if (pid > 0) {
                     (void)snprintf(pid_str, sizeof(pid_str), "%llu", (uint64_t)pid);
-                    (void)procfs_ensure_child(node, pid_str, PROCFS_PID_DIR, pid, 0, file_dir);
+                    vfs_node_t child = pid < PROCESS_TABLE_SIZE ? pid_nodes[pid] : NULL;
+                    if (!child) child = vfs_node_alloc(node, pid_str);
+                    (void)procfs_bind_child(child, PROCFS_PID_DIR, pid, 0, file_dir);
                 }
             }
 
-            free(procfs_root_pid_cache);
-            procfs_root_pid_cache       = pids;
-            procfs_root_pid_cache_count = pid_count;
+            free(pid_nodes);
+            free(pids);
+            procfs_root_pid_cache_generation = snapshot_generation;
             procfs_root_pid_cache_valid = true;
             break;
         }
         case PROCFS_PID_DIR : {
-            if (!process_find(pf->pid)) {
+            if (!process_pid_exists(pf->pid)) {
                 node->type = file_none;
                 return -ENOENT;
             }
@@ -2401,12 +2380,13 @@ static int procfs_stat(void *file, vfs_node_t node)
             break;
         }
         case PROCFS_PID_FD_DIR : {
-            process_t *proc = process_find_get(pf->pid);
-            if (!proc) {
-                process_put(proc);
+            if (!process_pid_exists(pf->pid)) {
                 node->type = file_none;
                 return -ENOENT;
             }
+            int *fds = malloc(PROCESS_MAX_FD * sizeof(*fds));
+            if (!fds) return -ENOMEM;
+            size_t fd_count = process_snapshot_fds(pf->pid, fds, PROCESS_MAX_FD);
             node->type = file_dir;
 
             for (clist_t link = node->child; link; link = link->next) {
@@ -2417,23 +2397,23 @@ static int procfs_stat(void *file, vfs_node_t node)
                     child->type = file_none;
                 }
             }
-            for (int fd = 0; fd < PROCESS_MAX_FD; fd++) {
-                process_file_t *file = process_fd_get(proc, fd);
-                if (!file) continue;
-                process_file_put(file);
+            for (size_t index = 0; index < fd_count; index++) {
+                int  fd = fds[index];
                 char name[8];
                 (void)snprintf(name, sizeof(name), "%d", fd);
                 (void)procfs_ensure_child(node, name, PROCFS_PID_FD_LINK, pf->pid, fd, file_symlink);
             }
-            process_put(proc);
+            free(fds);
             break;
         }
         case PROCFS_PID_FDINFO_DIR : {
-            process_t *proc = process_find_get(pf->pid);
-            if (!proc) {
+            if (!process_pid_exists(pf->pid)) {
                 node->type = file_none;
                 return -ENOENT;
             }
+            int *fds = malloc(PROCESS_MAX_FD * sizeof(*fds));
+            if (!fds) return -ENOMEM;
+            size_t fd_count = process_snapshot_fds(pf->pid, fds, PROCESS_MAX_FD);
             node->type = file_dir;
 
             for (clist_t link = node->child; link; link = link->next) {
@@ -2444,15 +2424,13 @@ static int procfs_stat(void *file, vfs_node_t node)
                     child->type = file_none;
                 }
             }
-            for (int fd = 0; fd < PROCESS_MAX_FD; fd++) {
-                process_file_t *file = process_fd_get(proc, fd);
-                if (!file) continue;
-                process_file_put(file);
+            for (size_t index = 0; index < fd_count; index++) {
+                int  fd = fds[index];
                 char name[8];
                 (void)snprintf(name, sizeof(name), "%d", fd);
                 (void)procfs_ensure_child(node, name, PROCFS_PID_FDINFO_FILE, pf->pid, fd, file_none);
             }
-            process_put(proc);
+            free(fds);
             break;
         }
         case PROCFS_NET_DIR : {

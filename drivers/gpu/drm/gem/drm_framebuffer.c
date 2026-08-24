@@ -63,7 +63,8 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, con
     fb->id = (int)fb->base.id;
 
     /* The idr registration owns the initial reference. */
-    fb->refcount = 1;
+    fb->refcount  = 1;
+    fb->registered = true;
 
     /* Serialise the fb_list / fbs_head intrusive lists with cleanup(). */
     spin_lock(&dev->mode_config.fb_lock);
@@ -422,7 +423,13 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
                 return ret;
             }
         }
-        plane->state->fb   = NULL;
+        /* page_flip() normally commits the primary-plane detach itself.  An
+         * overlay (or a helper that deliberately leaves software state to
+         * the core) still owns a committed framebuffer reference here. */
+        if (plane->state->fb == fb) {
+            plane->state->fb = NULL;
+            drm_framebuffer_put(fb);
+        }
         plane->state->crtc = NULL;
         plane->fb_id       = 0;
         plane->crtc_id     = 0;
@@ -452,9 +459,7 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
         return -EINVAL;
     }
 
-    spin_lock(&dev->mode_config.fb_lock);
-    fb = drm_idr_find(&dev->mode_config.fb_idr, r->fb_id);
-    spin_unlock(&dev->mode_config.fb_lock);
+    fb = drm_framebuffer_lookup(dev, file_priv, r->fb_id);
     if (!fb) {
         DRM_ERROR("Getfb: framebuffer %u not found.\n", r->fb_id);
         return -ENOENT;
@@ -494,10 +499,12 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     if (fb->obj[0]) {
         if (drm_gem_handle_create(file_priv, fb->obj[0], &r->handle)) {
             DRM_ERROR("Getfb: failed to create GEM handle for fb %u\n", r->fb_id);
+            drm_framebuffer_put(fb);
             return -ENOMEM;
         }
     }
 
+    drm_framebuffer_put(fb);
     return 0;
 }
 
@@ -515,36 +522,39 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
         return -EINVAL;
     }
 
-    spin_lock(&dev->mode_config.fb_lock);
-    fb = drm_idr_find(&dev->mode_config.fb_idr, r->fb_id);
-    spin_unlock(&dev->mode_config.fb_lock);
+    fb = drm_framebuffer_lookup(dev, file_priv, r->fb_id);
 
     /* Userspace may probe DIRTYFB with fb_id 0; absence is not a driver fault. */
     if (!fb) return -ENOENT;
     if ((!r->num_clips) != (!r->clips_ptr)) {
         DRM_ERROR("Dirtyfb: num_clips %u and clips_ptr 0x%llx mismatch.\n", r->num_clips, (unsigned long long)r->clips_ptr);
+        drm_framebuffer_put(fb);
         return -EINVAL;
     }
 
     flags = r->flags & DRM_MODE_FB_DIRTY_FLAGS;
     if ((flags & DRM_MODE_FB_DIRTY_ANNOTATE_COPY) && (r->num_clips & 1U)) {
         DRM_ERROR("Dirtyfb: annotate_copy requires an even number of clips (%u)\n", r->num_clips);
+        drm_framebuffer_put(fb);
         return -EINVAL;
     }
 
     if (r->num_clips) {
         if (r->num_clips > DRM_MODE_FB_DIRTY_MAX_CLIPS) {
             DRM_ERROR("Dirtyfb: too many clips (%u)\n", r->num_clips);
+            drm_framebuffer_put(fb);
             return -EINVAL;
         }
         clips = malloc((size_t)r->num_clips * sizeof(*clips));
         if (!clips) {
             DRM_ERROR("Dirtyfb: out of memory allocating %u clips.\n", r->num_clips);
+            drm_framebuffer_put(fb);
             return -ENOMEM;
         }
         if (copy_from_user(clips, (const void *)(uintptr_t)r->clips_ptr, (size_t)r->num_clips * sizeof(*clips))) {
             DRM_ERROR("Dirtyfb: copy_from_user of clips failed.\n");
             free(clips);
+            drm_framebuffer_put(fb);
             return -EFAULT;
         }
 
@@ -558,6 +568,7 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
                 if (clips[i].x2 < clips[i].x1 || clips[i].y2 < clips[i].y1 || clips[i + 1].x2 < clips[i + 1].x1 || clips[i + 1].y2 < clips[i + 1].y1 || src_w != dst_w || src_h != dst_h) {
                     DRM_ERROR("Dirtyfb: invalid annotate_copy clip pair at index %u\n", i);
                     free(clips);
+                    drm_framebuffer_put(fb);
                     return -EINVAL;
                 }
             }
@@ -571,6 +582,7 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
         ret = -ENOSYS;
     }
     free(clips);
+    drm_framebuffer_put(fb);
     return ret;
 }
 
@@ -585,9 +597,7 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         return -EINVAL;
     }
 
-    spin_lock(&dev->mode_config.fb_lock);
-    fb = drm_idr_find(&dev->mode_config.fb_idr, r->fb_id);
-    spin_unlock(&dev->mode_config.fb_lock);
+    fb = drm_framebuffer_lookup(dev, file_priv, r->fb_id);
     if (!fb) {
         DRM_ERROR("Getfb2: framebuffer %u not found.\n", r->fb_id);
         return -ENOENT;
@@ -607,40 +617,40 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *f
                 DRM_ERROR("Getfb2: failed to create GEM handle on plane %d for fb %u\n", i, r->fb_id);
                 for (int j = 0; j < i; j++)
                     if (r->handles[j]) drm_gem_handle_delete(file_priv, r->handles[j]);
+                drm_framebuffer_put(fb);
                 return -ENOMEM;
             }
         }
     }
 
+    drm_framebuffer_put(fb);
     return 0;
 }
 
 /*
- * drm_framebuffer_cleanup - Tear down a framebuffer and release resources.
+ * drm_framebuffer_cleanup - Unregister a framebuffer.
  * @fb: framebuffer to clean up
  *
  * Removes the framebuffer from the device fb_list, removes it from both
  * the fb_idr and the global object IDR, and decrements num_fb.
- * Does NOT free the struct; the caller owns that.
+ * Does NOT release GEM backing or free the struct.  Existing lookup pins may
+ * still be executing a dirty/getfb operation; backing is released by the
+ * final drm_framebuffer_put().
  */
 void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
 {
     struct drm_device *dev;
-    int                i;
-
     if (!fb) return;
 
     dev = fb->base.dev;
-
-    /* Release references to GEM backing objects */
-    for (i = 0; i < 4; i++) {
-        if (fb->obj[i]) {
-            drm_gem_object_put(fb->obj[i]);
-            fb->obj[i] = NULL;
-        }
-    }
+    if (!dev) return;
 
     spin_lock(&dev->mode_config.fb_lock);
+    if (!fb->registered) {
+        spin_unlock(&dev->mode_config.fb_lock);
+        return;
+    }
+    fb->registered = false;
     ilist_remove(&fb->head);
     if (fb->file) {
         ilist_remove(&fb->filp_head);
@@ -650,11 +660,9 @@ void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
     if (dev->mode_config.num_fb > 0) dev->mode_config.num_fb--;
     spin_unlock(&dev->mode_config.fb_lock);
 
-    if (dev) {
-        spin_lock(&dev->mode_config.idr_mutex);
-        drm_idr_remove(&dev->mode_config.object_idr, fb->base.id);
-        spin_unlock(&dev->mode_config.idr_mutex);
-    }
+    spin_lock(&dev->mode_config.idr_mutex);
+    drm_idr_remove(&dev->mode_config.object_idr, fb->base.id);
+    spin_unlock(&dev->mode_config.idr_mutex);
 }
 
 /* Take a reference on a framebuffer known to be alive. */
@@ -672,7 +680,15 @@ void drm_framebuffer_get(struct drm_framebuffer *fb)
 void drm_framebuffer_put(struct drm_framebuffer *fb)
 {
     if (!fb) return;
-    if (__atomic_sub_fetch(&fb->refcount, 1, __ATOMIC_RELEASE) == 0) free(fb);
+    if (__atomic_sub_fetch(&fb->refcount, 1, __ATOMIC_RELEASE) != 0) return;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    for (int i = 0; i < 4; i++) {
+        if (fb->obj[i]) {
+            drm_gem_object_put(fb->obj[i]);
+            fb->obj[i] = NULL;
+        }
+    }
+    free(fb);
 }
 
 /*

@@ -33,10 +33,11 @@ int tmpfs_mount(const char *handle, vfs_node_t node)
 
     tmpfs_file_t *tmpfs_root = calloc(1, sizeof(*tmpfs_root));
     if (!tmpfs_root) return -ENOMEM;
-    tmpfs_root->type       = tp_file_dir;
-    tmpfs_root->node_type  = file_dir;
-    tmpfs_root->root       = node;
-    tmpfs_root->link_count = 1;
+    tmpfs_root->type            = tp_file_dir;
+    tmpfs_root->node_type       = file_dir;
+    tmpfs_root->root            = node;
+    tmpfs_root->link_count      = 1;
+    tmpfs_root->reference_count = 1;
 
     strcpy(tmpfs_root->name, "tmp");
     node->handle = tmpfs_root;
@@ -62,10 +63,12 @@ int tmpfs_mk(void *parent, const char *name, vfs_node_t node, int is_dir)
     strncpy(f->name, name, sizeof(f->name) - 1);
     f->name[sizeof(f->name) - 1] = '\0';
 
-    f->type       = is_dir ? tp_file_dir : tp_file_file;
-    f->node_type  = is_dir ? file_dir : file_none;
-    f->link_count = 1;
-    node->handle  = f;
+    f->type            = is_dir ? tp_file_dir : tp_file_file;
+    f->node_type       = is_dir ? file_dir : file_none;
+    f->link_count      = 1;
+    f->reference_count = 1;
+    node->handle       = f;
+    node->flags |= VFS_NODE_DELETE_SYNC;
 
     return EOK;
 }
@@ -101,12 +104,13 @@ int tmpfs_link(void *parent, const char *target_name, vfs_node_t node)
 
     tmpfs_file_t *inode = target->handle;
     spin_lock(&inode->link_lock);
-    if (inode->link_count == UINT32_MAX) {
+    if (inode->link_count == UINT32_MAX || inode->reference_count == UINT32_MAX) {
         spin_unlock(&inode->link_lock);
         vfs_close(target);
         return -EMLINK;
     }
     inode->link_count++;
+    inode->reference_count++;
     uint32_t links = inode->link_count;
     spin_unlock(&inode->link_lock);
 
@@ -123,6 +127,7 @@ int tmpfs_link(void *parent, const char *target_name, vfs_node_t node)
     node->dev         = target->dev;
     node->rdev        = target->rdev;
     node->flags |= target->flags & (MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC | MOUNT_FLAG_RDONLY);
+    node->flags |= VFS_NODE_DELETE_SYNC;
     target->nlink = links;
     vfs_close(target);
     return EOK;
@@ -333,7 +338,11 @@ int tmpfs_stat(void *file, vfs_node_t node)
 int tmpfs_delete(void *parent, vfs_node_t node)
 {
     (void)parent;
-    (void)node;
+    tmpfs_file_t *inode = node ? node->handle : NULL;
+    if (!inode) return -EINVAL;
+    spin_lock(&inode->link_lock);
+    if (inode->link_count) inode->link_count--;
+    spin_unlock(&inode->link_lock);
     return EOK;
 }
 
@@ -341,6 +350,12 @@ int tmpfs_delete(void *parent, vfs_node_t node)
 static int tmpfs_rename(const vfs_rename_context_t *context)
 {
     if (!context || !context->source || !context->source->handle || !context->new_name) return -EINVAL;
+    if (context->target && context->target->handle) {
+        tmpfs_file_t *victim = context->target->handle;
+        spin_lock(&victim->link_lock);
+        if (victim->link_count) victim->link_count--;
+        spin_unlock(&victim->link_lock);
+    }
     tmpfs_file_t *f = context->source->handle;
     strncpy(f->name, context->new_name, sizeof(f->name) - 1);
     f->name[sizeof(f->name) - 1] = '\0';
@@ -395,7 +410,7 @@ vfs_node_t tmpfs_dup(vfs_node_t node)
     tmpfs_file_t *inode = node->handle;
     if (inode) {
         spin_lock(&inode->link_lock);
-        if (inode->link_count != UINT32_MAX) inode->link_count++;
+        if (inode->reference_count != UINT32_MAX) inode->reference_count++;
         copy->nlink = inode->link_count;
         spin_unlock(&inode->link_lock);
     }
@@ -416,7 +431,9 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
     f->type                      = tp_file_symlink;
     f->node_type                 = file_symlink;
     f->link_count                = 1;
+    f->reference_count           = 1;
     node->handle                 = f;
+    node->flags |= VFS_NODE_DELETE_SYNC;
 
     return EOK;
 }
@@ -429,12 +446,12 @@ int tmpfs_free(void *handle)
     if (!file) return EOK;
 
     spin_lock(&file->link_lock);
-    if (file->link_count > 1) {
-        file->link_count--;
+    if (file->reference_count > 1) {
+        file->reference_count--;
         spin_unlock(&file->link_lock);
         return EOK;
     }
-    file->link_count = 0;
+    file->reference_count = 0;
     spin_unlock(&file->link_lock);
 
     if (file->device.destroy) file->device.destroy(file->device.ctx);

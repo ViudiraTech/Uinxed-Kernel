@@ -25,6 +25,12 @@
 #define ICMP_PORT_UNREACHABLE     3U
 #define ICMP_FRAGMENTATION_NEEDED 4U
 #define ICMP_REASSEMBLY_TIMEOUT   1U
+#define ICMP_SOURCE_ROUTE_FAILED  5U
+#define ICMP_NET_UNKNOWN          6U
+#define ICMP_HOST_UNKNOWN         7U
+#define ICMP_NET_PROHIBITED       9U
+#define ICMP_HOST_PROHIBITED      10U
+#define ICMP_ADMIN_PROHIBITED     13U
 
 typedef struct icmp_endpoint icmp_endpoint_t;
 typedef void (*icmp_event_callback_t)(icmp_endpoint_t *endpoint, uint32_t events, void *context);

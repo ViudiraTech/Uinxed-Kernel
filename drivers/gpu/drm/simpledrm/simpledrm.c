@@ -201,9 +201,15 @@ static int simpledrm_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffe
     int ret = simpledrm_scanout_fb(sdev, fb);
     if (ret) return ret;
 
-    /* The legacy page-flip ioctl expects the driver to commit the plane. */
+    /* The legacy page-flip ioctl expects the driver to commit the plane;
+     * transfer the committed-state reference before its lookup pin drops. */
     if (crtc->primary && crtc->primary->state) {
-        crtc->primary->state->fb = fb;
+        struct drm_framebuffer *old_fb = crtc->primary->state->fb;
+        if (old_fb != fb) {
+            drm_framebuffer_get(fb);
+            crtc->primary->state->fb = fb;
+            drm_framebuffer_put(old_fb);
+        }
         crtc->primary->fb_id     = fb ? fb->base.id : 0;
     }
     return 0;

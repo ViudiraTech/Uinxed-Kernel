@@ -201,7 +201,13 @@ void panic(const char *format, ...)
     /* Freeze the other CPUs so they cannot wander into more faults. */
     disable_intr();
     if (get_cpu_count() > 1) send_ipi_all(IPI_PANIC);
-    enable_intr();
+
+    /*
+     * A panic commonly starts in an exception or IRQ frame.  Re-enabling
+     * interrupts here allowed a timer/device IRQ to nest into the diagnostic
+     * path, recurse through locks or scheduling, and turn the original fault
+     * into a misleading #DF/triple fault before it could be printed.
+     */
 
     uint64_t    current_address = kernel_address_request.response->virtual_base;
     const char *sys_vendor      = smbios_sys_manufacturer();

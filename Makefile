@@ -24,8 +24,8 @@ endif
 
 include scripts/kconfig.mk
 
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "assets/*")
-C_HEADERS      := $(shell find * -name "*.h")
+C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "tests/*" -not -path "assets/*")
+C_HEADERS      := $(shell find * -name "*.h" -not -path "tests/*")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
 ELFS           := $(shell find * -name "*.elf")

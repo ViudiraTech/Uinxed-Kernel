@@ -57,6 +57,7 @@ typedef struct {
 typedef struct {
         page_table_t *table;
         spinlock_t    lock;
+        uint64_t      resident_pages;
 } page_directory_t;
 
 typedef struct {
@@ -106,6 +107,9 @@ int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write,
 
 /* Count present user pages in a virtual range, skipping empty page-table spans. */
 uint64_t page_count_present_range(page_directory_t *directory, uintptr_t start, uintptr_t end);
+
+/* Return the maintained number of resident 4 KiB user pages. */
+uint64_t page_count_resident(page_directory_t *directory);
 
 /* Unmap a 4KB page and return its physical frame, or zero if unmapped */
 uint64_t page_unmap(page_directory_t *directory, uint64_t addr);

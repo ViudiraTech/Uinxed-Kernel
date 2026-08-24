@@ -272,12 +272,20 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
          */
         uint64_t wait_deadline = timeout->infinite ? sched_ticks() + TIMER_HZ : timeout->deadline_tick;
         if (!timeout->infinite && sched_ticks() >= wait_deadline) {
-            /* Deadline already passed while we were preparing: rescan once. */
+            /*
+             * Deadline already passed while we were preparing: withdraw the
+             * stack-backed wait entry before rescanning.  Leaving it linked
+             * lets a later fd notification dereference poll_wait_context_t
+             * after this syscall has returned.
+             */
+            wait_queue_cancel(&context.wq);
             continue;
         }
         (void)wait_queue_wait_timed(&context.wq, wait_deadline);
     }
 
+    /* Match Linux poll_freewait(): no stack-owned waiter may escape poll(). */
+    wait_queue_cancel(&context.wq);
     poll_watches_release(watches, nfds);
     return ret;
 }

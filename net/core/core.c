@@ -23,6 +23,7 @@
 #include <net/ipv4/ipv4.h>
 #include <net/ipv6/ipv6.h>
 #include <net/ipv6/ndp.h>
+#include <net/loopback.h>
 #include <net/transport/tcp.h>
 
 static net_device_t       *devices[NETDEV_MAX];
@@ -387,17 +388,22 @@ net_device_t *netdev_get_by_name(const char *name)
     return result;
 }
 
-/* Return the first device that is up and running, or NULL if none. */
+/* Return the first non-loopback device that is up and running. */
 net_device_t *netdev_get_default(void)
 {
     spin_lock(&devices_lock);
-    net_device_t *result = NULL;
+    net_device_t *result   = NULL;
+    net_device_t *loopback = NULL;
     for (unsigned i = 0; i < NETDEV_MAX; i++) {
         if (devices[i] && (devices[i]->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) == (NETDEV_F_UP | NETDEV_F_RUNNING)) {
-            result = device_get_locked(devices[i]);
-            break;
+            if (!(devices[i]->flags & NETDEV_F_LOOPBACK)) {
+                result = device_get_locked(devices[i]);
+                break;
+            }
+            if (!loopback) loopback = devices[i];
         }
     }
+    if (!result && loopback) result = device_get_locked(loopback);
     spin_unlock(&devices_lock);
     return result;
 }
@@ -568,6 +574,7 @@ void net_init(void)
     return;
 #endif
     arp_init();
+    loopback_init();
     ndp_init();
     dhcp_init();
 }

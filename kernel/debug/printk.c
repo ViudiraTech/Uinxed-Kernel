@@ -30,12 +30,6 @@ spinlock_t printk_lock = {
     .rflags = 0,
 };
 
-/* Lock for plogk */
-spinlock_t plogk_lock = {
-    .lock   = 0,
-    .rflags = 0,
-};
-
 /* Kernel print string */
 void printk(const char *format, ...)
 {
@@ -51,13 +45,17 @@ void printk(const char *format, ...)
 void plogk(const char *format, ...)
 {
 #if KERNEL_LOG
-    spin_lock(&plogk_lock);
-    printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
+    /* Prefix and body are one record and must not interleave across CPUs. */
+    spin_lock(&printk_lock);
+    uint64_t now = nano_time();
+    char     prefix[48];
+    snprintf(prefix, sizeof(prefix), "[%5llu.%06llu] ", (unsigned long long)(now / 1000000000), (unsigned long long)((now / 1000) % 1000000));
+    tty_print_str(prefix);
     va_list args;
     va_start(args, format);
     vwprintf(&tty_writer, format, args);
     va_end(args);
-    spin_unlock(&plogk_lock);
+    spin_unlock(&printk_lock);
 #else
     (void)format;
 #endif
@@ -66,7 +64,7 @@ void plogk(const char *format, ...)
 /*
  * NMI-safe logging: per-CPU message slot + deferred drain.
  *
- * plogk() cannot run in NMI context: it takes plogk_lock and the console
+ * plogk() cannot run in NMI context: it takes printk_lock and the console
  * writes take port->lock / tty_flush_spinlock, all held with IRQs masked.
  * An NMI (non-maskable) can interrupt a holder and spin forever, hanging the
  * CPU.  Instead, the NMI handler formats the message and parks it in a

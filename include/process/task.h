@@ -105,6 +105,8 @@ struct task {
         uint64_t           tgid;
         task_state_t       state;
         volatile uint64_t  on_cpu; // cleared only after switching off this task's stack
+        bool               on_rq;  // protected by the owning runqueue lock
+        uint32_t           rq_cpu; // owning runqueue while on_rq, UINT32_MAX otherwise
         task_context_t     context;
         thread_struct_t    thread;     // per-thread arch state (fs_base, gs_base)
         rb_node_t          run_node;   // EEVDF red-black tree node

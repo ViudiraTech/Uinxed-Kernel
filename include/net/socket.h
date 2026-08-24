@@ -318,6 +318,7 @@ int socket_fd_install(socket_t *sk);
  * delivery to a destination socket that may be closed concurrently).
  */
 void socket_ref(socket_t *sk);
+int  socket_try_ref(socket_t *sk);
 void socket_unref(socket_t *sk);
 
 /* Sendmmsg/recvmmsg */

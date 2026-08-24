@@ -1059,7 +1059,7 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
     else if (level == SOL_SOCKET && option == SO_DOMAIN)
         val = sock->family;
     else if (level == SOL_SOCKET && option == SO_ERROR)
-        val = sock->type == SOCK_STREAM ? tcp_get_error(sock->endpoint.tcp) : 0;
+        val = sock->type == SOCK_STREAM ? tcp_get_error(sock->endpoint.tcp) : (sock->type == SOCK_DGRAM ? udp_get_error(sock->endpoint.udp) : 0);
     else if (level == SOL_SOCKET && option == SO_ACCEPTCONN)
         val = sock->listening;
     else if (level == SOL_SOCKET && option == SO_REUSEADDR)
@@ -1088,11 +1088,10 @@ static int core_poll(void *context, size_t events)
         if ((events & INET_POLLIN) && (state & ICMP_READY_READ)) ready |= INET_POLLIN;
         if ((events & INET_POLLOUT) && (state & ICMP_READY_WRITE)) ready |= INET_POLLOUT;
     } else if (sock->type == SOCK_DGRAM) {
-        if (events & INET_POLLOUT) ready |= INET_POLLOUT;
-        if (events & INET_POLLIN) {
-            udp_datagram_t info;
-            if (udp_receive(sock->endpoint.udp, NULL, 0, &info, 1) >= 0) ready |= INET_POLLIN;
-        }
+        uint32_t state = udp_readiness(sock->endpoint.udp);
+        if ((events & INET_POLLOUT) && (state & UDP_READY_WRITE)) ready |= INET_POLLOUT;
+        if ((events & INET_POLLIN) && (state & UDP_READY_READ)) ready |= INET_POLLIN;
+        if (state & UDP_READY_ERROR) ready |= INET_POLLERR;
     } else if (sock->listening) {
         spin_lock(&sock->event_lock);
         if (!sock->pending_accept) sock->pending_accept = tcp_accept(sock->endpoint.tcp);
@@ -1146,6 +1145,7 @@ static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
             if (dev->flags & NETDEV_F_UP) ifr->ifr_flags |= IFF_UP;
             if (dev->flags & NETDEV_F_RUNNING) ifr->ifr_flags |= IFF_RUNNING;
             if (dev->flags & NETDEV_F_BROADCAST) ifr->ifr_flags |= IFF_BROADCAST;
+            if (dev->flags & NETDEV_F_LOOPBACK) ifr->ifr_flags |= IFF_LOOPBACK;
             break;
         case SIOCSIFFLAGS :
             ret = netdev_set_up(dev, (ifr->ifr_flags & IFF_UP) != 0);
@@ -1183,7 +1183,7 @@ static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
             break;
         case SIOCGIFHWADDR :
             memset(&ifr->ifr_hwaddr, 0, sizeof(ifr->ifr_hwaddr));
-            ifr->ifr_hwaddr.sa_family = 1;
+            ifr->ifr_hwaddr.sa_family = (dev->flags & NETDEV_F_LOOPBACK) ? ARPHRD_LOOPBACK : ARPHRD_ETHER;
             memcpy(ifr->ifr_hwaddr.sa_data, dev->address, 6);
             break;
         default :

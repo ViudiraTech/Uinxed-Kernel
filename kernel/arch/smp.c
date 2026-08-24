@@ -227,7 +227,13 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
     uint64_t generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
     if (tlb_shootdown_ack && cpu_id < cpu_count) __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
     send_eoi();
-    enable_intr();
+    /*
+     * Keep interrupts masked until the compiler-generated interrupt epilogue
+     * executes IRETQ.  Re-enabling them here allowed a timer/reschedule IPI to
+     * nest while this handler still owned its interrupt frame (and, for user
+     * returns, before irq_leave_gs() had restored GS), corrupting return state
+     * under heavy cross-CPU TLB traffic.
+     */
     irq_leave_gs(frame);
 }
 INTERRUPT_END

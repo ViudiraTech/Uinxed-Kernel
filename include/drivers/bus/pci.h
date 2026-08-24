@@ -256,12 +256,6 @@ const char *pci_classname(uint32_t classcode);
 /* Returns a chached PCI devices table */
 pci_devices_cache_t *pci_get_devices_cache(void);
 
-/* Free the PCI devices cache */
-void pci_free_devices_cache(void);
-
-/* Flush the PCI devices cache and update the responses of each `pci_finding_request` */
-void pci_flush_devices_cache(void);
-
 /* Found PCI devices cache by vender ID and device ID */
 pci_device_cache_t *pci_found_device_cache(pci_device_cache_t *start, pci_device_request_t device_req);
 

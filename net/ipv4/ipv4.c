@@ -63,16 +63,26 @@ static int ipv4_is_multicast(uint32_t address)
     return (address & 0xf0000000U) == 0xe0000000U;
 }
 
+/* True for any address in the host-only IPv4 loopback block. */
+static int ipv4_is_loopback(uint32_t address)
+{
+    return (address & 0xff000000U) == 0x7f000000U;
+}
+
 /* True if address is the device's directed subnet broadcast address. */
 static int ipv4_is_directed_broadcast(const net_device_t *device, uint32_t address)
 {
     return device->ipv4_netmask && device->ipv4_netmask != UINT32_MAX && address == (device->ipv4_address | ~device->ipv4_netmask);
 }
 
-/* True if address is a legitimate unicast source (non-zero, non-broadcast). */
+/*
+ * True if address is a legitimate unicast source (non-zero, non-broadcast).
+ * 127/8 is accepted: the loopback interface sources local traffic from it,
+ * exactly like a real interface sources from its own subnet.
+ */
 static int ipv4_source_valid(uint32_t address)
 {
-    return address && address != UINT32_MAX && !ipv4_is_multicast(address) && (address >> 24) != 127U;
+    return address && address != UINT32_MAX && !ipv4_is_multicast(address);
 }
 
 /* Decode and validate an IPv4 header, exposing fragments and payload. */
@@ -123,7 +133,8 @@ static void ipv4_route_visit(net_device_t *device, void *context)
 {
     ipv4_route_search_t *search = context;
     if (!device->ipv4_address || (device->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) != (NETDEV_F_UP | NETDEV_F_RUNNING)) return;
-    if (!search->fallback) {
+    if (ipv4_is_loopback(search->destination) != !!(device->flags & NETDEV_F_LOOPBACK)) return;
+    if (!search->fallback && !(device->flags & NETDEV_F_LOOPBACK)) {
         netdev_get(device);
         search->fallback = device;
     }
@@ -144,10 +155,21 @@ static void ipv4_route_visit(net_device_t *device, void *context)
 /* Choose the device and next hop for a destination, taking a device ref. */
 int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
 {
-    if (!device || !next_hop || !destination || ipv4_is_multicast(destination) || (destination >> 24) == 127U) return -EINVAL;
+    /*
+     * 127/8 is routable like any other subnet: the loopback device claims it
+     * via its interface prefix, so local IPC (Python IDLE, X11, dbus) works.
+     * Only multicast stays unroutable here.
+     */
+    if (!device || !next_hop || !destination || ipv4_is_multicast(destination)) return -EINVAL;
     ipv4_route_search_t search = {.destination = destination};
     netdev_iterate(ipv4_route_visit, &search);
     if (search.direct) {
+        if (ipv4_is_loopback(destination) != !!(search.direct->flags & NETDEV_F_LOOPBACK)) {
+            netdev_put(search.direct);
+            if (search.gateway) netdev_put(search.gateway);
+            if (search.fallback) netdev_put(search.fallback);
+            return -EHOSTUNREACH;
+        }
         if (search.gateway) netdev_put(search.gateway);
         if (search.fallback) netdev_put(search.fallback);
         *device   = search.direct;
@@ -214,7 +236,7 @@ static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t 
 /* Transmit a packet, fragmenting by MTU and resolving the next hop. */
 int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl, net_pbuf_t *packet)
 {
-    if (!packet || !destination || packet->length > IPV4_MAX_PAYLOAD || ipv4_is_multicast(destination) || (destination >> 24) == 127U) return -EMSGSIZE;
+    if (!packet || !destination || packet->length > IPV4_MAX_PAYLOAD || ipv4_is_multicast(destination)) return -EMSGSIZE;
     uint32_t next_hop;
     int      release = 0;
     if (!device) {
@@ -228,7 +250,8 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
         next_hop = device->ipv4_gateway;
     }
     if (!source) source = device->ipv4_address;
-    if (!ipv4_source_valid(source) || !next_hop || device->mtu <= IPV4_HEADER_MIN) {
+    bool loopback_device = (device->flags & NETDEV_F_LOOPBACK) != 0;
+    if (!ipv4_source_valid(source) || !next_hop || device->mtu <= IPV4_HEADER_MIN || ipv4_is_loopback(destination) != loopback_device || ipv4_is_loopback(source) != loopback_device) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
             plogk("ipv4: %s: Output dropped (source %u.%u.%u.%u, next hop %u.%u.%u.%u)\n", device->name, (unsigned)(source >> 24) & 0xff, (unsigned)(source >> 16) & 0xff,
@@ -390,7 +413,7 @@ static int ipv4_dispatch(net_device_t *device, const ipv4_info_t *info, net_pbuf
         net_pbuf_free(packet);
         status = -EPROTONOSUPPORT;
     }
-    if (may_error && status == -ECONNREFUSED)
+    if (may_error && info->protocol == IPV4_PROTO_UDP && status == -ECONNREFUSED)
         icmp_error(device, info->source, ICMP_DEST_UNREACHABLE, ICMP_PORT_UNREACHABLE, quoted, quoted_length);
     else if (may_error && status == -EPROTONOSUPPORT)
         icmp_error(device, info->source, ICMP_DEST_UNREACHABLE, ICMP_PROTOCOL_UNREACHABLE, quoted, quoted_length);
@@ -403,10 +426,11 @@ int ipv4_input(net_device_t *device, net_pbuf_t *packet)
     if (!device || !packet) goto bad;
     net_ipv4_packet_t parsed;
     if (net_ipv4_parse(packet->data, packet->length, &parsed)) goto bad;
-    if (!ipv4_source_valid(parsed.source)) goto bad;
+    bool loopback_device = (device->flags & NETDEV_F_LOOPBACK) != 0;
+    if (!ipv4_source_valid(parsed.source) || ipv4_is_loopback(parsed.source) != loopback_device || ipv4_is_loopback(parsed.destination) != loopback_device) goto bad;
     uint32_t broadcast    = device->ipv4_netmask ? device->ipv4_address | ~device->ipv4_netmask : UINT32_MAX;
     int      is_broadcast = parsed.destination == UINT32_MAX || parsed.destination == broadcast;
-    if (parsed.destination != device->ipv4_address && !is_broadcast) {
+    if (parsed.destination != device->ipv4_address && !(loopback_device && ipv4_is_loopback(parsed.destination)) && !is_broadcast) {
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
     }
@@ -467,15 +491,32 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
             error = -EMSGSIZE;
         else if (code == ICMP_PORT_UNREACHABLE)
             error = -ECONNREFUSED;
-        else if (code == ICMP_NET_UNREACHABLE || code == ICMP_HOST_UNREACHABLE)
+        else if (code == ICMP_NET_UNREACHABLE || code == ICMP_NET_UNKNOWN)
+            error = -ENETUNREACH;
+        else if (code == ICMP_HOST_UNREACHABLE || code == ICMP_HOST_UNKNOWN)
             error = -EHOSTUNREACH;
+        else if (code == ICMP_PROTOCOL_UNREACHABLE)
+            error = -EPROTONOSUPPORT;
+        else if (code == ICMP_SOURCE_ROUTE_FAILED)
+            error = -EOPNOTSUPP;
+        else if (code == ICMP_NET_PROHIBITED || code == ICMP_HOST_PROHIBITED || code == ICMP_ADMIN_PROHIBITED)
+            error = -EACCES;
     } else if (type == ICMP_TIME_EXCEEDED)
         error = -ETIMEDOUT;
     if (!error) return;
+    uint8_t     protocol       = bytes[9];
+    uint32_t    source         = net_read_be32(bytes + 12);
+    uint32_t    destination    = net_read_be32(bytes + 16);
+    const void *payload        = bytes + header_length;
+    size_t      payload_length = quoted_length - header_length;
+    if (protocol == IPV4_PROTO_UDP)
+        udp_control_error(source, destination, payload, payload_length, error, mtu);
+    else if (protocol == IPV4_PROTO_TCP)
+        tcp_control_error(source, destination, payload, payload_length, error, mtu);
     spin_lock(&ipv4_hook_lock);
     ipv4_error_hook_t hook = ipv4_error_hook;
     spin_unlock(&ipv4_hook_lock);
-    if (hook) hook(bytes[9], net_read_be32(bytes + 12), net_read_be32(bytes + 16), bytes + header_length, quoted_length - header_length, error, mtu);
+    if (hook) hook(protocol, source, destination, payload, payload_length, error, mtu);
 }
 
 /* Expire stale reassembly entries, reporting reassembly-timeout ICMP errors. */

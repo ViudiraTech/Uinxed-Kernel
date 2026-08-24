@@ -50,18 +50,9 @@
 
 static process_t *process_table[PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
+static uint64_t   process_table_generation = 1;
 process_t        *init_process;
 process_t        *kthreadd_process;
-
-/* Look up a process by PID */
-static process_t *pid_to_process(pid_t pid)
-{
-    if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return NULL;
-    spin_lock(&process_table_lock);
-    process_t *proc = process_table[pid];
-    spin_unlock(&process_table_lock);
-    return proc;
-}
 
 /* Look up a process by PID with the table lock held */
 static process_t *pid_to_process_locked(pid_t pid)
@@ -70,12 +61,14 @@ static process_t *pid_to_process_locked(pid_t pid)
     return process_table[pid];
 }
 
+static void pid_set_locked(pid_t pid, process_t *proc);
+
 /* Publish a process in the PID table */
 static void pid_set(pid_t pid, process_t *proc)
 {
     if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return;
     spin_lock(&process_table_lock);
-    process_table[pid] = proc;
+    pid_set_locked(pid, proc);
     spin_unlock(&process_table_lock);
 }
 
@@ -83,7 +76,9 @@ static void pid_set(pid_t pid, process_t *proc)
 static void pid_set_locked(pid_t pid, process_t *proc)
 {
     if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return;
+    if (process_table[pid] == proc) return;
     process_table[pid] = proc;
+    (void)__atomic_add_fetch(&process_table_generation, 1, __ATOMIC_RELEASE);
 }
 
 static void process_free(process_t *proc);
@@ -142,7 +137,7 @@ process_t *process_iterate_get(size_t *pos)
  * final process destructor, close files, and recursively acquire the VFS
  * namespace lock.
  */
-size_t process_snapshot_pids(pid_t *pids, size_t capacity)
+size_t process_snapshot_pids(pid_t *pids, size_t capacity, uint64_t *generation)
 {
     if (!pids || !capacity) return 0;
 
@@ -153,8 +148,120 @@ size_t process_snapshot_pids(pid_t *pids, size_t capacity)
         if (!proc || !proc->task || proc->task->tgid == 0) continue;
         pids[count++] = (pid_t)proc->task->tgid;
     }
+    if (generation) *generation = __atomic_load_n(&process_table_generation, __ATOMIC_RELAXED);
     spin_unlock(&process_table_lock);
     return count;
+}
+
+/* Cheap procfs invalidation key; membership changes publish a new value. */
+uint64_t process_table_generation_read(void)
+{
+    return __atomic_load_n(&process_table_generation, __ATOMIC_ACQUIRE);
+}
+
+/* Test PID-table membership without exporting an unpinned process pointer. */
+bool process_pid_exists(pid_t pid)
+{
+    spin_lock(&process_table_lock);
+    bool exists = pid_to_process_locked(pid) != NULL;
+    spin_unlock(&process_table_lock);
+    return exists;
+}
+
+/*
+ * Snapshot descriptor numbers for procfs directory enumeration.  procfs
+ * calls this with the VFS namespace lock held, so it must not acquire and
+ * release a process/file reference: a final put can close a VFS node and
+ * recursively enter that lock.  The table's published reference keeps the
+ * process alive while process_table_lock is held; fd_lock then stabilizes the
+ * descriptor slots.
+ */
+size_t process_snapshot_fds(pid_t pid, int *fds, size_t capacity)
+{
+    if (!fds || !capacity) return 0;
+
+    size_t count = 0;
+    spin_lock(&process_table_lock);
+    process_t *proc = pid_to_process_locked(pid);
+    if (proc) {
+        spin_lock(&proc->fd_lock);
+        for (int fd = 0; fd < PROCESS_MAX_FD && count < capacity; fd++)
+            if (proc->fds[fd]) fds[count++] = fd;
+        spin_unlock(&proc->fd_lock);
+    }
+    spin_unlock(&process_table_lock);
+    return count;
+}
+
+bool process_fd_exists(pid_t pid, int fd)
+{
+    if (fd < 0 || fd >= PROCESS_MAX_FD) return false;
+    bool exists = false;
+    spin_lock(&process_table_lock);
+    process_t *proc = pid_to_process_locked(pid);
+    if (proc) {
+        spin_lock(&proc->fd_lock);
+        exists = proc->fds[fd] != NULL;
+        spin_unlock(&proc->fd_lock);
+    }
+    spin_unlock(&process_table_lock);
+    return exists;
+}
+
+/* Snapshot parent identity while the parent link and its leader are stable. */
+pid_t process_parent_pid(process_t *proc)
+{
+    pid_t ppid = 0;
+    if (!proc) return 0;
+    spin_lock(&process_table_lock);
+    if (proc->parent && proc->parent->task) ppid = (pid_t)proc->parent->task->tgid;
+    spin_unlock(&process_table_lock);
+    return ppid;
+}
+
+/* which: 0 = executable, 1 = cwd, 2 = process root. */
+int process_path_snapshot(pid_t pid, int which, char *path, size_t capacity)
+{
+    if (!path || !capacity || which < 0 || which > 2) return -EINVAL;
+    int result = -ENOENT;
+    spin_lock(&process_table_lock);
+    process_t *proc = pid_to_process_locked(pid);
+    if (proc) {
+        const char *source   = which == 0 ? proc->exe_path : which == 1 ? proc->cwd : proc->root;
+        const char *fallback = which == 0 ? "/unknown" : "/";
+        (void)snprintf(path, capacity, "%s", source[0] ? source : fallback);
+        result = EOK;
+    }
+    spin_unlock(&process_table_lock);
+    return result;
+}
+
+/* Snapshot an fd symlink target without a transient file/process reference. */
+int process_fd_path_snapshot(pid_t pid, int fd, char *path, size_t capacity)
+{
+    if (!path || capacity < 2 || fd < 0 || fd >= PROCESS_MAX_FD) return -EINVAL;
+    int result = -ENOENT;
+    path[0] = '\0';
+    spin_lock(&process_table_lock);
+    process_t *proc = pid_to_process_locked(pid);
+    if (proc) {
+        spin_lock(&proc->fd_lock);
+        process_file_t *file = proc->fds[fd];
+        if (file && file->node) {
+            if (!file->node->parent) {
+                if (file->node->name && file->node->name[0])
+                    (void)snprintf(path, capacity, "anon_inode:%s", file->node->name);
+                else
+                    (void)snprintf(path, capacity, "anon_inode:[%llu]", (unsigned long long)file->node->inode);
+                result = EOK;
+            } else {
+                result = vfs_node_path(file->node, path, capacity);
+            }
+        }
+        spin_unlock(&proc->fd_lock);
+    }
+    spin_unlock(&process_table_lock);
+    return result;
 }
 
 /* Iterate processes in a process group or session */
@@ -480,9 +587,10 @@ int setup_process_page_dir(process_t *proc)
 
     page_table_t *pml4 = (page_table_t *)phys_to_virt(pml4_frame);
     page_table_clear(pml4);
-    new_dir->table       = pml4;
-    new_dir->lock.lock   = 0;
-    new_dir->lock.rflags = 0;
+    new_dir->table          = pml4;
+    new_dir->lock.lock      = 0;
+    new_dir->lock.rflags    = 0;
+    new_dir->resident_pages = 0;
 
     page_directory_t *kern_dir  = get_kernel_pagedir();
     page_table_t     *kern_pml4 = kern_dir->table;
@@ -1703,13 +1811,17 @@ void process_wake_threads(process_t *proc, bool resume_stopped)
             task_t *candidate = rb_entry(node, task_t, thread_node);
             if (index++ == position) {
                 task = candidate;
+                task_ref(task);
                 break;
             }
         }
         spin_unlock(&process_table_lock);
         if (!task) break;
         position++;
-        if (task->state == TASK_ZOMBIE) continue;
+        if (task->state == TASK_ZOMBIE) {
+            task_put(task);
+            continue;
+        }
         if (__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
             if (task->cpu_id == local_cpu)
                 kick_self = true;
@@ -1720,6 +1832,7 @@ void process_wake_threads(process_t *proc, bool resume_stopped)
         }
         if (resume_stopped) (void)task_continue(task);
         (void)task_wakeup(task);
+        task_put(task);
     }
 
     /*
@@ -1753,6 +1866,7 @@ void process_stop_threads(process_t *proc)
             task_t *candidate = rb_entry(node, task_t, thread_node);
             if (index++ == position) {
                 task = candidate;
+                task_ref(task);
                 break;
             }
         }
@@ -1760,6 +1874,7 @@ void process_stop_threads(process_t *proc)
         if (!task) break;
         position++;
         (void)task_stop(task);
+        task_put(task);
     }
 }
 
@@ -1856,7 +1971,14 @@ void process_exit(int exit_code)
     bool sibling_exit = proc->thread_count > 1;
     if (sibling_exit) {
         proc->thread_count--;
-        current->state = TASK_ZOMBIE;
+        /*
+         * Do not publish TASK_ZOMBIE until task_exit() has disabled local
+         * interrupts and committed the scheduler transition.  A timer tick
+         * in this old window could see the non-runnable state, switch away,
+         * and strand the thread before clear_child_tid/ptrace/cgroup teardown
+         * completed.  task_exit() performs the publication immediately
+         * before its non-returning context switch.
+         */
         if (proc->task == current) {
             for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
                 task_t *member = rb_entry(node, task_t, thread_node);
@@ -1902,12 +2024,22 @@ void process_exit(int exit_code)
         }
     }
 
-    disable_intr();
-    spin_lock(&scheduler.lock);
+    /*
+     * Record the exit relationship now, but keep the final task RUNNING until
+     * every teardown operation that may sleep has completed below.
+     *
+     * Publishing TASK_ZOMBIE here used to let wait4() consume and reap this
+     * process before process_fd_table_close() finished.  If a file-release
+     * callback slept, context_switch() cleared on_cpu and the parent freed the
+     * task and its kernel stack while the exit path still needed both.  A
+     * parent that observed the later BLOCKED state instead slept forever,
+     * because the one and only child-exit notification had already happened.
+     * The race is rare on one CPU and immediate under OpenRC fork/exit load on
+     * larger SMP systems.
+     */
     spin_lock(&process_table_lock);
 
-    proc->task->state = TASK_ZOMBIE;
-    proc->exit_code   = exit_code;
+    proc->exit_code = exit_code;
 
     /* Take a reference on parent before releasing locks (prevent use-after-free) */
     process_t *parent = proc->parent;
@@ -1926,24 +2058,6 @@ void process_exit(int exit_code)
     }
 
     spin_unlock(&process_table_lock);
-    spin_unlock(&scheduler.lock);
-
-    /*
-     * Notify parent via SIGCHLD (outside the locks, because signal_notify_child_exit
-     * calls task_wakeup which acquires scheduler.lock, and we have just released it).
-     */
-    if (parent) {
-        signal_notify_child_exit(parent, (pid_t)current->tgid, exit_code, 0);
-        spin_lock(&parent->child_wait.lock);
-        wait_queue_wake_all(&parent->child_wait);
-        spin_unlock(&parent->child_wait.lock);
-        if (parent == kthreadd_process) {
-            spin_lock(&kthreadd_wait.lock);
-            wait_queue_wake_one(&kthreadd_wait);
-            spin_unlock(&kthreadd_wait.lock);
-        }
-        process_put(parent);
-    }
 
     /* Notify set_tid_address with 0 (futex wake on clear_child_tid) */
     if (current->clear_child_tid) {
@@ -1964,6 +2078,38 @@ void process_exit(int exit_code)
     process_vfork_complete(proc);
 
     if (!(current->flags & PF_KTHREAD)) ptrace_exit_notify(exit_code);
+
+    /*
+     * This is the terminal publication point.  Nothing after it may sleep or
+     * switch away before task_exit() performs the final non-returning context
+     * switch.  wait4() may now safely use on_cpu == 0 as proof that the task's
+     * kernel stack is no longer in use.
+     */
+    disable_intr();
+    spin_lock(&scheduler.lock);
+    spin_lock(&process_table_lock);
+    current->state  = TASK_ZOMBIE;
+    proc->exit_code = exit_code;
+    spin_unlock(&process_table_lock);
+    spin_unlock(&scheduler.lock);
+
+    /*
+     * Notify the parent only after TASK_ZOMBIE is visible.  These paths merely
+     * publish signal/wait-queue state and cannot sleep the exiting task.
+     */
+    if (parent) {
+        signal_notify_child_exit(parent, (pid_t)current->tgid, exit_code, 0);
+        spin_lock(&parent->child_wait.lock);
+        wait_queue_wake_all(&parent->child_wait);
+        spin_unlock(&parent->child_wait.lock);
+        if (parent == kthreadd_process) {
+            spin_lock(&kthreadd_wait.lock);
+            wait_queue_wake_one(&kthreadd_wait);
+            spin_unlock(&kthreadd_wait.lock);
+        }
+        process_put(parent);
+    }
+
     task_exit();
 }
 
@@ -2171,12 +2317,6 @@ int process_wait(pid_t pid, int *exit_code)
             *exit_code = (status >> 8) & 0xff;
     }
     return 0;
-}
-
-/* Look up a process by PID without a reference */
-process_t *process_find(pid_t pid)
-{
-    return pid_to_process(pid);
 }
 
 /* Return the process of the current task */

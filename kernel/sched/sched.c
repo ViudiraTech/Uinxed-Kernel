@@ -217,14 +217,15 @@ static int entity_eligible(eevdf_rq_t *rq, task_t *task)
 
 /* EEVDF core: RB-tree comparison and augmentation */
 
-/* Compare two rb_nodes by their task's deadline (tiebreak: vruntime) */
+/* Compare two rb_nodes by deadline, vruntime, then the unique PID. */
 static int entity_less(const rb_node_t *a, const rb_node_t *b)
 {
     const task_t *ta = rb_entry(a, task_t, run_node);
     const task_t *tb = rb_entry(b, task_t, run_node);
 
     if (ta->deadline != tb->deadline) return (int64_t)(ta->deadline - tb->deadline) < 0;
-    return (int64_t)(ta->vruntime - tb->vruntime) < 0;
+    if (ta->vruntime != tb->vruntime) return (int64_t)(ta->vruntime - tb->vruntime) < 0;
+    return ta->pid < tb->pid;
 }
 
 /*
@@ -360,8 +361,10 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
 }
 
 /* EEVDF core: enqueue_entity / dequeue_entity */
-static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
+static bool enqueue_entity(eevdf_rq_t *rq, task_t *task)
 {
+    uint32_t rq_cpu = (uint32_t)(rq - cpu_rqs);
+
     /*
      * Only ready tasks belong to the EEVDF timeline.  In particular,
      * never let a late wakeup resurrect a task that has already exited.
@@ -372,20 +375,49 @@ static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
             plogk("sched: Refusing to enqueue task %llu (%s) in state %u\n", task->pid, task->name, task->state);
             last_log = scheduler.ticks;
         }
-        return;
+        return false;
     }
 
+    /*
+     * TASK_READY is also used while a freshly-created task is unpublished,
+     * so state alone cannot prove runqueue membership.  A second insertion of
+     * the same rb_node corrupts both the tree and nr_running; wake storms make
+     * that race quite common on SMP.  Keep membership explicit and make an
+     * already-completed wakeup idempotent.
+     */
+    if (task->on_rq) {
+        if (task->rq_cpu != rq_cpu)
+            plogk("sched: task %llu (%s) already belongs to rq%u, refused insertion into rq%u\n", task->pid, task->name, task->rq_cpu, rq_cpu);
+        return false;
+    }
+
+    if (rb_insert_augmented(&rq->timeline, &task->run_node, entity_less, update_min_vruntime, NULL)) {
+        panic("sched: refused corrupt/double RB insertion for task %llu (%s) on rq%u", task->pid, task->name, rq_cpu);
+    }
     avg_vruntime_add(rq, task);
-    rb_insert_augmented(&rq->timeline, &task->run_node, entity_less, update_min_vruntime, NULL);
+    task->on_rq = true;
+    task->rq_cpu = rq_cpu;
     __atomic_add_fetch(&rq->nr_running, 1, __ATOMIC_RELAXED);
+    return true;
 }
 
 /* Remove a task from the EEVDF timeline */
-static void dequeue_entity(eevdf_rq_t *rq, task_t *task)
+static bool dequeue_entity(eevdf_rq_t *rq, task_t *task)
 {
-    rb_erase_augmented(&rq->timeline, &task->run_node, update_min_vruntime, NULL);
+    if (!task || !task->on_rq) return false;
+    uint32_t rq_cpu = (uint32_t)(rq - cpu_rqs);
+    if (task->rq_cpu != rq_cpu) {
+        plogk("sched: task %llu (%s) belongs to rq%u, refused removal from rq%u\n", task->pid, task->name, task->rq_cpu, rq_cpu);
+        return false;
+    }
+    if (rb_erase_augmented(&rq->timeline, &task->run_node, update_min_vruntime, NULL)) {
+        panic("sched: refused detached/wrong-tree RB erase for task %llu (%s) from rq%u", task->pid, task->name, rq_cpu);
+    }
+    task->on_rq = false;
+    task->rq_cpu = UINT32_MAX;
     avg_vruntime_sub(rq, task);
     if (__atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED)) __atomic_sub_fetch(&rq->nr_running, 1, __ATOMIC_RELAXED);
+    return true;
 }
 
 /*
@@ -457,7 +489,8 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
 /* Return the runqueue of the current CPU */
 static eevdf_rq_t *local_rq(void)
 {
-    return &cpu_rqs[get_current_cpu_id()];
+    /* The GS window is installed before sched_init and follows migrations. */
+    return &cpu_rqs[percpu_gs_cpu_id()];
 }
 
 /* Return the task currently running on this CPU */
@@ -504,6 +537,12 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
     eevdf_rq_t *rq = &cpu_rqs[cpu_id];
 
     spin_lock(&rq->lock);
+    if (task->on_rq) {
+        /* Concurrent/repeated wakeups are successful no-ops. */
+        if (task->rq_cpu < cpu_scheduler_count) task->cpu_id = task->rq_cpu;
+        spin_unlock(&rq->lock);
+        return;
+    }
     place_entity(rq, task, initial);
     task->state     = TASK_READY;
     task->wake_tick = 0;
@@ -517,7 +556,7 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
      * or pointer and list membership silently diverge.
      */
     task->cpu_id = cpu_id;
-    enqueue_entity(rq, task);
+    bool queued = enqueue_entity(rq, task);
 
     /*
      * A local wakeup has no reschedule IPI to force a scheduling point.  Mark
@@ -526,7 +565,8 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
      * thread waiting for the next periodic tick.
      */
     task_t *curr = rq->curr;
-    if (curr == rq->idle || (curr && curr->state == TASK_RUNNING && entity_eligible(rq, task) && entity_before(task, curr))) __atomic_store_n(&rq->need_resched, 1, __ATOMIC_RELEASE);
+    if (queued && (curr == rq->idle || (curr && curr->state == TASK_RUNNING && entity_eligible(rq, task) && entity_before(task, curr))))
+        __atomic_store_n(&rq->need_resched, 1, __ATOMIC_RELEASE);
     spin_unlock(&rq->lock);
 }
 
@@ -893,6 +933,17 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
 
     uint32_t prev_cpu = task && task->cpu_id < cpu_scheduler_count ? task->cpu_id : this_cpu;
     if (!cpu_rqs[prev_cpu].online) prev_cpu = this_cpu;
+
+    /*
+     * Linux WF_SYNC means the waker expects to schedule away shortly.  Keep
+     * the wakee on its previous CPU instead of load-balancing it here: pipe
+     * producer/consumer pairs use sync wakes for every full/empty transition,
+     * and migrating either end turns a small transfer into an IPI plus cold
+     * cache miss on every batch.  Ordinary wakes still use the topology-aware
+     * idle search below.
+     */
+    if (sync) return prev_cpu;
+
     if (rq_is_idle_cpu(prev_cpu)) return prev_cpu;
 
     uint32_t            start    = __atomic_fetch_add(&next_task_cpu, 1, __ATOMIC_RELAXED) % cpu_scheduler_count;
@@ -1088,18 +1139,6 @@ static task_t *newidle_balance_locked(uint32_t dst_cpu)
     return NULL;
 }
 
-/*
- * Self-locking wrapper used when the caller does not hold scheduler.lock
- * (sched_switch's going-idle path).  Returns the task stolen onto dst, if any.
- */
-static task_t *newidle_balance(uint32_t dst_cpu)
-{
-    spin_lock(&scheduler.lock);
-    task_t *stolen = newidle_balance_locked(dst_cpu);
-    spin_unlock(&scheduler.lock);
-    return stolen;
-}
-
 /* Check whether any scheduling domain is due for periodic load balancing. */
 static bool sched_domains_need_balance(uint32_t cpu, uint64_t now)
 {
@@ -1199,6 +1238,7 @@ static task_t *idle_task_alloc(uint32_t cpu_id)
     idle->tgid           = 0;
     idle->state          = TASK_IDLE;
     idle->cpu_id         = cpu_id;
+    idle->rq_cpu         = UINT32_MAX;
     idle->page_directory = get_kernel_pagedir();
     idle->weight         = SCHED_NICE_0_LOAD;
     idle->base_weight    = SCHED_NICE_0_LOAD;
@@ -1257,6 +1297,7 @@ void sched_init(void)
     memset(&boot_task, 0, sizeof(boot_task));
     boot_task.pid            = 0;
     boot_task.state          = TASK_RUNNING;
+    boot_task.rq_cpu         = UINT32_MAX;
     boot_task.page_directory = get_kernel_pagedir();
     boot_task.kernel_stack   = &boot_stack_marker;
     boot_task.weight         = SCHED_NICE_0_LOAD;
@@ -1282,6 +1323,7 @@ void sched_init(void)
         memset(&ap_boot_tasks[i], 0, sizeof(task_t));
         ap_boot_tasks[i].pid            = 0;
         ap_boot_tasks[i].state          = TASK_BLOCKED;
+        ap_boot_tasks[i].rq_cpu         = UINT32_MAX;
         ap_boot_tasks[i].page_directory = get_kernel_pagedir();
         ap_boot_tasks[i].cpu_id         = i;
         ap_boot_tasks[i].weight         = SCHED_NICE_0_LOAD;
@@ -1319,8 +1361,15 @@ void sched_ipi_reschedule(void)
 
     if (!cpu_rqs || cpu_id >= cpu_scheduler_count) return;
     __atomic_add_fetch(&cpu_rqs[cpu_id].reschedule_ipis, 1, __ATOMIC_RELAXED);
-    __atomic_store_n(&cpu_rqs[cpu_id].resched_pending, 0, __ATOMIC_RELEASE);
     if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) return;
+
+    /*
+     * Clear the coalescing flag only once this handler is committed to
+     * checking the runqueue below.  Clearing before the started-gate would
+     * consume a pending wakeup without processing it, and a stray early-boot
+     * IPI could then swallow a real wakeup permanently.
+     */
+    __atomic_store_n(&cpu_rqs[cpu_id].resched_pending, 0, __ATOMIC_RELEASE);
 
     /*
      * A group-exit IPI retires a CPU-bound thread in userspace.  The exit
@@ -1355,22 +1404,38 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
     if (!task || cpu_id >= cpu_scheduler_count) return 1;
 
     spin_lock(&scheduler.lock);
-    if (task->state == TASK_RUNNING || task->state == TASK_IDLE || task->state == TASK_ZOMBIE) {
+    uint32_t old_cpu = task->cpu_id;
+    if (old_cpu >= cpu_scheduler_count) old_cpu = 0;
+
+    /*
+     * sched_switch() intentionally does not take scheduler.lock.  State and
+     * runqueue membership must therefore be checked only after taking the
+     * source rq lock, otherwise a task can be selected between the check and
+     * rb_erase and the migration erases an already-detached node.
+     */
+    eevdf_rq_t *src = &cpu_rqs[old_cpu];
+    spin_lock(&src->lock);
+    if (task->state == TASK_RUNNING || task->state == TASK_IDLE || task->state == TASK_ZOMBIE || __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
+        spin_unlock(&src->lock);
         spin_unlock(&scheduler.lock);
         return 1;
     }
 
-    uint32_t old_cpu = task->cpu_id;
-    if (task->state == TASK_READY) {
-        eevdf_rq_t *src = &cpu_rqs[old_cpu];
-        spin_lock(&src->lock);
+    bool was_queued = false;
+    if (task->state == TASK_READY && task->on_rq) {
+        if (task->rq_cpu != old_cpu) {
+            spin_unlock(&src->lock);
+            spin_unlock(&scheduler.lock);
+            plogk("sched: migration refused for task %llu (%s): cpu_id=%u rq_cpu=%u\n", task->pid, task->name, old_cpu, task->rq_cpu);
+            return 1;
+        }
         task->vlag = (int64_t)(avg_vruntime(src) - task->vruntime);
-        dequeue_entity(src, task);
-        spin_unlock(&src->lock);
-        enqueue_task_on_cpu(task, cpu_id, 0); // locks dst internally
+        was_queued = dequeue_entity(src, task);
     } else {
         task->cpu_id = cpu_id;
     }
+    spin_unlock(&src->lock);
+    if (was_queued) enqueue_task_on_cpu(task, cpu_id, 0); // locks dst internally
     if (old_cpu != cpu_id) {
         task->last_cpu          = old_cpu;
         task->last_migrate_tick = scheduler.ticks;
@@ -1415,15 +1480,21 @@ static void sched_switch(bool voluntary)
     /*
      * Going idle: pull one task immediately instead of waiting for CPU 0's
      * periodic pass.  Drop the rq lock first so scheduler.lock stays outer,
-     * steal, then re-lock.  Keep interrupts off across the gap so a tick
-     * cannot charge the just-blocked task's itimers while prev is no longer
-     * the running task.
+     * steal, then re-lock.  Keep scheduler.lock held until the destination rq
+     * is locked again: otherwise a second CPU can immediately steal the task
+     * we just pulled, leaving the raw `stolen` pointer detached from this rq.
+     * Selecting that stale pointer used to run one task on two CPUs and was a
+     * direct source of disappearing processes/tree corruption under OpenRC's
+     * fork/wake load.  Interrupts stay off across the whole gap so a tick
+     * cannot charge the just-blocked task while prev is no longer runnable.
      */
     if (next == rq->idle && rq->nr_running == 0) {
         /* Keep IRQs disabled while rq->curr is between scheduling states. */
         spin_unlock_irqrestore(&rq->lock, entry_rflags & ~(1ULL << 9));
-        task_t *stolen = newidle_balance(get_current_cpu_id());
+        spin_lock(&scheduler.lock);
+        task_t *stolen = newidle_balance_locked(get_current_cpu_id());
         (void)spin_lock_irqsave(&rq->lock);
+        spin_unlock(&scheduler.lock);
         next = stolen ? stolen : pick_eevdf(rq);
     }
 
@@ -1433,7 +1504,7 @@ static void sched_switch(bool voluntary)
          * committing a block and entering the scheduler.
          */
         if (next && next != rq->idle && next->state == TASK_READY) {
-            dequeue_entity(rq, next);
+            if (!dequeue_entity(rq, next)) panic("sched: selected READY task %llu (%s) is absent from its runqueue", next->pid, next->name);
             next->state      = TASK_RUNNING;
             next->time_slice = 0;
             advance_min_vruntime(rq);
@@ -1459,7 +1530,7 @@ static void sched_switch(bool voluntary)
      * next->state == TASK_READY still excludes it.
      */
     if (next->state == TASK_READY) {
-        dequeue_entity(rq, next);
+        if (!dequeue_entity(rq, next)) panic("sched: selected READY task %llu (%s) is absent from its runqueue", next->pid, next->name);
         next->state      = TASK_RUNNING;
         next->time_slice = 0;
     }
@@ -1639,10 +1710,34 @@ int task_continue(task_t *task)
     spin_lock(&scheduler.lock);
     bool continued = task->state == TASK_STOPPED;
     if (continued) {
-        if (__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE))
+        uint32_t    cpu = task->cpu_id < cpu_scheduler_count ? task->cpu_id : 0;
+        eevdf_rq_t *rq  = &cpu_rqs[cpu];
+
+        /*
+         * on_cpu remains set until context_switch() has stopped using the
+         * previous task's stack.  It therefore cannot tell whether @task is
+         * still rq->curr.  In the switch-out window the old test changed the
+         * task to RUNNING without enqueueing it, losing it forever.  rq->curr
+         * is the ownership test; if it already points elsewhere, queue the
+         * stopped task while holding the same rq lock used by sched_switch().
+         */
+        spin_lock(&rq->lock);
+        if (rq->curr == task && __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
             task->state = TASK_RUNNING;
-        else
-            enqueue_task(task);
+        } else if (!task->on_rq && task->context.rsp) {
+            place_entity(rq, task, 0);
+            task->state     = TASK_READY;
+            task->wake_tick = 0;
+            task->cpu_id    = cpu;
+            if (enqueue_entity(rq, task)) __atomic_store_n(&rq->need_resched, 1, __ATOMIC_RELEASE);
+        } else if (task->on_rq) {
+            /* A concurrent continue already completed the operation. */
+            task->state = TASK_READY;
+        } else {
+            continued = false;
+            plogk("sched: refusing to continue task %llu (%s) without a kernel stack\n", task->pid, task->name);
+        }
+        spin_unlock(&rq->lock);
     }
     uint32_t target_cpu = continued ? task->cpu_id : UINT32_MAX;
     spin_unlock(&scheduler.lock);
@@ -1660,7 +1755,7 @@ int task_stop(task_t *task)
     if (stopped) {
         eevdf_rq_t *rq = task->cpu_id < cpu_scheduler_count ? &cpu_rqs[task->cpu_id] : &cpu_rqs[0];
         spin_lock(&rq->lock);
-        if (task->state == TASK_READY) dequeue_entity(rq, task);
+        if (task->state == TASK_READY && task->on_rq) dequeue_entity(rq, task);
         task->state = TASK_STOPPED;
         spin_unlock(&rq->lock);
     }
@@ -1733,11 +1828,12 @@ void wait_queue_prepare(wait_queue_t *queue)
         if (had_wakeup) {
             /*
              * A wakeup is pending but the task was never detached.  Consume
-             * it and do NOT re-link: the caller re-checks its condition, and
-             * blocking here would discard the wakeup and potentially sleep
-             * forever.  wait_queue_sleep sees no prepared wait and continues.
+             * it through the normal wait_queue_sleep() fast path and do NOT
+             * re-link: clearing wake_reason here made that subsequent sleep
+             * look like an invalid unprepared wait, producing the sched log
+             * storm seen on tty input.  Keeping the durable reason until the
+             * commit step also prevents this wakeup from being discarded.
              */
-            curr->wake_reason = TASK_WAKE_NONE;
             curr->wake_tick   = 0;
             spin_unlock(&scheduler.lock);
             return;

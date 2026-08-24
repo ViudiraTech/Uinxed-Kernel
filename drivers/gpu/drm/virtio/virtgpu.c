@@ -50,6 +50,24 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
 static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips);
 const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
+static bool virtgpu_rects_touch(const struct virtio_gpu_rect *a, const struct virtio_gpu_rect *b)
+{
+    uint64_t ax2 = (uint64_t)a->x + a->width;
+    uint64_t ay2 = (uint64_t)a->y + a->height;
+    uint64_t bx2 = (uint64_t)b->x + b->width;
+    uint64_t by2 = (uint64_t)b->y + b->height;
+    return a->x <= bx2 && b->x <= ax2 && a->y <= by2 && b->y <= ay2;
+}
+
+static void virtgpu_rect_union(struct virtio_gpu_rect *dst, const struct virtio_gpu_rect *src)
+{
+    uint32_t x1 = MIN(dst->x, src->x);
+    uint32_t y1 = MIN(dst->y, src->y);
+    uint32_t x2 = MAX(dst->x + dst->width, src->x + src->width);
+    uint32_t y2 = MAX(dst->y + dst->height, src->y + src->height);
+    *dst        = (struct virtio_gpu_rect) {x1, y1, x2 - x1, y2 - y1};
+}
+
 /* DRM ioctl table */
 
 static const struct drm_ioctl_desc virtgpu_ioctls[] = {
@@ -306,9 +324,12 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
 {
     struct virtio_gpu_device *vgdev;
     struct virtio_gpu_object *obj;
-    struct virtio_gpu_rect    rect;
+    struct virtio_gpu_rect    rects[VIRTGPU_DIRTY_MAX_RECTS];
+    uint64_t                  offsets[VIRTGPU_DIRTY_MAX_RECTS];
+    struct virtio_gpu_rect    flush_rect = {0};
+    uint32_t                  rect_count = 0;
     uint32_t                  first = 0;
-    uint64_t                  offset;
+    bool                      collapsed = false;
 
     (void)file_priv;
     (void)color;
@@ -326,31 +347,51 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
     if (!virtgpu_2d_formats_compatible(obj->format, fb->format)) return -EINVAL;
 
     if (!num_clips) {
-        rect.x      = 0;
-        rect.y      = 0;
-        rect.width  = fb->width;
-        rect.height = fb->height;
+        rects[0]   = (struct virtio_gpu_rect) {0, 0, fb->width, fb->height};
+        flush_rect = rects[0];
+        rect_count = 1;
     } else {
-        uint32_t x1 = fb->width, y1 = fb->height, x2 = 0, y2 = 0;
-
         if (flags & DRM_MODE_FB_DIRTY_ANNOTATE_COPY) first = 1;
         for (uint32_t i = first; i < num_clips; i += (flags & DRM_MODE_FB_DIRTY_ANNOTATE_COPY) ? 2 : 1) {
             struct drm_clip_rect *clip = &clips[i];
             if (clip->x2 > fb->width || clip->y2 > fb->height || clip->x1 > clip->x2 || clip->y1 > clip->y2) return -EINVAL;
             if (clip->x1 == clip->x2 || clip->y1 == clip->y2) continue;
-            if (clip->x1 < x1) x1 = clip->x1;
-            if (clip->y1 < y1) y1 = clip->y1;
-            if (clip->x2 > x2) x2 = clip->x2;
-            if (clip->y2 > y2) y2 = clip->y2;
+
+            struct virtio_gpu_rect damage = {clip->x1, clip->y1, clip->x2 - clip->x1, clip->y2 - clip->y1};
+            if (!flush_rect.width)
+                flush_rect = damage;
+            else
+                virtgpu_rect_union(&flush_rect, &damage);
+
+            if (collapsed) continue;
+            bool merged = false;
+            for (uint32_t j = 0; j < rect_count; j++) {
+                if (!virtgpu_rects_touch(&rects[j], &damage)) continue;
+                virtgpu_rect_union(&rects[j], &damage);
+                merged = true;
+                break;
+            }
+            if (!merged) {
+                if (rect_count < VIRTGPU_DIRTY_MAX_RECTS)
+                    rects[rect_count++] = damage;
+                else
+                    collapsed = true;
+            }
         }
-        if (x2 <= x1 || y2 <= y1) return 0;
-        rect.x      = x1;
-        rect.y      = y1;
-        rect.width  = x2 - x1;
-        rect.height = y2 - y1;
+        if (!flush_rect.width || !flush_rect.height) return 0;
+        if (collapsed) {
+            rects[0]   = flush_rect;
+            rect_count = 1;
+        }
     }
-    offset = fb->offsets[0] + (uint64_t)rect.y * obj->stride + (uint64_t)rect.x * sizeof(uint32_t);
-    return virtgpu_cmd_update_2d(vgdev, obj, &rect, offset);
+
+    /* Blob scanouts share guest backing directly with the host.  They were
+     * created with RESOURCE_CREATE_BLOB, so TRANSFER_TO_HOST_2D is invalid;
+     * only advertise the damaged range with RESOURCE_FLUSH. */
+    if (obj->created_blob) return virtgpu_cmd_resource_flush(vgdev, obj, &flush_rect);
+
+    for (uint32_t i = 0; i < rect_count; i++) offsets[i] = fb->offsets[0] + (uint64_t)rects[i].y * obj->stride + (uint64_t)rects[i].x * sizeof(uint32_t);
+    return virtgpu_cmd_update_2d_rects(vgdev, obj, rects, offsets, rect_count, &flush_rect);
 }
 
 const struct drm_framebuffer_funcs virtgpu_fb_funcs = {

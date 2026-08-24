@@ -544,7 +544,8 @@ struct drm_virtgpu_context_init {
 #define VIRTGPU_DEBUG_NAME_MAX    64
 
 /* Largest command batch submitted to the control queue in one kick. */
-#define VIRTGPU_CTRLQ_MAX_BATCH 3
+#define VIRTGPU_DIRTY_MAX_RECTS 16
+#define VIRTGPU_CTRLQ_MAX_BATCH (VIRTGPU_DIRTY_MAX_RECTS + 1)
 
 struct virtio_gpu_fpriv {
         uint32_t   ctx_id;
@@ -714,6 +715,8 @@ int virtgpu_cmd_detach_backing(struct virtio_gpu_device *vgdev, uint32_t res_id)
 int virtgpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint64_t offset);
 int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_3d_transfer *xf);
 int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rect, uint64_t offset);
+int virtgpu_cmd_update_2d_rects(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rects, const uint64_t *offsets, uint32_t count,
+                                const struct virtio_gpu_rect *flush_rect);
 int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, uint32_t width, uint32_t height, bool set_scanout);
 int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id, const struct drm_virtgpu_3d_transfer *xf, bool to_host);
 int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, struct virtio_gpu_rect *rect);

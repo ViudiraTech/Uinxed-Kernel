@@ -818,7 +818,7 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
              * through wake_all is not a cancellation protocol).
              */
             wait_queue_cancel(&epi->wq);
-            spin_unlock(&epi->lock);
+            /* The loop contract requires epi->lock to remain held here. */
             continue;
         }
         spin_unlock(&epi->lock);

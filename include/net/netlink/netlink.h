@@ -109,6 +109,11 @@ typedef struct rtmsg {
         uint32_t rtm_flags;
 } rtmsg_t;
 
+/* Legacy dump selector used by GLib/iproute-style RTM_GETROUTE requests. */
+typedef struct rtgenmsg {
+        uint8_t rtgen_family;
+} rtgenmsg_t;
+
 typedef struct rtattr {
         uint16_t rta_len;
         uint16_t rta_type;
@@ -137,6 +142,7 @@ typedef struct rtattr {
 _Static_assert(sizeof(ifinfomsg_t) == 16, "Linux ifinfomsg ABI");
 _Static_assert(sizeof(ifaddrmsg_t) == 8, "Linux ifaddrmsg ABI");
 _Static_assert(sizeof(rtmsg_t) == 12, "Linux rtmsg ABI");
+_Static_assert(sizeof(rtgenmsg_t) == 1, "Linux rtgenmsg ABI");
 _Static_assert(sizeof(rtattr_t) == 4, "Linux rtattr ABI");
 
 /* Netlink error message (follows nlmsghdr) */

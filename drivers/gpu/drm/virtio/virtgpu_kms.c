@@ -259,7 +259,13 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
     ret = virtgpu_page_flip(vgdev, fb, crtc->primary->state->fb);
     if (ret) return ret;
 
-    crtc->primary->state->fb = fb;
+    /* The committed plane state, not the ioctl lookup, owns scanout. */
+    struct drm_framebuffer *old_fb = crtc->primary->state->fb;
+    if (old_fb != fb) {
+        drm_framebuffer_get(fb);
+        crtc->primary->state->fb = fb;
+        drm_framebuffer_put(old_fb);
+    }
     crtc->primary->fb_id     = fb ? fb->base.id : 0;
 
     return 0;
@@ -448,7 +454,11 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
 
     if (primary) {
         if (primary->state) {
-            primary->state->fb      = fb;
+            if (primary->state->fb != fb) {
+                drm_framebuffer_get(fb);
+                drm_framebuffer_put(primary->state->fb);
+                primary->state->fb = fb;
+            }
             primary->state->crtc    = crtc;
             primary->state->src.x1  = 0;
             primary->state->src.y1  = 0;

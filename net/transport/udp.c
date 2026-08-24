@@ -43,6 +43,7 @@ typedef struct udp_endpoint {
         uint16_t             remote_port;
         uint16_t             queue_length;
         uint32_t             queue_bytes;
+        int                  pending_error;
         uint8_t              bound;
         udp_packet_t        *head;
         udp_packet_t        *tail;
@@ -264,6 +265,11 @@ int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t desti
 {
     if (!ep || (!data && length)) return -EINVAL;
     if (length > UINT16_MAX - UDP_HEADER_LEN) return -EMSGSIZE;
+    spin_lock(&ep->lock);
+    int pending_error = ep->pending_error;
+    ep->pending_error = 0;
+    spin_unlock(&ep->lock);
+    if (pending_error) return -pending_error;
     int status = udp_autobind(ep);
     if (status) return status;
     if (!destination) destination = ep->remote_address;
@@ -335,6 +341,12 @@ int udp_receive(udp_endpoint_t *ep, void *data, size_t capacity, udp_datagram_t 
 {
     if (!ep || (!data && capacity)) return -EINVAL;
     spin_lock(&ep->lock);
+    if (ep->pending_error) {
+        int error         = ep->pending_error;
+        ep->pending_error = 0;
+        spin_unlock(&ep->lock);
+        return -error;
+    }
     udp_packet_t *packet = ep->head;
     if (!packet) {
         spin_unlock(&ep->lock);
@@ -535,9 +547,63 @@ uint32_t udp_readiness(udp_endpoint_t *endpoint)
 {
     if (!endpoint) return UDP_READY_ERROR;
     spin_lock(&endpoint->lock);
-    uint32_t events = UDP_READY_WRITE | (endpoint->head ? UDP_READY_READ : 0);
+    uint32_t events = UDP_READY_WRITE | (endpoint->head ? UDP_READY_READ : 0) | (endpoint->pending_error ? UDP_READY_ERROR : 0);
     spin_unlock(&endpoint->lock);
     return events;
+}
+
+/* Read and clear the asynchronous socket error, as required by SO_ERROR. */
+int udp_get_error(udp_endpoint_t *endpoint)
+{
+    if (!endpoint) return EINVAL;
+    spin_lock(&endpoint->lock);
+    int error               = endpoint->pending_error;
+    endpoint->pending_error = 0;
+    spin_unlock(&endpoint->lock);
+    return error;
+}
+
+/*
+ * Deliver an ICMP error for the quoted IPv4 datagram to its connected UDP
+ * endpoint.  Unconnected sockets do not get asynchronous errors without an
+ * error queue option, which this stack does not expose yet.
+ */
+void udp_control_error(uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu)
+{
+    (void)mtu;
+    if (!quoted || quoted_length < UDP_HEADER_LEN || error >= 0) return;
+    const uint8_t *udp         = quoted;
+    uint16_t       local_port  = net_read_be16(udp);
+    uint16_t       remote_port = net_read_be16(udp + 2);
+    if (!local_port || !remote_port) return;
+
+    udp_event_callback_t callback = NULL;
+    void                *context  = NULL;
+    udp_endpoint_t      *target   = NULL;
+    spin_lock(&udp_table_lock);
+    for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++) {
+        udp_endpoint_t *ep = udp_table[i];
+        if (!ep) continue;
+        spin_lock(&ep->lock);
+        if ((ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6))) || !ep->bound || ep->local_port != local_port
+            || ep->remote_address != destination || ep->remote_port != remote_port || (ep->local_address && ep->local_address != source)) {
+            spin_unlock(&ep->lock);
+            continue;
+        }
+        target                = ep;
+        target->pending_error = -error;
+        callback              = target->event_callback;
+        context               = target->event_context;
+        wait_queue_wake_all(&target->wait);
+        if (callback) inet_sock_ref(context);
+        spin_unlock(&target->lock);
+        break;
+    }
+    spin_unlock(&udp_table_lock);
+    if (callback) {
+        callback(target, UDP_READY_ERROR, context);
+        inet_sock_unref(context);
+    }
 }
 
 /* Snapshot endpoint state for getsockname/getpeername-style queries. */

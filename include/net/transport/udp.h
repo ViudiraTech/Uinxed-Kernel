@@ -78,6 +78,8 @@ int           net_udp_parse6(const void *data, size_t length, const struct in6_a
 uint16_t      udp_local_port(const udp_endpoint_t *endpoint);
 uint32_t      udp_readiness(udp_endpoint_t *endpoint);
 int           udp_get_info(udp_endpoint_t *endpoint, udp_endpoint_info_t *info);
+int           udp_get_error(udp_endpoint_t *endpoint);
+void          udp_control_error(uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu);
 void          udp_set_v6only(udp_endpoint_t *endpoint, int enabled);
 void          udp_set_event_callback(udp_endpoint_t *endpoint, udp_event_callback_t callback, void *context);
 wait_queue_t *udp_wait_queue(udp_endpoint_t *endpoint);

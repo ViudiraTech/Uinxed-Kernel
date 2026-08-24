@@ -4172,6 +4172,35 @@ static unsigned char vfs_node_to_dtype(uint16_t type)
     return DT_REG;
 }
 
+typedef struct getdents64_context {
+        uint8_t *buffer;
+        size_t   capacity;
+        size_t   written;
+        bool     entry_too_large;
+} getdents64_context_t;
+
+/* Pack one VFS entry directly into the kernel-side Linux dirent buffer. */
+static bool getdents64_emit(const vfs_dirent_t *entry, size_t next_index, void *opaque)
+{
+    getdents64_context_t *context = opaque;
+    size_t                name_len = strlen(entry->name);
+    size_t                record_size = ALIGN_UP(sizeof(linux_dirent64_t) + name_len + 1, 8);
+    if (record_size > UINT16_MAX || record_size > context->capacity - context->written) {
+        if (!context->written) context->entry_too_large = true;
+        return false;
+    }
+
+    linux_dirent64_t *de = (linux_dirent64_t *)(context->buffer + context->written);
+    de->d_ino            = entry->inode;
+    de->d_off            = (int64_t)next_index;
+    de->d_reclen         = (unsigned short)record_size;
+    de->d_type           = vfs_node_to_dtype(entry->type);
+    memcpy(de->d_name, entry->name, name_len + 1);
+    memset((uint8_t *)de + sizeof(linux_dirent64_t) + name_len + 1, 0, record_size - sizeof(linux_dirent64_t) - name_len - 1);
+    context->written += record_size;
+    return true;
+}
+
 static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count);
 
 static int64_t sys_getdents64_wrap(uint64_t fd, uint64_t dirent, uint64_t count, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -4214,35 +4243,27 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
         return -ENOMEM;
     }
 
-    uint64_t written = 0;
-    size_t   index   = file->offset;
-
-    for (;;) {
-        vfs_dirent_t entry;
-        if (vfs_readdir(node, index, &entry) != EOK) break;
-
-        size_t         name_len = strlen(entry.name);
-        unsigned short reclen   = (unsigned short)(sizeof(linux_dirent64_t) + name_len + 1);
-        reclen                  = (unsigned short)ALIGN_UP(reclen, 8);
-
-        if (written + reclen > count) break;
-
-        linux_dirent64_t *de = (linux_dirent64_t *)(kbuf + written);
-        de->d_ino            = entry.inode;
-        de->d_off            = (int64_t)(index + 1);
-        de->d_reclen         = reclen;
-        de->d_type           = vfs_node_to_dtype((uint16_t)entry.type);
-        memcpy(de->d_name, entry.name, name_len);
-        de->d_name[name_len] = '\0';
-
-        written += reclen;
-        index++;
+    getdents64_context_t context = {
+        .buffer   = kbuf,
+        .capacity = (size_t)count,
+    };
+    size_t next_index = file->offset;
+    int    result     = vfs_readdir_batch(node, file->offset, getdents64_emit, &context, &next_index);
+    if (result != EOK) {
+        free(kbuf);
+        process_file_put(file);
+        return result;
+    }
+    if (context.entry_too_large) {
+        free(kbuf);
+        process_file_put(file);
+        return -EINVAL;
     }
 
-    file->offset = index;
+    file->offset = next_index;
 
-    if (written > 0) {
-        if (copy_to_user((void *)dirent, kbuf, written)) {
+    if (context.written > 0) {
+        if (copy_to_user((void *)dirent, kbuf, context.written)) {
             free(kbuf);
             process_file_put(file);
             return -EFAULT;
@@ -4251,7 +4272,7 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
 
     free(kbuf);
     process_file_put(file);
-    return (int64_t)written;
+    return (int64_t)context.written;
 }
 
 /* writev syscall: write a vector of buffers */
@@ -5018,13 +5039,27 @@ static inline int is_restart_code(int64_t ret)
     return ret == -ERESTARTSYS || ret == -ERESTARTNOINTR || ret == -ERESTARTNOHAND || ret == -ERESTART_RESTARTBLOCK || ret == -ERESTART;
 }
 
+/* Cheap return-to-user test which avoids the signal slow path on most calls. */
+static inline bool syscall_signal_work_pending(task_t *task)
+{
+    if (!task || !task->process) return false;
+
+    signal_state_t *state = &task->process->signal;
+    if (__atomic_load_n(&state->group_exit, __ATOMIC_ACQUIRE)) return true;
+
+    sigset_t pending = __atomic_load_n(&state->pending, __ATOMIC_ACQUIRE) | __atomic_load_n(&task->signal_pending, __ATOMIC_ACQUIRE);
+    sigset_t blocked = __atomic_load_n(&task->signal_blocked, __ATOMIC_RELAXED);
+    return (pending & ~blocked) || __atomic_load_n(&task->signal_restore_mask, __ATOMIC_ACQUIRE);
+}
+
 /* Dispatch a syscall from a saved register frame */
 int syscall_dispatch(syscall_frame_t *frame)
 {
     uint64_t num           = frame->rax;
     int64_t  retval        = 0;
-    task_t  *dispatch_task = current_task();
-    bool     traced        = dispatch_task && ptrace_tracer_pid(dispatch_task);
+    /* syscall_entry has already swapped to the kernel per-CPU GS window. */
+    task_t *dispatch_task = percpu_gs_current();
+    bool    traced        = dispatch_task && __atomic_load_n(&dispatch_task->ptrace.tracer_pid, __ATOMIC_ACQUIRE);
     bool     force_iret    = traced;
 
     if (traced) ptrace_syscall_enter(frame, num);
@@ -5225,7 +5260,7 @@ check_signals:
      * - If the syscall completed successfully (or returned a non-restart
      *   error), the return value is preserved regardless of signals.
      */
-    if (frame->cs & 0x3) {
+    if ((frame->cs & 0x3) && syscall_signal_work_pending(dispatch_task)) {
         uint64_t saved_rip = frame->rip;
 
         int sig_ret = signal_deliver_for_process(dispatch_task ? dispatch_task->process : NULL, frame);
@@ -5323,8 +5358,23 @@ check_signals:
          */
     }
 
-    /* Let freshly woken input/compositor peers run before returning to user. */
-    sched_maybe_preempt();
+    /*
+     * ERESTART* values are strictly kernel-internal.  Keep a final ABI
+     * boundary guard after the restart decision so a future early-exit or
+     * signal-path change can never expose errno 512+ to libc (which reports
+     * it as an unknown/no-detail recvfrom error).  A real restart has already
+     * replaced RAX with the original, non-negative syscall number above.
+     */
+    if (is_restart_code((int64_t)frame->rax)) frame->rax = (uint64_t)-EINTR;
+
+    /*
+     * Let freshly woken input/compositor peers run before returning to user.
+     * Keep the overwhelmingly common no-reschedule path inside the dispatcher:
+     * sched_maybe_preempt() otherwise performs a function call and CPU lookup
+     * for every syscall even when need_resched is clear.
+     */
+    uint32_t cpu_id = percpu_gs_cpu_id();
+    if (cpu_rqs && cpu_id < cpu_scheduler_count && __atomic_load_n(&cpu_rqs[cpu_id].need_resched, __ATOMIC_ACQUIRE)) sched_maybe_preempt();
 
     /*
      * SYSRET is valid only for the ordinary 64-bit userspace selectors and

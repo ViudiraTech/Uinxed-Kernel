@@ -17,7 +17,8 @@
 #include <net/core/pbuf.h>
 #include <sync/spin_lock.h>
 
-#define ARPHRD_ETHER 1U
+#define ARPHRD_ETHER    1U
+#define ARPHRD_LOOPBACK 772U
 
 #define NETDEV_NAME_MAX 16U
 #define NETDEV_MAX      16U
@@ -29,6 +30,7 @@
 #define NETDEV_F_RUNNING   0x0002U
 #define NETDEV_F_BROADCAST 0x0004U
 #define NETDEV_F_PROMISC   0x0008U
+#define NETDEV_F_LOOPBACK  0x0010U
 
 typedef struct net_device net_device_t;
 typedef net_device_t      netdev_t;

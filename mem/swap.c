@@ -432,6 +432,7 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
     if (result == EOK) {
         uint64_t flags = swap_entry_pte_flags(entry) | PTE_PRESENT;
         __atomic_store_n(&pte->value, frame | flags, __ATOMIC_RELEASE);
+        if (flags & PTE_USER) __atomic_add_fetch(&directory->resident_pages, 1, __ATOMIC_RELAXED);
         flush_tlb(address);
         (void)swap_entry_release_pte(entry);
         area->pages_in++;
@@ -509,6 +510,8 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address, bool fo
         if (result == EOK) {
             __atomic_add_fetch(&best->pages_out, 1, __ATOMIC_RELAXED);
             __atomic_store_n(&pte->value, entry & ~PTE_SWAP_BUSY, __ATOMIC_RELEASE);
+            uint64_t resident = __atomic_load_n(&directory->resident_pages, __ATOMIC_RELAXED);
+            __atomic_store_n(&directory->resident_pages, resident ? resident - 1 : 0, __ATOMIC_RELAXED);
             flush_tlb(address);
             release_frame = true;
         } else {

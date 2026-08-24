@@ -255,7 +255,7 @@ int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
         packet->data[0] = ICMP_ECHO_REPLY;
         packet->data[2] = packet->data[3] = 0;
         net_write_be16(packet->data + 2, net_checksum(packet->data, packet->length));
-        int status = ipv4_output(device, device->ipv4_address, ip->source, IPV4_PROTO_ICMP, 64, packet);
+        int status = ipv4_output(device, ip->destination, ip->source, IPV4_PROTO_ICMP, 64, packet);
         net_pbuf_free(packet);
         return status;
     }
@@ -295,7 +295,9 @@ int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uin
     if (type == ICMP_DEST_UNREACHABLE && code == ICMP_FRAGMENTATION_NEEDED) net_write_be16(packet->data + 6, mtu);
     memcpy(packet->data + ICMP_HEADER_LEN, original, quote_length);
     net_write_be16(packet->data + 2, net_checksum(packet->data, packet->length));
-    int status = ipv4_output(device, device->ipv4_address, destination, IPV4_PROTO_ICMP, 64, packet);
+    uint32_t source = device->ipv4_address;
+    if ((device->flags & NETDEV_F_LOOPBACK) && (net_read_be32(ip + 16) >> 24) == 127U) source = net_read_be32(ip + 16);
+    int status = ipv4_output(device, source, destination, IPV4_PROTO_ICMP, 64, packet);
     net_pbuf_free(packet);
     return status;
 }

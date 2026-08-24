@@ -282,13 +282,17 @@ int  process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid
 void process_child_stopped(process_t *child, int signal);
 void process_child_continued(process_t *child);
 
-/* Find the process structure for the given pid, or NULL if not found */
-process_t *process_find(pid_t pid);
-
 /* Pinned process-table access. Call process_put() on non-NULL results. */
 process_t *process_find_get(pid_t pid);
 process_t *process_iterate_get(size_t *pos);
-size_t     process_snapshot_pids(pid_t *pids, size_t capacity);
+size_t     process_snapshot_pids(pid_t *pids, size_t capacity, uint64_t *generation);
+uint64_t   process_table_generation_read(void);
+bool       process_pid_exists(pid_t pid);
+size_t     process_snapshot_fds(pid_t pid, int *fds, size_t capacity);
+bool       process_fd_exists(pid_t pid, int fd);
+pid_t      process_parent_pid(process_t *proc);
+int        process_path_snapshot(pid_t pid, int which, char *path, size_t capacity);
+int        process_fd_path_snapshot(pid_t pid, int fd, char *path, size_t capacity);
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid);
 task_t    *process_task_find_get(pid_t pid, process_t **owner);
 void       process_put(process_t *proc);

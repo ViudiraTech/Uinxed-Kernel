@@ -210,6 +210,7 @@ int arp_request(net_device_t *device, uint32_t ipv4)
 int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
 {
     if (!device || !packet || !ipv4) return -EINVAL;
+    if (device->flags & NETDEV_F_LOOPBACK) return ethernet_output(device, packet, device->address, ETH_TYPE_IPV4);
     uint32_t broadcast = device->ipv4_netmask ? device->ipv4_address | ~device->ipv4_netmask : UINT32_MAX;
     if (ipv4 == UINT32_MAX || ipv4 == broadcast) return ethernet_output(device, packet, ethernet_broadcast_address, ETH_TYPE_IPV4);
     if (!arp_ipv4_unicast(ipv4)) return -EHOSTUNREACH;

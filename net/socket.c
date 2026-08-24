@@ -698,6 +698,19 @@ void socket_ref(socket_t *sk)
     if (sk) (void)__atomic_add_fetch(&sk->refcount, 1, __ATOMIC_ACQ_REL);
 }
 
+/* Pin a socket found through a weak registry entry without resurrecting it. */
+int socket_try_ref(socket_t *sk)
+{
+    if (!sk) return 0;
+
+    uint32_t refs = __atomic_load_n(&sk->refcount, __ATOMIC_ACQUIRE);
+    while (refs != 0) {
+        if (refs == UINT32_MAX) return 0;
+        if (__atomic_compare_exchange_n(&sk->refcount, &refs, refs + 1, true, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return 1;
+    }
+    return 0;
+}
+
 /* Lock a connected pair in address order so simultaneous close cannot ABBA. */
 static void socket_pair_lock(socket_t *first, socket_t *second)
 {
@@ -3133,7 +3146,12 @@ int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
         total_len += iov[i].iov_len;
     }
 
-    if (total_len == 0 && sk->type != SOCK_DGRAM && sk->type != SOCK_SEQPACKET) {
+    /*
+     * Netlink is datagram-oriented even when created as SOCK_RAW.  GLib and
+     * libbpf intentionally use a zero-length iovec with MSG_PEEK|MSG_TRUNC to
+     * query the next datagram size, so that request must reach the backend.
+     */
+    if (total_len == 0 && sk->family != AF_NETLINK && sk->type != SOCK_DGRAM && sk->type != SOCK_SEQPACKET) {
         free(iov);
         return 0;
     }

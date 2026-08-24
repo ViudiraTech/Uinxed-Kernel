@@ -61,8 +61,10 @@ static void extfs_fill_node(vfs_node_t node, extfs_handle_t *h)
     if (extfs_read_inode_raw(sb, h->inode_no, &raw) != EOK) return;
 
     node->inode       = h->inode_no;
+    node->nlink       = raw.i_links_count;
     node->type        = extfs_mode_to_vfs(raw.i_mode);
     node->permissions = raw.i_mode & 0xFFF;
+    node->mode        = node->permissions;
     node->owner       = raw.i_uid | (raw.l_i_uid_high << 16);
     node->group       = raw.i_gid | (raw.l_i_gid_high << 16);
     node->blksz       = sb->block_size;

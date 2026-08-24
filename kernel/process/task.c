@@ -187,6 +187,7 @@ task_t *task_alloc_status(const char *name, int *error)
     task->page_directory    = get_kernel_pagedir();
     task->time_slice        = TASK_DEFAULT_SLICE;
     task->cpu_id            = 0;
+    task->rq_cpu            = UINT32_MAX;
     task->last_cpu          = UINT32_MAX;
     task->last_wake_tick    = 0;
     task->last_migrate_tick = 0;
@@ -208,6 +209,8 @@ task_t *task_alloc_status(const char *name, int *error)
     task->thread.gs_base           = 0;
     ptrace_state_init(&task->ptrace);
     task_name_copy(task, name);
+    rb_init_node(&task->run_node);
+    rb_init_node(&task->pi_node);
     ilist_init(&task->sched_node);
     ilist_init(&task->timer_node);
     ilist_init(&task->thread_node);

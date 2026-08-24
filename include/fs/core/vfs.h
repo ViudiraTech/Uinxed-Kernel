@@ -41,6 +41,7 @@
 #define MOUNT_FLAG_NOEXEC (1ULL << 3)
 
 typedef struct vfs_node             *vfs_node_t;
+typedef struct vfs_inode             vfs_inode_t;
 typedef struct pagecache_mapping     pagecache_mapping_t;
 typedef struct vfs_poll_subscription vfs_poll_subscription_t;
 struct process;
@@ -88,6 +89,9 @@ typedef struct vfs_dirent {
         uint64_t size;
         uint64_t inode;
 } vfs_dirent_t;
+
+/* Return false when the caller's output buffer is full. */
+typedef bool (*vfs_readdir_emit_t)(const vfs_dirent_t *entry, size_t next_index, void *context);
 
 typedef struct vfs_dir {
         vfs_node_t   node;
@@ -220,6 +224,15 @@ typedef struct vfs_node {
         vfs_poll_source_t    poll_source;
         uint32_t             inotify_watch_count; // Direct inotify watches; avoids global scans for ordinary I/O
         pagecache_mapping_t *mapping;             // Unified cache for regular-file contents
+        /* dcache index state; protected by the dcache bucket lock. */
+        vfs_node_t dcache_next;
+        uint64_t   dcache_hash;
+        uint64_t   dcache_generation;
+        bool       dcache_hashed;
+        /* Unique mount-scoped inode identity and its alias-list links. */
+        vfs_inode_t *cache_inode;
+        vfs_node_t   inode_alias_prev;
+        vfs_node_t   inode_alias_next;
 } *vfs_node_t;
 
 extern struct vfs_callback vfs_empty_callback;
@@ -236,7 +249,10 @@ vfs_node_t get_rootdir(void);
 /* Set the root directory node of the Virtual File System (VFS) */
 void set_rootdir(vfs_node_t node);
 
-/* Search for a file or directory by name in the specified directory */
+/*
+ * Search a directory during a filesystem callback.  The caller must already
+ * serialize namespace mutation; the returned node is borrowed, not retained.
+ */
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name);
 
 /* Update a file or directory, ensuring it is open and ready */
@@ -288,6 +304,14 @@ int vfs_mkfile_mode(const char *name, uint16_t mode);
 
 /* Read a directory entry by index from the specified directory node */
 int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry);
+
+/*
+ * Emit as many entries as the caller can accept in one linear directory
+ * walk.  The callback runs under namespace serialization and therefore must
+ * not call back into the VFS.  next_index is advanced only for emitted
+ * entries, allowing getdents64() to resume after a full userspace buffer.
+ */
+int vfs_readdir_batch(vfs_node_t dir, size_t start_index, vfs_readdir_emit_t emit, void *context, size_t *next_index);
 
 /* Open a directory stream for sequential iteration */
 vfs_dir_t vfs_opendir(const char *path);

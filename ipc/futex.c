@@ -971,7 +971,7 @@ static int futex_lock_pi(uint32_t *uaddr)
             continue;
         }
 
-        task_block();
+        wait_queue_sleep();
 
         /*
          * All post-block access to pi_mutex is safe: our reference keeps the
@@ -1050,7 +1050,7 @@ static int futex_unlock_pi(uint32_t *uaddr)
 
     if (leftmost) {
         next_owner = rb_entry(leftmost, task_t, pi_node);
-        rb_erase_augmented(&pi_mutex->pi_waiters, leftmost, pi_waiter_augment, NULL);
+        if (rb_erase_augmented(&pi_mutex->pi_waiters, leftmost, pi_waiter_augment, NULL)) panic("futex: failed to pop PI waiter during unlock");
         next_owner->blocked_on = NULL;
 
         /* The mutex takes an owner reference on the handoff target. */
@@ -1137,7 +1137,7 @@ void futex_pi_owner_exit(task_t *exiting)
         task_t    *next_owner = NULL;
         if (leftmost) {
             next_owner = rb_entry(leftmost, task_t, pi_node);
-            rb_erase_augmented(&pi_mutex->pi_waiters, leftmost, pi_waiter_augment, NULL);
+            if (rb_erase_augmented(&pi_mutex->pi_waiters, leftmost, pi_waiter_augment, NULL)) panic("futex: failed to pop PI waiter during owner exit");
             next_owner->blocked_on = NULL;
             task_ref(next_owner);
         }

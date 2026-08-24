@@ -10,6 +10,7 @@
 
 #include <arch/common.h>
 #include <arch/dma.h>
+#include <sync/spin_lock.h>
 
 /* Fast access registers and ports for each DMA channel */
 static const uint8_t MASK_REG[8]  = {0x0A, 0x0A, 0x0A, 0x0A, 0xD4, 0xD4, 0xD4, 0xD4};
@@ -21,23 +22,30 @@ static const uint8_t ADDR_PORT[8]  = {0x00, 0x02, 0x04, 0x06, 0xC0, 0xC4, 0xC8, 
 static const uint8_t COUNT_PORT[8] = {0x01, 0x03, 0x05, 0x07, 0xC2, 0xC6, 0xCA, 0xCE};
 
 static const uint32_t DMA_ADDR_MAX = 1 << 24;
+static spinlock_t     isa_dma_lock;
 
 /* Sending commands to the DMA controller */
 void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
 {
+    if (channel >= 8 || channel == 4 || !size) return;
     mode |= (channel % 4);
 
-    if (channel > 4 && size % 2 != 0) return;
+    if (channel > 4 && (((uintptr_t)address & 1U) || (size & 1U))) return;
 
     uint32_t addr = (uint32_t)(uintptr_t)address;
-    if (!(addr < DMA_ADDR_MAX)) return;
-    if (!(addr + size < DMA_ADDR_MAX)) return;
+    if (addr >= DMA_ADDR_MAX || size > DMA_ADDR_MAX - addr) return;
+
+    /* 8237 address counters wrap within a 64 KiB (8-bit) or 128 KiB
+     * (16-bit) DMA window; reject a transfer that would silently wrap. */
+    uint32_t window = channel > 4 ? 0x20000U : 0x10000U;
+    if ((addr & (window - 1U)) + size > window) return;
 
     uint8_t  page   = addr >> 16;
     uint16_t offset = (channel > 4 ? addr / 2 : addr) & 0xffff;
     size            = (channel > 4 ? size / 2 : size) - 1;
 
-    disable_intr();
+    /* The flip-flop and programming ports are shared by every CPU/channel. */
+    uint64_t irq_flags = spin_lock_irqsave(&isa_dma_lock);
 
     /* Setting up DMA channels */
     outb(MASK_REG[channel], 0x04 | (channel % 4));
@@ -61,7 +69,7 @@ void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
 
     /* Re-enable the DMA channel */
     outb(MASK_REG[channel], (channel % 4));
-    enable_intr();
+    spin_unlock_irqrestore(&isa_dma_lock, irq_flags);
 }
 
 /* Sending data using DMA */

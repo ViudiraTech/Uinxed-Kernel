@@ -1276,15 +1276,20 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
             net_pbuf_free(packet);
             return -EAGAIN;
         }
+        int reset_error          = endpoint->state == TCP_SYN_SENT ? ECONNREFUSED : ECONNRESET;
         endpoint->state          = TCP_CLOSED;
-        endpoint->error          = ECONNRESET;
+        endpoint->error          = reset_error;
         tcp_event_callback_t cb  = endpoint->event_callback;
         void                *ctx = endpoint->event_context;
         wait_queue_wake_all(&endpoint->wait);
+        if (cb) inet_sock_ref(ctx);
         spin_unlock(&endpoint->lock);
-        if (cb) cb(endpoint, TCP_READY_ERROR | TCP_READY_READ | TCP_READY_HANGUP, ctx);
+        if (cb) {
+            cb(endpoint, TCP_READY_ERROR | TCP_READY_READ | TCP_READY_HANGUP, ctx);
+            inet_sock_unref(ctx);
+        }
         net_pbuf_free(packet);
-        return -ECONNRESET;
+        return -reset_error;
     }
     endpoint->peer_window = window;
     if (endpoint->state == TCP_TIME_WAIT) {
@@ -1407,8 +1412,12 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     tcp_event_callback_t cb6    = endpoint->event_callback;
     void                *ctx6   = endpoint->event_context;
     wait_queue_wake_all(&endpoint->wait);
+    if (cb6) inet_sock_ref(ctx6);
     spin_unlock(&endpoint->lock);
-    if (cb6) cb6(endpoint, ready6, ctx6);
+    if (cb6) {
+        cb6(endpoint, ready6, ctx6);
+        inet_sock_unref(ctx6);
+    }
     net_pbuf_free(packet);
     return 0;
 bad:
@@ -1466,8 +1475,9 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
             net_pbuf_free(packet);
             return -EAGAIN;
         }
+        int reset_error              = endpoint->state == TCP_SYN_SENT ? ECONNREFUSED : ECONNRESET;
         endpoint->state              = TCP_CLOSED;
-        endpoint->error              = ECONNRESET;
+        endpoint->error              = reset_error;
         tcp_event_callback_t cb_rst  = endpoint->event_callback;
         void                *ctx_rst = endpoint->event_context;
         wait_queue_wake_all(&endpoint->wait);
@@ -1478,7 +1488,7 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
             inet_sock_unref(ctx_rst);
         }
         net_pbuf_free(packet);
-        return -ECONNRESET;
+        return -reset_error;
     }
     uint64_t now = sched_ticks();
     if (endpoint->state == TCP_TIME_WAIT) {
@@ -1674,6 +1684,44 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 bad:
     if (packet) net_pbuf_free(packet);
     return -EBADMSG;
+}
+
+/* Fail an in-progress active open when ICMP rejects its quoted SYN. */
+void tcp_control_error(uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu)
+{
+    (void)mtu;
+    if (!quoted || quoted_length < 8U || error >= 0) return;
+    const uint8_t *tcp         = quoted;
+    uint16_t       local_port  = net_read_be16(tcp);
+    uint16_t       remote_port = net_read_be16(tcp + 2);
+    if (!local_port || !remote_port) return;
+
+    tcp_event_callback_t callback = NULL;
+    void                *context  = NULL;
+    tcp_endpoint_t      *target   = NULL;
+    spin_lock(&tcp_table_lock);
+    for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) {
+        tcp_endpoint_t *endpoint = tcp_table[i];
+        if (!endpoint) continue;
+        spin_lock(&endpoint->lock);
+        if (!endpoint->native6 && endpoint->local_address == source && endpoint->remote_address == destination && endpoint->local_port == local_port && endpoint->remote_port == remote_port
+            && endpoint->state == TCP_SYN_SENT) {
+            target = endpoint;
+            tcp_fail_locked(target, -error);
+            callback = target->event_callback;
+            context  = target->event_context;
+            wait_queue_wake_all(&target->wait);
+            if (callback) inet_sock_ref(context);
+            spin_unlock(&endpoint->lock);
+            break;
+        }
+        spin_unlock(&endpoint->lock);
+    }
+    spin_unlock(&tcp_table_lock);
+    if (callback) {
+        callback(target, TCP_READY_ERROR | TCP_READY_READ | TCP_READY_HANGUP, context);
+        inet_sock_unref(context);
+    }
 }
 
 /*

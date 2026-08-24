@@ -76,57 +76,8 @@ static inline void sb16_outb(uint16_t port, uint8_t val)
  */
 static void sb16_dma_program(uint8_t channel, uint32_t phys_addr, uint32_t size, uint8_t mode)
 {
-    /* Validate address range (< 16MB for 8-bit, < 16MB for 16-bit too on most chips) */
-    if (phys_addr + size > 0x1000000) return;
-
-    uint8_t  page = (uint8_t)(phys_addr >> 16);
-    uint16_t offset;
-
-    uint8_t mask_reg  = (channel < 4) ? 0x0A : 0xD4;
-    uint8_t mode_reg  = (channel < 4) ? 0x0B : 0xD6;
-    uint8_t clear_reg = (channel < 4) ? 0x0C : 0xD8;
-    uint8_t page_port;
-    uint8_t addr_port;
-    uint8_t count_port;
-
-    static const uint8_t page_ports[8]  = {0x87, 0x83, 0x81, 0x82, 0x8F, 0x8B, 0x89, 0x8A};
-    static const uint8_t addr_ports[8]  = {0x00, 0x02, 0x04, 0x06, 0xC0, 0xC4, 0xC8, 0xCC};
-    static const uint8_t count_ports[8] = {0x01, 0x03, 0x05, 0x07, 0xC2, 0xC6, 0xCA, 0xCE};
-
-    page_port  = page_ports[channel];
-    addr_port  = addr_ports[channel];
-    count_port = count_ports[channel];
-
-    mode |= (channel & 3);
-    offset         = (uint16_t)(channel < 4 ? phys_addr : phys_addr / 2);
-    uint16_t count = (uint16_t)(channel < 4 ? size - 1 : size / 2 - 1);
-
-    disable_intr();
-
-    /* Mask channel */
-    outb(mask_reg, 0x04 | (channel & 3));
-
-    /* Clear flip-flop */
-    outb(clear_reg, 0);
-
-    /* Set mode (write/read, single/autoinit, channel) */
-    outb(mode_reg, mode);
-
-    /* Set page */
-    outb(page_port, page);
-
-    /* Set address offset */
-    outb(addr_port, LOW_BYTE(offset));
-    outb(addr_port, HIGH_BYTE(offset));
-
-    /* Set count */
-    outb(count_port, LOW_BYTE(count));
-    outb(count_port, HIGH_BYTE(count));
-
-    /* Unmask channel */
-    outb(mask_reg, channel & 3);
-
-    enable_intr();
+    /* Use the globally serialized 8237 programming path. */
+    dma_start(mode, channel, (uint32_t *)(uintptr_t)phys_addr, size);
 }
 
 /* Wait until the DSP write port is ready for a command. */

@@ -8,6 +8,8 @@
  *
  */
 
+#include <fs/core/dcache.h>
+#include <fs/core/icache.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
@@ -106,7 +108,9 @@ static int64_t vfs_now_seconds(void)
 /* Update a node's atime. */
 static void vfs_touch_access(vfs_node_t node)
 {
-    if (node) node->readtime = vfs_now_seconds();
+    if (!node) return;
+    node->readtime = vfs_now_seconds();
+    vfs_icache_publish(node);
 }
 
 /* Update a node's mtime and ctime. */
@@ -116,12 +120,23 @@ static void vfs_touch_modify(vfs_node_t node)
     int64_t now      = vfs_now_seconds();
     node->writetime  = now;
     node->createtime = now;
+    vfs_icache_publish(node);
 }
 
 /* Update a node's ctime. */
 static void vfs_touch_change(vfs_node_t node)
 {
-    if (node) node->createtime = vfs_now_seconds();
+    if (!node) return;
+    node->createtime = vfs_now_seconds();
+    vfs_icache_publish(node);
+}
+
+/* A successful namespace removal changes the inode's link count immediately. */
+static void vfs_inode_drop_link(vfs_node_t node)
+{
+    if (!node) return;
+    if (node->nlink) node->nlink--;
+    vfs_icache_publish(node);
 }
 
 /*
@@ -502,10 +517,17 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
 /* Open a file or directory, invoking the appropriate callback */
 static void do_open(vfs_node_t file)
 {
+    bool authoritative = true;
     if (file->handle) {
-        callbackof(file, stat)(file->handle, file);
+        authoritative = callbackof(file, stat)(file->handle, file) == EOK;
     } else {
         callbackof(file, open)(file->parent->handle, file->name, file);
+    }
+    if (file->handle && file->inode) {
+        if (authoritative)
+            (void)vfs_icache_refresh(file);
+        else
+            (void)vfs_icache_bind(file);
     }
 }
 
@@ -514,6 +536,7 @@ static void do_update(vfs_node_t file)
 {
     if (file->type & file_none || !file->handle || file->type & file_dir || file->type & file_symlink || file->type & file_pipe) do_open(file);
     if (file->mapping) file->size = pagecache_size(file->mapping);
+    vfs_icache_publish(file);
 }
 
 /* Add a child node to a parent directory */
@@ -529,9 +552,19 @@ static vfs_node_t vfs_child_append(vfs_node_t parent, const char *name, void *ha
 /* Find a child node by name within a parent directory */
 static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
 {
-    return clist_first(parent->child, data,
+    vfs_node_t             node   = NULL;
+    enum vfs_dcache_result cached = vfs_dcache_lookup(parent, name, &node);
+    if (cached == VFS_DCACHE_POSITIVE) return node;
+    if (cached == VFS_DCACHE_NEGATIVE) return NULL;
+
+    node = clist_first(parent->child, data,
                        !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) && !(((vfs_node_t)data)->type & file_delete)
                            && streq(name, ((vfs_node_t)data)->name));
+    if (node)
+        vfs_dcache_add(node);
+    else
+        vfs_dcache_add_negative(parent, name);
+    return node;
 }
 
 /*
@@ -582,15 +615,20 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
      */
     node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
     if (!node->inode) node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
-    node->nlink      = 1;
-    node->refcount   = 0;
-    node->blksz      = PAGE_4K_SIZE;
-    node->mode       = 0777;
-    node->linkto     = 0;
+    node->nlink             = 1;
+    node->refcount          = 0;
+    node->dcache_generation = 1;
+    node->blksz             = PAGE_4K_SIZE;
+    node->mode              = 0777;
+    node->linkto            = 0;
     node->createtime = node->readtime = node->writetime = vfs_now_seconds();
     vfs_poll_source_init(&node->poll_source);
 
-    if (parent) parent->child = clist_prepend(parent->child, node);
+    if (parent) {
+        parent->child = clist_prepend(parent->child, node);
+        /* The node is not necessarily initialized yet; only kill a stale miss. */
+        vfs_dcache_invalidate(parent, node->name);
+    }
     return node;
 }
 
@@ -610,9 +648,13 @@ void set_rootdir(vfs_node_t node)
 /* Search for a file or directory by name in the specified directory */
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name)
 {
-    return clist_first(dir->child, data,
+    vfs_node_t node = NULL;
+    if (vfs_dcache_lookup(dir, name, &node) == VFS_DCACHE_POSITIVE) return node;
+    node = clist_first(dir->child, data,
                        !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) && !(((vfs_node_t)data)->type & file_delete)
                            && streq(name, ((vfs_node_t)data)->name));
+    if (node) vfs_dcache_add(node);
+    return node;
 }
 
 /* Update a file or directory, ensuring it is open and ready */
@@ -833,8 +875,10 @@ static void vfs_abort_created_node(vfs_node_t parent, vfs_node_t node)
 {
     if (!parent || !node) return;
     vfs_ns_lock();
+    vfs_dcache_remove(node);
     parent->child = clist_delete(parent->child, node);
     node->flags |= VFS_NODE_UNLINKED;
+    vfs_dcache_add_negative(parent, node->name);
     vfs_ns_unlock();
     vfs_free(node);
 }
@@ -866,6 +910,8 @@ static void vfs_publish_child(vfs_node_t node)
 {
     vfs_ns_lock();
     node->flags &= ~VFS_NODE_INITIALIZING;
+    vfs_dcache_invalidate(node->parent, node->name);
+    vfs_dcache_add(node);
     vfs_ns_unlock();
 }
 
@@ -933,6 +979,7 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
         plogk("vfs: Mkfile %s failed (%d)\n", name, status);
         vfs_abort_created_node(parent, node);
     } else {
+        (void)vfs_icache_refresh(node);
         vfs_touch_modify(parent);
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
@@ -995,6 +1042,52 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
     if (index == 0) vfs_touch_access(dir);
     inotify_notify(dir, IN_ACCESS);
     return EOK;
+}
+
+/* Emit a directory range with one refresh, one lock acquisition and one walk. */
+int vfs_readdir_batch(vfs_node_t dir, size_t start_index, vfs_readdir_emit_t emit, void *context, size_t *next_index)
+{
+    if (!dir || !emit || !next_index) return -EINVAL;
+
+    *next_index = start_index;
+    vfs_ns_lock();
+    if (start_index == 0) do_update(dir);
+    if (!(dir->type & file_dir)) {
+        vfs_ns_unlock();
+        return -ENOTDIR;
+    }
+
+    size_t visible = 0;
+    size_t emitted = 0;
+    int    status  = EOK;
+    for (clist_t list = dir->child; list; list = list->next) {
+        vfs_node_t child = list->data;
+        if (!child || (child->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) || (child->type & file_delete)) continue;
+
+        size_t current_index = visible++;
+        if (current_index < start_index) continue;
+
+        size_t name_length = strlen(child->name);
+        if (name_length > VFS_NAME_MAX) {
+            status = -ENAMETOOLONG;
+            break;
+        }
+
+        vfs_dirent_t entry;
+        memcpy(entry.name, child->name, name_length + 1);
+        entry.type  = child->type;
+        entry.size  = child->size;
+        entry.inode = child->inode;
+        if (!emit(&entry, current_index + 1, context)) break;
+
+        *next_index = current_index + 1;
+        emitted++;
+    }
+    vfs_ns_unlock();
+
+    if (emitted && start_index == 0) vfs_touch_access(dir);
+    if (emitted) inotify_notify(dir, IN_ACCESS);
+    return status;
 }
 
 /* Open a directory stream for sequential iteration */
@@ -1085,6 +1178,7 @@ static int vfs_link_internal(const char *name, const char *target_name, bool fol
     if (status != EOK) {
         vfs_abort_created_node(parent, node);
     } else {
+        (void)vfs_icache_refresh(node);
         vfs_touch_change(target);
         vfs_touch_modify(parent);
         vfs_publish_child(node);
@@ -1139,6 +1233,7 @@ int vfs_symlink(const char *name, const char *target_name)
     if (status != EOK) {
         vfs_abort_created_node(parent, node);
     } else {
+        (void)vfs_icache_refresh(node);
         vfs_touch_modify(parent);
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
@@ -1269,6 +1364,9 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
         if (!node->mount_id) node->mount_id = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
         node->root     = node;
         node->is_mount = 1;
+        vfs_icache_unbind(node);
+        (void)vfs_icache_refresh(node);
+        vfs_dcache_invalidate_parent(node);
         vfs_ns_lock();
         node->flags &= ~VFS_NODE_INITIALIZING;
         vfs_ns_unlock();
@@ -1366,7 +1464,10 @@ int vfs_umount(const char *path)
 
     vfs_node_t parent = node->parent;
     inotify_notify_unmount(node);
+    vfs_dcache_invalidate_parent(node);
+    vfs_icache_invalidate_mount(node);
     vfs_free_child(node);
+    vfs_icache_unbind(node);
     callbackof(node, unmount)(node->handle);
     free(node->mount_source);
     node->mount_source = NULL;
@@ -1376,7 +1477,10 @@ int vfs_umount(const char *path)
     node->handle       = 0;
     node->child        = 0;
     node->is_mount     = 0;
-    if (node->fsid) do_update(node);
+    if (node->fsid)
+        do_update(node);
+    else
+        (void)vfs_icache_bind(node);
     vfs_ns_lock();
     node->flags &= ~VFS_NODE_INITIALIZING;
     vfs_ns_unlock();
@@ -2271,8 +2375,11 @@ int vfs_close(vfs_node_t node)
     vfs_node_t retained_parent = NULL;
     vfs_ns_lock();
     if (!(node->flags & VFS_NODE_UNLINKED) && node->parent) {
+        vfs_node_t parent = node->parent;
+        vfs_dcache_remove(node);
         node->parent->child = clist_delete(node->parent->child, node);
         node->flags |= VFS_NODE_UNLINKED;
+        vfs_dcache_add_negative(parent, node->name);
     }
     if (node->flags & VFS_NODE_PARENT_RETAINED) {
         retained_parent = node->parent;
@@ -2319,14 +2426,17 @@ int vfs_namespace_unlink(vfs_node_t node)
         node->flags |= VFS_NODE_EVENT_DELETE;
         inotify_notify_delete(node);
     }
+    vfs_inode_drop_link(node);
 
     vfs_ns_lock();
     vfs_node_t parent = node->parent;
-    parent->child     = clist_delete(parent->child, node);
-    node->parent      = NULL;
+    vfs_dcache_remove(node);
+    parent->child = clist_delete(parent->child, node);
+    node->parent  = NULL;
     node->flags &= ~VFS_NODE_UNLINKING;
     node->flags |= VFS_NODE_DELETE_COMMITTED | VFS_NODE_UNLINKED;
     node->type |= file_delete;
+    vfs_dcache_add_negative(parent, node->name);
     vfs_ns_unlock();
     return EOK;
 }
@@ -2347,12 +2457,18 @@ void vfs_namespace_detach(vfs_node_t node)
         node->flags |= VFS_NODE_EVENT_DELETE;
         inotify_notify_delete(node);
     }
+    vfs_inode_drop_link(node);
 
     vfs_ns_lock();
-    if (node->parent) node->parent->child = clist_delete(node->parent->child, node);
+    vfs_node_t parent = node->parent;
+    if (parent) {
+        vfs_dcache_remove(node);
+        parent->child = clist_delete(parent->child, node);
+    }
     node->parent = NULL;
     node->flags |= VFS_NODE_UNLINKED | VFS_NODE_DELETE_COMMITTED | VFS_NODE_UNLINKING;
     node->type |= file_delete;
+    if (parent) vfs_dcache_add_negative(parent, node->name);
     vfs_ns_unlock();
 
     /*
@@ -2408,9 +2524,14 @@ int vfs_delete(vfs_node_t node)
         node->flags |= VFS_NODE_EVENT_DELETE;
         inotify_notify_delete(node);
     }
+    vfs_inode_drop_link(node);
     if (node->parent) vfs_touch_modify(node->parent);
     vfs_ns_lock();
     node->type |= file_delete;
+    if (node->parent) {
+        vfs_dcache_remove(node);
+        vfs_dcache_add_negative(node->parent, node->name);
+    }
     node->flags &= ~VFS_NODE_UNLINKING;
     if (node->parent && !(node->flags & VFS_NODE_PARENT_RETAINED)) {
         node->parent->refcount++;
@@ -2571,14 +2692,17 @@ int vfs_rename(vfs_node_t node, vfs_node_t new_parent, const char *new_name_arg,
         target->flags |= VFS_NODE_EVENT_DELETE;
         inotify_notify_delete(target);
     }
+    if (target) vfs_inode_drop_link(target);
     vfs_ns_lock();
     if (target) {
+        vfs_dcache_remove(target);
         new_parent->child = clist_delete(new_parent->child, target);
         target->parent    = NULL;
         target->type |= file_delete;
         target->flags &= ~VFS_NODE_INITIALIZING;
         target->flags |= VFS_NODE_DELETE_COMMITTED | VFS_NODE_UNLINKED;
     }
+    vfs_dcache_remove(node);
     if (old_parent != new_parent) {
         old_parent->child = clist_delete(old_parent->child, node);
         new_link->next    = new_parent->child;
@@ -2590,6 +2714,9 @@ int vfs_rename(vfs_node_t node, vfs_node_t new_parent, const char *new_name_arg,
     free(node->name);
     node->name = new_name;
     new_name   = NULL;
+    vfs_dcache_add_negative(old_parent, old_name);
+    vfs_dcache_invalidate(new_parent, node->name);
+    vfs_dcache_add(node);
     node->flags &= ~VFS_NODE_INITIALIZING;
     old_parent->flags &= ~VFS_NODE_RENAME_BUSY;
     new_parent->flags &= ~VFS_NODE_RENAME_BUSY;
@@ -2660,6 +2787,8 @@ void vfs_free(vfs_node_t vfs)
 {
     if (!vfs) return;
 
+    vfs_dcache_invalidate_parent(vfs);
+    vfs_dcache_remove(vfs);
     vfs_free_child(vfs);
     if (vfs->linkto) {
         vfs_close(vfs->linkto);
@@ -2674,6 +2803,7 @@ void vfs_free(vfs_node_t vfs)
     free(vfs->linkname);
     free(vfs->mount_source);
     free(vfs->name);
+    vfs_icache_unbind(vfs);
     free(vfs);
 }
 
@@ -2684,13 +2814,16 @@ void init_vfs(void)
     wait_queue_init(&vfs_namespace_wait);
     vfs_namespace_busy = false;
     wait_queue_init(&vfs_rename_wait);
-    vfs_rename_serial_busy          = false;
+    vfs_rename_serial_busy = false;
+    vfs_dcache_init();
+    vfs_icache_init();
     pagecache_allocator_t allocator = {.alloc = vfs_page_alloc, .free = vfs_page_free};
     size_t                max_pages = frame_allocator.origin_frames / 2;
     if (max_pages < 256) max_pages = 256;
     (void)pagecache_init(&allocator, max_pages);
     rootdir       = vfs_node_alloc(0, "/");
     rootdir->type = file_dir;
+    (void)vfs_icache_bind(rootdir);
     plogk("vfs: Initial root directory of the virtual file system: '/'\n");
 }
 

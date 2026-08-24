@@ -33,6 +33,29 @@ page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
 static void       page_enable_global_tlb(void);
 
+/* directory->lock serializes updates; procfs reads the counter locklessly. */
+static void page_resident_add_locked(page_directory_t *directory, uint64_t pages)
+{
+    __atomic_add_fetch(&directory->resident_pages, pages, __ATOMIC_RELAXED);
+}
+
+static void page_resident_sub_locked(page_directory_t *directory, uint64_t pages)
+{
+    uint64_t resident = __atomic_load_n(&directory->resident_pages, __ATOMIC_RELAXED);
+    __atomic_store_n(&directory->resident_pages, resident >= pages ? resident - pages : 0, __ATOMIC_RELAXED);
+}
+
+static void page_resident_transition_locked(page_directory_t *directory, uint64_t addr, uint64_t old_value, uint64_t new_value, uint64_t pages)
+{
+    if (((addr >> 39) & 0x1ff) >= 256) return;
+    bool old_resident = (old_value & (PTE_PRESENT | PTE_USER)) == (PTE_PRESENT | PTE_USER);
+    bool new_resident = (new_value & (PTE_PRESENT | PTE_USER)) == (PTE_PRESENT | PTE_USER);
+    if (new_resident && !old_resident)
+        page_resident_add_locked(directory, pages);
+    else if (old_resident && !new_resident)
+        page_resident_sub_locked(directory, pages);
+}
+
 /*
  * GCC/Clang interrupt functions save only the registers selected by their
  * optimiser.  Their slots therefore cannot be addressed by fixed offsets
@@ -440,6 +463,7 @@ int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
             return -1;
         }
     }
+    __atomic_store_n(&child->resident_pages, 0, __ATOMIC_RELAXED);
 
     for (int i = 0; i < 256; i++) {
         uint64_t value = __atomic_load_n(&parent->table->entries[i].value, __ATOMIC_ACQUIRE);
@@ -470,12 +494,14 @@ int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
         if ((value & PTE_PRESENT) && !(value & PTE_HUGE)) mark_parent_table_cow(phys_to_virt(value & PAGE_4K_MASK), 3);
     }
 
+    __atomic_store_n(&child->resident_pages, __atomic_load_n(&parent->resident_pages, __ATOMIC_RELAXED), __ATOMIC_RELAXED);
     flush_tlb_all();
     spin_unlock(&child->lock);
     spin_unlock(&parent->lock);
     return 0;
 rollback:
     destroy_user_entries(child);
+    __atomic_store_n(&child->resident_pages, 0, __ATOMIC_RELAXED);
     spin_unlock(&child->lock);
     spin_unlock(&parent->lock);
     return -1;
@@ -699,6 +725,7 @@ void page_destroy_user_space(page_directory_t *directory)
     flush_tlb_all();
     page_table_t *root = directory->table;
     destroy_user_entries(directory);
+    __atomic_store_n(&directory->resident_pages, 0, __ATOMIC_RELAXED);
     directory->table = NULL;
     (void)frame_release_range((uint64_t)virt_to_phys((uint64_t)root) & PAGE_4K_MASK, 1);
     spin_unlock(&directory->lock);
@@ -758,9 +785,10 @@ page_directory_t *clone_directory(page_directory_t *src)
         free(new_directory);
         return 0;
     }
-    new_directory->table       = (page_table_t *)phys_to_virt(frame);
-    new_directory->lock.lock   = 0;
-    new_directory->lock.rflags = 0;
+    new_directory->table          = (page_table_t *)phys_to_virt(frame);
+    new_directory->lock.lock      = 0;
+    new_directory->lock.rflags    = 0;
+    new_directory->resident_pages = 0;
     page_table_clear(new_directory->table);
     for (int i = 256; i < 512; i++) new_directory->table->entries[i] = src->table->entries[i];
 
@@ -841,7 +869,9 @@ static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64
         if ((old_value & PTE_COW) && (flags & PTE_WRITEABLE) && !(flags & PTE_SHARED)) flags = (flags & ~PTE_WRITEABLE) | PTE_COW;
         if ((flags & PTE_WRITEABLE) && !(flags & PTE_SHARED) && frame_refcount(frame & PAGE_4K_MASK) > 1) flags = (flags & ~PTE_WRITEABLE) | PTE_COW;
     }
-    l1_table->entries[l1_index].value = (frame & PAGE_4K_MASK) | flags;
+    uint64_t new_value = (frame & PAGE_4K_MASK) | flags;
+    l1_table->entries[l1_index].value = new_value;
+    page_resident_transition_locked(directory, addr, old_value, new_value, 1);
     flush_tlb(addr);
     spin_unlock(&directory->lock);
     return 0;
@@ -939,6 +969,13 @@ uint64_t page_count_present_range(page_directory_t *directory, uintptr_t start, 
     return pages;
 }
 
+/* RSS is maintained on mapping transitions, so frequent /proc reads are O(1). */
+uint64_t page_count_resident(page_directory_t *directory)
+{
+    if (!directory) return 0;
+    return __atomic_load_n(&directory->resident_pages, __ATOMIC_ACQUIRE);
+}
+
 /* Remove the 4 KiB mapping at addr and return its frame, or 0 if unmapped. */
 uint64_t page_unmap(page_directory_t *directory, uint64_t addr)
 {
@@ -964,6 +1001,7 @@ uint64_t page_unmap(page_directory_t *directory, uint64_t addr)
     if (!(l1e & PTE_PRESENT)) goto not_mapped;
 
     l1->entries[l1_index].value = 0;
+    if ((l1e & PTE_USER) && l4_index < 256) page_resident_sub_locked(directory, 1);
     flush_tlb(addr);
     spin_unlock(&directory->lock);
     return l1e & PAGE_4K_MASK;
@@ -1050,6 +1088,7 @@ retry_swap:
     }
 
     __atomic_store_n(&leaf.entry->value, 0, __ATOMIC_RELEASE);
+    if (leaf.value & PTE_USER) page_resident_sub_locked(directory, 1);
     flush_tlb(leaf.base);
     spin_unlock(&directory->lock);
     flush_tlb_all();
@@ -1074,7 +1113,10 @@ void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, 
     page_table_t *l2_table = page_table_create(&l3_table->entries[l3_index]);
     if (!l2_table) goto out;
 
-    l2_table->entries[l2_index].value = (frame & PAGE_2M_MASK) | flags | PTE_HUGE;
+    uint64_t old_value = l2_table->entries[l2_index].value;
+    uint64_t new_value = (frame & PAGE_2M_MASK) | flags | PTE_HUGE;
+    l2_table->entries[l2_index].value = new_value;
+    page_resident_transition_locked(directory, addr, old_value, new_value, PAGE_2M_SIZE / PAGE_4K_SIZE);
     flush_tlb(addr);
 out:
     spin_unlock(&directory->lock);
@@ -1094,7 +1136,10 @@ void page_map_to_1G(page_directory_t *directory, uint64_t addr, uint64_t frame, 
     page_table_t *l3_table = page_table_create(&l4_table->entries[l4_index]);
     if (!l3_table) goto out;
 
-    l3_table->entries[l3_index].value = (frame & PAGE_1G_MASK) | flags | PTE_HUGE;
+    uint64_t old_value = l3_table->entries[l3_index].value;
+    uint64_t new_value = (frame & PAGE_1G_MASK) | flags | PTE_HUGE;
+    l3_table->entries[l3_index].value = new_value;
+    page_resident_transition_locked(directory, addr, old_value, new_value, PAGE_1G_SIZE / PAGE_4K_SIZE);
     flush_tlb(addr);
 out:
     spin_unlock(&directory->lock);

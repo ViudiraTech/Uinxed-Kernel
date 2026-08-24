@@ -279,10 +279,6 @@ int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct
 /* Transfer and flush one damage rectangle with a single queue kick. */
 int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rect, uint64_t offset)
 {
-    struct virtio_gpu_transfer_to_host_2d transfer;
-    struct virtio_gpu_resource_flush      flush;
-    struct virtio_gpu_ctrl_hdr            responses[2];
-    struct virtgpu_vq_command             commands[2];
     struct virtio_gpu_rect                damage;
 
     if (!vgdev || !obj) {
@@ -302,21 +298,45 @@ int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_obj
     if (damage.width > obj->width - damage.x) damage.width = obj->width - damage.x;
     if (damage.height > obj->height - damage.y) damage.height = obj->height - damage.y;
 
-    memset(&transfer, 0, sizeof(transfer));
-    transfer.hdr.type    = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D;
-    transfer.r           = damage;
-    transfer.offset      = offset;
-    transfer.resource_id = obj->hw_res_handle;
+    return virtgpu_cmd_update_2d_rects(vgdev, obj, &damage, &offset, 1, &damage);
+}
 
+/* Transfer several damage rectangles and flush their union with one queue kick. */
+int virtgpu_cmd_update_2d_rects(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rects, const uint64_t *offsets, uint32_t count,
+                                const struct virtio_gpu_rect *flush_rect)
+{
+    struct virtio_gpu_transfer_to_host_2d transfers[VIRTGPU_DIRTY_MAX_RECTS];
+    struct virtio_gpu_resource_flush      flush;
+    struct virtio_gpu_ctrl_hdr            responses[VIRTGPU_CTRLQ_MAX_BATCH];
+    struct virtgpu_vq_command             commands[VIRTGPU_CTRLQ_MAX_BATCH];
+
+    if (!vgdev || !obj || !rects || !offsets || !flush_rect || !count || count > VIRTGPU_DIRTY_MAX_RECTS) return -EINVAL;
+    for (uint32_t i = 0; i < count; i++) {
+        const struct virtio_gpu_rect *rect = &rects[i];
+        if (!rect->width || !rect->height || rect->x >= obj->width || rect->y >= obj->height || rect->width > obj->width - rect->x || rect->height > obj->height - rect->y
+            || offsets[i] > obj->base.size || (uint64_t)(rect->height - 1) * obj->stride > obj->base.size - offsets[i]
+            || (uint64_t)rect->width * sizeof(uint32_t) > obj->base.size - offsets[i] - (uint64_t)(rect->height - 1) * obj->stride)
+            return -EINVAL;
+
+        memset(&transfers[i], 0, sizeof(transfers[i]));
+        transfers[i].hdr.type    = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D;
+        transfers[i].r           = *rect;
+        transfers[i].offset      = offsets[i];
+        transfers[i].resource_id = obj->hw_res_handle;
+    }
+
+    if (!flush_rect->width || !flush_rect->height || flush_rect->x >= obj->width || flush_rect->y >= obj->height || flush_rect->width > obj->width - flush_rect->x
+        || flush_rect->height > obj->height - flush_rect->y)
+        return -EINVAL;
     memset(&flush, 0, sizeof(flush));
     flush.hdr.type    = VIRTIO_GPU_CMD_RESOURCE_FLUSH;
-    flush.r           = damage;
+    flush.r           = *flush_rect;
     flush.resource_id = obj->hw_res_handle;
 
     memset(responses, 0, sizeof(responses));
-    commands[0] = (struct virtgpu_vq_command) {&transfer, sizeof(transfer), &responses[0], sizeof(responses[0])};
-    commands[1] = (struct virtgpu_vq_command) {&flush, sizeof(flush), &responses[1], sizeof(responses[1])};
-    return virtgpu_ctrl_cmd_batch(vgdev, commands, 2);
+    for (uint32_t i = 0; i < count; i++) commands[i] = (struct virtgpu_vq_command) {&transfers[i], sizeof(transfers[i]), &responses[i], sizeof(responses[i])};
+    commands[count] = (struct virtgpu_vq_command) {&flush, sizeof(flush), &responses[count], sizeof(responses[count])};
+    return virtgpu_ctrl_cmd_batch(vgdev, commands, count + 1);
 }
 
 /*

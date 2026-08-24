@@ -1049,8 +1049,8 @@ pci_devices_cache_t *pci_get_devices_cache(void)
     return &pci_cache;
 }
 
-/* Free the PCI devices cache */
-void pci_free_devices_cache(void)
+/* Free the early-discovery cache before rebuilding it. */
+static void pci_free_devices_cache(void)
 {
     pci_device_cache_t *cache = pci_cache.head;
     pci_device_cache_t *free_ptr;
@@ -1167,8 +1167,11 @@ static void pci_scan_bus(pci_device_cache_t *cache, uint16_t bus, uint16_t end_b
     }
 }
 
-/* Flush the PCI devices cache */
-void pci_flush_devices_cache(void)
+/*
+ * Build the PCI cache during early boot.  Cache entries have stable addresses
+ * after pci_init(): drivers and PCI sysfs deliberately retain their pointers.
+ */
+static void pci_flush_devices_cache(void)
 {
     pci_free_devices_cache();
     memset(pci_scanned_buses, 0, sizeof(pci_scanned_buses));

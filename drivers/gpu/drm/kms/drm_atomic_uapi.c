@@ -538,11 +538,13 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     if (!crtc->enabled) {
         DRM_ERROR("Page flip on disabled crtc %u\n", page_flip->crtc_id);
         drm_mode_object_put(&crtc->base);
+        drm_framebuffer_put(fb);
         return -EINVAL;
     }
     if ((page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !dev->mode_config.async_page_flip) {
         DRM_ERROR("Async page flip not supported on crtc %u\n", page_flip->crtc_id);
         drm_mode_object_put(&crtc->base);
+        drm_framebuffer_put(fb);
         return -EINVAL;
     }
 
@@ -551,6 +553,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
         if (fb->width != (unsigned int)crtc->mode.hdisplay || fb->height != (unsigned int)crtc->mode.vdisplay) {
             DRM_ERROR("Page flip: FB %ux%u does not match mode %ux%u\n", fb->width, fb->height, crtc->mode.hdisplay, crtc->mode.vdisplay);
             drm_mode_object_put(&crtc->base);
+            drm_framebuffer_put(fb);
             return -EINVAL;
         }
     }
@@ -559,6 +562,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     if (crtc->primary && !drm_plane_format_supported(crtc->primary, fb->format)) {
         DRM_ERROR("Page flip: FB format 0x%x not supported by primary plane.\n", fb->format);
         drm_mode_object_put(&crtc->base);
+        drm_framebuffer_put(fb);
         return -EINVAL;
     }
 
@@ -567,6 +571,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
         spin_unlock(&crtc->commit_lock);
         DRM_ERROR("Page flip busy on crtc %u\n", page_flip->crtc_id);
         drm_mode_object_put(&crtc->base);
+        drm_framebuffer_put(fb);
         return -EBUSY;
     }
     crtc->page_flip_pending = true;
@@ -585,6 +590,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
             crtc->page_flip_pending = false;
             spin_unlock(&crtc->commit_lock);
             drm_mode_object_put(&crtc->base);
+            drm_framebuffer_put(fb);
             return -ENOMEM;
         }
         memset(e, 0, sizeof(*e));

@@ -220,7 +220,14 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) return -EINVAL;
     if ((flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_SHARED && (flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_PRIVATE) return -EINVAL;
 
-    const uint64_t supported_flags = MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_LOCKED | MAP_POPULATE | MAP_NORESERVE | MAP_STACK;
+    /*
+     * glibc's rtld maps every PT_LOAD with MAP_COPY, which Linux defines as
+     * MAP_PRIVATE | MAP_DENYWRITE.  Linux has treated MAP_DENYWRITE and
+     * MAP_EXECUTABLE as compatibility no-ops for decades, so accept them
+     * here rather than rejecting all shared-library mappings with EINVAL.
+     */
+    const uint64_t supported_flags =
+        MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_DENYWRITE | MAP_EXECUTABLE | MAP_LOCKED | MAP_POPULATE | MAP_NORESERVE | MAP_STACK;
     if (flags & ~supported_flags) return -EINVAL;
 
     size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);

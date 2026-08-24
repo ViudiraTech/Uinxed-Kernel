@@ -48,7 +48,6 @@ INTERRUPT_BEGIN static void ide_irq_primary(interrupt_frame_t *frame)
     disable_intr();
     channels[ATA_PRIMARY].irq_pending = 1;
     send_eoi();
-    enable_intr();
     irq_leave_gs(frame);
 }
 INTERRUPT_END
@@ -61,7 +60,6 @@ INTERRUPT_BEGIN static void ide_irq_secondary(interrupt_frame_t *frame)
     disable_intr();
     channels[ATA_SECONDARY].irq_pending = 1;
     send_eoi();
-    enable_intr();
     irq_leave_gs(frame);
 }
 INTERRUPT_END

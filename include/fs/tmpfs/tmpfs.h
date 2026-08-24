@@ -79,7 +79,8 @@ typedef struct {
         vfs_node_t         root;
         spinlock_t         data_lock;
         spinlock_t         link_lock;
-        uint32_t           link_count;
+        uint32_t           link_count;      // live namespace hard links
+        uint32_t           reference_count; // VFS nodes sharing this inode handle
         uint16_t           node_type;
         tmpfs_device_ops_t device;
 } tmpfs_file_t;

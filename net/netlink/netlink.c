@@ -161,6 +161,7 @@ static uint32_t rtnl_interface_flags(uint32_t flags)
     uint32_t result = 0;
     if (flags & NETDEV_F_UP) result |= IFF_UP;
     if (flags & NETDEV_F_BROADCAST) result |= IFF_BROADCAST;
+    if (flags & NETDEV_F_LOOPBACK) result |= IFF_LOOPBACK;
     if (flags & NETDEV_F_RUNNING) result |= IFF_RUNNING;
     return result;
 }
@@ -235,7 +236,7 @@ static void rtnl_emit_link(net_device_t *device, void *opaque)
     if (context->ifindex && context->ifindex != (int32_t)info.ifindex) return;
     ifinfomsg_t *message = (ifinfomsg_t *)payload;
     message->ifi_family  = AF_UNSPEC;
-    message->ifi_type    = ARPHRD_ETHER;
+    message->ifi_type    = (info.flags & NETDEV_F_LOOPBACK) ? ARPHRD_LOOPBACK : ARPHRD_ETHER;
     message->ifi_index   = (int32_t)info.ifindex;
     message->ifi_flags   = rtnl_interface_flags(info.flags);
     if (rtnl_add_attr(payload, sizeof(payload), &length, IFLA_IFNAME, info.name, (uint16_t)(strlen(info.name) + 1))
@@ -374,7 +375,8 @@ static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
     else if (request->nlmsg_type == RTM_GETADDR)
         minimum_length = sizeof(ifaddrmsg_t);
     else if (request->nlmsg_type == RTM_GETROUTE)
-        minimum_length = sizeof(rtmsg_t);
+        /* Linux accepts the one-byte rtgenmsg selector for route dumps. */
+        minimum_length = context.multipart ? sizeof(rtgenmsg_t) : sizeof(rtmsg_t);
     else
         return rtnl_queue_error(sk, request, -EOPNOTSUPP);
     if (payload_length < minimum_length) return rtnl_queue_error(sk, request, -EINVAL);
@@ -386,7 +388,7 @@ static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
         else if (request->nlmsg_type == RTM_GETADDR && payload_length >= sizeof(ifaddrmsg_t))
             context.ifindex = (int32_t)((ifaddrmsg_t *)((uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN)))->ifa_index;
     }
-    if (request->nlmsg_type == RTM_GETROUTE && rtnl_parse_route_request(request, &context)) return rtnl_queue_error(sk, request, -EINVAL);
+    if (request->nlmsg_type == RTM_GETROUTE && payload_length >= sizeof(rtmsg_t) && rtnl_parse_route_request(request, &context)) return rtnl_queue_error(sk, request, -EINVAL);
     switch (request->nlmsg_type) {
         case RTM_GETLINK :
             netdev_iterate(rtnl_emit_link, &context);
@@ -407,14 +409,15 @@ static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
     return EOK;
 }
 
-/* Assign a unique port ID for auto-bind */
+/* Allocate from the high half so generated port IDs do not alias normal PIDs. */
 static uint32_t nl_alloc_pid(void)
 {
     uint32_t pid;
 
     spin_lock(&nl_pid_lock);
-    pid = ++nl_pid_counter;
-    if (pid == 0) pid = ++nl_pid_counter; // never assign 0 (reserved for kernel)
+    nl_pid_counter = (nl_pid_counter + 1U) & 0x7fffffffU;
+    if (nl_pid_counter == 0) nl_pid_counter = 1;
+    pid = 0x80000000U | nl_pid_counter;
     spin_unlock(&nl_pid_lock);
 
     return pid;
@@ -422,11 +425,9 @@ static uint32_t nl_alloc_pid(void)
 
 /*
  * Find a socket by PID in a protocol's multicast table and take a reference
- * on it.  The reference is taken under the table lock, and netlink_close
- * removes the socket from the table (under the same lock) before dropping
- * its last reference, so a socket found here is guaranteed to stay alive
- * until the caller releases it with socket_unref().  Callers that only test
- * for existence must also release the reference.
+ * on it.  A socket may already have reached refcount zero while its destructor
+ * waits for the table lock, so the pin must be conditional: an unconditional
+ * increment would resurrect an object that socket_destroy() will still free.
  */
 static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
 {
@@ -441,7 +442,7 @@ static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
             nl_sock_t *ns = nl_sk(tab->entries[i].sk);
             if (ns && ns->nl_pid == pid) {
                 struct socket *sk = tab->entries[i].sk;
-                socket_ref(sk);
+                if (!socket_try_ref(sk)) continue;
                 spin_unlock(&tab->lock);
                 return sk;
             }
@@ -452,40 +453,48 @@ static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
 }
 
 /* Multicast subscription management */
-static int nl_mcast_subscribe(uint32_t protocol, struct socket *sk, uint32_t groups)
+static int nl_mcast_subscribe(uint32_t protocol, struct socket *sk, uint32_t port_id, uint32_t groups)
 {
     nl_mcast_table_t *tab;
+    int               own_index = -1;
 
     if (protocol >= NL_PROTO_MAX) return -EPROTONOSUPPORT;
 
-    /* Only the groups subscribed via bind; store them */
     nl_sock_t *ns = nl_sk(sk);
-    if (ns) ns->nl_groups = groups;
+    if (!ns) return -EINVAL;
 
     tab = &nl_mcast[protocol];
 
     spin_lock(&tab->lock);
 
-    /* Check if already subscribed */
+    /* Check the whole table before updating an entry already owned by sk. */
     for (uint32_t i = 0; i < tab->count; i++) {
         if (tab->entries[i].sk == sk) {
-            tab->entries[i].groups = groups;
-            spin_unlock(&tab->lock);
-            return EOK;
+            own_index = (int)i;
+            continue;
         }
         nl_sock_t *other = nl_sk(tab->entries[i].sk);
-        if (ns && other && ns->nl_pid && other->nl_pid == ns->nl_pid) {
+        if (other && port_id && other->nl_pid == port_id) {
             spin_unlock(&tab->lock);
             return -EADDRINUSE;
         }
     }
 
-    /* New subscription */
-    if (tab->count >= NL_BROADCAST_MAX) {
+    if (own_index < 0 && tab->count >= NL_BROADCAST_MAX) {
         spin_unlock(&tab->lock);
         return -ENOBUFS;
     }
 
+    /* Publish the port ID and group mask under the registry lock. */
+    ns->nl_pid    = port_id;
+    ns->nl_groups = groups;
+    if (own_index >= 0) {
+        tab->entries[own_index].groups = groups;
+        spin_unlock(&tab->lock);
+        return EOK;
+    }
+
+    /* New subscription */
     tab->entries[tab->count].sk     = sk;
     tab->entries[tab->count].groups = groups;
     tab->count++;
@@ -680,38 +689,24 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
         return -EINVAL; // already bound
     }
 
-    /* Set or auto-assign port ID */
-    if (addr->nl_pid == 0) {
-        uint32_t candidate = sk->pid;
-        if (!candidate) {
-            candidate = nl_alloc_pid();
-        } else {
-            struct socket *in_use = nl_mcast_find_by_pid(ns->nl_protocol, candidate);
-            if (in_use) {
-                socket_unref(in_use);
-                candidate = nl_alloc_pid();
-            }
-        }
-        ns->nl_pid = candidate;
-    } else {
-        /* Check if PID is already in use.  The find_by_pid lookup pins the socket; release the pin regardless of the conflict outcome. */
-        struct socket *existing = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
-        bool           conflict = existing && existing != sk;
-        if (existing) socket_unref(existing);
-        if (conflict) {
-            plogk("netlink: Bind failed, pid %u already in use.\n", (unsigned)addr->nl_pid);
-            spin_unlock(&sk->lock);
-            return -EADDRINUSE;
-        }
-        ns->nl_pid = addr->nl_pid;
-    }
-
     /*
      * The protocol registry also owns unicast port IDs, so group-zero
-     * sockets must be present as well.
+     * sockets must be present as well.  Let insertion perform the uniqueness
+     * check atomically under the registry lock; auto-bind retries with a
+     * generated ID when the process PID is already occupied.
      */
-    int ret = nl_mcast_subscribe(ns->nl_protocol, sk, addr->nl_groups);
+    int      automatic = addr->nl_pid == 0;
+    uint32_t candidate = automatic ? sk->pid : addr->nl_pid;
+    if (!candidate) candidate = nl_alloc_pid();
+
+    int ret;
+    for (;;) {
+        ret = nl_mcast_subscribe(ns->nl_protocol, sk, candidate, addr->nl_groups);
+        if (ret != -EADDRINUSE || !automatic) break;
+        candidate = nl_alloc_pid();
+    }
     if (ret != EOK) {
+        if (ret == -EADDRINUSE) plogk("netlink: Bind failed, pid %u already in use.\n", (unsigned)addr->nl_pid);
         ns->nl_pid = 0;
         spin_unlock(&sk->lock);
         return ret;
@@ -988,7 +983,7 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
     int        peek;
     uint32_t   copy_len;
     uint32_t   full_len;
-    if (!sk || !buf) return -EINVAL;
+    if (!sk || (!buf && len)) return -EINVAL;
 
     ns = nl_sk(sk);
     if (!ns) return -EINVAL;
@@ -1153,8 +1148,8 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
             if (ival <= 0 || ival > 32) return -EINVAL;
 
             spin_lock(&sk->lock);
-            ns->nl_groups |= (1U << (uint32_t)(ival - 1));
-            int ret = nl_mcast_subscribe(ns->nl_protocol, sk, ns->nl_groups);
+            uint32_t groups = ns->nl_groups | (1U << (uint32_t)(ival - 1));
+            int      ret    = nl_mcast_subscribe(ns->nl_protocol, sk, ns->nl_pid, groups);
             spin_unlock(&sk->lock);
             return ret;
         }
@@ -1165,8 +1160,8 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
             if (ival <= 0 || ival > 32) return -EINVAL;
 
             spin_lock(&sk->lock);
-            ns->nl_groups &= ~(1U << (uint32_t)(ival - 1));
-            int ret = nl_mcast_subscribe(ns->nl_protocol, sk, ns->nl_groups);
+            uint32_t groups = ns->nl_groups & ~(1U << (uint32_t)(ival - 1));
+            int      ret    = nl_mcast_subscribe(ns->nl_protocol, sk, ns->nl_pid, groups);
             spin_unlock(&sk->lock);
             return ret;
         }

@@ -396,9 +396,20 @@ static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reas
     spin_unlock(&state->lock);
 
     ptrace_notify_tracer(task);
-    task_block();
-
     spin_lock(&state->lock);
+    while (state->stopped) {
+        /*
+         * PTRACE_CONT may win immediately after the condition check.  The
+         * old bare task_block() then discarded that wake because the task
+         * was still RUNNING, leaving the tracee blocked forever.  A bounded
+         * scheduler sleep makes the condition authoritative: the direct
+         * wake is still the fast path, while the next tick closes the
+         * pre-block race and also tolerates unrelated/spurious wakeups.
+         */
+        spin_unlock(&state->lock);
+        task_sleep_ticks(1);
+        spin_lock(&state->lock);
+    }
     if (state->regs_valid) {
         ptrace_regs_to_frame(frame, &state->regs);
         task->thread.fs_base = state->regs.fs_base;
@@ -905,7 +916,9 @@ wait_again:
         bool pending = signal_has_pending(signals);
         spin_unlock(&signals->lock);
         if (pending) return -ERESTARTSYS;
-        task_block();
+        /* Notifications can race this point; bounded sleep prevents a lost
+         * raw task_wakeup() from becoming a permanent tracer hang. */
+        task_sleep_ticks(1);
     }
 }
 

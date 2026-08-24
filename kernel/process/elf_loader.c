@@ -8,9 +8,11 @@
  *
  */
 
+#include <arch/cpuid.h>
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/module/elf.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -514,7 +516,7 @@ static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum
     size_t      envp_strs = string_array_size(envp);
     const char *execfn    = argc > 0 ? argv[0] : proc->name;
 
-    const size_t aux_pairs    = 16;
+    const size_t aux_pairs    = 19;
     size_t       vector_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + aux_pairs * 2;
     size_t       strings_size = argv_strs + envp_strs + strlen(execfn) + 1 + sizeof("x86_64") + 16;
     size_t       total_needed = ALIGN_UP(vector_words * sizeof(uint64_t) + strings_size + 16, 16);
@@ -593,6 +595,17 @@ static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum
     vectors[n++] = 0;
     vectors[n++] = AT_PLATFORM;
     vectors[n++] = platform_addr;
+    uint32_t hwcap_eax, hwcap_ebx, hwcap_ecx, hwcap_edx;
+    cpuid_safe(1, 0, &hwcap_eax, &hwcap_ebx, &hwcap_ecx, &hwcap_edx);
+    (void)hwcap_eax;
+    (void)hwcap_ebx;
+    (void)hwcap_ecx;
+    vectors[n++] = AT_HWCAP;
+    vectors[n++] = hwcap_edx;
+    vectors[n++] = AT_HWCAP2;
+    vectors[n++] = 0;
+    vectors[n++] = AT_CLKTCK;
+    vectors[n++] = TIMER_USER_HZ;
     vectors[n++] = AT_RANDOM;
     vectors[n++] = random_addr;
     vectors[n++] = AT_EXECFN;

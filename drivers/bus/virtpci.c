@@ -549,14 +549,17 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
     req.vendor_id = vendor_id;
     req.device_id = device_id;
 
-    /* Use the project's PCI device finding API */
+    /*
+     * PCI discovery is completed by pci_init() before any VirtIO driver is
+     * probed.  A miss therefore means that this device is not present.
+     *
+     * Do not rescan here: pci_flush_devices_cache() used to free and replace
+     * the cache behind every pointer already retained by PCI sysfs and other
+     * drivers.  VMware normally has no VirtIO GPU, so its ordinary probe miss
+     * turned every /sys/bus/pci uevent into a use-after-free.
+     */
     cache = pci_found_device_cache(NULL, req);
-    if (!cache) {
-        /* Force a re-scan of the PCI bus */
-        pci_flush_devices_cache();
-        cache = pci_found_device_cache(NULL, req);
-        if (!cache) return -ENODEV;
-    }
+    if (!cache) return -ENODEV;
 
     dev->pci_dev   = cache;
     dev->vendor_id = vendor_id;
