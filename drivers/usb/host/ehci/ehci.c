@@ -642,8 +642,11 @@ static void ehci_service_periodic(ehci_controller_t *ctrl)
         transfer->in_callback = true;
         spin_unlock_irqrestore(&ctrl->lock, flags);
         size_t actual = 0;
-        int    status = ehci_transfer(transfer->endpoint, transfer->buffer, transfer->length, &actual, USB_IO_TIMEOUT_MS);
-        if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE)) transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
+        uint32_t timeout = transfer->interval_ms ? transfer->interval_ms : 10;
+        if (timeout > 100) timeout = 100;
+        int status = ehci_transfer(transfer->endpoint, transfer->buffer, transfer->length, &actual, timeout);
+        if (status == -ETIMEDOUT) { status = EOK; actual = 0; }
+        if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE) && (actual || status != EOK)) transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
         transfer->next_poll = nano_time() + (uint64_t)transfer->interval_ms * 1000000ULL;
         __atomic_store_n(&transfer->in_callback, false, __ATOMIC_RELEASE);
     }
