@@ -15,6 +15,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/heap.h>
+#include <process/namespace.h>
 #include <process/sched.h>
 #include <process/task.h>
 #include <security/seccomp.h>
@@ -230,6 +231,11 @@ task_t *task_alloc_status(const char *name, int *error)
         if (error) *error = status;
         return NULL;
     }
+    if (parent && parent->nsproxy) {
+        task->nsproxy = nsproxy_get(parent->nsproxy);
+    } else {
+        task->nsproxy = nsproxy_get(&init_nsproxy);
+    }
 
     spin_lock(&pid_hash_lock);
     task->pid = alloc_pid_locked();
@@ -237,6 +243,7 @@ task_t *task_alloc_status(const char *name, int *error)
         spin_unlock(&pid_hash_lock);
         plogk("task: %s: PID space exhausted.\n", name ? name : "unnamed");
         cgroup_task_exit(task);
+        if (task->nsproxy) nsproxy_put(task->nsproxy);
         free(pid_entry);
         fpu_task_destroy(task);
         free(task);
@@ -270,6 +277,7 @@ void task_put(task_t *task)
 {
     if (!task) return;
     if (__atomic_sub_fetch(&task->refcount, 1, __ATOMIC_RELEASE) == 0) {
+        if (task->nsproxy) nsproxy_put(task->nsproxy);
         free(task->kernel_stack);
         fpu_task_destroy(task);
         free(task);

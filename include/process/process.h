@@ -218,6 +218,7 @@ typedef struct process {
         char        root[VFS_PATH_MAX];     // chroot path
         char        cwd[VFS_PATH_MAX];      // current working directory
         char        exe_path[VFS_PATH_MAX]; // executable path (procfs /proc/<pid>/exe)
+        struct nsproxy *nsproxy;
 } process_t;
 
 typedef struct process_stats {

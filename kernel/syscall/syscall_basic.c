@@ -1691,7 +1691,9 @@ int64_t sys_process_vm_writev_impl(uint64_t pid, uint64_t local_iov, uint64_t lo
     return -ENOSYS;
 }
 
-/* unshare syscall: unsupported */
+#include <process/namespace.h>
+
+/* unshare syscall */
 int64_t sys_unshare_impl(uint64_t unshare_flags, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -1699,8 +1701,17 @@ int64_t sys_unshare_impl(uint64_t unshare_flags, uint64_t arg1, uint64_t arg2, u
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (unshare_flags) return -EINVAL; // no namespace support
-    return 0;
+    return namespace_unshare(unshare_flags);
+}
+
+/* setns syscall */
+int64_t sys_setns_impl(uint64_t fd, uint64_t nstype, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return namespace_setns((int)fd, (int)nstype);
 }
 
 /* splice syscall: copy data between file descriptors */
