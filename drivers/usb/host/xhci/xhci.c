@@ -619,20 +619,40 @@ static uint8_t xhci_endpoint_type(const usb_endpoint_t *endpoint)
     return 4;
 }
 
-/* Convert the descriptor interval to the xHCI bInterval exponent. */
+/* Convert bInterval to xHCI Interval per xHCI 1.2 §6.2.3.6 and USB 2.0 §9.6.6.
+ * Mirrors Linux xhci_get_endpoint_interval() for interrupt endpoints. */
 static uint8_t xhci_endpoint_interval(const usb_endpoint_t *endpoint)
 {
-    uint8_t     interval = endpoint->descriptor.interval;
-    usb_speed_t speed    = endpoint->interface->device->speed;
-    if (!interval) return 0;
-    if (speed >= USB_SPEED_HIGH) return interval > 16 ? 15 : interval - 1;
-    uint8_t exponent = 0;
-    uint8_t value    = interval - 1;
-    while (value) {
-        value >>= 1;
-        exponent++;
+    uint8_t     bInterval = endpoint->descriptor.interval;
+    usb_speed_t speed     = endpoint->interface->device->speed;
+    uint8_t     type      = endpoint->descriptor.attributes & USB_ENDPOINT_XFERTYPE_MASK;
+    if (!bInterval) return 0;
+    if (speed >= USB_SPEED_HIGH) {
+        if (type == USB_ENDPOINT_XFER_INT || type == USB_ENDPOINT_XFER_ISOC) {
+            if (bInterval < 1) bInterval = 1;
+            if (bInterval > 16) bInterval = 16;
+            return bInterval - 1;
+        }
+        unsigned int v = bInterval, fls = 0;
+        while (v) { v >>= 1; fls++; }
+        unsigned int iv = fls ? fls - 1 : 0;
+        return iv > 15 ? 15 : (uint8_t)iv;
     }
-    return exponent + 3;
+    if (speed == USB_SPEED_FULL && type == USB_ENDPOINT_XFER_ISOC) {
+        if (bInterval < 1) bInterval = 1;
+        if (bInterval > 16) bInterval = 16;
+        unsigned int iv = (bInterval - 1) + 3;
+        return iv > 15 ? 15 : (uint8_t)iv;
+    }
+    {
+        unsigned int frames = (unsigned int)bInterval * 8;
+        unsigned int v = frames, fls = 0;
+        while (v) { v >>= 1; fls++; }
+        unsigned int iv = fls ? fls - 1 : 0;
+        if (iv < 3) iv = 3;
+        if (iv > 10) iv = 10;
+        return (uint8_t)iv;
+    }
 }
 
 /* Allocate an endpoint ring and configure the endpoint context. */

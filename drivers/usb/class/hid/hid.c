@@ -35,6 +35,7 @@ typedef struct {
         evdev_t         *evdev[USB_HID_MAX_APPLICATIONS];
         uint8_t          application_count;
         bool             running;
+        bool             led_registered;
 } usb_hid_device_t;
 
 /* Release an input device allocated by the HID driver. */
@@ -297,9 +298,14 @@ int usb_hid_probe(usb_interface_t *interface)
     (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_PROTOCOL, USB_HID_REPORT_PROTOCOL, interface->descriptor.interface_number, NULL, 0,
                           USB_CTRL_TIMEOUT_MS);
 
-    /* Clear the keyboard LEDs so the hardware state matches the default lock state. */
-    hid_set_leds(hid, 0);
-    evdev_register_led_notify(hid_led_notify, hid);
+    /* HID Output reports exist only for devices with LED or other host-to-device controls
+     * (e.g., keyboard). Sending SET_REPORT to a pure Input device such as QEMU HID Mouse
+     * stalls and times out per HID 1.11 §7.2. Check the descriptor. */
+    if (hid->report.has_output) {
+        hid_set_leds(hid, 0);
+        evdev_register_led_notify(hid_led_notify, hid);
+        hid->led_registered = true;
+    }
 
     result = hid_register_inputs(hid);
     if (result != EOK) goto fail_inputs;
@@ -321,7 +327,7 @@ fail_inputs:
     hid_unregister_inputs(hid);
 fail:
     plogk("usb-hid: %s: probe failed: %d\n", interface->device->path, result);
-    evdev_unregister_led_notify(hid_led_notify, hid);
+    if (hid->led_registered) evdev_unregister_led_notify(hid_led_notify, hid);
     free(hid->report_descriptor);
     free(hid);
     return result;
@@ -339,7 +345,7 @@ void usb_hid_disconnect(usb_interface_t *interface)
     if (!hid) return;
     hid->running = false;
     usb_interrupt_stop(hid->endpoint);
-    evdev_unregister_led_notify(hid_led_notify, hid);
+    if (hid->led_registered) evdev_unregister_led_notify(hid_led_notify, hid);
     hid_unregister_inputs(hid);
     interface->driver_data = NULL;
     free(hid->report_descriptor);

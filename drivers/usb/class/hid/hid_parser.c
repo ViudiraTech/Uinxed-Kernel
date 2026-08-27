@@ -18,7 +18,9 @@
 #define HID_ITEM_TYPE_LOCAL  2
 
 #define HID_MAIN_INPUT          8
+#define HID_MAIN_OUTPUT         9
 #define HID_MAIN_COLLECTION     10
+#define HID_MAIN_FEATURE        11
 #define HID_MAIN_END_COLLECTION 12
 
 #define HID_GLOBAL_USAGE_PAGE   0
@@ -293,6 +295,14 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                 if (result != EOK) return result;
                 break;
             }
+            case HID_MAIN_OUTPUT :
+                // HID Output report (e.g., keyboard LEDs). Record existence for SET_REPORT handling
+                // per HID 1.11 §7.2; do not affect Input report_bits.
+                report->has_output = true;
+                break;
+            case HID_MAIN_FEATURE :
+                // Feature reports are ignored for Input parsing but reset local state.
+                break;
             case HID_MAIN_COLLECTION :
                 if (collection_depth >= sizeof(applications)) {
                     plogk("usb-hid: parse_report: collection nesting too deep (depth=%u)\n", (unsigned)collection_depth);

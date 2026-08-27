@@ -58,6 +58,7 @@ typedef struct {
         uint8_t               field_count;
         uint8_t               application_count;
         bool                  numbered_reports;
+        bool                  has_output;
 } usb_hid_report_t;
 
 typedef struct {
