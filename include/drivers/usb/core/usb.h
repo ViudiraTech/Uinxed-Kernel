@@ -29,6 +29,7 @@
 #define USB_RECIP_DEVICE    0x00
 #define USB_RECIP_INTERFACE 0x01
 #define USB_RECIP_ENDPOINT  0x02
+#define USB_RECIP_OTHER     0x03
 
 #define USB_REQ_GET_STATUS        0x00
 #define USB_REQ_CLEAR_FEATURE     0x01
@@ -40,6 +41,7 @@
 #define USB_REQ_SET_CONFIGURATION 0x09
 #define USB_REQ_GET_INTERFACE     0x0a
 #define USB_REQ_SET_INTERFACE     0x0b
+#define USB_REQ_SYNCH_FRAME       0x0c
 
 #define USB_DT_DEVICE    0x01
 #define USB_DT_CONFIG    0x02
@@ -48,9 +50,62 @@
 #define USB_DT_ENDPOINT  0x05
 #define USB_DT_HID       0x21
 #define USB_DT_REPORT    0x22
+#define USB_DT_HUB       0x29
+#define USB_DT_HUB3      0x2a
 
 #define USB_CLASS_HID          0x03
 #define USB_CLASS_MASS_STORAGE 0x08
+#define USB_CLASS_HUB          0x09
+
+/* Standard feature selectors. */
+#define USB_FEAT_ENDPOINT_HALT    0x00
+#define USB_FEAT_DEVICE_REMOTE_WAKEUP 0x01
+#define USB_FEAT_TEST_MODE        0x02
+
+/* Hub-class feature selectors (USB 2.0 §11.24.2). */
+#define USB_HUB_FEAT_C_HUB_LOCAL_POWER  0
+#define USB_HUB_FEAT_C_HUB_OVER_CURRENT 1
+#define USB_PORT_FEAT_CONNECTION        0
+#define USB_PORT_FEAT_ENABLE            1
+#define USB_PORT_FEAT_SUSPEND           2
+#define USB_PORT_FEAT_OVER_CURRENT      3
+#define USB_PORT_FEAT_RESET             4
+#define USB_PORT_FEAT_LINK_STATE        5
+#define USB_PORT_FEAT_POWER             8
+#define USB_PORT_FEAT_LOW_SPEED         9
+#define USB_PORT_FEAT_C_CONNECTION      16
+#define USB_PORT_FEAT_C_ENABLE          17
+#define USB_PORT_FEAT_C_SUSPEND         18
+#define USB_PORT_FEAT_C_OVER_CURRENT    19
+#define USB_PORT_FEAT_C_RESET           20
+#define USB_PORT_FEAT_TEST              21
+#define USB_PORT_FEAT_INDICATOR         22
+#define USB_PORT_FEAT_C_PORT_L1         23
+
+/* Hub status bitmaps (USB 2.0 §11.24.2.6). */
+#define USB_HUB_STATUS_LOCAL_POWER  0x0001
+#define USB_HUB_STATUS_OVER_CURRENT 0x0002
+
+#define USB_PORT_STATUS_CONNECTION    0x0001
+#define USB_PORT_STATUS_ENABLE        0x0002
+#define USB_PORT_STATUS_SUSPEND       0x0004
+#define USB_PORT_STATUS_OVER_CURRENT  0x0008
+#define USB_PORT_STATUS_RESET         0x0010
+#define USB_PORT_STATUS_LINK_STATE    0x01e0
+#define USB_PORT_STATUS_POWER         0x0100
+#define USB_PORT_STATUS_LOW_SPEED     0x0200
+#define USB_PORT_STATUS_HIGH_SPEED    0x0400
+#define USB_PORT_STATUS_TEST          0x0800
+#define USB_PORT_STATUS_INDICATOR     0x1000
+
+#define USB_PORT_STATUS_C_CONNECTION    0x0001
+#define USB_PORT_STATUS_C_ENABLE        0x0002
+#define USB_PORT_STATUS_C_SUSPEND       0x0004
+#define USB_PORT_STATUS_C_OVER_CURRENT  0x0008
+#define USB_PORT_STATUS_C_RESET         0x0010
+#define USB_PORT_STATUS_C_BH_RESET      0x0020
+#define USB_PORT_STATUS_C_LINK_STATE    0x0040
+#define USB_PORT_STATUS_C_CONFIG_ERROR  0x0080
 
 #define USB_ENDPOINT_NUMBER_MASK   0x0f
 #define USB_ENDPOINT_DIR_MASK      0x80
@@ -128,6 +183,31 @@ typedef struct __attribute__((packed)) {
         uint8_t  interval;
 } usb_endpoint_descriptor_t;
 
+/* USB 2.0 hub descriptor (§11.23.2.1). Device/port-removable bitmaps are
+ * variable-length: bNbrPorts bits each, rounded up to whole bytes. */
+typedef struct __attribute__((packed)) {
+        uint8_t  length;
+        uint8_t  descriptor_type;
+        uint8_t  port_count;
+        uint16_t characteristics;
+        uint8_t  power_good_time;
+        uint8_t  current_requirement;
+        uint8_t  device_removable[2];
+        uint8_t  port_power_mask[2];
+} usb_hub_descriptor_t;
+
+/* USB 3.x SuperSpeed hub descriptor (§10.13.2.1). */
+typedef struct __attribute__((packed)) {
+        uint8_t  length;
+        uint8_t  descriptor_type;
+        uint8_t  port_count;
+        uint16_t characteristics;
+        uint8_t  power_good_time;
+        uint8_t  current_requirement;
+        uint8_t  device_removable;
+        uint8_t  reserved;
+} usb_hub3_descriptor_t;
+
 struct usb_device;
 struct usb_interface;
 struct usb_endpoint;
@@ -143,6 +223,10 @@ typedef struct usb_hcd_ops {
         void (*disable_endpoint)(struct usb_endpoint *endpoint);
         int (*clear_halt)(struct usb_endpoint *endpoint);
         void (*disable_device)(struct usb_device *device);
+        /* Enumerate a device on a hub downstream port. The hub driver has already
+         * reset the port; the HCD must address the device, read its descriptors,
+         * configure it, and hand back a populated usb_device_t. */
+        int (*enumerate)(struct usb_device *hub, uint8_t port, struct usb_device **out);
 } usb_hcd_ops_t;
 
 typedef struct usb_endpoint {
@@ -237,5 +321,12 @@ void usb_hid_disconnect(usb_interface_t *interface);
 /* Mass-storage class driver entry points, called by the core on probe/disconnect. */
 int  usb_storage_probe(usb_interface_t *interface);
 void usb_storage_disconnect(usb_interface_t *interface);
+
+/* Hub class driver entry points, called by the core on probe/disconnect. */
+int  usb_hub_probe(usb_interface_t *interface);
+void usb_hub_disconnect(usb_interface_t *interface);
+
+/* Enumerate a downstream device on a hub port (hub has already been reset). */
+int usb_enumerate_device(usb_device_t *hub, uint8_t port, usb_speed_t speed, usb_device_t **out);
 
 #endif // INCLUDE_USB_H_

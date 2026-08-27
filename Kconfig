@@ -529,6 +529,15 @@ menu "Device Drivers"
         Enable Bulk-Only Transport devices using the SCSI transparent
         command set, including removable disk and partition nodes.
 
+    config USB_HUB
+      bool "USB Hub support"
+      depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI)
+      default y
+      help
+        Enable USB 2.0 and USB 3.x hub support for dynamically attached
+        devices, including external USB hubs and QEMU virtual hubs.
+        Required for U盘 storage and HID devices connected through a hub.
+
   endmenu
 
   menu "Graphics support"

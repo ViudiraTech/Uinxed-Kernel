@@ -59,6 +59,12 @@ int usb_host_unregister(usb_host_t *host);
 /* Allocate the next unique USB bus number. */
 int usb_host_allocate_bus_number(void);
 
+/* Allocate a free device address on a bus (1..127). */
+int usb_host_allocate_address(uint8_t bus_number, uint8_t *address);
+
+/* Release a device address on a bus. */
+void usb_host_release_address(uint8_t bus_number, uint8_t address);
+
 /* Probe the PCI bus for all supported USB host controllers. */
 void usb_host_pci_scan(void);
 

@@ -324,6 +324,12 @@ else
   C_CONFIG += -DCONFIG_USB_HID=0
 endif
 
+ifeq ($(CONFIG_USB_HUB), y)
+  C_CONFIG += -DCONFIG_USB_HUB=1
+else
+  C_CONFIG += -DCONFIG_USB_HUB=0
+endif
+
 ifeq ($(CONFIG_USB_STORAGE), y)
   C_CONFIG += -DCONFIG_USB_STORAGE=1
 else

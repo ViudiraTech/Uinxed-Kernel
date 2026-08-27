@@ -577,9 +577,14 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
     device->dev.release = ohci_usb_device_release;
     (void)snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
 
-    uint8_t address = port + 1;
-    result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    uint8_t address;
+    result = usb_host_allocate_address(ctrl->bus_number, &address);
     if (result != EOK) goto fail;
+    result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    if (result != EOK) {
+        usb_host_release_address(ctrl->bus_number, address);
+        goto fail;
+    }
     msleep(10);
     device->address = address;
 

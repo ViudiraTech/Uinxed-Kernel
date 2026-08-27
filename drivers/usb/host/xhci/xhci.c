@@ -93,6 +93,14 @@ static void xhci_usb_device_release(struct device *dev);
 #define XHCI_ENDPOINT_INTERVAL_SHIFT    16
 #define XHCI_ENDPOINT_ERROR_COUNT_SHIFT 1
 
+#define XHCI_SLOT_HUB                   (1U << 26)
+#define XHCI_SLOT_MTT                   (1U << 25)
+#define XHCI_SLOT_ROUTE_STRING_MASK     0x000fffffU
+#define XHCI_SLOT_NUM_PORTS_SHIFT       24
+#define XHCI_TT_SLOT_SHIFT              0
+#define XHCI_TT_PORT_SHIFT              8
+#define XHCI_TT_THINK_SHIFT             16
+
 #define XHCI_COMPLETION_SUCCESS      1
 #define XHCI_COMPLETION_SHORT_PACKET 13
 #define XHCI_COMPLETION_STOPPED      26
@@ -731,6 +739,8 @@ static void xhci_disable_device(usb_device_t *device)
         for (size_t j = 0; j < device->interfaces[i].endpoint_count; j++) xhci_interrupt_stop(&device->interfaces[i].endpoints[j]);
 }
 
+static int xhci_enumerate_device(usb_device_t *hub, uint8_t port, usb_device_t **out);
+
 static const usb_hcd_ops_t xhci_hcd_ops = {
     .control            = xhci_control,
     .transfer           = xhci_transfer,
@@ -740,6 +750,7 @@ static const usb_hcd_ops_t xhci_hcd_ops = {
     .disable_endpoint   = xhci_disable_endpoint,
     .clear_halt         = xhci_clear_halt,
     .disable_device     = xhci_disable_device,
+    .enumerate          = xhci_enumerate_device,
 };
 
 /* Perform the xHCI port reset sequence. */
@@ -784,6 +795,76 @@ static uint16_t xhci_ep0_packet_size(usb_speed_t speed)
     if (speed == USB_SPEED_SUPER || speed == USB_SPEED_SUPER_PLUS) return 512;
     if (speed == USB_SPEED_HIGH) return 64;
     return 8;
+}
+
+/* Build the 20-bit route string for a device at depth >1.
+ * Each nibble is a port number in the chain, root port in bits 19:16.
+ * The hub's own route is 0; a child at hub port P has route = hub_route | (P << (hub_depth*4)). */
+static uint32_t xhci_route_string(usb_device_t *hub, uint8_t port)
+{
+    uint32_t route = 0;
+    // Walk up from the hub to the root to collect the full path.
+    // hub->depth is 1 for a device on a root port, 2 for device behind one hub, etc.
+    // hub's path is e.g., "1-3" (depth 1) or "1-3.2" (depth 2).
+    // For the new device at hub port `port`, its route = hub's route | (port << (hub_depth*4)).
+    // hub's route is stored in its slot's output context dev_info bits 0..19.
+    xhci_slot_t *hub_slot = hub ? hub->hc_private : NULL;
+    if (hub_slot) {
+        uint32_t *hub_out_slot = xhci_output_context(hub_slot, 0);
+        route = hub_out_slot[0] & XHCI_SLOT_ROUTE_STRING_MASK;
+    }
+    // Shift the hub's port into the next nibble
+    route |= (uint32_t)port << (hub ? hub->depth * 4 : 0);
+    return route & XHCI_SLOT_ROUTE_STRING_MASK;
+}
+
+/* Update a hub slot's Hub + Number of Ports after its hub descriptor is known.
+ * Called from the hub probe path after GET_DESCRIPTOR(HUB) succeeds. */
+static int xhci_update_hub_slot(usb_device_t *hub, uint8_t port_count)
+{
+    xhci_slot_t *slot = hub ? hub->hc_private : NULL;
+    if (!slot) return -EINVAL;
+    memset(slot->input_context, 0, PAGE_4K_SIZE);
+    uint32_t *ctrl = slot->input_context;
+    ctrl[0] = 0;
+    ctrl[1] = (1U << 0); // Slot context only
+    memcpy(xhci_input_context(slot, 0), xhci_output_context(slot, 0), slot->controller->context_size);
+    uint32_t *slot_ctx = xhci_input_context(slot, 0);
+    slot_ctx[0] |= XHCI_SLOT_HUB;
+    slot_ctx[1] &= ~(0xffU << XHCI_SLOT_NUM_PORTS_SHIFT);
+    slot_ctx[1] |= (uint32_t)port_count << XHCI_SLOT_NUM_PORTS_SHIFT;
+    // Route string is already correct (0 for root-port hub); Hub bit distinguishes it.
+    dma_write_barrier();
+    return xhci_command(slot->controller, slot->input_context_physical, 0,
+                        XHCI_TRB_TYPE(XHCI_TRB_EVALUATE_CONTEXT) | ((uint32_t)slot->slot_id << 24), NULL);
+}
+
+/* Enumerate a device on a hub downstream port (xHCI hub routing per §4.6). */
+static int xhci_enumerate_device(usb_device_t *hub, uint8_t port, usb_device_t **out);
+
+static int xhci_address_slot_tt(xhci_slot_t *slot, usb_speed_t speed, uint32_t route, uint8_t root_port, bool is_hub, uint8_t num_ports, uint8_t tt_slot, uint8_t tt_port)
+{
+    memset(slot->input_context, 0, PAGE_4K_SIZE);
+    uint32_t *ctrl = slot->input_context;
+    ctrl[1] = 3; // slot + ep0
+    uint32_t *slot_ctx = xhci_input_context(slot, 0);
+    slot_ctx[0] = (route & XHCI_SLOT_ROUTE_STRING_MASK) | ((uint32_t)speed << XHCI_SLOT_SPEED_SHIFT) | (1U << XHCI_CONTEXT_ENTRIES_SHIFT);
+    if (is_hub) slot_ctx[0] |= XHCI_SLOT_HUB;
+    // For downstream devices, MTT is 0 (single-TT). Could be 1 if hub is multi-TT.
+    slot_ctx[1] = (uint32_t)root_port << XHCI_SLOT_ROOT_PORT_SHIFT;
+    if (is_hub) slot_ctx[1] |= (uint32_t)num_ports << XHCI_SLOT_NUM_PORTS_SHIFT;
+    uint32_t *tt = xhci_input_context(slot, 0) + 2; // actually offset 0x08, but slot_context[2] is tt_info
+    // tt_info at slot_context[2] (third dword): TT Hub Slot ID [7:0], TT Port Number [15:8]
+    if (tt_slot || tt_port) *tt = (uint32_t)tt_slot << XHCI_TT_SLOT_SHIFT | (uint32_t)tt_port << XHCI_TT_PORT_SHIFT;
+    uint32_t *ep0 = xhci_input_context(slot, 1);
+    uint16_t maxp = xhci_ep0_packet_size(speed);
+    ep0[1] = (3U << XHCI_ENDPOINT_ERROR_COUNT_SHIFT) | (4U << XHCI_ENDPOINT_TYPE_SHIFT) | ((uint32_t)maxp << XHCI_ENDPOINT_MAX_PACKET_SHIFT);
+    uint64_t dq = slot->endpoints[1].ring_physical | 1U;
+    ep0[2] = (uint32_t)dq;
+    ep0[3] = (uint32_t)(dq >> 32);
+    ep0[4] = 8;
+    dma_write_barrier();
+    return xhci_command(slot->controller, slot->input_context_physical, 0, XHCI_TRB_TYPE(XHCI_TRB_ADDRESS_DEVICE) | ((uint32_t)slot->slot_id << 24), NULL);
 }
 
 /* Allocate a slot's contexts and endpoint-0 ring. */
@@ -885,6 +966,7 @@ static int xhci_enumerate_port(xhci_controller_t *controller, uint8_t port_id)
     device->speed         = speed;
     device->bus_number    = controller->bus_number;
     device->port_number   = port_id;
+    device->depth         = 1; // Root-port device: depth 1 (root hub depth 0)
     device->hcd_ops       = &xhci_hcd_ops;
     device->hc_private    = slot;
     uint32_t *output_slot = xhci_output_context(slot, 0);
@@ -895,6 +977,15 @@ static int xhci_enumerate_port(xhci_controller_t *controller, uint8_t port_id)
     result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &device->descriptor, sizeof(device->descriptor),
                              USB_CTRL_TIMEOUT_MS);
     if (result != EOK || device->descriptor.length < sizeof(device->descriptor)) goto remove_device;
+    // If the new device is a hub (device class 0x09), update its slot with Hub + NumPorts via EVALUATE_CONTEXT.
+    if (device->descriptor.device_class == USB_CLASS_HUB) {
+        uint8_t hub_desc[16];
+        if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_HUB << 8, 0, hub_desc, 9, USB_CTRL_TIMEOUT_MS) == EOK) {
+            uint8_t nports = hub_desc[2];
+            if (nports && nports <= XHCI_MAX_ROOT_PORTS) xhci_update_hub_slot(device, nports);
+            else if (nports == 0) xhci_update_hub_slot(device, 4); // QEMU hub default
+        }
+    }
     uint16_t language = 0x0409;
     uint8_t  language_descriptor[4];
     if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, language_descriptor, sizeof(language_descriptor), USB_CTRL_TIMEOUT_MS)
@@ -939,6 +1030,137 @@ free_slot:
     }
     (void)xhci_command(controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_DISABLE_SLOT) | ((uint32_t)slot_id << 24), NULL);
     return result;
+}
+
+/* Enumerate a device on a hub downstream port (industrial-grade, USB 2.0/3.x).
+ * The hub port has already been reset (SET_FEATURE PORT_RESET) by the hub
+ * driver; this routine handles slot allocation with route-string routing per
+ * xHCI §4.6 / §6.2.2, TT for low/full behind high-speed hub, and hub slot
+ * update (Hub + Number of Ports) via EVALUATE_CONTEXT when the new device
+ * is itself a hub. */
+static int xhci_enumerate_device(usb_device_t *hub, uint8_t port, usb_device_t **out)
+{
+    if (!hub || !port || !out) return -EINVAL;
+    xhci_slot_t *hub_slot = hub->hc_private;
+    xhci_controller_t *ctrl = hub_slot ? hub_slot->controller : NULL;
+    if (!hub_slot || !ctrl) return -ENODEV;
+
+    // Query hub port status for speed (hub already did reset, but re-read).
+    // Hub port status: use hub class GET_STATUS on the hub.
+    uint8_t status_buf[4];
+    int ret = usb_control_msg(hub, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_OTHER, USB_REQ_GET_STATUS, 0, port, status_buf, 4, USB_CTRL_TIMEOUT_MS);
+    if (ret != EOK) return ret;
+    uint16_t port_status = status_buf[0] | (uint16_t)status_buf[1] << 8;
+    usb_speed_t speed;
+    if (port_status & 0x0400) speed = USB_SPEED_HIGH;
+    else if (port_status & 0x0200) speed = USB_SPEED_LOW;
+    else if (port_status & 0x0001) speed = USB_SPEED_FULL; // CONNECTION implies full if no high/low
+    else return -ENODEV;
+    // SuperSpeed ports would have additional PORT_LINK_STATE etc., treat as Super.
+    // For now, SuperSpeed hub downstream uses same logic; the hub descriptor tells the port count.
+
+    uint8_t slot_id = 0;
+    ret = xhci_command(ctrl, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_ENABLE_SLOT), &slot_id);
+    if (ret != EOK) return ret;
+    if (!slot_id || slot_id > ctrl->max_slots) {
+        xhci_command(ctrl, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_DISABLE_SLOT) | ((uint32_t)slot_id << 24), NULL);
+        return -EIO;
+    }
+    xhci_slot_t *slot = NULL;
+    ret = xhci_allocate_slot(ctrl, hub_slot->port_id, slot_id, &slot);
+    if (ret != EOK) goto free_slot;
+
+    // Build route string: hub's route + downstream port in next nibble
+    // per xHCI §4.6. Per Linux xhci_calculate_route_string, each 4-bit nibble is a port.
+    uint32_t *hub_out_slot = xhci_output_context(hub_slot, 0);
+    uint32_t hub_route = hub_out_slot[0] & XHCI_SLOT_ROUTE_STRING_MASK;
+    uint32_t route = hub_route | ((uint32_t)port << ((hub->depth > 0 ? hub->depth - 1 : 0) * 4));
+    // Root hub port is the hub's root port (where the hub chain attaches to the root).
+    uint32_t *hub_out_slot2 = xhci_output_context(hub_slot, 0);
+    (void)hub_out_slot2;
+    uint32_t root_port = hub_slot->port_id;
+    // For the child, the root port is the same as the hub's root port.
+    // TT handling: if child is low/full behind high-speed hub, set TT slot/port.
+    uint8_t tt_slot = 0, tt_port = 0;
+    bool is_low_full = (speed == USB_SPEED_LOW || speed == USB_SPEED_FULL);
+    bool hub_is_high = (hub->speed == USB_SPEED_HIGH);
+    if (is_low_full && hub_is_high) {
+        tt_slot = hub_slot->slot_id;
+        tt_port = port;
+    }
+
+    // Address the slot with route, speed, and TT if needed. Not yet Hub.
+    ret = xhci_address_slot_tt(slot, speed, route, root_port, false, 0, tt_slot, tt_port);
+    if (ret != EOK) goto free_slot;
+
+    usb_device_t *dev = &slot->usb;
+    dev->connected  = true;
+    dev->speed      = speed;
+    dev->bus_number = ctrl->bus_number;
+    dev->port_number = port;
+    dev->depth      = hub->depth + 1;
+    dev->hcd_ops    = &xhci_hcd_ops;
+    dev->hc_private = slot;
+    uint32_t *out_slot = xhci_output_context(slot, 0);
+    dev->address    = out_slot[3] & 0xff;
+    if (!dev->address) dev->address = slot_id;
+    // Path: hub path + "." + port, e.g., "1-3.2"
+    snprintf(dev->path, sizeof(dev->path), "%s.%u", hub->path, port);
+    dev->dev.release = xhci_usb_device_release;
+
+    // GET_DESCRIPTOR device
+    ret = usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &dev->descriptor, sizeof(dev->descriptor), USB_CTRL_TIMEOUT_MS);
+    if (ret != EOK || dev->descriptor.length < sizeof(dev->descriptor)) goto remove_device;
+
+    // If the new device is a hub, update its slot with Hub + NumPorts via EVALUATE_CONTEXT.
+    bool is_hub = (dev->descriptor.device_class == USB_CLASS_HUB) || (dev->descriptor.device_class == 0x00 && 0); // device class may be 0x09 or per-interface
+    // Interface class will be detected after GET_DESCRIPTOR config, but we can peek: hubs have device class 0x09.
+    if (dev->descriptor.device_class == USB_CLASS_HUB) is_hub = true;
+
+    if (is_hub) {
+        // Need the hub descriptor to know port count. Do a minimal GET_DESCRIPTOR HUB (9 bytes) first.
+        uint8_t hub_desc[16];
+        int r2 = usb_control_msg(dev, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_HUB << 8, 0, hub_desc, 9, USB_CTRL_TIMEOUT_MS);
+        if (r2 == EOK && hub_desc[0] >= 7) {
+            uint8_t nports = hub_desc[2];
+            xhci_update_hub_slot(dev, nports);
+        }
+    }
+
+    // Strings and config
+    uint16_t lang = 0x0409;
+    uint8_t lang_desc[4];
+    if (usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, lang_desc, sizeof(lang_desc), USB_CTRL_TIMEOUT_MS)==EOK && lang_desc[0]>=4)
+        lang = lang_desc[2] | (uint16_t)lang_desc[3]<<8;
+    extern int xhci_get_string(usb_device_t *, uint8_t, uint16_t, char*, size_t); // forward
+    xhci_get_string(dev, dev->descriptor.manufacturer, lang, dev->manufacturer, sizeof(dev->manufacturer));
+    xhci_get_string(dev, dev->descriptor.product, lang, dev->product, sizeof(dev->product));
+    xhci_get_string(dev, dev->descriptor.serial_number, lang, dev->serial, sizeof(dev->serial));
+
+    usb_config_descriptor_t hdr;
+    ret = usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, &hdr, sizeof(hdr), USB_CTRL_TIMEOUT_MS);
+    if (ret != EOK || hdr.total_length < sizeof(hdr) || hdr.total_length > PAGE_4K_SIZE) goto remove_device;
+    uint8_t *cfg = malloc(hdr.total_length);
+    if (!cfg) { ret = -ENOMEM; goto remove_device; }
+    ret = usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, cfg, hdr.total_length, USB_CTRL_TIMEOUT_MS);
+    dev->dev.release = xhci_usb_device_release;
+    if (ret == EOK) ret = usb_add_device(dev, cfg, hdr.total_length);
+    free(cfg);
+    if (ret == EOK) { *out = dev; return EOK; }
+
+remove_device:
+    usb_disconnect_device(dev);
+    for (size_t i=0;i<dev->interface_count;i++) if (dev->interfaces[i].registered) { device_unregister(&dev->interfaces[i].dev); dev->interfaces[i].registered=false; }
+free_slot:
+    ctrl->slots[slot_id]=NULL; ctrl->dcbaa[slot_id]=0;
+    if (slot) {
+        for (size_t dci=1; dci<XHCI_MAX_ENDPOINTS; dci++) if (slot->endpoints[dci].ring_physical) xhci_dma_free(slot->endpoints[dci].ring_physical,1);
+        if (slot->input_context_physical) xhci_dma_free(slot->input_context_physical,1);
+        if (slot->output_context_physical) xhci_dma_free(slot->output_context_physical,1);
+        free(slot);
+    }
+    xhci_command(ctrl, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_DISABLE_SLOT) | ((uint32_t)slot_id<<24), NULL);
+    return ret;
 }
 
 /* Find the slot currently bound to a root port. */

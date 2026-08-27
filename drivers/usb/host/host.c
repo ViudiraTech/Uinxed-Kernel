@@ -20,6 +20,10 @@ usb_host_t     *usb_host_list;
 spinlock_t      usb_host_lock;
 static uint16_t usb_host_next_bus_number = 1;
 
+/* USB device addresses are 1..127 per bus. Bit 0 is reserved for address 0. */
+static uint8_t  usb_address_bitmap[256][16];
+static spinlock_t usb_address_lock;
+
 /* Allocate the next unique USB bus number. */
 int usb_host_allocate_bus_number(void)
 {
@@ -99,6 +103,34 @@ usb_host_t *usb_host_find_by_type(usb_host_type_t type, int index)
     }
     spin_unlock_irqrestore(&usb_host_lock, flags);
     return NULL;
+}
+
+/* Allocate a free device address on a bus (1..127). */
+int usb_host_allocate_address(uint8_t bus_number, uint8_t *address)
+{
+    if (!address) return -EINVAL;
+    uint64_t flags = spin_lock_irqsave(&usb_address_lock);
+    for (uint8_t addr = 1; addr < 128; addr++) {
+        uint8_t byte = addr / 8, bit = addr % 8;
+        if (!(usb_address_bitmap[bus_number][byte] & (1u << bit))) {
+            usb_address_bitmap[bus_number][byte] |= (1u << bit);
+            *address = addr;
+            spin_unlock_irqrestore(&usb_address_lock, flags);
+            return EOK;
+        }
+    }
+    spin_unlock_irqrestore(&usb_address_lock, flags);
+    return -ENOSPC;
+}
+
+/* Release a device address on a bus. */
+void usb_host_release_address(uint8_t bus_number, uint8_t address)
+{
+    if (!address || address >= 128) return;
+    uint64_t flags = spin_lock_irqsave(&usb_address_lock);
+    uint8_t byte = address / 8, bit = address % 8;
+    usb_address_bitmap[bus_number][byte] &= ~(1u << bit);
+    spin_unlock_irqrestore(&usb_address_lock, flags);
 }
 
 /* Probe the PCI bus for all supported USB host controllers. */

@@ -186,6 +186,10 @@
 #    define CONFIG_USB_HID 1
 #endif
 
+#ifndef CONFIG_USB_HUB
+#    define CONFIG_USB_HUB 1
+#endif
+
 #ifndef CONFIG_USB_OHCI
 #    define CONFIG_USB_OHCI 0
 #endif
