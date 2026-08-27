@@ -141,6 +141,7 @@ struct task {
         ilist_node_t thread_node;
         cgroup_t    *cgroup;
         ilist_node_t cgroup_node;
+        struct nsproxy *nsproxy;
 
         /* EEVDF scheduling fields */
         uint64_t vruntime;            // virtual runtime

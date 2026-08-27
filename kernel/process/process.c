@@ -9,6 +9,7 @@
  */
 
 #include <arch/common.h>
+#include <process/namespace.h>
 #include <arch/fpu.h>
 #include <arch/smp.h>
 #include <drivers/firmware/apic.h>
@@ -1753,6 +1754,7 @@ process_t *process_create_kthread(task_t *task, const char *name)
     proc->gid       = 0;
     proc->fsuid     = 0;
     proc->fsgid     = 0;
+    proc->nsproxy = nsproxy_get(&init_nsproxy);
     proc->umask     = 022;
     proc->pgid      = 0;
     proc->sid       = 0;

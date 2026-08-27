@@ -90,6 +90,7 @@ int64_t sys_pidfd_send_signal_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint6
 int64_t sys_process_vm_readv_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_process_vm_writev_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_unshare_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+int64_t sys_setns_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_splice_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_tee_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_vmsplice_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);

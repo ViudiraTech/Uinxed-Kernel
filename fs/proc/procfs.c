@@ -120,6 +120,8 @@ typedef enum procfs_type {
     PROCFS_PID_EXE_LINK,
     PROCFS_PID_CWD_LINK,
     PROCFS_PID_ROOT_LINK,
+    PROCFS_PID_NS_DIR,
+    PROCFS_PID_NS_LINK,
     PROCFS_TTY_DIR,
     PROCFS_TTY_FILE,
     PROCFS_SYS_DIR,
@@ -2062,6 +2064,10 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 pf->type   = PROCFS_PID_ROOT_LINK;
                 pf->pid    = ppf->pid;
                 node->type = file_symlink;
+            } else if (streq(name, "ns")) {
+                pf->type   = PROCFS_PID_NS_DIR;
+                pf->pid    = ppf->pid;
+                node->type = file_dir;
             } else {
                 free(pf);
                 return;
@@ -2092,6 +2098,18 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             pf->pid     = ppf->pid;
             pf->subtype = fd;
             node->type  = file_none;
+            break;
+        }
+        case PROCFS_PID_NS_DIR : {
+            if (!streq(name, "mnt") && !streq(name, "uts") && !streq(name, "ipc") &&
+                !streq(name, "pid") && !streq(name, "net") && !streq(name, "user") &&
+                !streq(name, "cgroup")) {
+                free(pf);
+                return;
+            }
+            pf->type   = PROCFS_PID_NS_LINK;
+            pf->pid    = ppf->pid;
+            node->type = file_symlink;
             break;
         }
         case PROCFS_NET_DIR : {
@@ -2172,6 +2190,11 @@ static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t
         }
         case PROCFS_PID_FD_LINK : {
             if (process_fd_path_snapshot(pf->pid, pf->subtype, target, sizeof(target)) != EOK) return 0;
+            length = (int)strlen(target);
+            break;
+        }
+        case PROCFS_PID_NS_LINK : {
+            snprintf(target, sizeof(target), "%s:[%d]", node->name, (int)(4026531840U + (pf->pid % 1000)));
             length = (int)strlen(target);
             break;
         }
@@ -2377,6 +2400,7 @@ static int procfs_stat(void *file, vfs_node_t node)
             (void)procfs_ensure_child(node, "exe", PROCFS_PID_EXE_LINK, pf->pid, 0, file_symlink);
             (void)procfs_ensure_child(node, "cwd", PROCFS_PID_CWD_LINK, pf->pid, 0, file_symlink);
             (void)procfs_ensure_child(node, "root", PROCFS_PID_ROOT_LINK, pf->pid, 0, file_symlink);
+            (void)procfs_ensure_child(node, "ns", PROCFS_PID_NS_DIR, pf->pid, 0, file_dir);
             break;
         }
         case PROCFS_PID_FD_DIR : {
@@ -2433,6 +2457,18 @@ static int procfs_stat(void *file, vfs_node_t node)
             free(fds);
             break;
         }
+        case PROCFS_PID_NS_DIR : {
+            if (!process_pid_exists(pf->pid)) {
+                node->type = file_none;
+                return -ENOENT;
+            }
+            static const char *ns_names[] = {"mnt", "uts", "ipc", "pid", "net", "user", "cgroup"};
+            node->type = file_dir;
+            for (size_t i = 0; i < 7; i++) {
+                (void)procfs_ensure_child(node, ns_names[i], PROCFS_PID_NS_LINK, pf->pid, 0, file_symlink);
+            }
+            break;
+        }
         case PROCFS_NET_DIR : {
             static const char *names[] = {"dev", "arp", "route", "tcp", "udp", "unix"};
             node->type                 = file_dir;
@@ -2462,6 +2498,7 @@ static int procfs_stat(void *file, vfs_node_t node)
         case PROCFS_PID_EXE_LINK :
         case PROCFS_PID_CWD_LINK :
         case PROCFS_PID_ROOT_LINK :
+        case PROCFS_PID_NS_LINK :
             node->type = file_symlink;
             break;
         case PROCFS_INFO_FILE :
