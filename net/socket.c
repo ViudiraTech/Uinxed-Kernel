@@ -359,11 +359,19 @@ static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int ab
         if (sock_bound_tab[i].abstract != abstract) continue;
 
         if (abstract) {
-            /*
-             * Abstract names are byte strings, so their supplied length is
-             * part of the address.
-             */
-            if (sock_bound_tab[i].addrlen == addrlen && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
+            uint32_t len_a = sock_bound_tab[i].addrlen > sizeof(uint16_t) ? sock_bound_tab[i].addrlen - sizeof(uint16_t) : 0;
+            uint32_t len_b = addrlen > sizeof(uint16_t) ? addrlen - sizeof(uint16_t) : 0;
+            bool match = false;
+            if (len_a == len_b && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, len_a) == 0) {
+                match = true;
+            } else if (sock_bound_tab[i].addr.sun_path[0] == '\0' && addr->sun_path[0] == '\0') {
+                size_t sa_len = strnlen_local(sock_bound_tab[i].addr.sun_path + 1, UNIX_PATH_MAX - 1);
+                size_t sb_len = strnlen_local(addr->sun_path + 1, UNIX_PATH_MAX - 1);
+                if (sa_len == sb_len && memcmp(sock_bound_tab[i].addr.sun_path + 1, addr->sun_path + 1, sa_len) == 0) {
+                    match = true;
+                }
+            }
+            if (match) {
                 *out = sock_bound_tab[i].sk;
                 socket_ref(*out);
                 spin_unlock(&sock_bound_lock);
@@ -2252,10 +2260,14 @@ int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 
     /* Netlink bind */
     if (sk->family == AF_NETLINK) {
-        sockaddr_nl_t nladdr;
-        if (addrlen != sizeof(sockaddr_nl_t)) return -EINVAL;
-        if (copy_from_user(&nladdr, (const void *)addr, addrlen)) return -EFAULT;
-        return (int64_t)netlink_bind(sk, &nladdr, addrlen);
+        sockaddr_nl_t nladdr = {0};
+        if (addrlen < sizeof(uint16_t)) {
+            netlink_einval_trace("sys_bind:short-addrlen", addrlen, 0);
+            return -EINVAL;
+        }
+        size_t to_copy = addrlen < sizeof(sockaddr_nl_t) ? addrlen : sizeof(sockaddr_nl_t);
+        if (copy_from_user(&nladdr, (const void *)addr, to_copy)) return -EFAULT;
+        return (int64_t)netlink_bind(sk, &nladdr, (uint32_t)to_copy);
     }
 
     if (addrlen > sizeof(sockaddr_un_t)) return -EINVAL;
@@ -2345,8 +2357,15 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
-    /* Netlink is connectionless */
-    if (sk->family == AF_NETLINK) return -EOPNOTSUPP;
+    /* Netlink connect */
+    if (sk->family == AF_NETLINK) {
+        if (!addr) return -EINVAL;
+        sockaddr_nl_t nladdr = {0};
+        if (addrlen < sizeof(uint16_t)) return -EINVAL;
+        size_t to_copy = addrlen < sizeof(sockaddr_nl_t) ? addrlen : sizeof(sockaddr_nl_t);
+        if (copy_from_user(&nladdr, (const void *)addr, to_copy)) return -EFAULT;
+        return (int64_t)netlink_connect(sk, &nladdr, (uint32_t)to_copy);
+    }
 
     if (!addr) return -EINVAL;
 
@@ -2717,11 +2736,16 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
         sockaddr_nl_t nladdr;
         const void   *dest = NULL;
         if (kmsg->msg_name) {
-            if (kmsg->msg_namelen < sizeof(nladdr)) return -EINVAL;
+            if (kmsg->msg_namelen < sizeof(nladdr)) {
+                netlink_einval_trace("sys_sendmsg:short-name", kmsg->msg_namelen, 0);
+                return -EINVAL;
+            }
             if (copy_from_user(&nladdr, kmsg->msg_name, sizeof(nladdr))) return -EFAULT;
             dest = &nladdr;
-        } else if (kmsg->msg_namelen)
+        } else if (kmsg->msg_namelen) {
+            netlink_einval_trace("sys_sendmsg:name-len-no-addr", kmsg->msg_namelen, 0);
             return -EINVAL;
+        }
         if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
         return (int64_t)netlink_sendmsg(sk, kbuf, total_len, dest, dest ? sizeof(nladdr) : 0, flags);
     }
@@ -3430,6 +3454,7 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             sk->reuseaddr = ival ? 1 : 0;
             break;
         case SO_SNDBUF :
+        case SO_SNDBUFFORCE :
             if (optlen < sizeof(int)) {
                 spin_unlock(&sk->lock);
                 return -EINVAL;
@@ -3446,6 +3471,7 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             sk->sndbuf = (uint32_t)ival;
             break;
         case SO_RCVBUF :
+        case SO_RCVBUFFORCE :
             if (optlen < sizeof(int)) {
                 spin_unlock(&sk->lock);
                 return -EINVAL;
@@ -3523,7 +3549,14 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
         case SO_BROADCAST :
         case SO_DEBUG :
         case SO_DONTROUTE :
-            /* Silently ignore for UNIX sockets */
+        case SO_PASSSEC :
+        case SO_ATTACH_FILTER :
+        case SO_DETACH_FILTER :
+        case SO_BINDTODEVICE :
+        case SO_TIMESTAMP :
+        case SO_TIMESTAMPNS :
+        case SO_TIMESTAMPING :
+            /* Silently accept for UNIX and Netlink sockets */
             break;
         default :
             spin_unlock(&sk->lock);
@@ -3601,15 +3634,21 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
             koptlen = sizeof(int);
             break;
         case SO_SNDBUF :
+        case SO_SNDBUFFORCE :
             ival    = (int)sk->sndbuf;
             koptlen = sizeof(int);
             break;
         case SO_RCVBUF :
+        case SO_RCVBUFFORCE :
             ival    = (int)sk->rcvbuf;
             koptlen = sizeof(int);
             break;
         case SO_REUSEADDR :
             ival    = sk->reuseaddr;
+            koptlen = sizeof(int);
+            break;
+        case SO_PASSSEC :
+            ival    = 0;
             koptlen = sizeof(int);
             break;
         case SO_LINGER :

@@ -61,6 +61,13 @@
 #define SO_PEERSEC     31
 #define SO_SNDBUFFORCE 32
 #define SO_RCVBUFFORCE 33
+#define SO_BINDTODEVICE 25
+#define SO_ATTACH_FILTER 26
+#define SO_DETACH_FILTER 27
+#define SO_PASSSEC       34
+#define SO_TIMESTAMP     29
+#define SO_TIMESTAMPNS   35
+#define SO_TIMESTAMPING  37
 #define SO_PROTOCOL    38
 #define SO_DOMAIN      39
 

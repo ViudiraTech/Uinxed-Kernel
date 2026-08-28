@@ -66,6 +66,17 @@ typedef struct {
         uint8_t types[8];
 } pat_config_t;
 
+typedef struct {
+        uint64_t mapped_2m;
+        uint64_t faults_2m;
+        uint64_t fallback_2m;
+        uint64_t splits_2m;
+} page_huge_stats_t;
+
+/* Update transparent huge-page statistics from the fault path. */
+void page_huge_stat_fault(void);
+void page_huge_stat_fallback(void);
+
 /* Determine whether the page table entry maps a huge page */
 int is_huge_page(page_table_entry_t *entry);
 
@@ -119,6 +130,10 @@ int page_unmap_release(page_directory_t *directory, uint64_t addr);
 
 /* Maps a virtual address to a physical frame using 2MB huge pages */
 void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
+
+int page_map_new_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
+
+void page_huge_get_stats(page_huge_stats_t *stats);
 
 /* Maps a virtual address to a physical frame using 1GB huge pages */
 void page_map_to_1G(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);

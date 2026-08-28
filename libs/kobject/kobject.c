@@ -12,6 +12,7 @@
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer/timer.h>
 #include <libs/kobject/kobject.h>
 #include <libs/list/circular_list.h>
 #include <libs/std/stdarg.h>
@@ -22,8 +23,8 @@
 #include <mem/alloc.h>
 #include <mem/heap.h>
 #include <net/netlink/netlink.h>
+#include <process/sched.h>
 #include <sync/spin_lock.h>
-
 /* Default release function for dynamically-allocated kobjects */
 static void dynamic_kobj_release(struct kobject *kobj)
 {
@@ -747,7 +748,18 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
 
     ret = kobject_uevent_message(env, action_string, event_path, &message, &message_len);
     if (ret) goto out;
-    ret = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1U, message, message_len, 0);
+    {
+        uint64_t t0 = sched_ticks();
+        ret         = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1U, message, message_len, 0);
+        uint64_t dt = sched_ticks() - t0;
+        if (dt > TIMER_HZ / 10) {
+            static uint64_t last_slow;
+            if (sched_ticks() - last_slow >= TIMER_HZ) {
+                plogk("uevent-dbg: broadcast of %s@%s took %llu ms\n", action_string, event_path, (unsigned long long)(dt * 1000ULL / TIMER_HZ));
+                last_slow = sched_ticks();
+            }
+        }
+    }
     if (ret >= 0 || ret == -ESRCH || ret == -ECONNREFUSED || ret == -ENOBUFS) ret = EOK;
 out:
     free(message);

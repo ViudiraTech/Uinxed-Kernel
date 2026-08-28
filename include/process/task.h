@@ -175,6 +175,7 @@ struct task {
         struct seccomp_filter *seccomp_filter;
         uint8_t                seccomp_mode;
         bool                   no_new_privs;
+        uint8_t                securebits; // Linux PR_SET_SECUREBITS state
         ptrace_state_t         ptrace;  // Linux ptrace state is per-thread
         uint64_t               flags;   // PF_KTHREAD etc.
         kthread_info_t         kthread; // kernel-thread lifecycle (PF_KTHREAD only)

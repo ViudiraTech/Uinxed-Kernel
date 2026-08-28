@@ -831,6 +831,21 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
         int timed_out = wait_queue_wait_timed(&epi->wq, wait_deadline) == -ETIMEDOUT;
         (void)timed_out;
         spin_lock(&epi->lock);
+
+        /*
+         * Lost-wakeup detector: the slice expired without a notification.
+         * If a rescan now finds ready fds, the wake was missed somewhere in
+         * the poll-source chain - the caller paid up to one second of
+         * latency.  This is the boot-slowness signature.
+         */
+        if (timed_out && epoll_poll_all(epi) > 0) {
+            static uint64_t last_lost_log;
+            uint64_t       now = sched_ticks();
+            if (now - last_lost_log >= TIMER_HZ / 4) {
+                plogk("epoll-dbg: lost wakeup recovered by 1s safety-net rescan (epfd=%d)\n", epfd);
+                last_lost_log = now;
+            }
+        }
     }
 
     spin_unlock(&epi->lock);

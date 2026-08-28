@@ -87,6 +87,7 @@ typedef enum {
     VM_EXEC   = 0x4,
     VM_SHARED = 0x8,
     VM_LAZY   = 0x10,
+    VM_ANON   = 0x20,
 } vm_flags_t;
 
 typedef enum {
@@ -213,6 +214,7 @@ typedef struct process {
         spinlock_t  seccomp_lock;
         pid_t       pgid;
         pid_t       sid;
+        bool        is_child_subreaper;
         tty_core_t *controlling_tty;
         char        name[PROCESS_NAME_LEN];
         char        root[VFS_PATH_MAX];     // chroot path
@@ -271,9 +273,10 @@ __attribute__((noreturn)) void process_exit_group(int exit_code);
 /* Reap a zombie child process and collect its exit status */
 int process_wait(pid_t pid, int *exit_code);
 
-#define PROCESS_WAIT_NOHANG    0x00000001U
-#define PROCESS_WAIT_STOPPED   0x00000002U
-#define PROCESS_WAIT_CONTINUED 0x00000004U
+#define PROCESS_WAIT_NOHANG     0x00000001U
+#define PROCESS_WAIT_STOPPED    0x00000002U
+#define PROCESS_WAIT_CONTINUED  0x00000004U
+#define PROCESS_WAIT_KEEPEVENT  0x00000008U
 
 /*
  * Linux waitpid/wait4 selector semantics.  Returns 0 with *waited_pid == 0

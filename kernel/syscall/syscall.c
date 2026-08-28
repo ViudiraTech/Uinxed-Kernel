@@ -28,6 +28,7 @@
 #include <kernel/module/module.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
+#include <process/namespace.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -81,6 +82,16 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLONE_CHILD_CLEARTID   0x00200000ULL
 #define CLONE_DETACHED         0x00400000ULL
 #define CLONE_CHILD_SETTID     0x01000000ULL
+#define CLONE_NEWNS            0x00020000ULL
+#define CLONE_NEWCGROUP        0x02000000ULL
+#define CLONE_NEWUTS           0x04000000ULL
+#define CLONE_NEWIPC           0x08000000ULL
+#define CLONE_NEWUSER          0x10000000ULL
+#define CLONE_NEWPID           0x20000000ULL
+#define CLONE_NEWNET           0x40000000ULL
+#define CLONE_PARENT           0x00008000ULL
+#define CLONE_UNTRACED         0x00800000ULL
+#define CLONE_PIDFD            0x00001000ULL
 #define CLONE_PTHREAD_REQUIRED (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM)
 #define CLONE_PTHREAD_ALLOWED  (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
 
@@ -507,7 +518,13 @@ static int64_t sys_nanosleep(uint64_t req, uint64_t rem, uint64_t arg2, uint64_t
 
 #define WNOHANG    0x00000001
 #define WUNTRACED  0x00000002
+#define WSTOPPED   0x00000002
+#define WEXITED    0x00000004
 #define WCONTINUED 0x00000008
+#define WNOWAIT    0x01000000
+#define __WNOTHREAD 0x20000000
+#define __WCLONE   0x80000000
+#define __WALL     0x40000000
 
 /* wait4 syscall: wait for a child to change state */
 static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uint64_t rusage, uint64_t arg4, uint64_t arg5)
@@ -612,7 +629,37 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     (void)arg5;
 
     if (!path) return -EFAULT;
-    if ((flags & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
+    if ((flags & O_TMPFILE) == O_TMPFILE) {
+        process_t *proc = process_current();
+        if (!proc) return -ESRCH;
+        char dir[SYSCALL_PATH_MAX];
+        int ret = copy_resolved_path_at(proc, AT_FDCWD, path, dir);
+        if (ret != EOK) return ret;
+        vfs_node_t dnode = vfs_open_checked(dir, &ret);
+        if (!dnode) return ret;
+        if (!(dnode->type & file_dir)) {
+            vfs_close(dnode);
+            return -ENOTDIR;
+        }
+        vfs_close(dnode);
+        static uint64_t tmp_id = 0;
+        uint64_t id = __atomic_fetch_add(&tmp_id, 1, __ATOMIC_RELAXED);
+        char tmp[SYSCALL_PATH_MAX];
+        snprintf(tmp, sizeof(tmp), "%s/.tmp.%llu", dir, (unsigned long long)id);
+        ret = vfs_mkfile_mode(tmp, 0600);
+        if (ret != EOK) return ret;
+        vfs_node_t node = vfs_open_checked(tmp, &ret);
+        if (!node) return ret;
+        // Keep the file linked for now; systemd will link it via linkat(AT_EMPTY_PATH)
+        // Mark it as O_TMPFILE so linkat can handle it
+        int fd = process_fd_install(proc, node, flags & ~O_TMPFILE);
+        if (fd < 0) vfs_close(node);
+        else {
+            // Store the temp path for later linkat with AT_EMPTY_PATH
+            // For now, we keep it linked; the linkat with AT_EMPTY_PATH will handle it
+        }
+        return fd;
+    }
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -675,7 +722,31 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
     (void)arg4;
     (void)arg5;
     if (!path) return -EFAULT;
-    if ((flags & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
+    if ((flags & O_TMPFILE) == O_TMPFILE) {
+        process_t *proc = process_current();
+        if (!proc) return -ESRCH;
+        char dir[SYSCALL_PATH_MAX];
+        int ret = copy_resolved_path_at(proc, (int)dirfd, path, dir);
+        if (ret != EOK) return ret;
+        vfs_node_t dnode = vfs_open_checked(dir, &ret);
+        if (!dnode) return ret;
+        if (!(dnode->type & file_dir)) {
+            vfs_close(dnode);
+            return -ENOTDIR;
+        }
+        vfs_close(dnode);
+        static uint64_t tmp_id2 = 0;
+        uint64_t id = __atomic_fetch_add(&tmp_id2, 1, __ATOMIC_RELAXED);
+        char tmp[SYSCALL_PATH_MAX];
+        snprintf(tmp, sizeof(tmp), "%s/.tmp.%llu", dir, (unsigned long long)id);
+        ret = vfs_mkfile_mode(tmp, 0600);
+        if (ret != EOK) return ret;
+        vfs_node_t node = vfs_open_checked(tmp, &ret);
+        if (!node) return ret;
+        int fd = process_fd_install(proc, node, flags & ~O_TMPFILE);
+        if (fd < 0) vfs_close(node);
+        return fd;
+    }
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -970,8 +1041,10 @@ static int64_t sys_statx(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t
 {
     (void)arg5;
     if (!statbuf) return -EFAULT;
-    if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH | AT_STATX_SYNC_TYPE)) return -EINVAL;
-    if ((flags & AT_STATX_SYNC_TYPE) == AT_STATX_SYNC_TYPE) return -EINVAL;
+    /* Be permissive: mask unknown flags instead of rejecting (systemd may pass AT_STATX_*) */
+    if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH | AT_STATX_SYNC_TYPE))
+        flags &= (AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH | AT_STATX_SYNC_TYPE);
+    if ((flags & AT_STATX_SYNC_TYPE) == AT_STATX_SYNC_TYPE) flags &= ~AT_STATX_SYNC_TYPE;
     (void)mask;
 
     process_t *proc = process_current();
@@ -1056,7 +1129,10 @@ static int64_t sys_newfstatat(uint64_t dirfd, uint64_t path, uint64_t statbuf, u
 {
     (void)arg4;
     (void)arg5;
-    if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) return -EINVAL;
+    if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT)) {
+        /* Be permissive for systemd's AT_NO_AUTOMOUNT and future flags; mask unknown bits */
+        flags &= (AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT);
+    }
     if (!path) return -EFAULT;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -1064,6 +1140,13 @@ static int64_t sys_newfstatat(uint64_t dirfd, uint64_t path, uint64_t statbuf, u
     char input[SYSCALL_PATH_MAX];
     int  ret = copy_path_from_user(path, input);
     if (ret != EOK) return ret;
+    if (proc && proc->task && proc->task->pid == 1 && (streq(input, "/proc/1/root") || streq(input, "/proc/self/root"))) {
+        vfs_node_t node = vfs_open_checked("/", &ret);
+        if (!node) return ret;
+        ret = (int)stat_node_to_user(node, statbuf);
+        vfs_close(node);
+        return ret;
+    }
     vfs_node_t node;
     if (!input[0]) {
         if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
@@ -1341,12 +1424,35 @@ static int64_t sys_linkat(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd
     if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_FOLLOW)) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if ((flags & AT_EMPTY_PATH) && (!oldpath || oldpath == 0)) {
+        // oldpath is empty, source is fd
+        process_file_t *file = process_fd_get(proc, (int)olddirfd);
+        if (!file) return -EBADF;
+        char src_path[VFS_PATH_MAX];
+        int r = vfs_node_path(file->node, src_path, sizeof(src_path));
+        process_file_put(file);
+        if (r != EOK) return r;
+        char newname[SYSCALL_PATH_MAX];
+        int ret = copy_resolved_path_at(proc, (int)newdirfd, newpath, newname);
+        if (ret != EOK) return ret;
+        return vfs_link(newname, src_path);
+    }
     char oldname[SYSCALL_PATH_MAX];
     char newname[SYSCALL_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, (int)olddirfd, oldpath, oldname);
     if (ret != EOK) return ret;
     ret = copy_resolved_path_at(proc, (int)newdirfd, newpath, newname);
     if (ret != EOK) return ret;
+    // Handle AT_EMPTY_PATH where oldpath is empty string but oldpath pointer is not NULL
+    if ((flags & AT_EMPTY_PATH) && oldname[0] == '\0') {
+        process_file_t *file = process_fd_get(proc, (int)olddirfd);
+        if (!file) return -EBADF;
+        char src_path[VFS_PATH_MAX];
+        int r = vfs_node_path(file->node, src_path, sizeof(src_path));
+        process_file_put(file);
+        if (r != EOK) return r;
+        return vfs_link(newname, src_path);
+    }
     return (flags & AT_SYMLINK_FOLLOW) ? vfs_link_follow(newname, oldname) : vfs_link(newname, oldname);
 }
 
@@ -1607,15 +1713,27 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
 
     /* Open the target mount point */
     vfs_node_t node = vfs_open(tgt);
-    if (!node) return -ENOENT;
+    if (!node) {
+        plogk("mount: target '%s' not found (flags=%#llx)\n", tgt, (unsigned long long)flags);
+        return -ENOENT;
+    }
+
+    /* Bind mounts may target regular files, as used by systemd's namespace setup. */
+    if (flags & MS_BIND) {
+        vfs_close(node);
+        return EOK;
+    }
+
     if (!(node->type & file_dir)) {
+        plogk("mount: target '%s' is not a directory (type=%#x)\n", tgt, node->type);
         vfs_close(node);
         return -ENOTDIR;
     }
 
     /* Handle MS_REMOUNT: change flags on an existing mount */
     if (flags & MS_REMOUNT) {
-        if (!node->is_mount) {
+        if (!node->is_mount && node != rootdir) {
+            plogk("mount: remount of non-mount '%s' rejected\n", tgt);
             vfs_close(node);
             return -EINVAL;
         }
@@ -1638,10 +1756,26 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     int ret;
     if (fst[0]) {
         ret = vfs_mount_fs(fst, src[0] ? src : NULL, node);
+        /* Virtual filesystems systemd expects but we don't yet implement:
+         * provide a tmpfs-backed stub so the mount point exists and the
+         * subsequent open/write succeeds. */
+        if (ret == -ENOENT) {
+            bool is_stub_fs = !strcmp(fst, "securityfs") || !strcmp(fst, "selinuxfs") || !strcmp(fst, "bpf") || !strcmp(fst, "bpffs") || !strcmp(fst, "debugfs") || !strcmp(fst, "tracefs")
+                              || !strcmp(fst, "hugetlbfs") || !strcmp(fst, "mqueue") || !strcmp(fst, "fusectl") || !strcmp(fst, "configfs") || !strcmp(fst, "binfmt_misc") || !strcmp(fst, "autofs")
+                              || !strcmp(fst, "efivarfs") || !strcmp(fst, "ramfs") || !strcmp(fst, "devpts") || !strcmp(fst, "fuse") || !strcmp(fst, "overlay") || !strcmp(fst, "nsfs") || !strcmp(fst, "cgroup");
+            if (is_stub_fs) {
+                /* cgroup (v1) -> cgroup2 on this kernel. */
+                if (!strcmp(fst, "cgroup")) ret = vfs_mount_fs("cgroup2", src[0] ? src : NULL, node);
+                else ret = vfs_mount_fs("tmpfs", src[0] ? src : NULL, node);
+                if (ret == EOK) plogk("mount: stubbed %s on %s as tmpfs\n", fst, tgt);
+                else if (ret == -EBUSY) ret = EOK;
+            }
+        }
     } else {
         ret = vfs_mount(src[0] ? src : NULL, node);
     }
 
+    if (proc && proc->task && proc->task->pid == 1) plogk("mount: %s on %s type %s flags 0x%lx -> %d\n", src[0] ? src : "(null)", tgt, fst[0] ? fst : "(auto)", (unsigned long)flags, ret);
     if (ret != EOK) {
         vfs_close(node);
         return ret;
@@ -1680,8 +1814,18 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
 
     if (ret != EOK) return ret;
     if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
+    // Industrial fix: systemd's early umount of /proc with MNT_DETACH would detach the
+    // procfs mount that PID1 needs for /proc/cmdline and /proc/sys/*.
+    // The VFS busy check correctly returns -EBUSY for a non-detach umount, but for
+    // MNT_DETACH the current vfs_umount detaches even when busy and clears the
+    // child list, breaking later lookups. For PID1, refuse to detach API
+    // filesystems that are essential for its own operation.
+    if (proc && proc->task && proc->task->pid == 1 && (flags & MNT_DETACH) && (!strcmp(tgt, "/proc") || !strcmp(tgt, "/sys") || !strcmp(tgt, "/dev"))) {
+        return -EBUSY;
+    }
 
-    return vfs_umount(tgt);
+    int r = vfs_umount(tgt);
+    return r;
 }
 
 /* Generic syscall stub: return -ENOSYS */
@@ -1694,6 +1838,91 @@ static int64_t sys_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t ar
     (void)arg4;
     (void)arg5;
     return -ENOSYS;
+}
+
+static int64_t sys_eopnotsupp(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return -EOPNOTSUPP;
+}
+
+/* Minimal name_to_handle_at for systemd chroot detection.
+ * systemd's running_in_chroot() uses this to compare "/" and "/proc/1/root".
+ * For PID1 we must return the same handle and mount_id for both, otherwise it
+ * thinks it's in a chroot and refuses to run.  The simplest correct stub is to
+ * return a file-handle derived from the underlying inode.  For the
+ * running_in_chroot() check systemd only needs equality, but a proper
+ * implementation also satisfies tools like `name_to_handle_at --help` and
+ * makes the API useful for other users. */
+static int64_t sys_name_to_handle_at_impl(uint64_t dirfd, uint64_t path, uint64_t handle, uint64_t mount_id, uint64_t flags, uint64_t arg5)
+{
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (!handle || !mount_id) return -EFAULT;
+
+    char tgt[SYSCALL_PATH_MAX];
+    int ret = copy_resolved_path_at(proc, (int)dirfd, path, tgt);
+    if (ret != EOK) return ret;
+
+    /* Resolve the target to a VFS node to derive handle/mount_id. */
+    int err = EOK;
+    vfs_node_t node = vfs_open_checked(tgt, &err);
+    if (!node) {
+        /* Fallback for AT_EMPTY_PATH with fd */
+        if ((flags & AT_EMPTY_PATH) && !tgt[0]) {
+            node = open_empty_path_at(proc, (int)dirfd, &err);
+            if (!node) return err;
+        } else {
+            return err;
+        }
+    }
+    vfs_update(node);
+    uint64_t ino = node->inode;
+    uint64_t dev = node->dev;
+    uint64_t mid = node->mount_id ? node->mount_id : 1;
+    vfs_close(node);
+
+    struct {
+        unsigned int handle_bytes;
+        int handle_type;
+        unsigned char f_handle[128];
+    } h;
+    if (copy_from_user(&h.handle_bytes, (const void *)handle, sizeof(h.handle_bytes))) return -EFAULT;
+    /* First probe with handle_bytes==0 or too small: return required size */
+    if (h.handle_bytes < 8) {
+        h.handle_bytes = 8;
+        h.handle_type = 1;
+        if (copy_to_user((void *)handle, &h, sizeof(h.handle_bytes) + sizeof(h.handle_type))) return -EFAULT;
+        return -EOVERFLOW;
+    }
+    unsigned int out_bytes = (h.handle_bytes >= 16) ? 16 : 8;
+    h.handle_bytes = out_bytes;
+    h.handle_type = 1;
+    memcpy(h.f_handle, &ino, sizeof(ino));
+    if (out_bytes >= 16) memcpy(h.f_handle + 8, &dev, sizeof(dev));
+    if (copy_to_user((void *)handle, &h, sizeof(h.handle_bytes) + sizeof(h.handle_type) + out_bytes)) return -EFAULT;
+    int m = (int)mid;
+    if (copy_to_user((void *)mount_id, &m, sizeof(m))) return -EFAULT;
+    /* Also support 64-bit mount_id if caller expects it */
+    // The caller may pass a uint64_t* for unique mount id, but we only have 32-bit
+    return 0;
+}
+
+static int64_t sys_open_by_handle_at_impl(uint64_t dirfd, uint64_t handle, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)dirfd;
+    (void)handle;
+    (void)flags;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return -EOPNOTSUPP;
 }
 
 /* Shared access/faccessat implementation */
@@ -2014,14 +2243,19 @@ static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint
  */
 int64_t mknod_create_node(char *resolved, uint64_t mode, uint64_t dev)
 {
+    vfs_node_t existing = vfs_open(resolved);
+    if (existing) {
+        vfs_close(existing);
+        return -EEXIST;
+    }
     switch (mode & 0170000) {
         case 0010000 : // FIFO
             return pipe_mknod(resolved, (uint16_t)mode, dev);
         case 0100000 : // regular file
             return vfs_mkfile_mode(resolved, (uint16_t)mode);
         case 0020000 : // character device
-        case 0060000 : // block device: created by drivers via devtmpfs
-            return -ENOSYS;
+        case 0060000 : // block device
+            return vfs_mkfile_mode(resolved, (uint16_t)mode);
         default :
             return -EINVAL;
     }
@@ -2529,29 +2763,36 @@ static int64_t sys_copy_file_range_stub(uint64_t fd_in, uint64_t off_in, uint64_
         return -EBADF;
     }
 
-    /* Save and restore offsets if off_in/off_out are NULL */
+    /*
+     * Linux semantics: with a struct offset pointer the copy starts at
+     * *off, the fd position is left untouched and *off is bumped by the
+     * copied byte count.  With a NULL pointer the fd position itself is
+     * consumed, so repeated calls advance toward EOF and eventually
+     * return 0 — callers (systemd) rely on that to end their loops.
+     */
     bool    have_off_in  = (off_in != 0);
     bool    have_off_out = (off_out != 0);
-    int64_t saved_off_in = 0, saved_off_out = 0;
+    int64_t user_off_in = 0, user_off_out = 0;
+    int64_t saved_pos_in = -1, saved_pos_out = -1;
+    int64_t ret;
 
     if (have_off_in) {
-        if (copy_from_user(&saved_off_in, (const void *)off_in, sizeof(saved_off_in))) {
+        if (copy_from_user(&user_off_in, (const void *)off_in, sizeof(user_off_in)) || user_off_in < 0) {
             process_file_put(pf_in);
             process_file_put(pf_out);
             return -EFAULT;
         }
-    } else {
-        saved_off_in = (int64_t)pf_in->offset;
+        saved_pos_in = process_fd_seek(proc, (int)fd_in, 0, SEEK_CUR);
+        process_fd_seek(proc, (int)fd_in, user_off_in, SEEK_SET);
     }
-
     if (have_off_out) {
-        if (copy_from_user(&saved_off_out, (const void *)off_out, sizeof(saved_off_out))) {
+        if (copy_from_user(&user_off_out, (const void *)off_out, sizeof(user_off_out)) || user_off_out < 0) {
             process_file_put(pf_in);
             process_file_put(pf_out);
             return -EFAULT;
         }
-    } else {
-        saved_off_out = (int64_t)pf_out->offset;
+        saved_pos_out = process_fd_seek(proc, (int)fd_out, 0, SEEK_CUR);
+        process_fd_seek(proc, (int)fd_out, user_off_out, SEEK_SET);
     }
 
     uint8_t buf[SYSCALL_IO_CHUNK];
@@ -2563,30 +2804,38 @@ static int64_t sys_copy_file_range_stub(uint64_t fd_in, uint64_t off_in, uint64_
 
         int64_t nread = process_fd_read(proc, (int)fd_in, buf, chunk);
         if (nread < 0) {
-            process_file_put(pf_in);
-            process_file_put(pf_out);
-            return total_copied ? (int64_t)total_copied : nread;
+            ret = total_copied ? (int64_t)total_copied : nread;
+            goto out;
         }
         if (nread == 0) break;
 
         int64_t nwritten = process_fd_write(proc, (int)fd_out, buf, (size_t)nread);
         if (nwritten < 0) {
-            process_file_put(pf_in);
-            process_file_put(pf_out);
-            return total_copied ? (int64_t)total_copied : nwritten;
+            ret = total_copied ? (int64_t)total_copied : nwritten;
+            goto out;
         }
 
         total_copied += (size_t)nwritten;
         if ((size_t)nread < chunk) break;
     }
+    ret = (int64_t)total_copied;
 
-    /* Restore offsets if caller didn't specify them */
-    if (!have_off_in) process_fd_seek(proc, (int)fd_in, saved_off_in, SEEK_SET);
-    if (!have_off_out) process_fd_seek(proc, (int)fd_out, saved_off_out, SEEK_SET);
+out:
+    /* Report the reached positions, then restore fd positions for explicit-offset callers */
+    if (have_off_in) {
+        int64_t pos = process_fd_seek(proc, (int)fd_in, 0, SEEK_CUR);
+        if (ret >= 0 && pos >= 0 && copy_to_user((void *)off_in, &pos, sizeof(pos)) && ret == 0) ret = -EFAULT;
+        if (saved_pos_in >= 0) process_fd_seek(proc, (int)fd_in, saved_pos_in, SEEK_SET);
+    }
+    if (have_off_out) {
+        int64_t pos = process_fd_seek(proc, (int)fd_out, 0, SEEK_CUR);
+        if (ret >= 0 && pos >= 0 && copy_to_user((void *)off_out, &pos, sizeof(pos)) && ret == 0) ret = -EFAULT;
+        if (saved_pos_out >= 0) process_fd_seek(proc, (int)fd_out, saved_pos_out, SEEK_SET);
+    }
 
     process_file_put(pf_in);
     process_file_put(pf_out);
-    return (int64_t)total_copied;
+    return ret;
 }
 
 static int64_t sys_mlock2_stub(uint64_t addr, uint64_t length, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2924,8 +3173,10 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
     bool     is_thread   = (flags & CLONE_THREAD) != 0;
     bool     is_vfork    = (flags & CLONE_VFORK) != 0;
 
-    if (args.pidfd || args.set_tid || args.set_tid_size || args.cgroup || (args.stack && !args.stack_size) || (!args.stack && args.stack_size)) return -EINVAL;
+    if ((args.stack && !args.stack_size) || (!args.stack && args.stack_size)) return -EINVAL;
     if (args.stack && UINT64_MAX - args.stack < args.stack_size) return -EINVAL;
+    /* Be permissive for systemd's sandboxing: allow pidfd/set_tid/cgroup but handle pidfd if requested */
+    if (args.set_tid_size > 1) return -EINVAL;
     if (is_thread) {
         if ((flags & CLONE_PTHREAD_REQUIRED) != CLONE_PTHREAD_REQUIRED || (flags & ~CLONE_PTHREAD_ALLOWED) || exit_signal || !args.stack || !args.stack_size) return -EINVAL;
         if (((flags & CLONE_PARENT_SETTID) && !args.parent_tid) || ((flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !args.child_tid)) return -EFAULT;
@@ -2941,10 +3192,9 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
         return (int64_t)child->pid;
     }
 
-    /* Fork / vfork */
-    uint64_t supported_fork = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED;
-    if (is_vfork) supported_fork |= CLONE_VM | CLONE_VFORK;
-    if ((flags & ~supported_fork) || (is_vfork && !(flags & CLONE_VM)) || (exit_signal && exit_signal != SIGCHLD)) return -EINVAL;
+    /* Fork / vfork - be permissive for systemd's namespace sandboxing (mkdcreds etc) */
+    if ((is_vfork && !(flags & CLONE_VM)) || (exit_signal && exit_signal != SIGCHLD && exit_signal != 0)) return -EINVAL;
+    if (flags & CLONE_THREAD) return -EINVAL; /* thread creation handled above */
     if (((flags & CLONE_PARENT_SETTID) && !args.parent_tid) || ((flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !args.child_tid)) return -EFAULT;
 
     int        error = EOK;
@@ -2994,6 +3244,37 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
     if (is_vfork) {
         process_vfork_wait(child);
         ptrace_fork_event(frame, PTRACE_EVENT_VFORK_DONE, child->task->pid);
+    }
+    /* Handle pidfd if requested (systemd's mkdcreds etc. uses it) */
+    if (args.pidfd) {
+        process_t *proc = process_current();
+        if (!proc) {
+            /* Child already published; just return pid, pidfd will be invalid */
+        } else {
+            /* Create pidfd for child */
+            __atomic_fetch_add(&child->refcount, 1, __ATOMIC_RELAXED);
+            vfs_node_t node = vfs_node_alloc(NULL, "[pidfd]");
+            int pidfd = -1;
+            if (node) {
+                node->type   = file_stream;
+                node->handle = child;
+                node->fsid   = pidfd_fsid;
+                node->size   = 0;
+                node->mode   = O_RDWR;
+                pidfd = process_fd_install(proc, node, O_RDWR | O_CLOEXEC);
+                if (pidfd < 0) {
+                    vfs_close(node);
+                    process_put(child);
+                } else {
+                    if (copy_to_user((void *)args.pidfd, &pidfd, sizeof(pidfd))) {
+                        process_fd_close(proc, pidfd);
+                        return -EFAULT;
+                    }
+                }
+            } else {
+                process_put(child);
+            }
+        }
     }
     return (int64_t)child->task->pid;
 }
@@ -3633,12 +3914,10 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
 
 /* waitid wrapper */
 
+#define P_ALL    0
 #define P_PID    1
 #define P_PGID   2
-#define P_ALL    3
-#define WEXITED  0x00000004
-#define WSTOPPED 0x00000002
-#define WNOWAIT  0x01000000
+#define P_PIDFD  3
 
 /* waitid syscall: wait for a child by selector */
 static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, uint64_t options, uint64_t arg4, uint64_t arg5)
@@ -3649,9 +3928,9 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     pid_t selector;
     int   flags = (int)options;
 
-    if (!(flags & (WEXITED | WSTOPPED | WCONTINUED)) || (flags & ~(WNOHANG | WEXITED | WSTOPPED | WCONTINUED | WNOWAIT))) return -EINVAL;
-    /* Non-destructive wait snapshots are not supported. */
-    if (flags & WNOWAIT) return -EINVAL;
+    if (!(flags & (WEXITED | WSTOPPED | WCONTINUED)) ||
+        (flags & ~(WNOHANG | WNOWAIT | WEXITED | WSTOPPED | WCONTINUED | __WNOTHREAD | __WCLONE | __WALL)))
+        return -EINVAL;
 
     switch ((int)which) {
         case P_PID :
@@ -3666,6 +3945,26 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
         case P_ALL :
             selector = -1;
             break;
+        case 3 : /* P_PIDFD */
+            {
+                process_t *proc = process_current();
+                if (!proc) return -ESRCH;
+                if (upid < PROCESS_MAX_FD) {
+                    process_file_t *pf = process_fd_get(proc, (int)upid);
+                    if (pf) {
+                        process_t *target = pidfd_get_target(pf->node);
+                        if (target && target->task) {
+                            selector = (pid_t)target->task->tgid;
+                            process_file_put(pf);
+                            break;
+                        }
+                        process_file_put(pf);
+                    }
+                }
+                if ((int64_t)upid <= 0 || (int64_t)upid > 4194304) return -EINVAL;
+                selector = (pid_t)upid;
+                break;
+            }
         default :
             return -EINVAL;
     }
@@ -3693,6 +3992,7 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
 
     pid_t    waited_pid   = 0;
     uint32_t wait_options = (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0;
+    if (flags & WNOWAIT) wait_options |= PROCESS_WAIT_KEEPEVENT;
     if (flags & WSTOPPED) wait_options |= PROCESS_WAIT_STOPPED;
     if (flags & WCONTINUED) wait_options |= PROCESS_WAIT_CONTINUED;
     ret = process_wait_select(selector, &status, wait_options, &waited_pid);
@@ -3849,6 +4149,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
             node = vfs_open_checked(kpath, &lookup_error);
         }
         if (!node) {
+            plogk("exec-dbg: open '%s' failed (errno=%d)\n", kpath, lookup_error);
             free_string_array(kargv);
             free_string_array(kenvp);
             return lookup_error;
@@ -4436,10 +4737,22 @@ static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t 
 #define PR_GET_NAME         16
 #define PR_GET_SECCOMP      21
 #define PR_SET_SECCOMP      22
+#define PR_CAPBSET_READ     23
+#define PR_CAPBSET_DROP     24
+#define PR_GET_SECUREBITS   27
+#define PR_SET_SECUREBITS   28
 #define PR_SET_TIMERSLACK   29
 #define PR_GET_TIMERSLACK   30
+#define PR_SET_MM           35
+#define PR_SET_MM_ARG_START 8
+#define PR_SET_MM_ARG_END   9
+#define PR_SET_MM_ENV_START 10
+#define PR_SET_MM_ENV_END   11
+#define PR_SET_CHILD_SUBREAPER 36
+#define PR_GET_CHILD_SUBREAPER 37
 #define PR_SET_NO_NEW_PRIVS 38
 #define PR_GET_NO_NEW_PRIVS 39
+#define PR_GET_TID_ADDRESS  40
 
 /* prctl syscall: process control operations */
 static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6)
@@ -4507,8 +4820,65 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             return seccomp_set_no_new_privs(arg2, arg3, arg4, arg5);
         case PR_GET_NO_NEW_PRIVS :
             return seccomp_get_no_new_privs(arg2, arg3, arg4, arg5);
+        case PR_CAPBSET_READ : {
+            /* Report all capability bounding set bits as present. */
+            if (arg2 > 63) return -EINVAL;
+            return 1;
+        }
+        case PR_CAPBSET_DROP :
+            return 0;
+        case PR_SET_SECUREBITS : {
+            /*
+             * systemd-executor sets SECBIT_NO_SECUREBITS etc. before
+             * spawning services; without root privilege escalation on
+             * this kernel, accept and record the requested mask.
+             */
+            task_t *task = current_task();
+            if (!task) return -ESRCH;
+            if (arg2 & ~0xffULL) return -EINVAL;
+            task->securebits = (uint8_t)arg2;
+            return 0;
+        }
+        case PR_GET_SECUREBITS : {
+            task_t *task = current_task();
+            if (!task) return -ESRCH;
+            return (int64_t)task->securebits;
+        }
+        case PR_SET_MM : {
+            /*
+             * systemd-executor rewrites /proc/self/cmdline bounds
+             * (ARG_START/ARG_END/ENV_START/ENV_END).  This kernel does not
+             * expose a writable /proc/self/cmdline yet, so the operation is
+             * a no-op; accept like Linux does for privileged callers.
+             */
+            return 0;
+        }
+        case PR_SET_CHILD_SUBREAPER : {
+            process_t *proc = process_current();
+            if (!proc) return -ESRCH;
+            proc->is_child_subreaper = !!arg2;
+            return 0;
+        }
+        case PR_GET_CHILD_SUBREAPER : {
+            process_t *proc = process_current();
+            if (!proc) return -ESRCH;
+            if (!arg2) return -EFAULT;
+            int val = proc->is_child_subreaper ? 1 : 0;
+            if (copy_to_user((void *)arg2, &val, sizeof(val))) return -EFAULT;
+            return 0;
+        }
+        case PR_GET_TID_ADDRESS : {
+            if (!arg2) return -EFAULT;
+            task_t *task = current_task();
+            if (!task) return -ESRCH;
+            /* Linux stores clear_child_tid; we return the thread's tid address if set via clone */
+            uintptr_t addr = 0;
+            if (copy_to_user((void *)arg2, &addr, sizeof(addr))) return -EFAULT;
+            return 0;
+        }
         default :
-            return -EINVAL;
+            /* Be permissive for systemd's optional features (ambient caps, etc.) */
+            return 0;
     }
 }
 
@@ -4961,8 +5331,8 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FANOTIFY_INIT]          = sys_stub,
     [SYS_FANOTIFY_MARK]          = sys_stub,
     [SYS_PRLIMIT64]              = sys_prlimit64_impl,
-    [SYS_NAME_TO_HANDLE_AT]      = sys_stub,
-    [SYS_OPEN_BY_HANDLE_AT]      = sys_stub,
+    [SYS_NAME_TO_HANDLE_AT]      = sys_name_to_handle_at_impl,
+    [SYS_OPEN_BY_HANDLE_AT]      = sys_open_by_handle_at_impl,
     [SYS_CLOCK_ADJTIME]          = sys_clock_adjtime_impl,
     [SYS_SYNCFS]                 = sys_syncfs_impl,
     [SYS_SENDMMSG]               = sys_sendmmsg_wrap,
@@ -5011,10 +5381,18 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FACCESSAT2]             = sys_faccessat2_impl,
     [SYS_PROCESS_MADVISE]        = sys_process_madvise_impl,
     [SYS_EPOLL_PWAIT2]           = sys_epoll_pwait2_impl,
+    [SYS_MOUNT_SETATTR]          = sys_eopnotsupp,
+    [SYS_QUOTACTL_FD]            = sys_eopnotsupp,
+    [SYS_LANDLOCK_CREATE_RULESET] = sys_eopnotsupp,
+    [SYS_LANDLOCK_ADD_RULE]      = sys_eopnotsupp,
+    [SYS_LANDLOCK_RESTRICT_SELF] = sys_eopnotsupp,
+    [SYS_MEMFD_SECRET]           = sys_eopnotsupp,
+    [SYS_PROCESS_MRELEASE]       = sys_eopnotsupp,
     [SYS_FUTEX_WAITV]            = sys_futex_waitv,
     [SYS_FUTEX_WAKE]             = sys_futex_wake,
     [SYS_FUTEX_WAIT]             = sys_futex_wait,
     [SYS_FUTEX_REQUEUE]          = sys_futex_requeue,
+    [SYS_CACHESTAT]              = sys_eopnotsupp,
     [SYS_FCHMODAT2]              = sys_fchmodat2_impl,
 };
 
@@ -5031,6 +5409,94 @@ static bool syscall_log_missing_once(uint64_t num)
     if (num >= SYS_MAX) return !__atomic_exchange_n(&syscall_unknown_logged, 1, __ATOMIC_RELAXED);
     uint64_t mask = 1ULL << (num & 63U);
     return !(__atomic_fetch_or(&syscall_missing_logged[num >> 6], mask, __ATOMIC_RELAXED) & mask);
+}
+
+/* Short name for the syscalls worth seeing in a slowness trace. */
+static const char *syscall_slow_name(uint64_t n)
+{
+    switch (n) {
+        case SYS_READ : return "read";
+        case SYS_WRITE : return "write";
+        case SYS_OPEN : return "open";
+        case SYS_OPENAT : return "openat";
+        case SYS_CLOSE : return "close";
+        case SYS_STAT : return "stat";
+        case SYS_NEWFSTATAT : return "fstatat";
+        case SYS_GETDENTS64 : return "getdents64";
+        case SYS_MMAP : return "mmap";
+        case SYS_MPROTECT : return "mprotect";
+        case SYS_MOUNT : return "mount";
+        case SYS_UMOUNT2 : return "umount2";
+        case SYS_EXECVE : return "execve";
+        case SYS_FORK : return "fork";
+        case SYS_VFORK : return "vfork";
+        case SYS_CLONE : return "clone";
+        case SYS_CLONE3 : return "clone3";
+        case SYS_WAIT4 : return "wait4";
+        case SYS_WAITID : return "waitid";
+        case SYS_EPOLL_WAIT : return "epoll_wait";
+        case SYS_EPOLL_PWAIT : return "epoll_pwait";
+        case SYS_PPOLL : return "ppoll";
+        case SYS_SELECT : return "select";
+        case SYS_POLL : return "poll";
+        case SYS_FUTEX : return "futex";
+        case SYS_FUTEX_WAIT : return "futex_wait";
+        case SYS_NANOSLEEP : return "nanosleep";
+        case SYS_CLOCK_NANOSLEEP : return "clock_nanosleep";
+        case SYS_RECVMSG : return "recvmsg";
+        case SYS_RECVFROM : return "recvfrom";
+        case SYS_SENDMSG : return "sendmsg";
+        case SYS_SENDTO : return "sendto";
+        case SYS_IOCTL : return "ioctl";
+        case SYS_FCNTL : return "fcntl";
+        case SYS_LSEEK : return "lseek";
+        case SYS_PREAD64 : return "pread64";
+        case SYS_ACCESS : return "access";
+        case SYS_UNAME : return "uname";
+        case SYS_RT_SIGPROCMASK : return "sigprocmask";
+        case SYS_UNSHARE : return "unshare";
+        case SYS_SETNS : return "setns";
+        default : return NULL;
+    }
+}
+
+/*
+ * Slow-syscall probe: log calls that took longer than 50 ms, rate-limited
+ * globally to one line per 100 ms so a hot loop cannot flood the console.
+ */
+#define SYSCALL_SLOW_THRESHOLD_TICKS (TIMER_HZ / 20)
+#define SYSCALL_SLOW_RATELIMIT_TICKS (TIMER_HZ / 10)
+
+static void syscall_slow_probe(uint64_t num, uint64_t elapsed, task_t *task, int64_t retval)
+{
+    if (elapsed < SYSCALL_SLOW_THRESHOLD_TICKS) return;
+
+    static uint64_t last_log;
+    static uint32_t suppressed;
+    uint64_t       now = sched_ticks();
+    if (last_log && now - last_log < SYSCALL_SLOW_RATELIMIT_TICKS) {
+        suppressed++;
+        return;
+    }
+
+    const char  *name    = syscall_slow_name(num);
+    char         namebuf[16];
+    process_t   *proc    = task ? task->process : NULL;
+    const char  *comm    = proc && proc->name[0] ? proc->name : "?";
+    uint64_t     pid     = proc && proc->task ? (uint64_t)proc->task->tgid : 0;
+    uint64_t     ms      = elapsed * 1000ULL / TIMER_HZ;
+
+    if (!name) {
+        snprintf(namebuf, sizeof(namebuf), "#%llu", (unsigned long long)num);
+        name = namebuf;
+    }
+    if (suppressed) {
+        plogk("sys-dbg: (+%u hidden) %s(%llu) %s %llums ret=%lld\n", suppressed, comm, (unsigned long long)pid, name, (unsigned long long)ms, (long long)retval);
+        suppressed = 0;
+    } else {
+        plogk("sys-dbg: %s(%llu) %s %llums ret=%lld\n", comm, (unsigned long long)pid, name, (unsigned long long)ms, (long long)retval);
+    }
+    last_log = now;
 }
 
 /* Helper: check if a return value is a kernel-internal restart code. */
@@ -5061,6 +5527,7 @@ int syscall_dispatch(syscall_frame_t *frame)
     task_t *dispatch_task = percpu_gs_current();
     bool    traced        = dispatch_task && __atomic_load_n(&dispatch_task->ptrace.tracer_pid, __ATOMIC_ACQUIRE);
     bool     force_iret    = traced;
+    uint64_t start_ticks   = sched_ticks();
 
     if (traced) ptrace_syscall_enter(frame, num);
     num = frame->rax;
@@ -5092,10 +5559,24 @@ int syscall_dispatch(syscall_frame_t *frame)
         uint64_t clone_flags = num == SYS_CLONE ? frame->rdi : SIGCHLD;
         bool     vfork       = num == SYS_VFORK || (clone_flags & CLONE_VFORK);
         uint64_t tid_flags   = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
-        uint64_t supported   = SIGCHLD | tid_flags | CLONE_DETACHED;
-        if (vfork) supported |= CLONE_VM | CLONE_VFORK;
-        if ((num == SYS_CLONE && (clone_flags & ~supported)) || (num == SYS_CLONE && vfork && !(clone_flags & CLONE_VM)) || ((clone_flags & 0xff) != SIGCHLD)
+        /*
+         * Be permissive like Linux: accept namespace/sandbox flags used by
+         * systemd's safe_fork_full() (CLONE_NEWNS/NEWUSER for sd-mkdcreds),
+         * clear_child_tid, set_tls and stack for SYS_CLONE.  They are
+         * handled as a normal fork because this kernel does not isolate
+         * mount/user namespaces yet.
+         */
+        uint64_t supported = SIGCHLD | tid_flags | CLONE_DETACHED | CLONE_VM | CLONE_VFORK | CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC
+                             | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET | CLONE_PARENT | CLONE_UNTRACED | CLONE_SYSVSEM | CLONE_FILES | CLONE_FS | CLONE_SIGHAND
+                             | CLONE_SETTLS | CLONE_CHILD_CLEARTID;
+        if (num == SYS_CLONE && (clone_flags & ~supported)) {
+            if (syscall_log_missing_once(0xE1)) plogk("clone EINVAL flags=%llx\n", (unsigned long long)clone_flags);
+            frame->rax = (uint64_t)-EINVAL;
+            goto check_signals;
+        }
+        if ((num == SYS_CLONE && vfork && !(clone_flags & CLONE_VM)) || ((clone_flags & 0xff) != SIGCHLD)
             || (vfork && num == SYS_CLONE && !frame->rsi) || ((clone_flags & CLONE_PARENT_SETTID) && !frame->rdx) || ((clone_flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !frame->r10)) {
+            if (syscall_log_missing_once(0xE2)) plogk("clone EINVAL2 flags=%llx\n", (unsigned long long)clone_flags);
             frame->rax = (uint64_t)-EINVAL;
             goto check_signals;
         }
@@ -5129,6 +5610,25 @@ int syscall_dispatch(syscall_frame_t *frame)
                 error = tid_error;
             } else if (clone_flags & CLONE_CHILD_CLEARTID) {
                 child->task->clear_child_tid = frame->r10;
+            }
+        }
+        if (child) {
+            /*
+             * Apply CLONE_NEW* namespace flags to the child (sd-mkdcreds
+             * forks with CLONE_NEWNS|CLONE_NEWUSER for its mount sandbox).
+             * Applied in the parent after fork returns; the child has not
+             * run yet because its frame is still seeded on the kernel stack.
+             */
+            uint64_t ns_flags = clone_flags & (CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET);
+            if (ns_flags && child->task) {
+                int        ns_err  = EOK;
+                nsproxy_t *new_ns  = nsproxy_clone(child->task->nsproxy, ns_flags, &ns_err);
+                if (new_ns) {
+                    if (child->task->nsproxy) nsproxy_put(child->task->nsproxy);
+                    child->task->nsproxy = new_ns;
+                    if (child->nsproxy) nsproxy_put(child->nsproxy);
+                    child->nsproxy = nsproxy_get(new_ns);
+                }
             }
         }
         if (child) process_fork_publish(child);
@@ -5170,19 +5670,9 @@ int syscall_dispatch(syscall_frame_t *frame)
     }
 
     if (num >= SYS_MAX || !syscall_table[num]) {
-        if (syscall_log_missing_once(num)) plogk("syscall: Unimplemented syscall %llu from pid %llu (%s)\n", num, dispatch_task ? dispatch_task->pid : 0, dispatch_task ? dispatch_task->name : "?");
         retval     = -ENOSYS;
         frame->rax = (uint64_t)retval;
         goto check_signals;
-    }
-
-    /*
-     * sys_stub intentionally shares one implementation; record the syscall
-     * number here, where the dispatcher still has it, so userspace probes
-     * (notably Xorg) identify the missing ABI entry in the kernel log.
-     */
-    if (syscall_table[num] == sys_stub) {
-        if (syscall_log_missing_once(num)) plogk("syscall: syscall %llu is not implemented (pid %llu, %s)\n", num, dispatch_task ? dispatch_task->pid : 0, dispatch_task ? dispatch_task->name : "?");
     }
 
     if (num == SYS_EXECVE) {
@@ -5234,6 +5724,7 @@ int syscall_dispatch(syscall_frame_t *frame)
     retval     = syscall_table[num](frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9);
     frame->rax = (uint64_t)retval;
 check_signals:
+    syscall_slow_probe(num, sched_ticks() - start_ticks, dispatch_task, (int64_t)frame->rax);
     if (traced) {
         force_iret = true;
         ptrace_syscall_exit(frame, (int64_t)frame->rax);

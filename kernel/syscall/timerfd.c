@@ -408,14 +408,17 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         process_file_put(file);
         return -EFAULT;
     }
-    if (flags & TFD_TIMER_CANCEL_ON_SET) {
+    if (flags & ~(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET)) {
         process_file_put(file);
         return -EINVAL;
     }
-    if ((flags & ~TFD_TIMER_ABSTIME) || ((flags & TFD_TIMER_ABSTIME) && ctx->clockid == CLOCK_REALTIME)) {
-        process_file_put(file);
-        return -EINVAL;
-    }
+    /*
+     * Linux allows any combination of ABSTIME and CANCEL_ON_SET on either
+     * clock (systemd's time-change source uses ABSTIME|CANCEL_ON_SET on
+     * CLOCK_REALTIME armed to a far-future expiry so it only fires on a
+     * clock jump).  CANCEL_ON_SET timers are simply armed normally here;
+     * without clock jumps they stay pending exactly as callers expect.
+     */
 
     timerfd_itimerspec_t new_its;
     if (copy_from_user(&new_its, new_value, sizeof(new_its))) {
@@ -425,9 +428,24 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
 
     uint64_t interval_ns;
     uint64_t value_ns;
-    if (timerfd_timespec_to_ns(&new_its.it_interval, &interval_ns) || timerfd_timespec_to_ns(&new_its.it_value, &value_ns)) {
+    int      rc = timerfd_timespec_to_ns(&new_its.it_interval, &interval_ns);
+    if (rc) {
         process_file_put(file);
-        return -EINVAL;
+        return rc;
+    }
+    rc = timerfd_timespec_to_ns(&new_its.it_value, &value_ns);
+    if (rc == -EINVAL && (flags & TFD_TIMER_ABSTIME)) {
+        /*
+         * Far-future absolute arms (systemd uses it_value = TIME_T_MAX-1
+         * for its clock-change watchdog) overflow the ns scalar although
+         * Linux accepts them by keeping the sec/nsec pair unnormalized.
+         * Clamp instead of rejecting; the deadline then sits beyond any
+         * reachable clock value, which is exactly the caller's intent.
+         */
+        value_ns = UINT64_MAX;
+    } else if (rc) {
+        process_file_put(file);
+        return rc;
     }
 
     spin_lock(&ctx->lock);

@@ -20,7 +20,7 @@
 #include <syscall/fcntl.h>
 
 #define INOTIFY_EVENT_MASK  (IN_ALL_EVENTS | IN_UNMOUNT | IN_Q_OVERFLOW | IN_IGNORED)
-#define INOTIFY_WATCH_FLAGS (IN_ONLYDIR | IN_DONT_FOLLOW | IN_EXCL_UNLINK | IN_MASK_CREATE | IN_MASK_ADD | IN_ONESHOT)
+#define INOTIFY_WATCH_FLAGS (IN_ONLYDIR | IN_DONT_FOLLOW | IN_EXCL_UNLINK | IN_MASK_CREATE | IN_MASK_ADD | IN_ISDIR | IN_ONESHOT)
 
 typedef struct inotify_watch {
         inotify_watch_t *next;
@@ -524,7 +524,7 @@ static int32_t inotify_allocate_wd(inotify_context_t *context)
 int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
 {
     if (!pathname) return -EFAULT;
-    if (!(mask & IN_ALL_EVENTS) || (mask & ~(INOTIFY_EVENT_MASK | INOTIFY_WATCH_FLAGS))) return -EINVAL;
+    if (!(mask & (INOTIFY_EVENT_MASK | INOTIFY_WATCH_FLAGS)) || (mask & ~(INOTIFY_EVENT_MASK | INOTIFY_WATCH_FLAGS))) return -EINVAL;
     if ((mask & (IN_MASK_ADD | IN_MASK_CREATE)) == (IN_MASK_ADD | IN_MASK_CREATE)) return -EINVAL;
 
     char path[VFS_PATH_MAX];

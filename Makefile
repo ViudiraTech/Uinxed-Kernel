@@ -36,7 +36,7 @@ HOST_CC        := $(CC)
 HOST_CFLAGS    := -Wall -Wextra -O2
 
 QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
+QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio -m 1G
 
 TOOL_C_SOURCES := $(wildcard tools/*.c)
 TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%.elf)
@@ -73,6 +73,7 @@ Uinxed-x64.iso: info UxImage
 	$(Q)printf "  XORRISO $@\n\n"
 	$(Q)cp -a assets/Limine iso
 	$(Q)cp $(word 2,$^) iso/EFI/Boot
+	$(Q)if [ -f initramfs.cpio ]; then cp initramfs.cpio iso/; echo "  INITRD  initramfs.cpio"; fi
 	$(Q)xorriso -as mkisofs -R -r -J -b Limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
                 -hfsplus -apm-block-size 2048 -efi-boot-part --efi-boot-image --protective-msdos-label \
                 --efi-boot Limine/limine-uefi-cd.bin -o $@ iso

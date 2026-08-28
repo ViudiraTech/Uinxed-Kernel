@@ -453,11 +453,26 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     if (!vma) return -ENOMEM;
     vma->start = mmap_addr;
     vma->end   = mmap_addr + pages;
-    vma->flags = vm_flags | VM_LAZY;
+    vma->flags = vm_flags | VM_LAZY | VM_ANON;
     vma->type  = VM_REGION_MMAP;
     if (vm_area_insert(proc, vma)) {
         free(vma);
         return -ENOMEM;
+    }
+
+    /* MAP_POPULATE: eager-fill with transparent huge pages where possible */
+    if (flags & MAP_POPULATE) {
+        int populate_rc = EOK;
+        for (uintptr_t va = mmap_addr; va < mmap_addr + pages; va += PAGE_2M_SIZE) {
+            uintptr_t window = MIN(PAGE_2M_SIZE, (uintptr_t)mmap_addr + pages - va);
+            for (uintptr_t off = 0; off < window; off += PAGE_4K_SIZE) {
+                if (process_demand_fault(proc, va + off, (vm_flags & VM_WRITE) ? 1 : 0, (vm_flags & VM_EXEC) ? 1 : 0) != 0) {
+                    /* best-effort: continue on partial failure */
+                    break;
+                }
+            }
+        }
+        (void)populate_rc;
     }
 vma_done:
     return (int64_t)mmap_addr;

@@ -186,6 +186,8 @@ typedef struct nlmsgerr {
 #define NETLINK_NO_ENOBUFS      5
 #define NETLINK_LISTEN_ALL_NSID 8
 #define NETLINK_CAP_ACK         10
+#define NETLINK_EXT_ACK         11
+#define NETLINK_GET_STRICT_CHK  12
 
 typedef struct nl_pktinfo {
         uint32_t group;
@@ -273,11 +275,17 @@ int netlink_has_listeners(uint32_t protocol, uint32_t group);
 
 struct socket;
 
+/* One-shot diagnostic: report the site returning -EINVAL to userspace. */
+void netlink_einval_trace(const char *where, long a, long b);
+
 /* Allocate and initialise a new netlink socket */
 struct socket *netlink_sock_alloc(uint32_t protocol);
 
 /* Netlink-specific bind */
 int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen);
+
+/* Netlink-specific connect */
+int netlink_connect(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen);
 
 int netlink_getsockname(struct socket *sk, sockaddr_nl_t *addr);
 

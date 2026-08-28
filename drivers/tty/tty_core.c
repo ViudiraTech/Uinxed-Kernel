@@ -874,6 +874,8 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             }
             return 0;
         }
+        case 0x4B4E : /* KDSIGACCEPT */
+            return 0;
         default :
             return -ENOTTY;
     }

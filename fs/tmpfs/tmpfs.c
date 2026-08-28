@@ -701,6 +701,17 @@ void tmpfs_regist(void)
     devtmpfs_id = vfs_regist_fs_flags("devtmpfs", &tmpfs_callbacks, VFS_FS_NODEV);
     if (!(devtmpfs_id & ERRNO_MASK)) plogk("devtmpfs: Filesystem registered (fsid=%d)\n", devtmpfs_id);
     if (devtmpfs_id & ERRNO_MASK) plogk("devtmpfs: Register error.\n");
+
+    /* Virtual filesystems that systemd expects to mount. They are all
+     * memory-backed and can be backed by tmpfs for the purposes of
+     * providing a mount point. Register them as distinct types so
+     * `mount -t securityfs` etc succeeds and shows the correct type in
+     * /proc/filesystems and /proc/mounts. */
+    const char *virt_fs[] = {"securityfs", "selinuxfs", "bpf", "bpffs", "debugfs", "tracefs", "hugetlbfs", "mqueue", "fusectl", "configfs", "binfmt_misc", "autofs", "efivarfs", "ramfs", "devpts", "pstore", "cgroup", "nsfs", "overlay", "fuse"};
+    for (size_t i = 0; i < sizeof(virt_fs) / sizeof(virt_fs[0]); i++) {
+        int id = vfs_regist_fs_flags(virt_fs[i], &tmpfs_callbacks, VFS_FS_NODEV);
+        if (id & ERRNO_MASK) plogk("tmpfs: alias %s register failed\n", virt_fs[i]);
+    }
 }
 
 /* Bind device operations to a tmpfs file node. */

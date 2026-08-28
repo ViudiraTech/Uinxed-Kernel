@@ -31,7 +31,28 @@
 
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
+static page_huge_stats_t page_huge_stats;
 static void       page_enable_global_tlb(void);
+
+void page_huge_get_stats(page_huge_stats_t *stats)
+{
+    if (!stats) return;
+    stats->mapped_2m   = __atomic_load_n(&page_huge_stats.mapped_2m, __ATOMIC_RELAXED);
+    stats->faults_2m   = __atomic_load_n(&page_huge_stats.faults_2m, __ATOMIC_RELAXED);
+    stats->fallback_2m = __atomic_load_n(&page_huge_stats.fallback_2m, __ATOMIC_RELAXED);
+    stats->splits_2m  = __atomic_load_n(&page_huge_stats.splits_2m, __ATOMIC_RELAXED);
+}
+
+void page_huge_stat_fault(void)
+{
+    __atomic_fetch_add(&page_huge_stats.faults_2m, 1, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&page_huge_stats.mapped_2m, 1, __ATOMIC_RELAXED);
+}
+
+void page_huge_stat_fallback(void)
+{
+    __atomic_fetch_add(&page_huge_stats.fallback_2m, 1, __ATOMIC_RELAXED);
+}
 
 /* directory->lock serializes updates; procfs reads the counter locklessly. */
 static void page_resident_add_locked(page_directory_t *directory, uint64_t pages)
@@ -1094,6 +1115,29 @@ retry_swap:
     flush_tlb_all();
     int result = frame_release_range(leaf.value & leaf.mask, leaf.frame_count);
     return result;
+}
+
+int page_map_new_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
+{
+    if (!directory || !directory->table || !frame || (addr & (PAGE_2M_SIZE - 1)) || (frame & (PAGE_2M_SIZE - 1))) return -1;
+    if (((addr >> 39) & 0x1ff) >= 256) return -1;
+    spin_lock(&directory->lock);
+    uint64_t l4_index = (addr >> 39) & 0x1ff;
+    uint64_t l3_index = (addr >> 30) & 0x1ff;
+    uint64_t l2_index = (addr >> 21) & 0x1ff;
+    page_table_t *l4 = directory->table;
+    page_table_t *l3 = page_table_create(&l4->entries[l4_index]);
+    page_table_t *l2 = l3 ? page_table_create(&l3->entries[l3_index]) : NULL;
+    if (!l2 || (l2->entries[l2_index].value & PTE_PRESENT)) {
+        spin_unlock(&directory->lock);
+        return -1;
+    }
+    uint64_t value = (frame & PAGE_2M_MASK) | flags | PTE_HUGE;
+    l2->entries[l2_index].value = value;
+    page_resident_transition_locked(directory, addr, 0, value, PAGE_2M_SIZE / PAGE_4K_SIZE);
+    flush_tlb(addr);
+    spin_unlock(&directory->lock);
+    return 0;
 }
 
 /* Maps a virtual address to a physical frame using 2MB huge pages */

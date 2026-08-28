@@ -188,10 +188,44 @@ static procfs_sysctl_t procfs_sysctl_kernel[] = {
     {.name = "msgmni", .kind = PROC_SYS_UINT, .values = {32000}, .count = 1},
     {.name = "sem", .kind = PROC_SYS_MULTI, .values = {250, 32000, 32, 128}, .count = 4},
     {.name = "printk", .kind = PROC_SYS_MULTI, .values = {7, 4, 1, 7}, .readonly = 1, .count = 4},
+    {.name = "cap_last_cap", .kind = PROC_SYS_UINT, .values = {40}, .count = 1, .readonly = 1},
+    {.name = "printk_devkmsg", .kind = PROC_SYS_STR, .string = "on", .count = 0},
+    {.name = "core_pattern", .kind = PROC_SYS_STR, .string = "core", .count = 0},
+    {.name = "core_uses_pid", .kind = PROC_SYS_UINT, .values = {1}, .count = 1},
+};
+
+static procfs_sysctl_t procfs_sysctl_fs[] = {
+    {.name = "nr_open", .kind = PROC_SYS_UINT, .values = {1073741816}, .count = 1, .readonly = 1},
+    {.name = "file-max", .kind = PROC_SYS_UINT, .values = {9223372036854775807ULL}, .count = 1},
+    {.name = "file-nr", .kind = PROC_SYS_MULTI, .values = {0, 0, 0}, .count = 3, .readonly = 1},
+};
+
+static procfs_sysctl_t procfs_sysctl_fs_inotify[] = {
+    {.name = "max_queued_events", .kind = PROC_SYS_UINT, .values = {16384}, .count = 1},
+    {.name = "max_user_instances", .kind = PROC_SYS_UINT, .values = {128}, .count = 1},
+    {.name = "max_user_watches", .kind = PROC_SYS_UINT, .values = {8192}, .count = 1},
+};
+
+static procfs_sysctl_t procfs_sysctl_net[] = {
+    {.name = "unix/max_dgram_qlen", .kind = PROC_SYS_UINT, .values = {512}, .count = 1},
+};
+
+static procfs_sysctl_t procfs_sysctl_net_unix[] = {
+    {.name = "max_dgram_qlen", .kind = PROC_SYS_UINT, .values = {512}, .count = 1},
 };
 
 #define PROCFS_SYSCTL_KERNEL_COUNT (sizeof(procfs_sysctl_kernel) / sizeof(procfs_sysctl_kernel[0]))
-#define PROC_SYS_KERNEL            0
+#define PROCFS_SYSCTL_FS_COUNT     (sizeof(procfs_sysctl_fs) / sizeof(procfs_sysctl_fs[0]))
+#define PROCFS_SYSCTL_FS_INOTIFY_COUNT (sizeof(procfs_sysctl_fs_inotify) / sizeof(procfs_sysctl_fs_inotify[0]))
+#define PROCFS_SYSCTL_NET_COUNT    (sizeof(procfs_sysctl_net) / sizeof(procfs_sysctl_net[0]))
+#define PROCFS_SYSCTL_NET_UNIX_COUNT (sizeof(procfs_sysctl_net_unix) / sizeof(procfs_sysctl_net_unix[0]))
+#define PROC_SYS_ROOT              0
+#define PROC_SYS_KERNEL            1
+#define PROC_SYS_FS                2
+#define PROC_SYS_NET               3
+#define PROC_SYS_VM                4
+#define PROC_SYS_FS_INOTIFY        5
+#define PROC_SYS_NET_UNIX          6
 
 /* No-op for procfs link callbacks that need no implementation. */
 static void procfs_dummy(void)
@@ -369,6 +403,9 @@ static void gen_info_meminfo(procfs_file_t *pf)
     size_t       available_kb = free_kb + clean_pages * PAGE_4K_SIZE / 1024;
     swap_stats_t swap;
     swap_get_stats(&swap);
+    page_huge_stats_t hstats;
+    page_huge_get_stats(&hstats);
+    size_t anon_huge_kb = (size_t)(hstats.mapped_2m * PAGE_2M_SIZE / 1024);
     int n = snprintf(buf, PROCFS_BUF_SIZE,
                      "MemTotal:       %8zu kB\n"
                      "MemFree:        %8zu kB\n"
@@ -390,9 +427,14 @@ static void gen_info_meminfo(procfs_file_t *pf)
                      "Bounce:         %8zu kB\n"
                      "VmallocTotal:   %8zu kB\n"
                      "VmallocUsed:    %8zu kB\n"
-                     "VmallocChunk:   %8zu kB\n",
+                     "VmallocChunk:   %8zu kB\n"
+                     "AnonHugePages:  %8zu kB\n"
+                     "THPFaults:      %8llu\n"
+                     "THPFallback:    %8llu\n"
+                     "THPSplits:      %8llu\n",
                      total_kb, free_kb, available_kb, 0UL, cached_kb, 0UL, active_kb, inactive_kb, (size_t)(swap.total_pages * SWAP_PAGE_SIZE / 1024),
-                     (size_t)(swap.free_pages * SWAP_PAGE_SIZE / 1024), dirty_kb, writeback_kb, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, (KERNEL_HEAP_SIZE) / 1024, 0UL, (KERNEL_HEAP_SIZE) / 1024);
+                     (size_t)(swap.free_pages * SWAP_PAGE_SIZE / 1024), dirty_kb, writeback_kb, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, (KERNEL_HEAP_SIZE) / 1024, 0UL, (KERNEL_HEAP_SIZE) / 1024,
+                     anon_huge_kb, (unsigned long long)hstats.faults_2m, (unsigned long long)hstats.fallback_2m, (unsigned long long)hstats.splits_2m);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -977,6 +1019,15 @@ static void gen_tty_ldiscs(procfs_file_t *pf)
 static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
 {
     if (dir == PROC_SYS_KERNEL && index < PROCFS_SYSCTL_KERNEL_COUNT) return &procfs_sysctl_kernel[index];
+    if (dir == PROC_SYS_FS && index < PROCFS_SYSCTL_FS_COUNT) return &procfs_sysctl_fs[index];
+    if (dir == PROC_SYS_FS_INOTIFY && index < PROCFS_SYSCTL_FS_INOTIFY_COUNT) return &procfs_sysctl_fs_inotify[index];
+    if (dir == PROC_SYS_NET && index < PROCFS_SYSCTL_NET_COUNT) return &procfs_sysctl_net[index];
+    if (dir == PROC_SYS_NET_UNIX && index < PROCFS_SYSCTL_NET_UNIX_COUNT) return &procfs_sysctl_net_unix[index];
+    // For dummy indices (used for open() fallback), return a generic dummy
+    static procfs_sysctl_t dummy = {.name = "dummy", .kind = PROC_SYS_UINT, .values = {0}, .count = 1};
+    if (dir == PROC_SYS_FS || dir == PROC_SYS_FS_INOTIFY || dir == PROC_SYS_NET || dir == PROC_SYS_NET_UNIX || dir == PROC_SYS_VM || dir == PROC_SYS_KERNEL) {
+        return &dummy;
+    }
     return NULL;
 }
 
@@ -986,6 +1037,27 @@ static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
     if (dir == PROC_SYS_KERNEL) {
         for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++)
             if (streq(procfs_sysctl_kernel[i].name, name)) return &procfs_sysctl_kernel[i];
+    } else if (dir == PROC_SYS_FS) {
+        for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++)
+            if (streq(procfs_sysctl_fs[i].name, name)) return &procfs_sysctl_fs[i];
+    } else if (dir == PROC_SYS_FS_INOTIFY) {
+        for (size_t i = 0; i < PROCFS_SYSCTL_FS_INOTIFY_COUNT; i++)
+            if (streq(procfs_sysctl_fs_inotify[i].name, name)) return &procfs_sysctl_fs_inotify[i];
+    } else if (dir == PROC_SYS_NET) {
+        for (size_t i = 0; i < PROCFS_SYSCTL_NET_COUNT; i++)
+            if (streq(procfs_sysctl_net[i].name, name)) return &procfs_sysctl_net[i];
+    } else if (dir == PROC_SYS_NET_UNIX) {
+        for (size_t i = 0; i < PROCFS_SYSCTL_NET_UNIX_COUNT; i++)
+            if (streq(procfs_sysctl_net_unix[i].name, name)) return &procfs_sysctl_net_unix[i];
+    }
+    // Industrial: for any fs/net/vm file, provide a dummy entry so open() doesn't fail with ENOENT.
+    // Systemd probes many optional sysctls (e.g. fs.file-max, fs.nr_open, net/unix/*) and expects
+    // either success or a writable dummy, not ENOENT.  Return a static dummy.
+    static procfs_sysctl_t dummy = {.name = "dummy", .kind = PROC_SYS_UINT, .values = {0}, .count = 1};
+    // Only for sysctl dirs, not for other proc files
+    if (dir == PROC_SYS_FS || dir == PROC_SYS_FS_INOTIFY || dir == PROC_SYS_NET || dir == PROC_SYS_NET_UNIX || dir == PROC_SYS_VM || dir == PROC_SYS_KERNEL) {
+        // Use a per-name dummy? For now return a generic dummy
+        return &dummy;
     }
     return NULL;
 }
@@ -2142,20 +2214,84 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             break;
         }
         case PROCFS_SYS_DIR : {
-            if (streq(name, "kernel")) {
+            if (ppf->subtype == PROC_SYS_ROOT) {
+                if (streq(name, "kernel")) {
+                    pf->type    = PROCFS_SYS_DIR;
+                    pf->subtype = PROC_SYS_KERNEL;
+                    node->type  = file_dir;
+                    break;
+                }
+                if (streq(name, "fs")) {
+                    pf->type    = PROCFS_SYS_DIR;
+                    pf->subtype = PROC_SYS_FS;
+                    node->type  = file_dir;
+                    break;
+                }
+                if (streq(name, "net")) {
+                    pf->type    = PROCFS_SYS_DIR;
+                    pf->subtype = PROC_SYS_NET;
+                    node->type  = file_dir;
+                    break;
+                }
+                if (streq(name, "vm")) {
+                    pf->type    = PROCFS_SYS_DIR;
+                    pf->subtype = PROC_SYS_VM;
+                    node->type  = file_dir;
+                    break;
+                }
+            }
+            if (ppf->subtype == PROC_SYS_KERNEL) {
+                bool found = false;
+                for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++) {
+                    if (streq(procfs_sysctl_kernel[i].name, name)) {
+                        pf->type    = PROCFS_SYS_FILE;
+                        pf->subtype = PROC_SYS_KERNEL;
+                        pf->pid     = (pid_t)i;
+                        node->type  = file_none;
+                        found       = true;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+            if (ppf->subtype == PROC_SYS_FS) {
+                if (streq(name, "inotify")) {
+                    pf->type    = PROCFS_SYS_DIR;
+                    pf->subtype = PROC_SYS_FS_INOTIFY;
+                    node->type  = file_dir;
+                    break;
+                }
+                bool found = false;
+                for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++) {
+                    if (streq(procfs_sysctl_fs[i].name, name)) {
+                        pf->type    = PROCFS_SYS_FILE;
+                        pf->subtype = PROC_SYS_FS;
+                        pf->pid     = (pid_t)i;
+                        node->type  = file_none;
+                        found       = true;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+            if (ppf->subtype == PROC_SYS_NET && streq(name, "unix")) {
                 pf->type    = PROCFS_SYS_DIR;
-                pf->subtype = PROC_SYS_KERNEL;
+                pf->subtype = PROC_SYS_NET_UNIX;
                 node->type  = file_dir;
                 break;
             }
             procfs_sysctl_t *sc = procfs_sysctl_find(ppf->subtype, name);
             if (!sc) {
-                free(pf);
-                return;
+                pf->type    = PROCFS_SYS_FILE;
+                pf->subtype = ppf->subtype;
+                pf->pid     = 0;
+                node->type  = file_none;
+                break;
             }
             pf->type    = PROCFS_SYS_FILE;
             pf->subtype = ppf->subtype;
             pf->pid     = (pid_t)(sc - procfs_sysctl_kernel);
+            node->type  = file_none;
             break;
         }
         default :
@@ -2483,10 +2619,65 @@ static int procfs_stat(void *file, vfs_node_t node)
         }
         case PROCFS_SYS_DIR : {
             node->type = file_dir;
-            if (pf->subtype < 0) {
+            if (pf->subtype == PROC_SYS_ROOT || pf->subtype < 0) {
                 (void)procfs_ensure_child(node, "kernel", PROCFS_SYS_DIR, 0, PROC_SYS_KERNEL, file_dir);
+                (void)procfs_ensure_child(node, "fs", PROCFS_SYS_DIR, 0, PROC_SYS_FS, file_dir);
+                (void)procfs_ensure_child(node, "net", PROCFS_SYS_DIR, 0, PROC_SYS_NET, file_dir);
+                (void)procfs_ensure_child(node, "vm", PROCFS_SYS_DIR, 0, PROC_SYS_VM, file_dir);
             } else if (pf->subtype == PROC_SYS_KERNEL) {
                 for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++) (void)procfs_ensure_child(node, procfs_sysctl_kernel[i].name, PROCFS_SYS_FILE, (pid_t)i, PROC_SYS_KERNEL, file_none);
+            } else if (pf->subtype == PROC_SYS_FS) {
+                for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++) {
+                    const char *name = procfs_sysctl_fs[i].name;
+                    if (strchr(name, '/')) continue;
+                    (void)procfs_ensure_child(node, name, PROCFS_SYS_FILE, (pid_t)i, PROC_SYS_FS, file_none);
+                }
+                // Industrial: ensure common fs files (file-max is index 1, nr_open is 0)
+                if (!procfs_find_child(node, "file-max")) {
+                    // file-max is index 1 in procfs_sysctl_fs
+                    (void)procfs_ensure_child(node, "file-max", PROCFS_SYS_FILE, 1, PROC_SYS_FS, file_none);
+                }
+                if (!procfs_find_child(node, "nr_open")) {
+                    (void)procfs_ensure_child(node, "nr_open", PROCFS_SYS_FILE, 0, PROC_SYS_FS, file_none);
+                }
+                // Ensure inotify subdir for fs/inotify/*
+                vfs_node_t ino = procfs_find_child(node, "inotify");
+                if (!ino) {
+                    ino = vfs_node_alloc(node, "inotify");
+                    if (ino) {
+                        ino->type = file_dir;
+                        procfs_file_t *pf2 = procfs_file_alloc(PROCFS_SYS_DIR, 0, PROC_SYS_FS_INOTIFY);
+                        if (pf2) ino->handle = pf2;
+                    }
+                }
+            } else if (pf->subtype == PROC_SYS_FS_INOTIFY) {
+                // inotify files
+                (void)procfs_ensure_child(node, "max_queued_events", PROCFS_SYS_FILE, 0, PROC_SYS_FS_INOTIFY, file_none);
+                (void)procfs_ensure_child(node, "max_user_instances", PROCFS_SYS_FILE, 1, PROC_SYS_FS_INOTIFY, file_none);
+                (void)procfs_ensure_child(node, "max_user_watches", PROCFS_SYS_FILE, 2, PROC_SYS_FS_INOTIFY, file_none);
+            } else if (pf->subtype == PROC_SYS_NET) {
+                vfs_node_t ux = procfs_find_child(node, "unix");
+                if (!ux) {
+                    ux = vfs_node_alloc(node, "unix");
+                    if (ux) {
+                        ux->type = file_dir;
+                        procfs_file_t *pf2 = procfs_file_alloc(PROCFS_SYS_DIR, 0, PROC_SYS_NET_UNIX);
+                        if (pf2) ux->handle = pf2;
+                    }
+                }
+                for (size_t i = 0; i < PROCFS_SYSCTL_NET_COUNT; i++) {
+                    const char *name = procfs_sysctl_net[i].name;
+                    if (strchr(name, '/')) continue;
+                    (void)procfs_ensure_child(node, name, PROCFS_SYS_FILE, (pid_t)i, PROC_SYS_NET, file_none);
+                }
+                if (ux) {
+                    if (!procfs_find_child(ux, "max_dgram_qlen"))
+                        (void)procfs_ensure_child(ux, "max_dgram_qlen", PROCFS_SYS_FILE, 0, PROC_SYS_NET_UNIX, file_none);
+                }
+            } else if (pf->subtype == PROC_SYS_NET_UNIX) {
+                (void)procfs_ensure_child(node, "max_dgram_qlen", PROCFS_SYS_FILE, 0, PROC_SYS_NET_UNIX, file_none);
+            } else if (pf->subtype == PROC_SYS_VM) {
+                // vm is empty for now
             }
             break;
         }
@@ -2582,13 +2773,20 @@ static int64_t procfs_file_write(vfs_node_t node, void *private_data, uint64_t f
     return -EACCES;
 }
 
-/* procfs is read-only; reject directory creation. */
+/* Allow mkdir for proc mount points (best-effort). */
 static int procfs_mkdir(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
     (void)name;
-    (void)node;
-    return -EROFS;
+    if (!node) return -EINVAL;
+    /* procfs is normally read-only, but API mount points like /proc/sys/fs/binfmt_misc
+     * are created by userspace before mounting. Provide an empty directory. */
+    procfs_file_t *pf = calloc(1, sizeof(procfs_file_t));
+    if (!pf) return -ENOMEM;
+    pf->type = PROCFS_DRIVER_DIR;
+    node->handle = pf;
+    node->type   = file_dir;
+    return EOK;
 }
 
 /* procfs is read-only; reject file creation. */

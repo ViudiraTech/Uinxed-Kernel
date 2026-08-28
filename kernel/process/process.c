@@ -2205,7 +2205,7 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
     if (waited_pid) *waited_pid = 0;
     if (!init_process) return -ECHILD;
     if (selector == INT64_MIN) return -ESRCH;
-    if (options & ~(PROCESS_WAIT_NOHANG | PROCESS_WAIT_STOPPED | PROCESS_WAIT_CONTINUED)) return -EINVAL;
+    if (options & ~(PROCESS_WAIT_NOHANG | PROCESS_WAIT_STOPPED | PROCESS_WAIT_CONTINUED | PROCESS_WAIT_KEEPEVENT)) return -EINVAL;
 
     process_t *parent = process_current();
     if (!parent) return -ECHILD;
@@ -2231,21 +2231,34 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
                 break;
             }
             if ((options & PROCESS_WAIT_STOPPED) && child->wait_stop_pending) {
-                event                    = child;
-                event_status             = ((child->wait_stop_signal & 0xff) << 8) | 0x7f;
-                child->wait_stop_pending = false;
+                event        = child;
+                event_status = ((child->wait_stop_signal & 0xff) << 8) | 0x7f;
+                if (!(options & PROCESS_WAIT_KEEPEVENT)) child->wait_stop_pending = false;
                 break;
             }
             if ((options & PROCESS_WAIT_CONTINUED) && child->wait_continue_pending) {
-                event                        = child;
-                event_status                 = 0xffff;
-                child->wait_continue_pending = false;
+                event        = child;
+                event_status = 0xffff;
+                if (!(options & PROCESS_WAIT_KEEPEVENT)) child->wait_continue_pending = false;
                 break;
             }
         }
 
         if (event) {
             pid_t event_pid = (pid_t)event->task->tgid;
+
+            /*
+             * WNOWAIT: leave the stop/continue event pending so a later
+             * wait can still consume it.
+             */
+            if (options & PROCESS_WAIT_KEEPEVENT) {
+                spin_unlock(&process_table_lock);
+                spin_unlock(&parent->child_wait.lock);
+                if (wait_status) *wait_status = event_status;
+                if (waited_pid) *waited_pid = event_pid;
+                return EOK;
+            }
+
             spin_unlock(&process_table_lock);
             spin_unlock(&parent->child_wait.lock);
             if (wait_status) *wait_status = event_status;
@@ -2256,6 +2269,21 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
         if (zombie) {
             pid_t reaped_pid = (pid_t)zombie->task->tgid;
             int   status     = process_wait_status(zombie);
+
+            if (options & PROCESS_WAIT_KEEPEVENT) {
+                /*
+                 * WNOWAIT: report the state without reaping.  The child
+                 * stays in the children list as a zombie (or keeps its
+                 * pending stop/continue event) so a later wait can still
+                 * collect it.
+                 */
+                spin_unlock(&process_table_lock);
+                spin_unlock(&parent->child_wait.lock);
+                if (wait_status) *wait_status = status;
+                if (waited_pid) *waited_pid = reaped_pid;
+                return EOK;
+            }
+
             pid_set_locked(reaped_pid, NULL);
             slist_remove(&parent->children, zombie);
             zombie->parent = NULL;
@@ -2480,6 +2508,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         copy->vm_pagecache    = vma->vm_pagecache;
 
         if (vma->vm_file && !copy->vm_file) {
+            plogk("fork-dbg: '%s' vm_file retain failed at %#lx-%#lx (node FINALIZING)\n", parent->name, (unsigned long)vma->start, (unsigned long)vma->end);
             free(copy);
             if (error) *error = -ENOENT;
             process_free(child);
@@ -2740,6 +2769,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
     size_t pages = bytes / PAGE_4K_SIZE;
     if (pages > SIZE_MAX / sizeof(uint64_t)) return 1;
 
+    flags |= VM_ANON;
     vm_area_t *vma = vm_area_alloc(addr, addr + bytes, flags);
     if (!vma) return 1;
 
@@ -2757,11 +2787,18 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
             return 1;
         }
         vma->type = VM_REGION_MMAP;
-        if (previous) {
+        if (previous && previous->end == addr && previous->flags == flags && !previous->vm_file && !previous->vm_private_data) {
+            previous->end = addr + bytes;
+            free(vma);
+        } else if (cursor && cursor->start == addr + bytes && cursor->flags == flags && !cursor->vm_file && !cursor->vm_private_data) {
+            cursor->start = addr;
+            cursor->vm_pgoff = 0;
+            free(vma);
+        } else if (previous) {
             vma->next      = previous->next;
             previous->next = vma;
         } else {
-            vma->next       = proc->mmap_list;
+            vma->next      = proc->mmap_list;
             proc->mmap_list = vma;
         }
         spin_unlock(&proc->mmap_lock);
@@ -2846,6 +2883,22 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     if (!proc || !proc->user_page_dir || !proc->user_page_dir->table) return -1;
     uintptr_t page = ALIGN_DOWN(addr, PAGE_4K_SIZE);
 
+    /*
+     * pf-dbg: aggregate demand-fault counter.  A boot that pages in a large
+     * image 4 KiB at a time through the VFS shows up as a huge count here
+     * while every individual syscall stays under the slow-probe threshold.
+     */
+    {
+        static uint64_t pf_count;
+        static uint64_t pf_last_log;
+        pf_count++;
+        if (pf_count >= 10000 && sched_ticks() - pf_last_log >= 2 * TIMER_HZ) {
+            plogk("pf-dbg: %llu demand faults so far (last: %s %s%s @%#llx)\n", (unsigned long long)pf_count, proc->name, write ? "w" : "", exec ? "x" : "r",
+                  (unsigned long long)addr);
+            pf_last_log = sched_ticks();
+        }
+    }
+
     spin_lock(&proc->mmap_lock);
     vm_area_t *vma = proc->mmap_list;
     while (vma && vma->end <= page) vma = vma->next;
@@ -2867,6 +2920,50 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
 
     /* Reclaim before allocating data/page-table frames, with mmap_lock free. */
     frame_reclaim_if_needed(4);
+
+    /*
+     * Transparent huge-page promotion for anonymous mappings: a single 2 MiB
+     * leaf covers 512 demand faults, cutting PF rate by two orders of magnitude
+     * while preserving COW semantics via PTE_COW.
+     */
+    if (!vm_file && !pagecache && (flags & VM_ANON)) {
+        uintptr_t hbase = ALIGN_DOWN(page, PAGE_2M_SIZE);
+        uintptr_t hend  = hbase + PAGE_2M_SIZE;
+        if (hbase >= vma_start && hend <= vma->end
+            && page_count_present_range(proc->user_page_dir, hbase, hend) == 0) {
+            uint64_t hframe = alloc_frames_2M(1);
+            if (hframe) {
+                memset(phys_to_virt(hframe), 0, PAGE_2M_SIZE);
+                bool   try_shared = (flags & VM_SHARED) != 0;
+                bool   try_exec   = (flags & VM_EXEC)   != 0;
+                uint64_t pte_huge = PTE_USER | PTE_PRESENT | PTE_WRITEABLE | (try_shared ? PTE_SHARED : 0) | (try_exec ? 0 : PTE_NO_EXECUTE) | PTE_COW;
+                /*
+                 * Re-validate under mmap_lock: another thread may have mapped
+                 * into the 2 MiB window (fork, madvise, etc.).
+                 */
+                spin_lock(&proc->mmap_lock);
+                vm_area_t *recheck = proc->mmap_list;
+                while (recheck && recheck->end <= hbase) recheck = recheck->next;
+                bool valid = recheck && recheck->start <= hbase && recheck->end >= hend
+                             && recheck->flags == flags && !recheck->vm_file && !recheck->vm_pagecache;
+                if (valid) {
+                    valid = page_count_present_range(proc->user_page_dir, hbase, hend) == 0;
+                }
+                if (valid) {
+                    int rc = page_map_new_to_2M(proc->user_page_dir, hbase, hframe, pte_huge);
+                    if (rc == 0) {
+                        page_huge_stat_fault();
+                        spin_unlock(&proc->mmap_lock);
+                        return 0;
+                    }
+                    /* Atomic fall-back: release the frame and retry 4 KiB path. */
+                    (void)frame_release_range(hframe, PAGE_2M_SIZE / PAGE_4K_SIZE);
+                }
+                spin_unlock(&proc->mmap_lock);
+                page_huge_stat_fallback();
+            }
+        }
+    }
 
     uint64_t frame = 0;
     size_t   index = page - vma_start;

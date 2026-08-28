@@ -63,6 +63,20 @@ typedef struct nl_mcast_table {
 
 static nl_mcast_table_t nl_mcast[NL_PROTO_MAX];
 
+/*
+ * nl-dbg: one-shot tracer for every -EINVAL the netlink layer returns.
+ * Userspace logs a bare "Invalid argument"; these probes name the exact
+ * rejection site and its arguments.
+ */
+void netlink_einval_trace(const char *where, long a, long b)
+{
+    static uint32_t seen[64];
+    size_t        slot = ((uintptr_t)where >> 4) & 63U;
+    if (__atomic_exchange_n(&seen[slot], 1u, __ATOMIC_RELAXED)) return;
+    plogk("nl-dbg: EINVAL at %s (a=%#lx b=%#lx)\n", where, (unsigned long)a, (unsigned long)b);
+}
+
+
 /* Auto-assigned port ID counter */
 
 static uint32_t   nl_pid_counter;
@@ -675,17 +689,27 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
 {
     nl_sock_t *ns;
 
-    if (!sk || !addr) return -EINVAL;
-    if (addrlen < sizeof(sockaddr_nl_t)) return -EINVAL;
+    if (!sk || !addr) {
+        netlink_einval_trace("bind:null", (long)sk, (long)addr);
+        return -EINVAL;
+    }
+    if (addrlen < sizeof(uint16_t)) {
+        netlink_einval_trace("bind:short-addrlen", addrlen, 0);
+        return -EINVAL;
+    }
     if (addr->nl_family != AF_NETLINK) return -EAFNOSUPPORT;
 
     ns = nl_sk(sk);
-    if (!ns) return -EINVAL;
+    if (!ns) {
+        netlink_einval_trace("bind:no-priv", (long)sk, 0);
+        return -EINVAL;
+    }
 
     spin_lock(&sk->lock);
 
     if (ns->nl_bound) {
         spin_unlock(&sk->lock);
+        netlink_einval_trace("bind:already-bound", ns->nl_pid, ns->nl_protocol);
         return -EINVAL; // already bound
     }
 
@@ -716,6 +740,37 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
     ns->nl_bound = 1;
     spin_unlock(&sk->lock);
 
+    return EOK;
+}
+
+/* Connect a netlink socket: validate destination and auto-bind if unbound. */
+int netlink_connect(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
+{
+    nl_sock_t *ns;
+
+    if (!sk || !addr) {
+        netlink_einval_trace("conn:null", (long)sk, (long)addr);
+        return -EINVAL;
+    }
+    if (addrlen < sizeof(uint16_t)) {
+        netlink_einval_trace("conn:short-addrlen", addrlen, 0);
+        return -EINVAL;
+    }
+    if (addr->nl_family != AF_NETLINK && addr->nl_family != 0 /* AF_UNSPEC */) return -EAFNOSUPPORT;
+
+    ns = nl_sk(sk);
+    if (!ns) {
+        netlink_einval_trace("conn:no-priv", (long)sk, 0);
+        return -EINVAL;
+    }
+
+    spin_lock(&sk->lock);
+    if (!ns->nl_bound) {
+        spin_unlock(&sk->lock);
+        sockaddr_nl_t local = {.nl_family = AF_NETLINK, .nl_pid = 0, .nl_groups = 0};
+        return netlink_bind(sk, &local, sizeof(local));
+    }
+    spin_unlock(&sk->lock);
     return EOK;
 }
 
@@ -837,11 +892,16 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
 
     (void)flags;
 
-    if (!sk || !buf) return -EINVAL;
-    if (!len || len > UINT32_MAX) return -EMSGSIZE;
+    if (!sk || !buf) {
+        netlink_einval_trace("send:null", (long)sk, (long)buf);
+        return -EINVAL;
+    }
 
     ns = nl_sk(sk);
-    if (!ns) return -EINVAL;
+    if (!ns) {
+        netlink_einval_trace("send:no-priv", (long)sk, 0);
+        return -EINVAL;
+    }
 
     if (!ns->nl_bound) {
         sockaddr_nl_t local = {.nl_family = AF_NETLINK};
@@ -849,7 +909,10 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         if (ret) return ret;
     }
 
-    if (addr && (addrlen < sizeof(sockaddr_nl_t) || addr->nl_family != AF_NETLINK)) return -EINVAL;
+    if (addr && (addrlen < sizeof(sockaddr_nl_t) || addr->nl_family != AF_NETLINK)) {
+        netlink_einval_trace("send:bad-addr", addrlen, addr->nl_family);
+        return -EINVAL;
+    }
 
     /*
      * NETLINK_KOBJECT_UEVENT deliberately does not carry nlmsghdr.  A
@@ -913,12 +976,21 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         return (ret >= 0 || ret == -ESRCH) ? (int)len : ret;
     }
 
-    if (len < NLMSG_HDRLEN) return -EINVAL;
+    if (len < NLMSG_HDRLEN) {
+        netlink_einval_trace("send:short-msg", (long)len, 0);
+        return -EINVAL;
+    }
     nlmsghdr_t *nlh = (nlmsghdr_t *)buf;
 
     /* Validate the header */
-    if (nlh->nlmsg_len < NLMSG_HDRLEN) return -EINVAL;
-    if (nlh->nlmsg_len > len) return -EINVAL;
+    if (nlh->nlmsg_len < NLMSG_HDRLEN) {
+        netlink_einval_trace("send:bad-hdrlen", nlh->nlmsg_len, (long)len);
+        return -EINVAL;
+    }
+    if (nlh->nlmsg_len > len) {
+        netlink_einval_trace("send:hdrlen>len", nlh->nlmsg_len, (long)len);
+        return -EINVAL;
+    }
 
     uint32_t nlhdr_len = nlh->nlmsg_len;
 
@@ -942,7 +1014,17 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
                 }
                 return (int)len;
             }
-            return (int)nlhdr_len;
+            size_t offset = 0;
+            while (offset < len) {
+                nlmsghdr_t *request   = (nlmsghdr_t *)((uint8_t *)buf + offset);
+                size_t      remaining = len - offset;
+                if (!NLMSG_OK(request, remaining)) break;
+                if ((request->nlmsg_flags & NLM_F_ACK) || ns->nl_protocol == NETLINK_AUDIT) {
+                    rtnl_queue_error(sk, request, 0);
+                }
+                offset += NLMSG_ALIGN(request->nlmsg_len);
+            }
+            return (int)len;
         }
 
         dest_sk = nl_mcast_find_by_pid(ns->nl_protocol, dest_pid);
@@ -968,7 +1050,17 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
             }
             return (int)len;
         }
-        return (int)nlhdr_len;
+        size_t offset = 0;
+        while (offset < len) {
+            nlmsghdr_t *request   = (nlmsghdr_t *)((uint8_t *)buf + offset);
+            size_t      remaining = len - offset;
+            if (!NLMSG_OK(request, remaining)) break;
+            if ((request->nlmsg_flags & NLM_F_ACK) || ns->nl_protocol == NETLINK_AUDIT) {
+                rtnl_queue_error(sk, request, 0);
+            }
+            offset += NLMSG_ALIGN(request->nlmsg_len);
+        }
+        return (int)len;
     }
 
     return (int)nlhdr_len;
@@ -1143,9 +1235,15 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
 
     switch (optname) {
         case NETLINK_ADD_MEMBERSHIP : {
-            if (optlen < sizeof(int)) return -EINVAL;
+            if (optlen < sizeof(int)) {
+                netlink_einval_trace("setsockopt:add-membership-optlen", optlen, optname);
+                return -EINVAL;
+            }
             if (copy_from_user(&ival, optval, sizeof(int))) return -EFAULT;
-            if (ival <= 0 || ival > 32) return -EINVAL;
+            if (ival <= 0 || ival > 32) {
+                netlink_einval_trace("setsockopt:add-membership-group", ival, optname);
+                return -EINVAL;
+            }
 
             spin_lock(&sk->lock);
             uint32_t groups = ns->nl_groups | (1U << (uint32_t)(ival - 1));
@@ -1180,6 +1278,9 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
             spin_unlock(&sk->lock);
             return EOK;
         case NETLINK_CAP_ACK :
+        case NETLINK_EXT_ACK :
+        case NETLINK_GET_STRICT_CHK :
+        case NETLINK_LISTEN_ALL_NSID :
             /* Accept but ignore */
             return EOK;
         default :

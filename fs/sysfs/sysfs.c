@@ -736,13 +736,19 @@ static size_t sysfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t 
     return actual;
 }
 
-/* sysfs is read-only; reject directory creation. */
+/* Allow mkdir for API mount points (e.g. /sys/kernel/security). */
 static int sysfs_mkdir(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
     (void)name;
-    (void)node;
-    return -EROFS;
+    if (!node) return -EINVAL;
+    sysfs_node_t *sn = sysfs_node_alloc(SYSFS_DIR);
+    if (!sn) return -ENOMEM;
+    /* No backing kobject – plain VFS directory for a future mount. */
+    sn->kobj = NULL;
+    node->handle = sn;
+    node->type   = file_dir;
+    return EOK;
 }
 
 /* sysfs is read-only; reject file creation. */
@@ -1616,6 +1622,15 @@ int sysfs_kobject_init(void)
             ret = -ENOMEM;
             goto err_children;
         }
+    }
+    /* systemd expects /sys/kernel/security to exist as a mount point for
+     * securityfs. Create it as a child of the kernel kobject so that
+     * mkdir("/sys/kernel/security") succeeds with -EEXIST rather than -EROFS,
+     * and the subsequent mount can be stubbed to tmpfs. */
+    struct kobject *kernel_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "kernel");
+    if (kernel_kobj && !kobject_create_and_add("security", kernel_kobj)) {
+        ret = -ENOMEM;
+        goto err_children;
     }
 
     /*

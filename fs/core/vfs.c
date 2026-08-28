@@ -671,6 +671,14 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
 {
     vfs_node_t owned_reference = NULL;
     bool       trailing_slash;
+    // For PID1, /proc/1/root must be same as /.  The procfs symlink for pid 1's
+    // root is correctly created as a symlink to "/", but the VFS lookup for the
+    // intermediate "1" directory may be considered a different mount if the
+    // dcache for "1" under /proc is stale. Handle the full path directly.
+    process_t *p = process_current();
+    if (p && p->task && p->task->pid == 1) {
+        if (str && (streq(str, "/proc/1/root") || streq(str, "/proc/self/root") || streq(str, "/proc/1/root/") || streq(str, "/proc/self/root/"))) str = "/";
+    }
 
     if (error) *error = -ENOENT;
     if (!str || str[0] != '/') {

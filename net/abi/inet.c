@@ -960,12 +960,22 @@ static int core_setsockopt(void *context, int level, int option, const void *val
         case SO_BROADCAST :
             return EOK;
         case SO_SNDBUF :
+        case SO_SNDBUFFORCE :
             if (val <= 0) return -EINVAL;
             sock->sndbuf = (uint32_t)val > SOCK_BUF_MAX ? SOCK_BUF_MAX : (uint32_t)val;
             return EOK;
         case SO_RCVBUF :
+        case SO_RCVBUFFORCE :
             if (val <= 0) return -EINVAL;
             sock->rcvbuf = (uint32_t)val > SOCK_BUF_MAX ? SOCK_BUF_MAX : (uint32_t)val;
+            return EOK;
+        case SO_ATTACH_FILTER :
+        case SO_DETACH_FILTER :
+        case SO_BINDTODEVICE :
+        case SO_PASSSEC :
+        case SO_TIMESTAMP :
+        case SO_TIMESTAMPNS :
+        case SO_TIMESTAMPING :
             return EOK;
         default :
             return -ENOPROTOOPT;
@@ -1066,10 +1076,12 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
         val = sock->reuseaddr;
     else if (level == SOL_SOCKET && option == SO_KEEPALIVE)
         val = sock->keepalive;
-    else if (level == SOL_SOCKET && option == SO_SNDBUF)
+    else if (level == SOL_SOCKET && (option == SO_SNDBUF || option == SO_SNDBUFFORCE))
         val = (int)sock->sndbuf;
-    else if (level == SOL_SOCKET && option == SO_RCVBUF)
+    else if (level == SOL_SOCKET && (option == SO_RCVBUF || option == SO_RCVBUFFORCE))
         val = (int)sock->rcvbuf;
+    else if (level == SOL_SOCKET && option == SO_PASSSEC)
+        val = 0;
     else
         return -ENOPROTOOPT;
     if (*length < sizeof(int)) return -EINVAL;
