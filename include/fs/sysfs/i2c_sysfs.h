@@ -13,16 +13,19 @@
 
 struct i2c_adapter;
 
+#if CONFIG_I2C
+
 /* Register the "i2c" bus type and the "i2c-dev" class. */
 void i2c_sysfs_init(void);
 
-/*
- * Publish an adapter as /sys/bus/i2c/devices/i2c-N, /sys/class/i2c-dev/i2c-N
- * and /dev/i2c-N.  Called by i2c_add_adapter().
- */
+/* Publish an adapter as /sys/bus/i2c/devices/i2c-N, /sys/class/i2c-dev/i2c-N and /dev/i2c-N.  Called by i2c_add_adapter(). */
 int i2c_sysfs_adapter_add(struct i2c_adapter *adap);
 
 /* Undo i2c_sysfs_adapter_add().  Called by i2c_del_adapter(). */
 void i2c_sysfs_adapter_del(struct i2c_adapter *adap);
+
+#else
+static inline void i2c_sysfs_init(void) {}
+#endif
 
 #endif // INCLUDE_I2C_SYSFS_H_

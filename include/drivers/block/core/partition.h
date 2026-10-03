@@ -12,13 +12,22 @@
 #define INCLUDE_PARTITION_H_
 
 #include <drivers/block/core/blockdev.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 
-#define PARTITION_MAX_COUNT        255
 #define PARTITION_NAME_SIZE        128
 #define PARTITION_UUID_STRING_SIZE 37
+
+#define MBR_SIGNATURE_OFFSET 510
+#define MBR_DISK_ID_OFFSET   440
+#define MBR_PARTITION_OFFSET 446
+#define MBR_PARTITION_SIZE   16
+#define MBR_PARTITION_COUNT  4
+#define MBR_PROTECTIVE_TYPE  0xEE
+#define GPT_HEADER_SIZE      92
+#define GPT_PRIMARY_LBA      1
+#define GPT_NAME_CODE_UNITS  36
+#define GPT_READ_ONLY        (1ULL << 60)
+#define GPT_SIGNATURE        "EFI PART"
+#define GPT_REVISION_1_0     0x00010000U
 
 typedef enum partition_table_type {
     PARTITION_TABLE_NONE = 0,

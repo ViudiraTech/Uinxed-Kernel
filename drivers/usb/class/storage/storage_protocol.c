@@ -12,20 +12,21 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
+#include <libs/util/byteorder.h>
+
+#if CONFIG_USB_STORAGE && CONFIG_USB
 
 /* Read a big-endian 32-bit value from a SCSI response. */
 uint32_t usb_scsi_be32(const uint8_t *buffer)
 {
-    return (uint32_t)buffer[0] << 24 | (uint32_t)buffer[1] << 16 | (uint32_t)buffer[2] << 8 | buffer[3];
+    return load_be32(buffer);
 }
 
 /* Fill a Bulk-Only Transport command wrapper from a SCSI command. */
 int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length, uint32_t transfer_length, bool input)
 {
-    if (!cbw || !command || !command_length || command_length > sizeof(cbw->command) || lun > 15) {
-        plogk("usb-storage: build_cbw: invalid argument (command_length=%u, lun=%u)\n", (unsigned)command_length, (unsigned)lun);
-        return -EINVAL;
-    }
+    if (!cbw || !command || !command_length || command_length > sizeof(cbw->command) || lun > 15) return -EINVAL;
+
     memset(cbw, 0, sizeof(*cbw));
     cbw->signature       = USB_MSC_CBW_SIGNATURE;
     cbw->tag             = tag;
@@ -54,17 +55,17 @@ void usb_scsi_build_rw10(uint8_t command[10], bool write, uint32_t lba, uint16_t
 /* Decode a READ CAPACITY(10) response into sectors and block size. */
 int usb_scsi_parse_capacity10(const uint8_t response[8], uint64_t *sector_count, uint32_t *sector_size)
 {
-    if (!response || !sector_count || !sector_size) {
-        plogk("usb-storage: parse_capacity10: invalid argument.\n");
-        return -EINVAL;
-    }
+    if (!response || !sector_count || !sector_size) return -EINVAL;
+
     uint32_t last_lba   = usb_scsi_be32(response);
     uint32_t block_size = usb_scsi_be32(response + 4);
     if (!block_size || (block_size & (block_size - 1)) || block_size < 512 || block_size > 65536) {
-        plogk("usb-storage: parse_capacity10: invalid block size (block_size=%u, last_lba=%u)\n", (unsigned)block_size, (unsigned)last_lba);
+        plogk("usb-storage: parse_capacity10: invalid block size (block_size=%u, last_lba=%u)\n", block_size, last_lba);
         return -EINVAL;
     }
     *sector_count = (uint64_t)last_lba + 1;
     *sector_size  = block_size;
     return EOK;
 }
+
+#endif

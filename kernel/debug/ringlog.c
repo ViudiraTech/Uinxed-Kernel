@@ -22,23 +22,24 @@ static void log_buffer_init(log_buffer_t *log)
 }
 
 /* Write logs to the ring log buffer */
-void log_buffer_write(log_buffer_t *log, const char *fmt, ...)
+__attribute__((format(printf, 2, 3))) void log_buffer_write(log_buffer_t *log, const char *fmt, ...)
 {
     va_list args;
 
     if (!log->count && !log->head && !log->tail) log_buffer_init(log);
-    memset(log->logs[log->head], 0, LOG_MAX_LENGTH);
+    memset(log->logs[log->head], 0, CONFIG_LOG_MAX_LENGTH);
 
     va_start(args, fmt);
-    (void)vsnprintf(log->logs[log->head], LOG_MAX_LENGTH, fmt, args);
+    (void)vsnprintf(log->logs[log->head], CONFIG_LOG_MAX_LENGTH, fmt, args);
     va_end(args);
 
-    log->head = (log->head + 1) % LOG_BUFFER_SIZE;
+    log->head = (log->head + 1) % CONFIG_LOG_BUFFER_SIZE;
 
-    if (log->count == LOG_BUFFER_SIZE)
-        log->tail = (log->tail + 1) % LOG_BUFFER_SIZE;
-    else
+    if (log->count == CONFIG_LOG_BUFFER_SIZE) {
+        log->tail = (log->tail + 1) % CONFIG_LOG_BUFFER_SIZE;
+    } else {
         log->count++;
+    }
 }
 
 /* Printing ring log buffer */
@@ -48,6 +49,6 @@ void log_buffer_print(log_buffer_t *log)
 
     for (int i = 0; i < log->count; i++) {
         plogk("%s", log->logs[current]);
-        current = (current + 1) % LOG_BUFFER_SIZE;
+        current = (current + 1) % CONFIG_LOG_BUFFER_SIZE;
     }
 }

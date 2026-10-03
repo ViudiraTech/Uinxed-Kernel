@@ -12,6 +12,10 @@
 #define INCLUDE_KERNEL_SYSFS_H_
 
 /* Register /sys/kernel/{version,cmdline,hostname,...} attribute files. */
+#if CONFIG_SYSFS
 void kernel_sysfs_init(void);
+#else
+static inline void kernel_sysfs_init(void) {}
+#endif
 
 #endif // INCLUDE_KERNEL_SYSFS_H_

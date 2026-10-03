@@ -11,20 +11,15 @@
 #ifndef INCLUDE_RINGLOG_H_
 #define INCLUDE_RINGLOG_H_
 
-#include <libs/std/stddef.h>
-
-#define LOG_MAX_LENGTH  1024
-#define LOG_BUFFER_SIZE 32
-
 typedef struct {
-        char logs[LOG_BUFFER_SIZE][LOG_MAX_LENGTH];
+        char logs[CONFIG_LOG_BUFFER_SIZE][CONFIG_LOG_MAX_LENGTH];
         int  head;
         int  tail;
         int  count;
 } log_buffer_t;
 
 /* Write logs to the ring log buffer */
-void log_buffer_write(log_buffer_t *log, const char *fmt, ...);
+__attribute__((format(printf, 2, 3))) void log_buffer_write(log_buffer_t *log, const char *fmt, ...);
 
 /* Printing ring log buffer */
 void log_buffer_print(log_buffer_t *log);

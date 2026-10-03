@@ -10,26 +10,20 @@
 
 #include <drivers/base/device.h>
 #include <drivers/tty/tty_driver.h>
-#include <fs/sysfs/sysfs.h>
-#include <fs/sysfs/tty_sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 
-/* TTY class */
-
-static struct class tty_class = {
-    .name = "tty",
-};
+#if CONFIG_SYSFS
 
 typedef struct {
         struct class *cls;
         int           devices;
 } tty_sysfs_ctx_t;
+
+/* TTY class */
+static struct class tty_class = {
+    .name = "tty",
+};
 
 /* Publish one tty device under /sys/class/tty/. */
 static int tty_sysfs_add_device(tty_driver_t *drv, int index, const char *name, void *opaque)
@@ -37,14 +31,13 @@ static int tty_sysfs_add_device(tty_driver_t *drv, int index, const char *name, 
     tty_sysfs_ctx_t *ctx   = opaque;
     uint32_t         minor = drv->minor_start + (uint32_t)index;
 
-    if (device_create(ctx->cls, NULL, MKDEV(drv->major, minor), NULL, name)) ctx->devices++;
+    if (device_create(ctx->cls, NULL, MKDEV(drv->major, minor), NULL, "%s", name)) ctx->devices++;
     return 0;
 }
 
 /* Export every registered tty device to /sys/class/tty/. */
 void tty_sysfs_init(void)
 {
-#if CONFIG_SYSFS
     int             ret;
     tty_sysfs_ctx_t ctx;
 
@@ -62,5 +55,6 @@ void tty_sysfs_init(void)
     if (device_create(&tty_class, NULL, MKDEV(5, 2), NULL, "ptmx")) ctx.devices++;
 
     plogk("tty_sysfs: exported %d tty device(s) to /sys/class/tty\n", ctx.devices);
-#endif
 }
+
+#endif

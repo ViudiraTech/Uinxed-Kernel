@@ -13,8 +13,9 @@
 #include <drivers/block/ata/pata/ide.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
+#include <libs/util/byteorder.h>
+
+#if CONFIG_ATA
 
 /* ATAPI device instances */
 atapi_device_t atapi_devices[4];
@@ -26,13 +27,14 @@ static uint8_t atapi_wait_busy(uint8_t channel)
     int     timeout = 100000;
 
     for (int i = 0; i < 4; i++) ide_read(channel, ATA_REG_ALTSTATUS);
-
     while (timeout--) {
         status = ide_read(channel, ATA_REG_STATUS);
         if (!(status & ATA_SR_BSY)) return status;
         nsleep(100);
     }
-    plogk("atapi: BSY timeout on channel %u\n", channel);
+
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    if (ratelimit_allow(&ratelimit)) plogk("atapi: BSY timeout on channel %u\n", channel);
     return status;
 }
 
@@ -45,17 +47,21 @@ static uint8_t atapi_wait_drq(uint8_t channel)
     while (timeout--) {
         status = ide_read(channel, ATA_REG_STATUS);
         if (status & ATA_SR_ERR) {
-            plogk("atapi: ERR on channel %u\n", channel);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("atapi: ERR on channel %u\n", channel);
             return 2;
         }
         if (status & ATA_SR_DF) {
-            plogk("atapi: DF on channel %u\n", channel);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("atapi: DF on channel %u\n", channel);
             return 1;
         }
         if (!(status & ATA_SR_BSY) && (status & ATA_SR_DRQ)) return 0;
         nsleep(100);
     }
-    plogk("atapi: DRQ timeout on channel %u\n", channel);
+
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    if (ratelimit_allow(&ratelimit)) plogk("atapi: DRQ timeout on channel %u\n", channel);
     return 3;
 }
 
@@ -83,7 +89,6 @@ int atapi_cmd_type(uint8_t opcode)
 uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index)
 {
     int k;
-
     if (dev_index >= 4) return 0xff;
 
     /*
@@ -97,6 +102,7 @@ uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index)
     {
         uint8_t status;
         int     timeout = IDE_POLL_RETRY;
+
         while (timeout--) {
             status = ide_read(channel, ATA_REG_STATUS);
             if (status & ATA_SR_ERR) {
@@ -141,6 +147,7 @@ uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index)
         uint32_t lba     = 0;
         uint32_t bsz     = 0;
         uint8_t  cap_ret = atapi_read_capacity(dev_index, &lba, &bsz);
+
         if (cap_ret == 0) {
             atapi_devices[dev_index].lba_size = lba;
             atapi_devices[dev_index].blk_size = bsz;
@@ -148,6 +155,7 @@ uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index)
             /* Fallback: some devices may need retry after TEST UNIT READY */
             atapi_test_unit_ready(dev_index);
             nsleep(100000);
+
             cap_ret = atapi_read_capacity(dev_index, &lba, &bsz);
             if (cap_ret == 0) {
                 atapi_devices[dev_index].lba_size = lba;
@@ -198,7 +206,8 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
             nsleep(100);
         }
         if (tout <= 0) {
-            plogk("atapi: BSY stuck on ch%u drv%u before PACKET.\n", channel, slavebit);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("atapi: BSY stuck on ch%u drv%u before PACKET.\n", channel, slavebit);
             return 3;
         }
     }
@@ -215,7 +224,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         }
     }
 
-    /* Select device and disable IRQ - we use polling, not interrupts. */
+    /* Select device and disable IRQ; this path polls. */
     channels[channel].irq_pending = 0;
     channels[channel].nIEN        = 0x02;
     ide_write(channel, ATA_REG_CONTROL, 0x02);
@@ -252,7 +261,8 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
     {
         uint8_t ireason = ide_read(channel, ATA_REG_SECCOUNT0);
         if (!(ireason & ATAPI_COD)) {
-            plogk("atapi: Expected COD=1, got ireason=0x%02x\n", ireason);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("atapi: Expected COD=1, got ireason=0x%02x\n", ireason);
             return 2;
         }
     }
@@ -270,7 +280,8 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         while (status & ATA_SR_BSY) {
             status = ide_read(channel, ATA_REG_STATUS);
             if (--timeout <= 0) {
-                plogk("atapi: NODATA BSY timeout on channel %u\n", channel);
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("atapi: NODATA BSY timeout on channel %u\n", channel);
                 return 3;
             }
             nsleep(100);
@@ -285,10 +296,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         uint16_t *word_buf    = (uint16_t *)buf;
 
         while (transferred < *xfer_len) {
-            /*
-             * Poll for data ready instead of IRQ - interrupts may not be
-             * enabled yet when init_ide() runs.
-             */
+            /* Poll for data ready instead of IRQ - interrupts may not be enabled yet when init_ide() runs. */
             err = atapi_wait_drq(channel);
             if (err) return err;
 
@@ -302,16 +310,17 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
 
             /* COD must be 0 (data phase) */
             if (ireason & ATAPI_COD) {
-                plogk("atapi: Unexpected COD=1 in data phase.\n");
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("atapi: Unexpected COD=1 in data phase.\n");
                 return 2;
             }
 
             /* IO=1 means device to host (read), IO=0 means host to device (write) */
             if (!(ireason & ATAPI_IO)) {
-                plogk("atapi: Unexpected IO direction.\n");
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("atapi: Unexpected IO direction.\n");
                 return 2;
             }
-
             if (bc == 0) break;
 
             /*
@@ -321,7 +330,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
             uint16_t words = bc / 2;
             for (uint16_t h = 0; h < words; h++) {
                 uint16_t val = inw(bus);
-                if (transferred < *xfer_len) word_buf[transferred / 2 + h] = val;
+                if (transferred < *xfer_len) word_buf[(transferred / 2) + h] = val;
             }
 
             size_t remaining = *xfer_len - transferred;
@@ -339,7 +348,8 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
             nsleep(100);
         }
         if (timeout < 0) {
-            plogk("atapi: Completion timeout after data phase on ch%u drv%u\n", channel, slavebit);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("atapi: Completion timeout after data phase on ch%u drv%u\n", channel, slavebit);
             return 3;
         }
     }
@@ -371,13 +381,12 @@ uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_siz
     uint8_t err;
 
     if (!lba_size || !blk_size) return 0xff;
-
     err = atapi_send_packet(drive, cdb, 8, ATAPI_PROT_PIO, cap_buf, &len);
     if (err) return err;
 
     /* Parse big-endian values from response */
-    *lba_size = ((uint32_t)cap_buf[0] << 24) | ((uint32_t)cap_buf[1] << 16) | ((uint32_t)cap_buf[2] << 8) | (uint32_t)cap_buf[3];
-    *blk_size = ((uint32_t)cap_buf[4] << 24) | ((uint32_t)cap_buf[5] << 16) | ((uint32_t)cap_buf[6] << 8) | (uint32_t)cap_buf[7];
+    *lba_size = load_be32(cap_buf);
+    *blk_size = load_be32(cap_buf + 4);
 
     return 0;
 }
@@ -391,7 +400,6 @@ uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uin
     uint8_t err;
 
     for (int i = 0; i < SCSI_SENSE_BUFFER_SIZE; i++) sense_buf[i] = 0;
-
     err = atapi_send_packet(drive, cdb, SCSI_SENSE_BUFFER_SIZE, ATAPI_PROT_PIO, sense_buf, &len);
     if (err) return err;
 
@@ -430,3 +438,5 @@ uint8_t atapi_read(uint8_t drive, uint32_t lba, uint8_t num_sectors, uint16_t *b
 
     return atapi_send_packet(drive, cdb, byte_limit, ATAPI_PROT_PIO, buf, &xfer_len);
 }
+
+#endif

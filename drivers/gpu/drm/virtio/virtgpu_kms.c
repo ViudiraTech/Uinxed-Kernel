@@ -9,22 +9,52 @@
  */
 
 #include <drivers/gpu/drm/drm_edid.h>
-#include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_init.h>
-#include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
-#include <drivers/gpu/drm/virtio/virtgpu_gem.h>
 #include <drivers/gpu/drm/virtio/virtgpu_kms.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdlib.h>
-#include <mem/alloc.h>
+
+#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Static context for the DRM-flush callback (set during initial modeset) */
 static struct virtio_gpu_device *vgdev_flush_ctx;
 static struct virtio_gpu_object *vgdev_flush_obj;
-static volatile uint64_t         vgdev_flush_active;
+static raw_spinlock_t            vgdev_flush_lock;
+
+/* Mode config helpers */
+static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *connector, bool force);
+static int                       virtgpu_connector_get_modes(struct drm_connector *connector);
+static int                       virtgpu_connector_mode_valid(struct drm_connector *connector, struct drm_display_mode *mode);
+static void                      virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state);
+static void                      virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb);
+static void                      virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+static void                      virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+static int                       virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags);
+static int                       virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height, int32_t hot_x, int32_t hot_y);
+static int                       virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y);
+
+static const uint32_t virtgpu_formats[] = {
+    DRM_FORMAT_XRGB8888,
+    DRM_FORMAT_ARGB8888,
+};
+
+static const struct drm_crtc_helper_funcs virtgpu_crtc_helpers = {
+    .mode_set       = virtgpu_crtc_atomic_flush,
+    .page_flip      = virtgpu_crtc_page_flip,
+    .cursor_set     = virtgpu_crtc_cursor_set,
+    .cursor_move    = virtgpu_crtc_cursor_move,
+    .atomic_enable  = virtgpu_crtc_atomic_enable,
+    .atomic_disable = virtgpu_crtc_atomic_disable,
+};
+
+static const struct drm_encoder_helper_funcs virtgpu_enc_helpers = {
+    .atomic_mode_set = virtgpu_encoder_atomic_check,
+};
+
+static const struct drm_connector_helper_funcs virtgpu_conn_helpers = {
+    .detect     = virtgpu_connector_detect,
+    .get_modes  = virtgpu_connector_get_modes,
+    .mode_valid = virtgpu_connector_mode_valid,
+};
 
 /* Panic-time flush guard: skip while an ordinary control submission is active. */
 static bool virtgpu_display_flush_guard(void)
@@ -32,7 +62,7 @@ static bool virtgpu_display_flush_guard(void)
     struct virtio_gpu_device *vgdev = vgdev_flush_ctx;
 
     if (!vgdev) return true;
-    return __atomic_load_n(&vgdev->ctrlq_cmd_busy, __ATOMIC_ACQUIRE) == 0;
+    return !mutex_is_locked(&vgdev->ctrlq_cmd_lock);
 }
 
 /* Report connection status: a VM GPU is present whenever scanouts exist. */
@@ -75,7 +105,7 @@ static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
 
     /* Reject a truncated EDID whose header overstates its size. */
     if ((size_t)((unsigned)edid->extensions + 1) * EDID_LENGTH > (size_t)edid_size) {
-        DRM_ERROR("Connector: EDID size mismatch (declared %u blocks, received %d bytes)\n", (unsigned)edid->extensions + 1, edid_size);
+        DRM_ERROR("Connector: EDID size mismatch (declared %u blocks, received %d bytes)\n", edid->extensions + 1, edid_size);
         free(edid);
         return 0;
     }
@@ -176,8 +206,8 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
         }
         vgdev->num_scanouts         = 1;
         vgdev->scanouts[0].enabled  = true;
-        vgdev->scanouts[0].width    = DRM_DEFAULT_WIDTH;
-        vgdev->scanouts[0].height   = DRM_DEFAULT_HEIGHT;
+        vgdev->scanouts[0].width    = CONFIG_DRM_DEFAULT_WIDTH;
+        vgdev->scanouts[0].height   = CONFIG_DRM_DEFAULT_HEIGHT;
         vgdev->scanouts[0].vrefresh = 60;
     }
 
@@ -221,10 +251,7 @@ static void virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_st
 
     (void)old_state;
 
-    DRM_DEBUG_KMS("CRTC-%d enabled.\n", crtc->base.id);
-
     if (plane && plane->state && plane->state->fb && plane->state->fb != vgdev->current_fb) virtgpu_page_flip(vgdev, plane->state->fb, NULL);
-
     if (crtc->state && crtc->state->event) {
         drm_crtc_send_vblank_event(crtc, crtc->state->event);
         crtc->state->event = NULL;
@@ -238,8 +265,6 @@ static void virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_s
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
     (void)old_state;
-
-    DRM_DEBUG_KMS("CRTC-%d disabled.\n", crtc->base.id);
 
     (void)virtgpu_page_flip(vgdev, NULL, vgdev->current_fb);
     vgdev->current_fb          = NULL;
@@ -266,19 +291,10 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
         crtc->primary->state->fb = fb;
         drm_framebuffer_put(old_fb);
     }
-    crtc->primary->fb_id     = fb ? fb->base.id : 0;
+    crtc->primary->fb_id = fb ? fb->base.id : 0;
 
     return 0;
 }
-
-/* Mode config helpers */
-
-static const uint32_t virtgpu_formats[] = {
-    DRM_FORMAT_XRGB8888,
-    DRM_FORMAT_ARGB8888,
-};
-
-/* Initial modeset - enable a framebuffer for immediate display */
 
 /*
  * Flush callback invoked by the video subsystem after fbcon draws.
@@ -291,7 +307,6 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
     uint64_t               offset;
 
     if (!vgdev_flush_ctx || !vgdev_flush_obj) return;
-
     if (x >= vgdev_flush_obj->width || y >= vgdev_flush_obj->height || !width || !height) return;
     if (width > vgdev_flush_obj->width - x) width = vgdev_flush_obj->width - x;
     if (height > vgdev_flush_obj->height - y) height = vgdev_flush_obj->height - y;
@@ -302,7 +317,7 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
      * best-effort (the refresh worker retries changed rows), so drop only the
      * recursive/concurrent flush instead of deadlocking controlq.
      */
-    if (__atomic_exchange_n(&vgdev_flush_active, 1, __ATOMIC_ACQUIRE)) return;
+    if (!raw_spin_trylock(&vgdev_flush_lock)) return;
 
     damage = (struct virtio_gpu_rect) {x, y, width, height};
     offset = (uint64_t)y * vgdev_flush_obj->stride + (uint64_t)x * sizeof(uint32_t);
@@ -318,7 +333,7 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
             }
         }
     }
-    __atomic_store_n(&vgdev_flush_active, 0, __ATOMIC_RELEASE);
+    raw_spin_unlock(&vgdev_flush_lock);
 }
 
 /* Set or clear the hardware cursor for the CRTC. */
@@ -489,10 +504,7 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
     return 0;
 }
 
-/*
- * Initial modeset: try modes preferred-first (Linux-style), else keep the
- * bootloader framebuffer. Non-fatal on failure.
- */
+/* Initial modeset: try modes preferred-first, else keep the bootloader framebuffer. Non-fatal on failure. */
 static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
 {
     struct drm_device        *dev    = vgdev->drm_dev;
@@ -580,23 +592,12 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     vgdev->kms_crtc = crtc;
 
     /* CRTC helpers the core calls on modeset/page-flip/enable/disable; kept in crtc->helper_private. */
-    {
-        static const struct drm_crtc_helper_funcs crtc_helpers = {
-            .mode_set       = virtgpu_crtc_atomic_flush,
-            .page_flip      = virtgpu_crtc_page_flip,
-            .cursor_set     = virtgpu_crtc_cursor_set,
-            .cursor_move    = virtgpu_crtc_cursor_move,
-            .atomic_enable  = virtgpu_crtc_atomic_enable,
-            .atomic_disable = virtgpu_crtc_atomic_disable,
-        };
-
-        ret = drm_crtc_init_with_planes(dev, crtc, primary, NULL, (void *)&crtc_helpers, "virtgpu-crtc-0");
-        if (ret) {
-            DRM_ERROR("Failed to init CRTC: %d\n", ret);
-            free(crtc);
-            vgdev->kms_crtc = NULL;
-            return ret;
-        }
+    ret = drm_crtc_init_with_planes(dev, crtc, primary, NULL, (void *)&virtgpu_crtc_helpers, "virtgpu-crtc-0");
+    if (ret) {
+        DRM_ERROR("Failed to init CRTC: %d\n", ret);
+        free(crtc);
+        vgdev->kms_crtc = NULL;
+        return ret;
     }
 
     dev->mode_config.async_page_flip = true;
@@ -621,18 +622,12 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     memset(encoder, 0, sizeof(*encoder));
     vgdev->kms_encoder = encoder;
 
-    {
-        static const struct drm_encoder_helper_funcs enc_helpers = {
-            .atomic_mode_set = virtgpu_encoder_atomic_check,
-        };
-
-        ret = drm_encoder_init(dev, encoder, (void *)&enc_helpers, DRM_MODE_ENCODER_VIRTUAL, "virtgpu-encoder-0");
-        if (ret) {
-            DRM_ERROR("Failed to init encoder: %d\n", ret);
-            free(encoder);
-            vgdev->kms_encoder = NULL;
-            return ret;
-        }
+    ret = drm_encoder_init(dev, encoder, (void *)&virtgpu_enc_helpers, DRM_MODE_ENCODER_VIRTUAL, "virtgpu-encoder-0");
+    if (ret) {
+        DRM_ERROR("Failed to init encoder: %d\n", ret);
+        free(encoder);
+        vgdev->kms_encoder = NULL;
+        return ret;
     }
     encoder->possible_crtcs = 1;
     encoder->crtc           = crtc;
@@ -647,20 +642,12 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     memset(connector, 0, sizeof(*connector));
     vgdev->kms_connector = connector;
 
-    {
-        static const struct drm_connector_helper_funcs conn_helpers = {
-            .detect     = virtgpu_connector_detect,
-            .get_modes  = virtgpu_connector_get_modes,
-            .mode_valid = virtgpu_connector_mode_valid,
-        };
-
-        ret = drm_connector_init(dev, connector, (void *)&conn_helpers, DRM_MODE_CONNECTOR_VIRTUAL);
-        if (ret) {
-            DRM_ERROR("Failed to init connector: %d\n", ret);
-            free(connector);
-            vgdev->kms_connector = NULL;
-            return ret;
-        }
+    ret = drm_connector_init(dev, connector, (void *)&virtgpu_conn_helpers, DRM_MODE_CONNECTOR_VIRTUAL);
+    if (ret) {
+        DRM_ERROR("Failed to init connector: %d\n", ret);
+        free(connector);
+        vgdev->kms_connector = NULL;
+        return ret;
     }
     connector->status = connector_status_connected;
 
@@ -704,7 +691,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
             mode_count++;
             node = node->next;
         }
-        DRM_INFO("KMS pipeline: CRTC-%d + primary plane-%d + encoder-%d + connector-%d (%d modes)\n", crtc->base.id, primary->base.id, encoder->base.id, connector->base.id, mode_count);
+        DRM_INFO("virtgpu: KMS pipeline up, %d mode(s)\n", mode_count);
     }
 
     /*
@@ -722,3 +709,5 @@ void virtgpu_kms_fini(struct virtio_gpu_device *vgdev)
 {
     virtgpu_cmd_set_scanout(vgdev, 0, NULL);
 }
+
+#endif

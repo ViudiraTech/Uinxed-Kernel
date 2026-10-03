@@ -9,12 +9,9 @@
  */
 
 #include <drivers/base/device.h>
-#include <fs/sysfs/mem_sysfs.h>
-#include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/string.h>
+
+#if CONFIG_SYSFS
 
 static bool mem_class_ready;
 
@@ -36,7 +33,6 @@ static const struct {
 /* Publish the standard memory character devices under /sys/class/mem/. */
 void mem_sysfs_init(void)
 {
-#if CONFIG_SYSFS
     size_t devices = 0;
 
     if (mem_class_ready) return;
@@ -49,5 +45,6 @@ void mem_sysfs_init(void)
         if (device_create(&mem_class, NULL, MKDEV(1, mem_devices[i].minor), NULL, "%s", mem_devices[i].name)) devices++;
     }
     plogk("mem_sysfs: exported %zu memory device(s) to /sys/class/mem\n", devices);
-#endif
 }
+
+#endif

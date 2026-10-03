@@ -11,10 +11,10 @@
 #include <drivers/base/device.h>
 #include <drivers/parport/parport.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_PARPORT
 
 static parport_t *parport_list;
 static spinlock_t parport_lock;
@@ -26,14 +26,15 @@ int parport_register_port(const char *name, uint16_t base, int irq, void *privat
     parport_t *p;
 
     if (parport_find(base)) return -EEXIST;
-    if (parport_count() >= PARPORT_MAX_PORTS) return -ENOSPC;
+    if (parport_count() >= CONFIG_PARPORT_MAX_PORTS) return -ENOSPC;
 
     p = calloc(1, sizeof(*p));
     if (!p) return -ENOMEM;
-    if (name)
+    if (name) {
         strncpy(p->name, name, sizeof(p->name) - 1);
-    else
+    } else {
         (void)snprintf(p->name, sizeof(p->name), "parport%d", parport_next_number);
+    }
     p->number       = parport_next_number++;
     p->base         = base;
     p->irq          = irq;
@@ -159,8 +160,11 @@ void parport_frob_control(parport_t *p, uint8_t mask, uint8_t v)
 void parport_data_reverse(parport_t *p, bool reverse)
 {
     if (!p) return;
-    if (reverse)
+    if (reverse) {
         parport_frob_control(p, 0x20, 0x20);
-    else
+    } else {
         parport_frob_control(p, 0x20, 0x00);
+    }
 }
+
+#endif

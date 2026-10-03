@@ -10,20 +10,12 @@
 
 #include <drivers/base/device.h>
 #include <drivers/bus/pci.h>
-#include <fs/core/vfs.h>
-#include <fs/sysfs/pci_sysfs.h>
-#include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/kobject/kobject.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
-#include <libs/std/string.h>
 #include <mem/heap.h>
 
-/* Per-device private data */
+#if CONFIG_SYSFS
 
+/* Per-device private data */
 typedef struct pci_sysfs_dev {
         pci_device_cache_t *cache;
 } pci_sysfs_dev_t;
@@ -53,22 +45,19 @@ static int pci_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 }
 
 /* PCI bus type */
-
 static struct bus_type pci_bus_type = {
     .name     = "pci",
     .dev_name = "0000",
     .uevent   = pci_device_uevent,
 };
 
-/* Device attribute show/store functions */
-
 /* Show the PCI vendor id. */
 static ssize_t pci_vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
     (void)attr;
-    if (!psd || !psd->cache) return -EIO;
-    return (ssize_t)sysfs_emit(buf, "0x%04x\n", (uint32_t)psd->cache->vendor_id);
+    if (!psd || !psd->cache) return -ENODEV;
+    return (ssize_t)sysfs_emit(buf, "0x%04x\n", psd->cache->vendor_id);
 }
 
 /* Show the PCI device id. */
@@ -76,8 +65,8 @@ static ssize_t pci_device_show(struct device *dev, struct device_attribute *attr
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
     (void)attr;
-    if (!psd || !psd->cache) return -EIO;
-    return (ssize_t)sysfs_emit(buf, "0x%04x\n", (uint32_t)psd->cache->device_id);
+    if (!psd || !psd->cache) return -ENODEV;
+    return (ssize_t)sysfs_emit(buf, "0x%04x\n", psd->cache->device_id);
 }
 
 /* Show the PCI class code. */
@@ -85,8 +74,8 @@ static ssize_t pci_class_show(struct device *dev, struct device_attribute *attr,
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
     (void)attr;
-    if (!psd || !psd->cache) return -EIO;
-    return (ssize_t)sysfs_emit(buf, "0x%06x\n", (uint32_t)psd->cache->class_code);
+    if (!psd || !psd->cache) return -ENODEV;
+    return (ssize_t)sysfs_emit(buf, "0x%06x\n", psd->cache->class_code);
 }
 
 /* Show the PCI revision. */
@@ -94,7 +83,7 @@ static ssize_t pci_revision_show(struct device *dev, struct device_attribute *at
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
     (void)attr;
-    if (!psd || !psd->cache) return -EIO;
+    if (!psd || !psd->cache) return -ENODEV;
     pci_device_reg_t reg = {.parent = psd->cache, .offset = PCI_CONF_REVISION};
     uint32_t         rev = read_pci(reg) & 0xFF;
     return (ssize_t)sysfs_emit(buf, "0x%02x\n", rev);
@@ -105,7 +94,7 @@ static ssize_t pci_subsystem_vendor_show(struct device *dev, struct device_attri
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
     (void)attr;
-    if (!psd || !psd->cache) return -EIO;
+    if (!psd || !psd->cache) return -ENODEV;
     pci_device_reg_t reg = {.parent = psd->cache, .offset = 0x2C};
     uint32_t         val = read_pci(reg) & 0xFFFF;
     return (ssize_t)sysfs_emit(buf, "0x%04x\n", val);
@@ -116,7 +105,7 @@ static ssize_t pci_subsystem_device_show(struct device *dev, struct device_attri
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
     (void)attr;
-    if (!psd || !psd->cache) return -EIO;
+    if (!psd || !psd->cache) return -ENODEV;
     pci_device_reg_t reg = {.parent = psd->cache, .offset = 0x2E};
     uint32_t         val = read_pci(reg) & 0xFFFF;
     return (ssize_t)sysfs_emit(buf, "0x%04x\n", val);
@@ -127,8 +116,8 @@ static ssize_t pci_header_type_show(struct device *dev, struct device_attribute 
 {
     pci_sysfs_dev_t *psd = dev->driver_data;
     (void)attr;
-    if (!psd || !psd->cache) return -EIO;
-    return (ssize_t)sysfs_emit(buf, "0x%02x\n", (uint32_t)psd->cache->header_type);
+    if (!psd || !psd->cache) return -ENODEV;
+    return (ssize_t)sysfs_emit(buf, "0x%02x\n", psd->cache->header_type);
 }
 
 /* Show the PCI modalias string. */
@@ -141,7 +130,7 @@ static ssize_t pci_modalias_show(struct device *dev, struct device_attribute *at
     uint32_t         class_code;
 
     (void)attr;
-    if (!psd || !psd->cache) return -EIO;
+    if (!psd || !psd->cache) return -ENODEV;
 
     reg.parent       = psd->cache;
     reg.offset       = 0x2C;
@@ -191,7 +180,6 @@ static void pci_dev_release(struct device *dev)
 /* Register the PCI bus type and publish every cached device. */
 void pci_sysfs_init(void)
 {
-#if CONFIG_SYSFS
     pci_devices_cache_t *cache;
     pci_device_cache_t  *item;
     int                  ret;
@@ -235,6 +223,7 @@ void pci_sysfs_init(void)
         dev->driver_data = psd;
         dev->release     = pci_dev_release;
         dev->groups      = pci_dev_groups;
+
         /* devid encodes the BDF for identification */
         dev->devid = ((uint64_t)item->device->bus << 8) | ((uint64_t)item->device->slot << 3) | ((uint64_t)item->device->func);
 
@@ -256,5 +245,6 @@ void pci_sysfs_init(void)
     }
 
     plogk("pci_sysfs: exported %d PCI device(s) to /sys/bus/pci\n", dev_count);
-#endif
 }
+
+#endif

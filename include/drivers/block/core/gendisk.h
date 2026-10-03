@@ -1,7 +1,7 @@
 /*
  *
  *      gendisk.h
- *      Block device (gendisk) registry (Linux block/genhd.c analog)
+ *      Block device (gendisk) registry
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,8 +12,6 @@
 #define INCLUDE_GENDISK_H_
 
 #include <drivers/block/core/blockdev.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
 
 typedef struct devtmpfs_block_registration devtmpfs_block_registration_t;
 
@@ -28,10 +26,10 @@ typedef struct gendisk {
         struct gendisk                *next;
 } gendisk_t;
 
-/*
- * Register a whole disk. The device descriptor is copied and retained; the
- * caller may reuse or drop its own copy afterwards.
- */
+/* Partition iteration shared by devtmpfs, sysfs and procfs. */
+typedef void (*block_partition_cb_t)(const gendisk_t *disk, const char *part_name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque);
+
+/* Register a whole disk. The device descriptor is copied and retained; the caller may reuse or drop its own copy afterwards. */
 int block_register_disk(const char *name, uint32_t major, uint32_t minor, const blockdev_device_t *device, bool scan_partitions, bool use_p_separator);
 
 /* Remove a previously registered disk and release its backend reference. */
@@ -43,12 +41,10 @@ void block_register_all_disks(void);
 /* Return the number of registered disks */
 int block_disk_count(void);
 
-/* Return the disk at the given index, or NULL */
-gendisk_t *block_get_disk(int index);
+/* Copy the disk at an index; the caller releases the backend with blockdev_release(). */
+bool block_disk_snapshot(int index, gendisk_t *out);
 
-/* Partition iteration shared by devtmpfs, sysfs and procfs. */
-typedef void (*block_partition_cb_t)(const gendisk_t *disk, const char *part_name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque);
-
+/* Invoke cb for each partition of every registered disk. */
 void block_foreach_partition(block_partition_cb_t cb, void *opaque);
 
 #endif // INCLUDE_GENDISK_H_

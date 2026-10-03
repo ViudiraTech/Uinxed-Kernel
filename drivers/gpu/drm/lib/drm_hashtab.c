@@ -11,12 +11,9 @@
 #include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
-#include <libs/std/string.h>
 #include <mem/alloc.h>
+
+#if CONFIG_DRM
 
 /* Allocate a bucket array of 2^order entries. */
 int drm_ht_create(struct drm_open_hash *ht, unsigned int order)
@@ -59,10 +56,7 @@ int drm_ht_insert_item(struct drm_open_hash *ht, struct drm_hash_item *item)
     bucket = &ht->table[item->key & (ht->size - 1)];
     for (node = bucket->next; node && node != bucket; node = node->next) {
         struct drm_hash_item *hit = container_of(node, struct drm_hash_item, link);
-        if (hit->key == item->key) {
-            DRM_ERROR("Insert: duplicate key 0x%lx\n", item->key);
-            return -EINVAL;
-        }
+        if (hit->key == item->key) return -EINVAL;
     }
     ilist_insert_after(bucket, &item->link);
     return 0;
@@ -91,7 +85,6 @@ int drm_ht_find_item(struct drm_open_hash *ht, unsigned long key, struct drm_has
             return 0;
         }
     }
-    DRM_ERROR("Find: key 0x%lx not found.\n", key);
     return -EINVAL;
 }
 
@@ -113,3 +106,5 @@ int drm_ht_remove_item(struct drm_open_hash *ht, struct drm_hash_item *item)
     DRM_ERROR("Remove: item is not linked in the table.\n");
     return -EINVAL;
 }
+
+#endif

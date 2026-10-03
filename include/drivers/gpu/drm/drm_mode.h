@@ -12,7 +12,6 @@
 #define INCLUDE_DRM_MODE_H_
 
 #include <drivers/gpu/drm/drm.h>
-#include <kernel/config.h>
 
 #define DRM_S32_MAX ((int32_t)0x7fffffff)
 #define DRM_S32_MIN (-DRM_S32_MAX - 1)
@@ -20,10 +19,6 @@
 #define DRM_CONNECTOR_NAME_LEN 32
 #define DRM_DISPLAY_MODE_LEN   32
 #define DRM_PROP_NAME_LEN      32
-
-/* Fallback console mode for drivers with no EDID/display-info (from Kconfig). */
-#define DRM_DEFAULT_WIDTH  CONFIG_DRM_DEFAULT_WIDTH
-#define DRM_DEFAULT_HEIGHT CONFIG_DRM_DEFAULT_HEIGHT
 
 #define DRM_MODE_TYPE_BUILTIN   (1 << 0) // deprecated
 #define DRM_MODE_TYPE_CLOCK_C   ((1 << 1) | DRM_MODE_TYPE_BUILTIN)
@@ -127,6 +122,129 @@
 #define DRM_MODE_CONTENT_PROTECTION_DESIRED   1
 #define DRM_MODE_CONTENT_PROTECTION_ENABLED   2
 
+#define DRM_MODE_PRESENT_TOP_FIELD    (1 << 0)
+#define DRM_MODE_PRESENT_BOTTOM_FIELD (1 << 1)
+
+#define DRM_MODE_ENCODER_NONE    0
+#define DRM_MODE_ENCODER_DAC     1
+#define DRM_MODE_ENCODER_TMDS    2
+#define DRM_MODE_ENCODER_LVDS    3
+#define DRM_MODE_ENCODER_TVDAC   4
+#define DRM_MODE_ENCODER_VIRTUAL 5
+#define DRM_MODE_ENCODER_DSI     6
+#define DRM_MODE_ENCODER_DPMST   7
+#define DRM_MODE_ENCODER_DPI     8
+
+#define DRM_MODE_CONNECTOR_Unknown     0
+#define DRM_MODE_CONNECTOR_VGA         1
+#define DRM_MODE_CONNECTOR_DVII        2
+#define DRM_MODE_CONNECTOR_DVID        3
+#define DRM_MODE_CONNECTOR_DVIA        4
+#define DRM_MODE_CONNECTOR_Composite   5
+#define DRM_MODE_CONNECTOR_SVIDEO      6
+#define DRM_MODE_CONNECTOR_LVDS        7
+#define DRM_MODE_CONNECTOR_Component   8
+#define DRM_MODE_CONNECTOR_9PinDIN     9
+#define DRM_MODE_CONNECTOR_DisplayPort 10
+#define DRM_MODE_CONNECTOR_HDMIA       11
+#define DRM_MODE_CONNECTOR_HDMIB       12
+#define DRM_MODE_CONNECTOR_TV          13
+#define DRM_MODE_CONNECTOR_eDP         14
+#define DRM_MODE_CONNECTOR_VIRTUAL     15
+#define DRM_MODE_CONNECTOR_DSI         16
+#define DRM_MODE_CONNECTOR_DPI         17
+#define DRM_MODE_CONNECTOR_WRITEBACK   18
+#define DRM_MODE_CONNECTOR_SPI         19
+#define DRM_MODE_CONNECTOR_USB         20
+
+/* Property flags */
+#define DRM_MODE_PROP_PENDING       (1 << 0) // deprecated
+#define DRM_MODE_PROP_RANGE         (1 << 1)
+#define DRM_MODE_PROP_IMMUTABLE     (1 << 2)
+#define DRM_MODE_PROP_ENUM          (1 << 3) // enumerated type with text strings
+#define DRM_MODE_PROP_BLOB          (1 << 4)
+#define DRM_MODE_PROP_BITMASK       (1 << 5) // bitmask of enumerated types
+#define DRM_MODE_PROP_LEGACY_TYPE   (1 << 6)
+#define DRM_MODE_PROP_EXTENDED_TYPE (1 << 7)
+#define DRM_MODE_PROP_TYPE(n)       ((n) << 8)
+#define DRM_MODE_PROP_OBJECT        DRM_MODE_PROP_TYPE(1)
+#define DRM_MODE_PROP_SIGNED_RANGE  DRM_MODE_PROP_TYPE(2)
+#define DRM_MODE_PROP_ATOMIC        0x80000000U
+
+#define DRM_MODE_PROP_FLAGS                                                                                                                                                                            \
+    (DRM_MODE_PROP_PENDING | DRM_MODE_PROP_RANGE | DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ENUM | DRM_MODE_PROP_BLOB | DRM_MODE_PROP_BITMASK | DRM_MODE_PROP_LEGACY_TYPE | DRM_MODE_PROP_EXTENDED_TYPE \
+     | DRM_MODE_PROP_OBJECT | DRM_MODE_PROP_SIGNED_RANGE | DRM_MODE_PROP_ATOMIC)
+
+#define DRM_MODE_FB_INTERLACED (1 << 0)
+#define DRM_MODE_FB_MODIFIERS  (1 << 1)
+
+#define DRM_MODE_FB_DIRTY_ANNOTATE_COPY 0x01
+#define DRM_MODE_FB_DIRTY_ANNOTATE_FILL 0x02
+#define DRM_MODE_FB_DIRTY_FLAGS         0x03
+#define DRM_MODE_FB_DIRTY_MAX_CLIPS     256
+
+/* Cursor */
+#define DRM_MODE_CURSOR_BO   (1 << 0)
+#define DRM_MODE_CURSOR_MOVE (1 << 1)
+
+/* Page flip */
+#define DRM_MODE_PAGE_FLIP_EVENT           0x01
+#define DRM_MODE_PAGE_FLIP_ASYNC           0x02
+#define DRM_MODE_PAGE_FLIP_TARGET_ABSOLUTE 0x04
+#define DRM_MODE_PAGE_FLIP_TARGET_RELATIVE 0x08
+#define DRM_MODE_PAGE_FLIP_TARGET          (DRM_MODE_PAGE_FLIP_TARGET_ABSOLUTE | DRM_MODE_PAGE_FLIP_TARGET_RELATIVE)
+
+/* Atomic commit */
+#define DRM_MODE_ATOMIC_TEST_ONLY     0x0100
+#define DRM_MODE_ATOMIC_NONBLOCK      0x0200
+#define DRM_MODE_ATOMIC_ALLOW_MODESET 0x0400
+#define DRM_MODE_ATOMIC_FLAGS         (DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC | DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_ATOMIC_ALLOW_MODESET)
+
+/* Mode object types for OBJ_GETPROPERTIES / OBJ_SETPROPERTY */
+#define DRM_MODE_OBJECT_CRTC      0xcccccccc
+#define DRM_MODE_OBJECT_CONNECTOR 0xc0c0c0c0
+#define DRM_MODE_OBJECT_ENCODER   0xe0e0e0e0
+#define DRM_MODE_OBJECT_MODE      0xdededede
+#define DRM_MODE_OBJECT_PROPERTY  0xb0b0b0b0
+#define DRM_MODE_OBJECT_FB        0xfbfbfbfb
+#define DRM_MODE_OBJECT_BLOB      0xbbbbbbbb
+#define DRM_MODE_OBJECT_PLANE     0xeeeeeeee
+#define DRM_MODE_OBJECT_ANY       0
+
+/* KMS ioctl numbers (base 0xA0). */
+#define DRM_IOCTL_MODE_GETRESOURCES      DRM_IOWR(0xA0, struct drm_mode_card_res)
+#define DRM_IOCTL_MODE_GETCRTC           DRM_IOWR(0xA1, struct drm_mode_crtc)
+#define DRM_IOCTL_MODE_SETCRTC           DRM_IOWR(0xA2, struct drm_mode_crtc)
+#define DRM_IOCTL_MODE_CURSOR            DRM_IOWR(0xA3, struct drm_mode_cursor)
+#define DRM_IOCTL_MODE_GETGAMMA          DRM_IOWR(0xA4, struct drm_mode_crtc_lut)
+#define DRM_IOCTL_MODE_SETGAMMA          DRM_IOWR(0xA5, struct drm_mode_crtc_lut)
+#define DRM_IOCTL_MODE_GETENCODER        DRM_IOWR(0xA6, struct drm_mode_get_encoder)
+#define DRM_IOCTL_MODE_GETCONNECTOR      DRM_IOWR(0xA7, struct drm_mode_get_connector)
+#define DRM_IOCTL_MODE_ATTACHMODE        DRM_IOWR(0xA8, struct drm_mode_mode_cmd)
+#define DRM_IOCTL_MODE_DETACHMODE        DRM_IOWR(0xA9, struct drm_mode_mode_cmd)
+#define DRM_IOCTL_MODE_GETPROPERTY       DRM_IOWR(0xAA, struct drm_mode_get_property)
+#define DRM_IOCTL_MODE_SETPROPERTY       DRM_IOWR(0xAB, struct drm_mode_connector_set_property)
+#define DRM_IOCTL_MODE_GETPROPBLOB       DRM_IOWR(0xAC, struct drm_mode_get_blob)
+#define DRM_IOCTL_MODE_GETFB             DRM_IOWR(0xAD, struct drm_mode_fb_cmd)
+#define DRM_IOCTL_MODE_ADDFB             DRM_IOWR(0xAE, struct drm_mode_fb_cmd)
+#define DRM_IOCTL_MODE_RMFB              DRM_IOWR(0xAF, unsigned int)
+#define DRM_IOCTL_MODE_PAGE_FLIP         DRM_IOWR(0xB0, struct drm_mode_crtc_page_flip)
+#define DRM_IOCTL_MODE_DIRTYFB           DRM_IOWR(0xB1, struct drm_mode_fb_dirty_cmd)
+#define DRM_IOCTL_MODE_CREATE_DUMB       DRM_IOWR(0xB2, struct drm_mode_create_dumb)
+#define DRM_IOCTL_MODE_MAP_DUMB          DRM_IOWR(0xB3, struct drm_mode_map_dumb)
+#define DRM_IOCTL_MODE_DESTROY_DUMB      DRM_IOWR(0xB4, struct drm_mode_destroy_dumb)
+#define DRM_IOCTL_MODE_GETPLANERESOURCES DRM_IOWR(0xB5, struct drm_mode_get_plane_res)
+#define DRM_IOCTL_MODE_GETPLANE          DRM_IOWR(0xB6, struct drm_mode_get_plane)
+#define DRM_IOCTL_MODE_SETPLANE          DRM_IOWR(0xB7, struct drm_mode_set_plane)
+#define DRM_IOCTL_MODE_ADDFB2            DRM_IOWR(0xB8, struct drm_mode_fb_cmd2)
+#define DRM_IOCTL_MODE_OBJ_GETPROPERTIES DRM_IOWR(0xB9, struct drm_mode_obj_get_properties)
+#define DRM_IOCTL_MODE_OBJ_SETPROPERTY   DRM_IOWR(0xBA, struct drm_mode_obj_set_property)
+#define DRM_IOCTL_MODE_CURSOR2           DRM_IOWR(0xBB, struct drm_mode_cursor2)
+#define DRM_IOCTL_MODE_ATOMIC            DRM_IOWR(0xBC, struct drm_mode_atomic)
+#define DRM_IOCTL_MODE_CREATEPROPBLOB    DRM_IOWR(0xBD, struct drm_mode_create_blob)
+#define DRM_IOCTL_MODE_DESTROYPROPBLOB   DRM_IOWR(0xBE, struct drm_mode_destroy_blob)
+#define DRM_IOCTL_MODE_GETFB2            DRM_IOWR(0xCE, struct drm_mode_get_fb2)
+
 /* Display mode info */
 struct drm_mode_modeinfo {
         __u32 clock;
@@ -173,9 +291,6 @@ struct drm_mode_crtc {
         struct drm_mode_modeinfo mode;
 };
 
-#define DRM_MODE_PRESENT_TOP_FIELD    (1 << 0)
-#define DRM_MODE_PRESENT_BOTTOM_FIELD (1 << 1)
-
 struct drm_mode_set_plane {
         __u32 plane_id;
         __u32 crtc_id;
@@ -185,6 +300,7 @@ struct drm_mode_set_plane {
         __s32 crtc_y;
         __u32 crtc_w;
         __u32 crtc_h;
+
         /* Source values are 16.16 fixed point */
         __u32 src_x;
         __u32 src_y;
@@ -206,16 +322,6 @@ struct drm_mode_get_plane_res {
         __u64 plane_id_ptr;
         __u32 count_planes;
 };
-
-#define DRM_MODE_ENCODER_NONE    0
-#define DRM_MODE_ENCODER_DAC     1
-#define DRM_MODE_ENCODER_TMDS    2
-#define DRM_MODE_ENCODER_LVDS    3
-#define DRM_MODE_ENCODER_TVDAC   4
-#define DRM_MODE_ENCODER_VIRTUAL 5
-#define DRM_MODE_ENCODER_DSI     6
-#define DRM_MODE_ENCODER_DPMST   7
-#define DRM_MODE_ENCODER_DPI     8
 
 struct drm_mode_get_encoder {
         __u32 encoder_id;
@@ -241,28 +347,6 @@ enum drm_mode_subconnector {
     DRM_MODE_SUBCONNECTOR_Wireless    = 18,
 };
 
-#define DRM_MODE_CONNECTOR_Unknown     0
-#define DRM_MODE_CONNECTOR_VGA         1
-#define DRM_MODE_CONNECTOR_DVII        2
-#define DRM_MODE_CONNECTOR_DVID        3
-#define DRM_MODE_CONNECTOR_DVIA        4
-#define DRM_MODE_CONNECTOR_Composite   5
-#define DRM_MODE_CONNECTOR_SVIDEO      6
-#define DRM_MODE_CONNECTOR_LVDS        7
-#define DRM_MODE_CONNECTOR_Component   8
-#define DRM_MODE_CONNECTOR_9PinDIN     9
-#define DRM_MODE_CONNECTOR_DisplayPort 10
-#define DRM_MODE_CONNECTOR_HDMIA       11
-#define DRM_MODE_CONNECTOR_HDMIB       12
-#define DRM_MODE_CONNECTOR_TV          13
-#define DRM_MODE_CONNECTOR_eDP         14
-#define DRM_MODE_CONNECTOR_VIRTUAL     15
-#define DRM_MODE_CONNECTOR_DSI         16
-#define DRM_MODE_CONNECTOR_DPI         17
-#define DRM_MODE_CONNECTOR_WRITEBACK   18
-#define DRM_MODE_CONNECTOR_SPI         19
-#define DRM_MODE_CONNECTOR_USB         20
-
 struct drm_mode_get_connector {
         __u64 encoders_ptr;
         __u64 modes_ptr;
@@ -281,24 +365,6 @@ struct drm_mode_get_connector {
         __u32 subpixel;
         __u32 pad;
 };
-
-/* Property flags */
-#define DRM_MODE_PROP_PENDING       (1 << 0) // deprecated
-#define DRM_MODE_PROP_RANGE         (1 << 1)
-#define DRM_MODE_PROP_IMMUTABLE     (1 << 2)
-#define DRM_MODE_PROP_ENUM          (1 << 3) // enumerated type with text strings
-#define DRM_MODE_PROP_BLOB          (1 << 4)
-#define DRM_MODE_PROP_BITMASK       (1 << 5) // bitmask of enumerated types
-#define DRM_MODE_PROP_LEGACY_TYPE   (1 << 6)
-#define DRM_MODE_PROP_EXTENDED_TYPE (1 << 7)
-#define DRM_MODE_PROP_TYPE(n)       ((n) << 8)
-#define DRM_MODE_PROP_OBJECT        DRM_MODE_PROP_TYPE(1)
-#define DRM_MODE_PROP_SIGNED_RANGE  DRM_MODE_PROP_TYPE(2)
-#define DRM_MODE_PROP_ATOMIC        0x80000000U
-
-#define DRM_MODE_PROP_FLAGS                                                                                                                                                                            \
-    (DRM_MODE_PROP_PENDING | DRM_MODE_PROP_RANGE | DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ENUM | DRM_MODE_PROP_BLOB | DRM_MODE_PROP_BITMASK | DRM_MODE_PROP_LEGACY_TYPE | DRM_MODE_PROP_EXTENDED_TYPE \
-     | DRM_MODE_PROP_OBJECT | DRM_MODE_PROP_SIGNED_RANGE | DRM_MODE_PROP_ATOMIC)
 
 struct drm_mode_property_enum {
         __u64 value;
@@ -352,9 +418,6 @@ struct drm_mode_fb_cmd {
         __u32 handle;
 };
 
-#define DRM_MODE_FB_INTERLACED (1 << 0)
-#define DRM_MODE_FB_MODIFIERS  (1 << 1)
-
 struct drm_mode_fb_cmd2 {
         __u32 fb_id;
         __u32 width;
@@ -379,11 +442,6 @@ struct drm_mode_get_fb2 {
         __u64 modifier[4];
 };
 
-#define DRM_MODE_FB_DIRTY_ANNOTATE_COPY 0x01
-#define DRM_MODE_FB_DIRTY_ANNOTATE_FILL 0x02
-#define DRM_MODE_FB_DIRTY_FLAGS         0x03
-#define DRM_MODE_FB_DIRTY_MAX_CLIPS     256
-
 struct drm_mode_fb_dirty_cmd {
         __u32 fb_id;
         __u32 flags;
@@ -396,10 +454,6 @@ struct drm_mode_mode_cmd {
         __u32                    connector_id;
         struct drm_mode_modeinfo mode;
 };
-
-/* Cursor */
-#define DRM_MODE_CURSOR_BO   (1 << 0)
-#define DRM_MODE_CURSOR_MOVE (1 << 1)
 
 struct drm_mode_cursor {
         __u32 flags;
@@ -425,13 +479,6 @@ struct drm_mode_crtc_lut {
         __u64 green;
         __u64 blue;
 };
-
-/* Page flip */
-#define DRM_MODE_PAGE_FLIP_EVENT           0x01
-#define DRM_MODE_PAGE_FLIP_ASYNC           0x02
-#define DRM_MODE_PAGE_FLIP_TARGET_ABSOLUTE 0x04
-#define DRM_MODE_PAGE_FLIP_TARGET_RELATIVE 0x08
-#define DRM_MODE_PAGE_FLIP_TARGET          (DRM_MODE_PAGE_FLIP_TARGET_ABSOLUTE | DRM_MODE_PAGE_FLIP_TARGET_RELATIVE)
 
 struct drm_mode_crtc_page_flip {
         __u32 crtc_id;
@@ -462,12 +509,6 @@ struct drm_mode_destroy_dumb {
         __u32 handle;
 };
 
-/* Atomic commit */
-#define DRM_MODE_ATOMIC_TEST_ONLY     0x0100
-#define DRM_MODE_ATOMIC_NONBLOCK      0x0200
-#define DRM_MODE_ATOMIC_ALLOW_MODESET 0x0400
-#define DRM_MODE_ATOMIC_FLAGS         (DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC | DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_ATOMIC_ALLOW_MODESET)
-
 struct drm_mode_atomic {
         __u32 flags;
         __u32 count_objs;
@@ -489,50 +530,5 @@ struct drm_mode_create_blob {
 struct drm_mode_destroy_blob {
         __u32 blob_id;
 };
-
-/* Mode object types for OBJ_GETPROPERTIES / OBJ_SETPROPERTY */
-#define DRM_MODE_OBJECT_CRTC      0xcccccccc
-#define DRM_MODE_OBJECT_CONNECTOR 0xc0c0c0c0
-#define DRM_MODE_OBJECT_ENCODER   0xe0e0e0e0
-#define DRM_MODE_OBJECT_MODE      0xdededede
-#define DRM_MODE_OBJECT_PROPERTY  0xb0b0b0b0
-#define DRM_MODE_OBJECT_FB        0xfbfbfbfb
-#define DRM_MODE_OBJECT_BLOB      0xbbbbbbbb
-#define DRM_MODE_OBJECT_PLANE     0xeeeeeeee
-#define DRM_MODE_OBJECT_ANY       0
-
-/* KMS ioctl numbers (base 0xA0). */
-#define DRM_IOCTL_MODE_GETRESOURCES      DRM_IOWR(0xA0, struct drm_mode_card_res)
-#define DRM_IOCTL_MODE_GETCRTC           DRM_IOWR(0xA1, struct drm_mode_crtc)
-#define DRM_IOCTL_MODE_SETCRTC           DRM_IOWR(0xA2, struct drm_mode_crtc)
-#define DRM_IOCTL_MODE_CURSOR            DRM_IOWR(0xA3, struct drm_mode_cursor)
-#define DRM_IOCTL_MODE_GETGAMMA          DRM_IOWR(0xA4, struct drm_mode_crtc_lut)
-#define DRM_IOCTL_MODE_SETGAMMA          DRM_IOWR(0xA5, struct drm_mode_crtc_lut)
-#define DRM_IOCTL_MODE_GETENCODER        DRM_IOWR(0xA6, struct drm_mode_get_encoder)
-#define DRM_IOCTL_MODE_GETCONNECTOR      DRM_IOWR(0xA7, struct drm_mode_get_connector)
-#define DRM_IOCTL_MODE_ATTACHMODE        DRM_IOWR(0xA8, struct drm_mode_mode_cmd)
-#define DRM_IOCTL_MODE_DETACHMODE        DRM_IOWR(0xA9, struct drm_mode_mode_cmd)
-#define DRM_IOCTL_MODE_GETPROPERTY       DRM_IOWR(0xAA, struct drm_mode_get_property)
-#define DRM_IOCTL_MODE_SETPROPERTY       DRM_IOWR(0xAB, struct drm_mode_connector_set_property)
-#define DRM_IOCTL_MODE_GETPROPBLOB       DRM_IOWR(0xAC, struct drm_mode_get_blob)
-#define DRM_IOCTL_MODE_GETFB             DRM_IOWR(0xAD, struct drm_mode_fb_cmd)
-#define DRM_IOCTL_MODE_ADDFB             DRM_IOWR(0xAE, struct drm_mode_fb_cmd)
-#define DRM_IOCTL_MODE_RMFB              DRM_IOWR(0xAF, unsigned int)
-#define DRM_IOCTL_MODE_PAGE_FLIP         DRM_IOWR(0xB0, struct drm_mode_crtc_page_flip)
-#define DRM_IOCTL_MODE_DIRTYFB           DRM_IOWR(0xB1, struct drm_mode_fb_dirty_cmd)
-#define DRM_IOCTL_MODE_CREATE_DUMB       DRM_IOWR(0xB2, struct drm_mode_create_dumb)
-#define DRM_IOCTL_MODE_MAP_DUMB          DRM_IOWR(0xB3, struct drm_mode_map_dumb)
-#define DRM_IOCTL_MODE_DESTROY_DUMB      DRM_IOWR(0xB4, struct drm_mode_destroy_dumb)
-#define DRM_IOCTL_MODE_GETPLANERESOURCES DRM_IOWR(0xB5, struct drm_mode_get_plane_res)
-#define DRM_IOCTL_MODE_GETPLANE          DRM_IOWR(0xB6, struct drm_mode_get_plane)
-#define DRM_IOCTL_MODE_SETPLANE          DRM_IOWR(0xB7, struct drm_mode_set_plane)
-#define DRM_IOCTL_MODE_ADDFB2            DRM_IOWR(0xB8, struct drm_mode_fb_cmd2)
-#define DRM_IOCTL_MODE_OBJ_GETPROPERTIES DRM_IOWR(0xB9, struct drm_mode_obj_get_properties)
-#define DRM_IOCTL_MODE_OBJ_SETPROPERTY   DRM_IOWR(0xBA, struct drm_mode_obj_set_property)
-#define DRM_IOCTL_MODE_CURSOR2           DRM_IOWR(0xBB, struct drm_mode_cursor2)
-#define DRM_IOCTL_MODE_ATOMIC            DRM_IOWR(0xBC, struct drm_mode_atomic)
-#define DRM_IOCTL_MODE_CREATEPROPBLOB    DRM_IOWR(0xBD, struct drm_mode_create_blob)
-#define DRM_IOCTL_MODE_DESTROYPROPBLOB   DRM_IOWR(0xBE, struct drm_mode_destroy_blob)
-#define DRM_IOCTL_MODE_GETFB2            DRM_IOWR(0xBF, struct drm_mode_get_fb2)
 
 #endif // INCLUDE_DRM_MODE_H_

@@ -12,9 +12,8 @@
 #define INCLUDE_USB_H_
 
 #include <drivers/base/device.h>
-#include <libs/std/stdbool.h>
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 
 #define USB_MAX_INTERFACES  64
 #define USB_MAX_ENDPOINTS   512
@@ -58,9 +57,9 @@
 #define USB_CLASS_HUB          0x09
 
 /* Standard feature selectors. */
-#define USB_FEAT_ENDPOINT_HALT    0x00
+#define USB_FEAT_ENDPOINT_HALT        0x00
 #define USB_FEAT_DEVICE_REMOTE_WAKEUP 0x01
-#define USB_FEAT_TEST_MODE        0x02
+#define USB_FEAT_TEST_MODE            0x02
 
 /* Hub-class feature selectors (USB 2.0 §11.24.2). */
 #define USB_HUB_FEAT_C_HUB_LOCAL_POWER  0
@@ -86,26 +85,26 @@
 #define USB_HUB_STATUS_LOCAL_POWER  0x0001
 #define USB_HUB_STATUS_OVER_CURRENT 0x0002
 
-#define USB_PORT_STATUS_CONNECTION    0x0001
-#define USB_PORT_STATUS_ENABLE        0x0002
-#define USB_PORT_STATUS_SUSPEND       0x0004
-#define USB_PORT_STATUS_OVER_CURRENT  0x0008
-#define USB_PORT_STATUS_RESET         0x0010
-#define USB_PORT_STATUS_LINK_STATE    0x01e0
-#define USB_PORT_STATUS_POWER         0x0100
-#define USB_PORT_STATUS_LOW_SPEED     0x0200
-#define USB_PORT_STATUS_HIGH_SPEED    0x0400
-#define USB_PORT_STATUS_TEST          0x0800
-#define USB_PORT_STATUS_INDICATOR     0x1000
+#define USB_PORT_STATUS_CONNECTION   0x0001
+#define USB_PORT_STATUS_ENABLE       0x0002
+#define USB_PORT_STATUS_SUSPEND      0x0004
+#define USB_PORT_STATUS_OVER_CURRENT 0x0008
+#define USB_PORT_STATUS_RESET        0x0010
+#define USB_PORT_STATUS_LINK_STATE   0x01e0
+#define USB_PORT_STATUS_POWER        0x0100
+#define USB_PORT_STATUS_LOW_SPEED    0x0200
+#define USB_PORT_STATUS_HIGH_SPEED   0x0400
+#define USB_PORT_STATUS_TEST         0x0800
+#define USB_PORT_STATUS_INDICATOR    0x1000
 
-#define USB_PORT_STATUS_C_CONNECTION    0x0001
-#define USB_PORT_STATUS_C_ENABLE        0x0002
-#define USB_PORT_STATUS_C_SUSPEND       0x0004
-#define USB_PORT_STATUS_C_OVER_CURRENT  0x0008
-#define USB_PORT_STATUS_C_RESET         0x0010
-#define USB_PORT_STATUS_C_BH_RESET      0x0020
-#define USB_PORT_STATUS_C_LINK_STATE    0x0040
-#define USB_PORT_STATUS_C_CONFIG_ERROR  0x0080
+#define USB_PORT_STATUS_C_CONNECTION   0x0001
+#define USB_PORT_STATUS_C_ENABLE       0x0002
+#define USB_PORT_STATUS_C_SUSPEND      0x0004
+#define USB_PORT_STATUS_C_OVER_CURRENT 0x0008
+#define USB_PORT_STATUS_C_RESET        0x0010
+#define USB_PORT_STATUS_C_BH_RESET     0x0020
+#define USB_PORT_STATUS_C_LINK_STATE   0x0040
+#define USB_PORT_STATUS_C_CONFIG_ERROR 0x0080
 
 #define USB_ENDPOINT_NUMBER_MASK   0x0f
 #define USB_ENDPOINT_DIR_MASK      0x80
@@ -126,6 +125,7 @@ typedef enum {
     USB_SPEED_SUPER_PLUS,
 } usb_speed_t;
 
+/* Setup packet for control transfers (USB 2.0 ch. 9). */
 typedef struct __attribute__((packed)) {
         uint8_t  request_type;
         uint8_t  request;
@@ -134,6 +134,9 @@ typedef struct __attribute__((packed)) {
         uint16_t length;
 } usb_setup_packet_t;
 
+_Static_assert(sizeof(usb_setup_packet_t) == 8, "USB control transfer setup packet size");
+
+/* Device descriptor (USB 2.0 §9.6.1). */
 typedef struct __attribute__((packed)) {
         uint8_t  length;
         uint8_t  descriptor_type;
@@ -151,6 +154,9 @@ typedef struct __attribute__((packed)) {
         uint8_t  configuration_count;
 } usb_device_descriptor_t;
 
+_Static_assert(sizeof(usb_device_descriptor_t) == 18, "USB device descriptor wire size");
+
+/* Configuration descriptor (USB 2.0 §9.6.3). */
 typedef struct __attribute__((packed)) {
         uint8_t  length;
         uint8_t  descriptor_type;
@@ -162,6 +168,9 @@ typedef struct __attribute__((packed)) {
         uint8_t  max_power;
 } usb_config_descriptor_t;
 
+_Static_assert(sizeof(usb_config_descriptor_t) == 9, "USB configuration descriptor wire size");
+
+/* Interface descriptor (USB 2.0 §9.6.5). */
 typedef struct __attribute__((packed)) {
         uint8_t length;
         uint8_t descriptor_type;
@@ -174,6 +183,9 @@ typedef struct __attribute__((packed)) {
         uint8_t interface;
 } usb_interface_descriptor_t;
 
+_Static_assert(sizeof(usb_interface_descriptor_t) == 9, "USB interface descriptor wire size");
+
+/* Endpoint descriptor (USB 2.0 §9.6.6). */
 typedef struct __attribute__((packed)) {
         uint8_t  length;
         uint8_t  descriptor_type;
@@ -183,8 +195,9 @@ typedef struct __attribute__((packed)) {
         uint8_t  interval;
 } usb_endpoint_descriptor_t;
 
-/* USB 2.0 hub descriptor (§11.23.2.1). Device/port-removable bitmaps are
- * variable-length: bNbrPorts bits each, rounded up to whole bytes. */
+_Static_assert(sizeof(usb_endpoint_descriptor_t) == 7, "USB endpoint descriptor wire size");
+
+/* USB 2.0 hub descriptor (§11.23.2.1). Device/port-removable bitmaps are variable-length: bNbrPorts bits each, rounded up to whole bytes. */
 typedef struct __attribute__((packed)) {
         uint8_t  length;
         uint8_t  descriptor_type;
@@ -195,6 +208,10 @@ typedef struct __attribute__((packed)) {
         uint8_t  device_removable[2];
         uint8_t  port_power_mask[2];
 } usb_hub_descriptor_t;
+
+/* USB 2.0 hub descriptor fixed head; only the offsets are spec-fixed, the trailing removable/power bitmaps are variable-length. */
+_Static_assert(offsetof(usb_hub_descriptor_t, characteristics) == 3, "USB 2.0 hub characteristics offset");
+_Static_assert(offsetof(usb_hub_descriptor_t, power_good_time) == 5, "USB 2.0 hub power-good-time offset");
 
 /* USB 3.x SuperSpeed hub descriptor (§10.13.2.1). */
 typedef struct __attribute__((packed)) {
@@ -207,6 +224,13 @@ typedef struct __attribute__((packed)) {
         uint8_t  device_removable;
         uint8_t  reserved;
 } usb_hub3_descriptor_t;
+
+/*
+ * USB 3.x hub descriptor fixed head. This struct is 9 bytes; the spec's is 12
+ * (bHubHdrDecLat and wHubDelay are absent), so only the shared offsets are pinned.
+ */
+_Static_assert(offsetof(usb_hub3_descriptor_t, characteristics) == 3, "USB 3.x hub characteristics offset");
+_Static_assert(offsetof(usb_hub3_descriptor_t, power_good_time) == 5, "USB 3.x hub power-good-time offset");
 
 struct usb_device;
 struct usb_interface;
@@ -223,9 +247,12 @@ typedef struct usb_hcd_ops {
         void (*disable_endpoint)(struct usb_endpoint *endpoint);
         int (*clear_halt)(struct usb_endpoint *endpoint);
         void (*disable_device)(struct usb_device *device);
-        /* Enumerate a device on a hub downstream port. The hub driver has already
+
+        /*
+         * Enumerate a device on a hub downstream port. The hub driver has already
          * reset the port; the HCD must address the device, read its descriptors,
-         * configure it, and hand back a populated usb_device_t. */
+         * configure it, and hand back a populated usb_device_t.
+         */
         int (*enumerate)(struct usb_device *hub, uint8_t port, struct usb_device **out);
 } usb_hcd_ops_t;
 
@@ -311,20 +338,41 @@ int usb_get_string_descriptor(usb_device_t *device, uint8_t index, uint16_t lang
 /* Fetch the full configuration descriptor into a malloc'd buffer. */
 int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint16_t *length_out);
 
-/* Read a little-endian 16-bit value (USB wire format). */
-uint16_t usb_get_le16(const void *address);
-
 /* HID class driver entry points, called by the core on probe/disconnect. */
+#if CONFIG_USB_HID && CONFIG_USB
 int  usb_hid_probe(usb_interface_t *interface);
 void usb_hid_disconnect(usb_interface_t *interface);
+#else
+static inline int usb_hid_probe(usb_interface_t *)
+{
+    return -EOPNOTSUPP;
+}
+static inline void usb_hid_disconnect(usb_interface_t *) {}
+#endif
 
 /* Mass-storage class driver entry points, called by the core on probe/disconnect. */
+#if CONFIG_USB_STORAGE && CONFIG_USB
 int  usb_storage_probe(usb_interface_t *interface);
 void usb_storage_disconnect(usb_interface_t *interface);
+#else
+static inline int usb_storage_probe(usb_interface_t *)
+{
+    return -EOPNOTSUPP;
+}
+static inline void usb_storage_disconnect(usb_interface_t *) {}
+#endif
 
 /* Hub class driver entry points, called by the core on probe/disconnect. */
+#if CONFIG_USB_HUB && CONFIG_USB
 int  usb_hub_probe(usb_interface_t *interface);
 void usb_hub_disconnect(usb_interface_t *interface);
+#else
+static inline int usb_hub_probe(usb_interface_t *)
+{
+    return -EOPNOTSUPP;
+}
+static inline void usb_hub_disconnect(usb_interface_t *) {}
+#endif
 
 /* Enumerate a downstream device on a hub port (hub has already been reset). */
 int usb_enumerate_device(usb_device_t *hub, uint8_t port, usb_speed_t speed, usb_device_t **out);

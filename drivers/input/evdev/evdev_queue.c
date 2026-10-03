@@ -1,7 +1,7 @@
 /*
  *
  *      evdev_queue.c
- *      Linux-compatible evdev per-client packet queue
+ *      evdev per-client packet queue
  *
  *      2026/7/26 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -10,12 +10,9 @@
 
 #include <drivers/input/evdev/evdev_queue.h>
 #include <libs/std/string.h>
+#include <libs/util/bitops.h>
 
-/* Ring masks require the buffer size to be a power of two. */
-static bool is_power_of_two(unsigned int value)
-{
-    return value && !(value & (value - 1));
-}
+#if CONFIG_INPUT_EVDEV
 
 /* Initialize an empty packet queue over the given ring buffer. */
 bool evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int size)
@@ -134,3 +131,5 @@ void evdev_queue_discard_pending(evdev_queue_t *queue, const input_event_t *syn_
     queue->head = queue->packet_head = queue->tail;
     (void)evdev_queue_push(queue, syn_dropped);
 }
+
+#endif

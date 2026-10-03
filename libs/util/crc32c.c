@@ -4,13 +4,13 @@
  *      CRC32C (Castagnoli) checksum
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
-#include <libs/util/crc32c.h>
+#include <libs/std/string.h>
 
 /*
  * SSE4.2 `crc32` is a scalar GPR instruction (CRC32C / Castagnoli, same
@@ -18,34 +18,65 @@
  * be used without a kernel_fpu_begin()/end() section.
  */
 
-/* Hardware CRC32C of a single byte. */
-__attribute__((target("crc32"))) static inline uint32_t crc32c_hw_byte(uint32_t crc, uint8_t value)
+/* One bit-by-bit CRC32C step, shared by the software loop and the fallbacks. */
+static uint32_t crc32c_software_byte(uint32_t crc, uint8_t value)
 {
+    crc ^= value;
+    for (uint32_t bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0x82F63B78U & (uint32_t) - (int32_t)(crc & 1));
+    return crc;
+}
+
+/* Hardware CRC32C of a single byte. */
+__attribute__((target("crc32"))) static uint32_t crc32c_hw_byte(uint32_t crc, uint8_t value)
+{
+#if __has_builtin(__builtin_ia32_crc32qi)
     return __builtin_ia32_crc32qi(crc, value);
+#else
+    return crc32c_software_byte(crc, value);
+#endif
+}
+
+/* Hardware CRC32C of a 16-bit word. */
+__attribute__((target("crc32"))) static uint32_t crc32c_hw_word(uint32_t crc, uint16_t value)
+{
+#if __has_builtin(__builtin_ia32_crc32hi)
+    return __builtin_ia32_crc32hi(crc, value);
+#else
+    crc = crc32c_software_byte(crc, (uint8_t)value);
+    return crc32c_software_byte(crc, (uint8_t)(value >> 8));
+#endif
 }
 
 /* Hardware CRC32C of a 32-bit word. */
-__attribute__((target("crc32"))) static inline uint32_t crc32c_hw_dword(uint32_t crc, uint32_t value)
+__attribute__((target("crc32"))) static uint32_t crc32c_hw_dword(uint32_t crc, uint32_t value)
 {
+#if __has_builtin(__builtin_ia32_crc32si)
     return __builtin_ia32_crc32si(crc, value);
+#else
+    for (uint32_t shift = 0; shift < 32; shift += 8) crc = crc32c_software_byte(crc, (uint8_t)(value >> shift));
+    return crc;
+#endif
 }
 
 /* Hardware CRC32C of a 64-bit word. */
-__attribute__((target("crc32"))) static inline uint32_t crc32c_hw_qword(uint32_t crc, uint64_t value)
+__attribute__((target("crc32"))) static uint32_t crc32c_hw_qword(uint32_t crc, uint64_t value)
 {
+#if __has_builtin(__builtin_ia32_crc32di)
     return __builtin_ia32_crc32di(crc, value);
+#else
+    for (uint32_t shift = 0; shift < 64; shift += 8) crc = crc32c_software_byte(crc, (uint8_t)(value >> shift));
+    return crc;
+#endif
 }
 
 /* Bit-by-bit software fallback for CPUs without SSE4.2 */
 static uint32_t crc32c_software(uint32_t crc, const uint8_t *bytes, size_t size)
 {
-    while (size--) {
-        crc ^= *bytes++;
-        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0x82F63B78U & (uint32_t) - (int32_t)(crc & 1));
-    }
+    while (size--) crc = crc32c_software_byte(crc, *bytes++);
     return crc;
 }
 
+/* Crc32c update. */
 uint32_t crc32c_update(uint32_t crc, const void *data, size_t size)
 {
     static uint8_t hw_checked;
@@ -67,17 +98,24 @@ uint32_t crc32c_update(uint32_t crc, const void *data, size_t size)
         }
         while (size >= 8) {
             uint64_t chunk;
-            __builtin_memcpy(&chunk, p, 8);
+            memcpy(&chunk, p, 8);
             crc = crc32c_hw_qword(crc, chunk);
             p += 8;
             size -= 8;
         }
         while (size >= 4) {
             uint32_t chunk;
-            __builtin_memcpy(&chunk, p, 4);
+            memcpy(&chunk, p, 4);
             crc = crc32c_hw_dword(crc, chunk);
             p += 4;
             size -= 4;
+        }
+        if (size >= 2) {
+            uint16_t chunk;
+            memcpy(&chunk, p, 2);
+            crc = crc32c_hw_word(crc, chunk);
+            p += 2;
+            size -= 2;
         }
         while (size--) crc = crc32c_hw_byte(crc, *p++);
         return crc;

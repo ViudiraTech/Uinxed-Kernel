@@ -11,30 +11,28 @@
 #include <drivers/base/device.h>
 #include <drivers/gpu/fbdev/fbdev.h>
 #include <drivers/gpu/fbdev/video.h>
-#include <fs/sysfs/fb_sysfs.h>
-#include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
 #include <libs/std/string.h>
+
+#if CONFIG_SYSFS
+
+/* Refresh rate of the fixed native mode, matching the fbcon var setup. */
+#    define FB_DEFAULT_REFRESH 60
 
 static struct bus_type framebuffer_platform_bus = {.name = "platform"};
 static struct device   framebuffer_platform_device;
 static struct device  *framebuffer_class_device;
 static bool            framebuffer_sysfs_ready;
 
-/* Refresh rate of the fixed native mode, matching the fbcon var setup. */
-#define FB_DEFAULT_REFRESH 60
-
 /*
- * Linux fbsysfs.c mode_string(): "%c:%dx%d%c-%d\n" with the mode flag
+ * fb_sysfs.c fb_mode_string(): "%c:%dx%d%c-%d\n" with the mode flag
  * ('U' user, 'D' detailed, 'V' VESA, 'S' standard) and the scan type
  * ('p' progressive, 'i' interlaced, 'd' double). The fixed console has one
  * native user mode.
  */
 static int fb_mode_string(char *buf, uint64_t width, uint64_t height)
 {
-    return sysfs_emit(buf, "U:%llux%llup-%d\n", (unsigned long long)width, (unsigned long long)height, FB_DEFAULT_REFRESH);
+    return sysfs_emit(buf, "U:%llux%llup-%d\n", width, height, FB_DEFAULT_REFRESH);
 }
 
 /* Parse a leading unsigned decimal up to the first non-digit / newline. */
@@ -59,17 +57,6 @@ static int fb_parse_uint(const char *buf, size_t count, uint64_t *out)
     return 0;
 }
 
-/* Match a write buffer against a NUL-terminated token (newline tolerant). */
-static bool fb_sysfs_match(const char *buf, size_t count, const char *token)
-{
-    size_t token_len;
-
-    if (!buf || !token) return false;
-    while (count && (buf[count - 1] == '\n' || buf[count - 1] == '\r' || buf[count - 1] == ' ' || buf[count - 1] == '\t')) count--;
-    token_len = strlen(token);
-    return count == token_len && memcmp(buf, token, token_len) == 0;
-}
-
 /* Show the fixed framebuffer device name (matches fix.id from FBIOGET_FSCREENINFO). */
 static ssize_t fb_name_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -86,7 +73,7 @@ static ssize_t fb_stride_show(struct device *dev, struct device_attribute *attr,
     (void)dev;
     (void)attr;
     video_info_t info = video_get_info();
-    return sysfs_emit(buf, "%llu\n", (unsigned long long)info.stride * (info.bpp / 8));
+    return sysfs_emit(buf, "%llu\n", info.stride * (info.bpp / 8));
 }
 
 /* Show the framebuffer bits-per-pixel. */
@@ -113,7 +100,7 @@ static ssize_t fb_virtual_size_show(struct device *dev, struct device_attribute 
     (void)dev;
     (void)attr;
     video_info_t info = video_get_info();
-    return sysfs_emit(buf, "%llu,%llu\n", (unsigned long long)info.width, (unsigned long long)info.height);
+    return sysfs_emit(buf, "%llu,%llu\n", info.width, info.height);
 }
 
 /* Accept a requested virtual resolution (fixed console: no-op). */
@@ -140,8 +127,8 @@ static ssize_t fb_virtual_size_store(struct device *dev, struct device_attribute
     return (ssize_t)count;
 }
 
-/* Show the single available video mode in Linux mode_string() format. */
-static ssize_t fb_modes_show(struct device *dev, struct device_attribute *attr, char *buf)
+/* Show the single available video mode in fb_mode_string() format. */
+static ssize_t fb_mode_string_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
     (void)attr;
@@ -150,21 +137,12 @@ static ssize_t fb_modes_show(struct device *dev, struct device_attribute *attr, 
 }
 
 /* Accept a mode list write (fixed console: no-op). */
-static ssize_t fb_modes_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t fb_raw_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
     (void)dev;
     (void)attr;
     (void)buf;
     return (ssize_t)count;
-}
-
-/* Show the current mode (Linux show_mode(): one mode_string()). */
-static ssize_t fb_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    (void)dev;
-    (void)attr;
-    video_info_t info = video_get_info();
-    return fb_mode_string(buf, info.width, info.height);
 }
 
 /* Accept the current mode if it matches the native mode string. */
@@ -182,25 +160,26 @@ static ssize_t fb_mode_store(struct device *dev, struct device_attribute *attr, 
     if (n <= 0) return -EINVAL;
     elen = (size_t)n;
     if (elen && expected[elen - 1] == '\n') elen--;
+
     /*
      * NUL-terminate at the trimmed length so the match compares the mode
      * string without its trailing newline (mirroring the trimmed input).
      */
     expected[elen] = '\0';
-    if (!fb_sysfs_match(buf, count, expected)) return -EINVAL;
+    if (!streq_trimmed(buf, count, expected)) return -EINVAL;
     return (ssize_t)count;
 }
 
-/* Show the blank state ("0" = unblanked). */
-static ssize_t fb_blank_show(struct device *dev, struct device_attribute *attr, char *buf)
+/* Show the fixed blank/rotate/state value ("0" = unblanked, unrotated, running). */
+static ssize_t fb_zero_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
     (void)attr;
     return sysfs_emit(buf, "0\n");
 }
 
-/* Accept a blank request (fixed console: no-op). */
-static ssize_t fb_blank_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+/* Validate a blank/rotate/state numeric write and discard it (fixed console: no-op). */
+static ssize_t fb_uint_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
     uint64_t value;
     (void)dev;
@@ -218,55 +197,8 @@ static ssize_t fb_pan_show(struct device *dev, struct device_attribute *attr, ch
     return sysfs_emit(buf, "0,0\n");
 }
 
-/* Accept a pan request (fixed console: no-op). */
-static ssize_t fb_pan_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-    (void)dev;
-    (void)attr;
-    (void)buf;
-    return (ssize_t)count;
-}
-
-/* Show the rotation state (no rotation). */
-static ssize_t fb_rotate_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    (void)dev;
-    (void)attr;
-    return sysfs_emit(buf, "0\n");
-}
-
-/* Accept a rotation request (fixed console: no-op). */
-static ssize_t fb_rotate_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-    uint64_t value;
-    (void)dev;
-    (void)attr;
-    if (fb_parse_uint(buf, count, &value)) return -EINVAL;
-    (void)value;
-    return (ssize_t)count;
-}
-
-/* Show the framebuffer state (FBINFO_STATE_RUNNING = 0). */
-static ssize_t fb_state_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    (void)dev;
-    (void)attr;
-    return sysfs_emit(buf, "0\n");
-}
-
-/* Accept a state suspend/resume request (fixed console: no-op). */
-static ssize_t fb_state_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-    uint64_t value;
-    (void)dev;
-    (void)attr;
-    if (fb_parse_uint(buf, count, &value)) return -EINVAL;
-    (void)value;
-    return (ssize_t)count;
-}
-
-/* Console / cursor toggles: keeps both empty no-ops. */
-static ssize_t fb_console_show(struct device *dev, struct device_attribute *attr, char *buf)
+/* Console and cursor carry no data in either direction. */
+static ssize_t fb_empty_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)dev;
     (void)attr;
@@ -274,24 +206,8 @@ static ssize_t fb_console_show(struct device *dev, struct device_attribute *attr
     return 0;
 }
 
-static ssize_t fb_console_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-    (void)dev;
-    (void)attr;
-    (void)buf;
-    (void)count;
-    return 0;
-}
-
-static ssize_t fb_cursor_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    (void)dev;
-    (void)attr;
-    (void)buf;
-    return 0;
-}
-
-static ssize_t fb_cursor_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+/* Accept a console/cursor write without acting on it. */
+static ssize_t fb_empty_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
     (void)dev;
     (void)attr;
@@ -304,14 +220,14 @@ static DEVICE_ATTR(name, 0444, fb_name_show, NULL);
 static DEVICE_ATTR(stride, 0444, fb_stride_show, NULL);
 static DEVICE_ATTR(bits_per_pixel, 0644, fb_bpp_show, fb_bpp_store);
 static DEVICE_ATTR(virtual_size, 0644, fb_virtual_size_show, fb_virtual_size_store);
-static DEVICE_ATTR(modes, 0644, fb_modes_show, fb_modes_store);
-static DEVICE_ATTR(mode, 0644, fb_mode_show, fb_mode_store);
-static DEVICE_ATTR(blank, 0644, fb_blank_show, fb_blank_store);
-static DEVICE_ATTR(pan, 0644, fb_pan_show, fb_pan_store);
-static DEVICE_ATTR(rotate, 0644, fb_rotate_show, fb_rotate_store);
-static DEVICE_ATTR(state, 0644, fb_state_show, fb_state_store);
-static DEVICE_ATTR(console, 0644, fb_console_show, fb_console_store);
-static DEVICE_ATTR(cursor, 0644, fb_cursor_show, fb_cursor_store);
+static DEVICE_ATTR(modes, 0644, fb_mode_string_show, fb_raw_store);
+static DEVICE_ATTR(mode, 0644, fb_mode_string_show, fb_mode_store);
+static DEVICE_ATTR(blank, 0644, fb_zero_show, fb_uint_store);
+static DEVICE_ATTR(pan, 0644, fb_pan_show, fb_raw_store);
+static DEVICE_ATTR(rotate, 0644, fb_zero_show, fb_uint_store);
+static DEVICE_ATTR(state, 0644, fb_zero_show, fb_uint_store);
+static DEVICE_ATTR(console, 0644, fb_empty_show, fb_empty_store);
+static DEVICE_ATTR(cursor, 0644, fb_empty_show, fb_empty_store);
 
 static struct attribute *framebuffer_attributes[] = {
     &dev_attr_name.attr,
@@ -343,7 +259,6 @@ static struct class graphics_class = {.name = "graphics", .dev_groups = framebuf
 /* Register the framebuffer class device on the platform bus. */
 void fb_sysfs_init(void)
 {
-#if CONFIG_SYSFS
     int status;
 
     if (framebuffer_sysfs_ready) return;
@@ -379,5 +294,6 @@ void fb_sysfs_init(void)
     }
     framebuffer_sysfs_ready = true;
     plogk("fb_sysfs: registered /sys/class/graphics/fb0\n");
-#endif
 }
+
+#endif

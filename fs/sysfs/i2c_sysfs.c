@@ -11,26 +11,20 @@
 #include <drivers/base/device.h>
 #include <drivers/bus/i2c.h>
 #include <fs/devtmpfs/devtmpfs.h>
-#include <fs/sysfs/i2c_sysfs.h>
-#include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/uaccess.h>
 
-#define I2C_DEV_MAJOR 89
+#if CONFIG_I2C
 
-#define I2C_SLAVE 0x0703
-#define I2C_FUNCS 0x0705
-#define I2C_RDWR  0x0707
+#    define I2C_DEV_MAJOR 89
 
-#define I2C_RDWR_MAX_MSGS    42
-#define I2C_RDWR_MAX_BUFSIZE 8192
-#define I2C_MAX_ADAPTERS     16
+#    define I2C_SLAVE 0x0703
+#    define I2C_FUNCS 0x0705
+#    define I2C_RDWR  0x0707
+
+#    define I2C_RDWR_MAX_MSGS    42
+#    define I2C_RDWR_MAX_BUFSIZE 8192
 
 /* User-space ABI structures (identical to the kernel layout). */
 typedef struct {
@@ -50,6 +44,12 @@ typedef struct {
         struct device       dev;
 } i2c_adapter_dev_t;
 
+/* i2c-dev character device */
+typedef struct {
+        uint16_t slave_addr;
+} i2c_dev_state_t;
+
+#    if CONFIG_SYSFS
 static struct bus_type i2c_bus_type = {.name = "i2c", .dev_name = "i2c"};
 static struct class i2c_dev_class   = {.name = "i2c-dev"};
 static bool i2c_sysfs_ready;
@@ -57,20 +57,15 @@ static bool i2c_sysfs_ready;
 static struct {
         struct i2c_adapter *adap;
         i2c_adapter_dev_t  *adev;
-} i2c_sysfs_adapters[I2C_MAX_ADAPTERS];
+} i2c_sysfs_adapters[CONFIG_I2C_MAX_ADAPTERS];
+#    endif
 
 /* Free an i2c adapter sysfs device. */
 static void i2c_adapter_release(struct device *dev)
 {
-    i2c_adapter_dev_t *adev = (i2c_adapter_dev_t *)((char *)dev - offsetof(i2c_adapter_dev_t, dev));
+    i2c_adapter_dev_t *adev = container_of(dev, i2c_adapter_dev_t, dev);
     free(adev);
 }
-
-/* i2c-dev character device */
-
-typedef struct {
-        uint16_t slave_addr;
-} i2c_dev_state_t;
 
 /* Allocate per-open state for the i2c-dev character device. */
 static int i2c_dev_open(vfs_node_t node, uint64_t flags, void **private_data)
@@ -218,18 +213,18 @@ rdwr_out:
 /* Publish an i2c adapter as a sysfs device and /dev/i2c-N node. */
 int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
 {
+#    if !CONFIG_SYSFS
+    (void)adap;
+    return -ENOSYS;
+#    else
     i2c_adapter_dev_t *adev;
     char               node_path[32];
     char               dev_name[16];
     int                status;
     int                slot = -1;
 
-#if !CONFIG_SYSFS
-    (void)adap;
-    return -ENOSYS;
-#else
     if (!i2c_sysfs_ready || !adap) return -EINVAL;
-    for (int i = 0; i < I2C_MAX_ADAPTERS; i++) {
+    for (int i = 0; i < CONFIG_I2C_MAX_ADAPTERS; i++) {
         if (i2c_sysfs_adapters[i].adap == adap) return -EEXIST;
         if (!i2c_sysfs_adapters[i].adap && slot < 0) slot = i;
     }
@@ -243,8 +238,12 @@ int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
     adev->dev.release = i2c_adapter_release;
     (void)snprintf(dev_name, sizeof(dev_name), "i2c-%d", adap->nr);
     status = kobject_set_name(&adev->dev.kobj, "%s", adap->name);
-    if (status != EOK || device_register(&adev->dev) != EOK) {
+    if (status != EOK) {
         free(adev);
+        return status;
+    }
+    if (device_register(&adev->dev) != EOK) {
+        put_device(&adev->dev);
         return -ENOMEM;
     }
     i2c_sysfs_adapters[slot].adap = adap;
@@ -263,21 +262,21 @@ int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
     };
     (void)devtmpfs_register_char_device(node_path, MKDEV(I2C_DEV_MAJOR, (uint32_t)adap->nr), MKDEV(I2C_DEV_MAJOR, (uint32_t)adap->nr), file_stream, &ops);
     return EOK;
-#endif
+#    endif
 }
 
 /* Remove an i2c adapter from sysfs and devtmpfs. */
 void i2c_sysfs_adapter_del(struct i2c_adapter *adap)
 {
+#    if !CONFIG_SYSFS
+    (void)adap;
+    return;
+#    else
     i2c_adapter_dev_t *adev = NULL;
     int                slot = -1;
     char               node_path[32];
 
-#if !CONFIG_SYSFS
-    (void)adap;
-    return;
-#else
-    for (int i = 0; i < I2C_MAX_ADAPTERS; i++) {
+    for (int i = 0; i < CONFIG_I2C_MAX_ADAPTERS; i++) {
         if (i2c_sysfs_adapters[i].adap == adap) {
             slot = i;
             adev = i2c_sysfs_adapters[i].adev;
@@ -291,13 +290,13 @@ void i2c_sysfs_adapter_del(struct i2c_adapter *adap)
     (void)snprintf(node_path, sizeof(node_path), "/dev/i2c-%d", adap->nr);
     (void)devtmpfs_unregister_char_device(node_path);
     if (adev) device_unregister(&adev->dev);
-#endif
+#    endif
 }
 
 /* Register the i2c bus and i2c-dev class. */
 void i2c_sysfs_init(void)
 {
-#if CONFIG_SYSFS
+#    if CONFIG_SYSFS
     if (i2c_sysfs_ready) return;
     if (bus_register(&i2c_bus_type) != EOK) {
         plogk("i2c_sysfs: Bus_register(i2c) failed.\n");
@@ -309,5 +308,7 @@ void i2c_sysfs_init(void)
     }
     i2c_sysfs_ready = true;
     plogk("i2c_sysfs: registered /sys/bus/i2c and /sys/class/i2c-dev\n");
-#endif
+#    endif
 }
+
+#endif

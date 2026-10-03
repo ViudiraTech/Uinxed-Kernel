@@ -9,27 +9,20 @@
  */
 
 #include <drivers/base/device.h>
-#include <drivers/gpu/drm/drm.h>
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_init.h>
-#include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <fs/core/vfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <mem/page.h>
 #include <process/process.h>
 #include <syscall/fcntl.h>
 
+#if CONFIG_DRM
+
 /* Global DRM device list (replaces singleton) */
 
-static struct drm_device *drm_device_list[DRM_MAX_DEVICES];
+static struct drm_device *drm_device_list[CONFIG_DRM_MAX_DEVICES];
 static spinlock_t         drm_device_list_lock = {.lock = 0, .rflags = 0};
 
 /* Register a device in the global DRM device list. */
@@ -38,7 +31,7 @@ void drm_device_list_add(struct drm_device *dev)
     bool added = false;
 
     spin_lock(&drm_device_list_lock);
-    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
+    for (int i = 0; i < CONFIG_DRM_MAX_DEVICES; i++) {
         if (!drm_device_list[i]) {
             drm_device_list[i] = dev;
             added              = true;
@@ -46,14 +39,14 @@ void drm_device_list_add(struct drm_device *dev)
         }
     }
     spin_unlock(&drm_device_list_lock);
-    if (!added) DRM_ERROR("Device list full (%d slots), dropping device %s\n", DRM_MAX_DEVICES, dev && dev->driver && dev->driver->name ? dev->driver->name : "?");
+    if (!added) DRM_ERROR("Device list full (%d slots), dropping device %s\n", CONFIG_DRM_MAX_DEVICES, dev && dev->driver && dev->driver->name ? dev->driver->name : "?");
 }
 
 /* Remove a device from the global DRM device list. */
 void drm_device_list_remove(struct drm_device *dev)
 {
     spin_lock(&drm_device_list_lock);
-    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
+    for (int i = 0; i < CONFIG_DRM_MAX_DEVICES; i++) {
         if (drm_device_list[i] == dev) {
             drm_device_list[i] = NULL;
             break;
@@ -86,7 +79,7 @@ const char *drm_active_driver_name(void)
     if (cached) return cached;
 
     spin_lock(&drm_device_list_lock);
-    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
+    for (int i = 0; i < CONFIG_DRM_MAX_DEVICES; i++) {
         struct drm_device *dev = drm_device_list[i];
         if (!dev || !dev->driver || !dev->driver->name) continue;
         if (dev->primary && dev->primary->index == 0) {
@@ -110,7 +103,7 @@ const char *drm_active_driver_name(void)
 struct drm_device *drm_get_device_by_minor(int type, int index)
 {
     spin_lock(&drm_device_list_lock);
-    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
+    for (int i = 0; i < CONFIG_DRM_MAX_DEVICES; i++) {
         struct drm_device *dev = drm_device_list[i];
         if (!dev) continue;
         if (type == DRM_MINOR_PRIMARY && dev->primary && dev->primary->index == index) {
@@ -132,10 +125,7 @@ struct drm_device *drm_get_device_by_minor(int type, int index)
     return NULL;
 }
 
-/*
- * Iterate the registered device list.  @idx starts at 0.  The returned
- * device holds a caller reference which must be dropped with drm_dev_put().
- */
+/* Iterate the registered device list.  @idx starts at 0.  The returned device holds a caller reference which must be dropped with drm_dev_put(). */
 struct drm_device *drm_device_list_iter(int *idx)
 {
     struct drm_device *dev = NULL;
@@ -144,7 +134,7 @@ struct drm_device *drm_device_list_iter(int *idx)
     if (!idx || *idx < 0) return NULL;
 
     spin_lock(&drm_device_list_lock);
-    for (i = *idx; i < DRM_MAX_DEVICES; i++) {
+    for (i = *idx; i < CONFIG_DRM_MAX_DEVICES; i++) {
         if (!drm_device_list[i]) continue;
         dev = drm_dev_get(drm_device_list[i]);
         if (!dev) continue;
@@ -168,7 +158,7 @@ int drm_device_list_collect(struct drm_device **out, int max)
     if (!out || max <= 0) return 0;
 
     spin_lock(&drm_device_list_lock);
-    for (int i = 0; i < DRM_MAX_DEVICES && n < max; i++) {
+    for (int i = 0; i < CONFIG_DRM_MAX_DEVICES && n < max; i++) {
         struct drm_device *dev = drm_device_list[i];
         if (!dev) continue;
         dev = drm_dev_get(dev);
@@ -178,8 +168,6 @@ int drm_device_list_collect(struct drm_device **out, int max)
     spin_unlock(&drm_device_list_lock);
     return n;
 }
-
-/* VFS ioctl wrapper: dispatch to the DRM ioctl handler. */
 
 /* VFS read callback: deliver pending DRM events to the caller. */
 size_t drm_dev_read(void *file, void *addr, size_t offset, size_t size)
@@ -199,7 +187,7 @@ size_t drm_dev_write(void *file, const void *addr, size_t offset, size_t size)
     (void)addr;
     (void)offset;
     (void)size;
-    return 0;
+    return (size_t)-EINVAL;
 }
 
 /* VFS ioctl callback: dispatch to the DRM ioctl handler. */
@@ -211,16 +199,13 @@ int drm_dev_ioctl(void *file, size_t req, void *arg)
     if (!file_priv) return -ENODEV;
 
     /* Route to the device bound to this open file, not a global singleton. */
-    dev = (struct drm_device *)file_priv->dev;
+    dev = file_priv->dev;
     if (!dev) return -ENODEV;
 
     return drm_ioctl(dev, (unsigned int)req, arg, file_priv);
 }
 
-/*
- * Parse a strictly numeric node suffix. Returns -1 for an empty,
- * non-numeric, or overflowing suffix instead of atoi()'s silent 0.
- */
+/* Parse a strictly numeric node suffix. Returns -1 for an empty, non-numeric, or overflowing suffix instead of atoi()'s silent 0. */
 static int drm_parse_minor(const char *s)
 {
     int minor = 0;
@@ -229,7 +214,7 @@ static int drm_parse_minor(const char *s)
     for (; *s; s++) {
         if (*s < '0' || *s > '9') return -1;
         minor = minor * 10 + (*s - '0');
-        if (minor < 0) return -1; /* signed overflow */
+        if (minor < 0) return -1; // signed overflow
     }
     return minor;
 }
@@ -309,6 +294,7 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
     vfs_node_t node = (vfs_node_t)node_ptr;
     process_t *proc = process_current();
     if (node && node->name && !strncmp(node->name, "card", 4) && proc && proc->uid == 0) file->authenticated = true;
+
     /*
      * drm_send_event() uses this stable device node to wake the VFS poll
      * source watched by Weston's epoll loop.  Event readiness itself remains
@@ -323,6 +309,7 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
 void drm_dev_release(void *node_ptr, void *private_data)
 {
     (void)node_ptr;
+
     /* drm_release() tears down and frees the drm_file itself. */
     if (private_data) drm_release((struct drm_file *)private_data);
 }
@@ -388,18 +375,15 @@ void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t siz
     (void)flags;
 
     /* ctx carries the owning device; fall back to the file's bound device. */
-    if (!dev) dev = file_priv ? (struct drm_device *)file_priv->dev : NULL;
+    if (!dev) dev = file_priv ? file_priv->dev : NULL;
     if (!dev || !file_priv || !vma) return NULL;
 
     /* Look up the GEM object by its mmap offset. */
     obj = drm_gem_object_lookup_by_offset(file_priv, (uint64_t)offset);
-    if (!obj) {
-        DRM_WARN("File_mmap: no GEM object for offset 0x%llx\n", (unsigned long long)offset);
-        return NULL;
-    }
+    if (!obj) return NULL;
     if (!obj->backing) {
         drm_gem_object_put(obj);
-        DRM_WARN("File_mmap: no GEM backing for offset 0x%llx\n", (unsigned long long)offset);
+        DRM_WARN("File_mmap: no GEM backing for offset 0x%zx\n", offset);
         return NULL;
     }
 
@@ -434,3 +418,5 @@ void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t siz
      */
     return obj->backing;
 }
+
+#endif

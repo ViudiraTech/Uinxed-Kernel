@@ -15,11 +15,34 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
+#if CONFIG_ISO9660_FS
+
 /* SUSP entries are tagged with a two-byte little-endian signature. */
-#define RR_SIG_BYTE(a, b) ((a) | ((b) << 8))
+#    define RR_SIG_BYTE(a, b) ((a) | ((b) << 8))
 
 /* A visitor reports RR_SCAN_ABORT to end the walk with a zero status. */
-#define RR_SCAN_ABORT (-1000)
+#    define RR_SCAN_ABORT (-1000)
+
+/* NM (alternate name) record collection */
+typedef struct {
+        char *out;
+        int   bufsize;
+        int   used;
+        int   truncated;
+} rr_name_ctx_t;
+
+/* SL (symlink) chain handling */
+typedef struct {
+        isofs_handle_t *handle;
+        int             symlink_len;
+        int             bad;
+} rr_inode_ctx_t;
+
+/* Reconstruct the symlink target from an SL chain into `buf`. */
+typedef struct {
+        char *rpnt;
+        char *end;
+} rr_symlink_ctx_t;
 
 /* Position the scan cursor at the SUSP area that trails a directory record. */
 static void rr_seek_susp(isofs_rr_state_t *state, const struct iso_directory_record *de)
@@ -36,11 +59,7 @@ static void rr_seek_susp(isofs_rr_state_t *state, const struct iso_directory_rec
     }
 }
 
-/*
- * Follow a CE (continuation) entry to the block holding further SUSP
- * records. Returns 0 on success, 1 when no continuation exists, or a
- * negative error code.
- */
+/* Follow a CE (continuation) entry to the block holding further SUSP records. Returns 0 on success, 1 when no continuation exists, or a negative error code. */
 static int rr_fetch_continuation(isofs_rr_state_t *state)
 {
     const int entry_head = 4;
@@ -76,7 +95,7 @@ static int rr_fetch_continuation(isofs_rr_state_t *state)
 /* Validate an SP (suspension point) entry and record its skip offset. */
 static int rr_check_sp(const struct rock_ridge *entry, isofs_rr_state_t *state)
 {
-    if (entry->u.SP.magic[0] != 0xbe || entry->u.SP.magic[1] != 0xef) return -1;
+    if (entry->u.SP.magic[0] != 0xbe || entry->u.SP.magic[1] != 0xef) return -EIO;
     state->rock_offset = (int)entry->u.SP.skip;
     return 0;
 }
@@ -123,15 +142,7 @@ out:
     return status;
 }
 
-/* NM (alternate name) record collection */
-
-typedef struct {
-        char *out;
-        int   bufsize;
-        int   used;
-        int   truncated;
-} rr_name_ctx_t;
-
+/* Rr visit name. */
 static int rr_visit_name(const struct rock_ridge *entry, isofs_rr_state_t *state, void *opaque)
 {
     rr_name_ctx_t *ctx = opaque;
@@ -168,7 +179,7 @@ static int rr_visit_name(const struct rock_ridge *entry, isofs_rr_state_t *state
             return 0;
         }
         case RR_SIG_BYTE('R', 'E') :
-            return -1;
+            return -EIO;
         default :
             return 0;
     }
@@ -192,14 +203,6 @@ int isofs_rr_filename(void *raw_de, char *out, int bufsize, isofs_mount_t *mount
     status = rr_scan(&state, mount, de, rr_visit_name, &ctx);
     return status == 1 ? ctx.used : status;
 }
-
-/* SL (symlink) chain handling */
-
-typedef struct {
-        isofs_handle_t *handle;
-        int             symlink_len;
-        int             bad;
-} rr_inode_ctx_t;
 
 /* Measure the reconstructed size of one SL chain. */
 static void rr_measure_sl(const struct rock_ridge *entry, rr_inode_ctx_t *ctx)
@@ -288,12 +291,6 @@ void isofs_rr_parse_inode(void *raw_de, isofs_handle_t *handle, isofs_mount_t *m
         handle->size       = (uint64_t)ctx.symlink_len;
     }
 }
-
-/* Reconstruct the symlink target from an SL chain into `buf`. */
-typedef struct {
-        char *rpnt;
-        char *end;
-} rr_symlink_ctx_t;
 
 /* RRIP visitor reconstructing the symlink target into the output buffer. */
 static int rr_visit_symlink(const struct rock_ridge *entry, isofs_rr_state_t *state, void *opaque)
@@ -401,3 +398,5 @@ int isofs_rr_translate_name(void *raw_de, char *out, int bufsize)
     out[i] = '\0';
     return i;
 }
+
+#endif

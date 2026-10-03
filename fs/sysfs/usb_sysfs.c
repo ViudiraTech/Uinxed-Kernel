@@ -8,22 +8,12 @@
  *
  */
 
-#include <drivers/base/device.h>
 #include <drivers/usb/core/usb.h>
-#include <fs/sysfs/sysfs.h>
-#include <fs/sysfs/usb_sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
-#include <mem/heap.h>
+
+#if CONFIG_USB
 
 /* USB bus type */
-
 struct bus_type usb_bus_type = {.name = "usb", .dev_name = NULL};
-
-/* Device attribute show functions */
 
 /* Read the device's vendor id. */
 static ssize_t id_vendor_show(struct device *dev, struct device_attribute *attribute, char *buffer)
@@ -179,7 +169,7 @@ static ssize_t b_max_power_show(struct device *dev, struct device_attribute *att
 {
     (void)attribute;
     usb_device_t *device = dev ? dev->driver_data : NULL;
-    return sysfs_emit(buffer, "%umA\n", device ? (unsigned)device->configuration.max_power * 2 : 0);
+    return sysfs_emit(buffer, "%umA\n", device ? device->configuration.max_power * 2 : 0);
 }
 
 /* Read the configuration's interface count. */
@@ -242,7 +232,7 @@ const struct attribute_group       *usb_device_groups[] = {&usb_device_group, NU
 /* Register the usb bus and mark the core ready for device registration. */
 void usb_sysfs_init(void)
 {
-#if CONFIG_SYSFS
+#    if CONFIG_SYSFS
     int ret = bus_register(&usb_bus_type);
     if (ret != EOK) {
         plogk("usb_sysfs: Bus_register(usb) failed: %d\n", ret);
@@ -250,5 +240,7 @@ void usb_sysfs_init(void)
     }
     plogk("usb_sysfs: registered /sys/bus/usb\n");
     usb_core_init();
-#endif
+#    endif
 }
+
+#endif

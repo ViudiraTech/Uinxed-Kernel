@@ -17,8 +17,10 @@
 #include <process/sched.h>
 #include <sync/rt_mutex.h>
 
-#if FF_USE_LFN == 3
-#    include <mem/alloc.h>
+#if CONFIG_FAT_FS
+
+#    if FF_USE_LFN == 3
+#        include <mem/alloc.h>
 
 /* Allocate a memory block (returns NULL if not enough core) */
 void *ff_memalloc(UINT msize)
@@ -32,9 +34,9 @@ void ff_memfree(void *mblock)
     free(mblock);
 }
 
-#endif // FF_USE_LFN
+#    endif // FF_USE_LFN
 
-#if FF_FS_REENTRANT
+#    if FF_FS_REENTRANT
 
 /*
  * One real-time mutex per logical volume plus the system mutex (index
@@ -92,4 +94,5 @@ void ff_mutex_give(int vol)
     rt_mutex_unlock(&Mutex[vol], self);
 }
 
-#endif // FF_FS_REENTRANT
+#    endif // FF_FS_REENTRANT
+#endif

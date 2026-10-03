@@ -8,30 +8,27 @@
  *
  */
 
+#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/buddy.h>
 #include <mem/page.h>
 #include <mem/slab.h>
-#include <sync/spin_lock.h>
 
-#define HEAP_MIN_ALIGNMENT 16U
-#define SLAB_MAX_ORDER     8U
-#define SLAB_NAME_LENGTH   32U
-#define SLAB_MAGIC         0x534c414255494e58ULL
-#define SLAB_OBJECT_MAGIC  0x4f424a55494e5844ULL
-#define LARGE_MAGIC        0x4c41524755494e58ULL
-#define OBJECT_FREE        0U
-#define OBJECT_ALLOCATED   1U
-#define LARGE_ALLOCATED    1U
-#define SLAB_LIST_NONE     0U
-#define SLAB_LIST_PARTIAL  1U
-#define SLAB_LIST_FULL     2U
-#define SLAB_LIST_EMPTY    3U
-#define FREE_POISON        0x6b
+#define SLAB_NAME_LENGTH  32U
+#define SLAB_MAGIC        0x534c414255494e58ULL
+#define SLAB_OBJECT_MAGIC 0x4f424a55494e5844ULL
+#define LARGE_MAGIC       0x4c41524755494e58ULL
+#define OBJECT_FREE       0U
+#define OBJECT_ALLOCATED  1U
+#define LARGE_ALLOCATED   1U
+#define SLAB_LIST_NONE    0U
+#define SLAB_LIST_PARTIAL 1U
+#define SLAB_LIST_FULL    2U
+#define SLAB_LIST_EMPTY   3U
+#define FREE_POISON       0x6b
+#define SIZE_CACHE_COUNT  (sizeof(size_classes) / sizeof(size_classes[0]))
 
 typedef struct slab_header slab_header_t;
 
@@ -117,9 +114,7 @@ typedef struct {
 } heap_state_t;
 
 static heap_state_t heap;
-
 static const size_t size_classes[] = {16, 32, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 6144, 8192};
-#define SIZE_CACHE_COUNT (sizeof(size_classes) / sizeof(size_classes[0]))
 static slab_cache_t size_caches[SIZE_CACHE_COUNT];
 
 /* Round value up to the next multiple of alignment. */
@@ -129,6 +124,7 @@ static size_t align_up_size(size_t value, size_t alignment)
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
+/* Valid alignment. */
 static int valid_alignment(size_t alignment)
 {
     return alignment && !(alignment & (alignment - 1));
@@ -152,17 +148,20 @@ static uint64_t large_cookie(const large_header_t *header)
     return ((uint64_t)(uintptr_t)header ^ (uint64_t)heap.cookie ^ 0xd6e8feb86659fd93ULL);
 }
 
+/* Report error. */
 static void report_error(heap_error_t error, void *pointer)
 {
     error_handler handler = heap.onerror;
     if (handler) handler(error, pointer);
 }
 
+/* Stat add. */
 static void stat_add(size_t *value, size_t amount)
 {
     __atomic_add_fetch(value, amount, __ATOMIC_RELAXED);
 }
 
+/* Stat sub. */
 static void stat_sub(size_t *value, size_t amount)
 {
     __atomic_sub_fetch(value, amount, __ATOMIC_RELAXED);
@@ -172,13 +171,14 @@ static void stat_sub(size_t *value, size_t amount)
 static unsigned heap_max_order(size_t pages)
 {
     unsigned order = buddy_order_for_units(pages);
-    if (order > BUDDY_MAX_ORDER || ((size_t)1 << order) > pages) order--;
+    if (order > CONFIG_BUDDY_MAX_ORDER || ((size_t)1 << order) > pages) order--;
     return order;
 }
 
+/* Page address. */
 static void *page_address(size_t index)
 {
-    return heap.base + index * PAGE_4K_SIZE;
+    return heap.base + (index * PAGE_4K_SIZE);
 }
 
 /* Tag allocated pages so pointer_owner() can locate the owning block. */
@@ -194,6 +194,7 @@ static size_t page_alloc(unsigned order)
     return index;
 }
 
+/* Page free. */
 static int page_free(size_t index, unsigned order)
 {
     uint64_t rflags = spin_lock_irqsave(&heap.page_lock);
@@ -244,10 +245,11 @@ static void list_remove(slab_cache_t *cache, slab_header_t *slab)
         return;
     }
 
-    if (slab->previous)
+    if (slab->previous) {
         slab->previous->next = slab->next;
-    else
+    } else {
         *head = slab->next;
+    }
     if (slab->next) slab->next->previous = slab->previous;
     slab->previous = slab->next = NULL;
     slab->list                  = SLAB_LIST_NONE;
@@ -258,19 +260,19 @@ static void list_remove(slab_cache_t *cache, slab_header_t *slab)
 static int cache_layout(slab_cache_t *cache)
 {
     cache->payload_offset = align_up_size(sizeof(slab_object_header_t), cache->alignment);
-    if (cache->payload_offset == SIZE_MAX || cache->object_size > SIZE_MAX - cache->payload_offset) return -1;
+    if (cache->payload_offset == SIZE_MAX || cache->object_size > SIZE_MAX - cache->payload_offset) return -EINVAL;
     cache->stride = align_up_size(cache->payload_offset + cache->object_size, cache->alignment);
-    if (cache->stride == SIZE_MAX) return -1;
+    if (cache->stride == SIZE_MAX) return -EINVAL;
 
-    unsigned best_order = BUDDY_MAX_ORDER + 1;
+    unsigned best_order = CONFIG_BUDDY_MAX_ORDER + 1;
     size_t   best_waste = SIZE_MAX;
-    for (unsigned order = 0; order <= SLAB_MAX_ORDER; order++) {
+    for (unsigned order = 0; order <= CONFIG_SLAB_MAX_ORDER; order++) {
         size_t bytes = PAGE_4K_SIZE << order;
         size_t base  = align_up_size(sizeof(slab_header_t), cache->alignment);
         if (base >= bytes) continue;
         size_t objects = (bytes - base) / cache->stride;
         if (!objects) continue;
-        size_t waste = bytes - base - objects * cache->stride;
+        size_t waste = bytes - base - (objects * cache->stride);
         if (waste < best_waste) {
             best_waste = waste;
             best_order = order;
@@ -280,7 +282,7 @@ static int cache_layout(slab_cache_t *cache)
             break;
         }
     }
-    if (best_order > SLAB_MAX_ORDER) return -1;
+    if (best_order > CONFIG_SLAB_MAX_ORDER) return -EINVAL;
     cache->slab_order = best_order;
     return 0;
 }
@@ -288,10 +290,10 @@ static int cache_layout(slab_cache_t *cache)
 /* Populate a slab cache and pick its slab order. */
 static int cache_init(slab_cache_t *cache, const char *name, size_t size, size_t alignment, slab_ctor_t ctor, slab_dtor_t dtor, int dynamic)
 {
-    if (!cache || !size || !valid_alignment(alignment) || alignment < sizeof(void *) || alignment > PAGE_4K_SIZE) return -1;
+    if (!cache || !size || !valid_alignment(alignment) || alignment < sizeof(void *) || alignment > PAGE_4K_SIZE) return -EINVAL;
     memset(cache, 0, sizeof(*cache));
     cache->object_size = size;
-    cache->alignment   = alignment < HEAP_MIN_ALIGNMENT ? HEAP_MIN_ALIGNMENT : alignment;
+    cache->alignment   = alignment < CONFIG_HEAP_MIN_ALIGNMENT ? CONFIG_HEAP_MIN_ALIGNMENT : alignment;
     cache->ctor        = ctor;
     cache->dtor        = dtor;
     cache->dynamic     = dynamic ? 1 : 0;
@@ -316,8 +318,8 @@ static slab_header_t *slab_create_locked(slab_cache_t *cache)
     size_t         bytes        = PAGE_4K_SIZE << cache->slab_order;
     size_t         base_offset  = align_up_size(sizeof(*slab), cache->alignment);
     size_t         object_count = (bytes - base_offset) / cache->stride;
-    size_t         leftover     = bytes - base_offset - object_count * cache->stride;
-    size_t         colors       = leftover / cache->alignment + 1;
+    size_t         leftover     = bytes - base_offset - (object_count * cache->stride);
+    size_t         colors       = (leftover / cache->alignment) + 1;
     size_t         color        = (cache->color_next++ % colors) * cache->alignment;
 
     memset(slab, 0, sizeof(*slab));
@@ -330,7 +332,7 @@ static slab_header_t *slab_create_locked(slab_cache_t *cache)
     slab->object_start = (uintptr_t)slab + base_offset + color;
 
     for (size_t i = object_count; i > 0; i--) {
-        slab_object_header_t *object = (void *)(slab->object_start + (i - 1) * cache->stride);
+        slab_object_header_t *object = (void *)(slab->object_start + ((i - 1) * cache->stride));
         object->magic                = SLAB_OBJECT_MAGIC;
         object->slab                 = slab;
         object->requested            = 0;
@@ -391,33 +393,33 @@ static void *cache_alloc_requested(slab_cache_t *cache, size_t requested)
 static int cache_free_object(slab_cache_t *expected, slab_header_t *slab, void *pointer, size_t *released)
 {
     slab_cache_t *cache = slab ? slab->cache : NULL;
-    if (!cache || (expected && expected != cache)) return -1;
+    if (!cache || (expected && expected != cache)) return -EINVAL;
 
     uint64_t rflags = spin_lock_irqsave(&cache->lock);
     if (slab->magic != SLAB_MAGIC || slab->cookie != slab_cookie(slab) || slab->cache != cache || slab->list == SLAB_LIST_NONE) {
         spin_unlock_irqrestore(&cache->lock, rflags);
-        return -2;
+        return -EFAULT;
     }
 
     uintptr_t payload_start = slab->object_start + cache->payload_offset;
     uintptr_t address       = (uintptr_t)pointer;
     if (address < payload_start || (address - payload_start) % cache->stride || (address - payload_start) / cache->stride >= slab->object_count) {
         spin_unlock_irqrestore(&cache->lock, rflags);
-        return -1;
+        return -EINVAL;
     }
 
     slab_object_header_t *object = (void *)(address - cache->payload_offset);
     if (object->magic != SLAB_OBJECT_MAGIC || object->slab != slab || object->cookie != object_cookie(object)) {
         spin_unlock_irqrestore(&cache->lock, rflags);
-        return -2;
+        return -EFAULT;
     }
     if (object->state != OBJECT_ALLOCATED) {
         spin_unlock_irqrestore(&cache->lock, rflags);
-        return -1;
+        return -EINVAL;
     }
     if (!object->requested || object->requested > cache->object_size) {
         spin_unlock_irqrestore(&cache->lock, rflags);
-        return -2;
+        return -EFAULT;
     }
 
     size_t requested = object->requested;
@@ -453,14 +455,14 @@ static int pointer_owner(void *pointer, size_t *owner_index, void **owner)
 {
     uintptr_t address = (uintptr_t)pointer;
     uintptr_t base    = (uintptr_t)heap.base;
-    if (!heap.online || address < base || address >= base + heap.size) return -1;
+    if (!heap.online || address < base || address >= base + heap.size) return -EFAULT;
     size_t page = (address - base) / PAGE_4K_SIZE;
 
     uint64_t rflags = spin_lock_irqsave(&heap.page_lock);
     uint32_t tag    = heap.pages.pages[page].tag;
     if (!tag || tag > heap.page_count) {
         spin_unlock_irqrestore(&heap.page_lock, rflags);
-        return -1;
+        return -EFAULT;
     }
     *owner_index = (size_t)tag - 1;
     *owner       = page_address(*owner_index);
@@ -499,13 +501,13 @@ static void *large_alloc(size_t alignment, size_t size)
 /* Initialize the heap: buddy allocator plus size-class caches. */
 int heap_init(uint8_t *address, size_t size)
 {
-    if (!address || ((uintptr_t)address & (PAGE_4K_SIZE - 1)) || size < PAGE_4K_SIZE * 16) return -1;
+    if (!address || ((uintptr_t)address & (PAGE_4K_SIZE - 1)) || size < PAGE_4K_SIZE * 16) return -EINVAL;
     size &= ~(PAGE_4K_SIZE - 1);
     size_t page_count = size / PAGE_4K_SIZE;
-    if (page_count > 0x7fffffffU) return -1;
+    if (page_count > 0x7fffffffU) return -EINVAL;
     size_t metadata_bytes = page_count * sizeof(buddy_page_t);
     size_t metadata_pages = (metadata_bytes + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
-    if (metadata_pages >= page_count) return -1;
+    if (metadata_pages >= page_count) return -EINVAL;
 
     memset(&heap, 0, sizeof(heap));
     heap.base           = address;
@@ -513,11 +515,11 @@ int heap_init(uint8_t *address, size_t size)
     heap.page_count     = page_count;
     heap.metadata_pages = metadata_pages;
     heap.cookie         = (uintptr_t)address ^ size ^ 0x9e3779b97f4a7c15ULL;
-    if (buddy_init(&heap.pages, (buddy_page_t *)address, page_count, heap_max_order(page_count))) return -1;
-    if (buddy_add_range(&heap.pages, metadata_pages, page_count - metadata_pages)) return -1;
+    if (buddy_init(&heap.pages, (buddy_page_t *)address, page_count, heap_max_order(page_count))) return -ENOMEM;
+    if (buddy_add_range(&heap.pages, metadata_pages, page_count - metadata_pages)) return -ENOMEM;
 
     for (size_t i = 0; i < SIZE_CACHE_COUNT; i++)
-        if (cache_init(&size_caches[i], "kmalloc", size_classes[i], HEAP_MIN_ALIGNMENT, NULL, NULL, 0)) return -1;
+        if (cache_init(&size_caches[i], "kmalloc", size_classes[i], CONFIG_HEAP_MIN_ALIGNMENT, NULL, NULL, 0)) return -ENOMEM;
     __atomic_store_n(&heap.online, 1, __ATOMIC_RELEASE);
     return 0;
 }
@@ -535,10 +537,10 @@ void *malloc(size_t size)
     stat_add(&heap.allocation_calls, 1);
 
     slab_cache_t *cache  = cache_for_size(size);
-    void         *result = cache ? cache_alloc_requested(cache, size) : large_alloc(HEAP_MIN_ALIGNMENT, size);
+    void         *result = cache ? cache_alloc_requested(cache, size) : large_alloc(CONFIG_HEAP_MIN_ALIGNMENT, size);
     if (!result) {
         stat_add(&heap.failed_allocations, 1);
-        if (size > size_classes[SIZE_CACHE_COUNT - 1]) plogk("alloc: Failed to allocate %llu bytes (heap limit reached)\n", (uint64_t)size);
+        if (size > size_classes[SIZE_CACHE_COUNT - 1]) plogk("alloc: Failed to allocate %llu bytes (heap limit reached)\n", ((uint64_t)size));
         return NULL;
     }
     stat_add(&heap.live_allocations, 1);
@@ -550,13 +552,16 @@ void *malloc(size_t size)
 void *aligned_alloc(size_t alignment, size_t size)
 {
     if (!size || !valid_alignment(alignment) || alignment < sizeof(void *) || !__atomic_load_n(&heap.online, __ATOMIC_ACQUIRE)) return NULL;
-    if (alignment <= HEAP_MIN_ALIGNMENT) return malloc(size);
+    if (alignment <= CONFIG_HEAP_MIN_ALIGNMENT) return malloc(size);
 
     stat_add(&heap.allocation_calls, 1);
     void *result = large_alloc(alignment, size);
     if (!result) {
         stat_add(&heap.failed_allocations, 1);
-        if (size > size_classes[SIZE_CACHE_COUNT - 1]) plogk("alloc: Failed to allocate %llu bytes aligned to %llu (heap limit reached)\n", (uint64_t)size, (uint64_t)alignment);
+        if (size > size_classes[SIZE_CACHE_COUNT - 1]) {
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("alloc: Failed to allocate %llu bytes aligned to %llu (heap limit reached)\n", ((uint64_t)size), ((uint64_t)alignment));
+        }
         return NULL;
     }
     stat_add(&heap.live_allocations, 1);
@@ -617,7 +622,7 @@ void free(void *pointer)
     size_t owner_index;
     void  *owner;
     if (pointer_owner(pointer, &owner_index, &owner)) {
-        plogk("alloc: Invalid free of pointer 0x%016llx (not owned by the heap)\n", (uint64_t)(uintptr_t)pointer);
+        plogk_once("alloc: Invalid free of pointer 0x%016llx (not owned by the heap)\n", ((uint64_t)(uintptr_t)pointer));
         report_error(invalid_free, pointer);
         return;
     }
@@ -627,14 +632,14 @@ void free(void *pointer)
     if (slab->magic == SLAB_MAGIC) {
         int result = cache_free_object(NULL, slab, pointer, &released);
         if (result) {
-            plogk("alloc: Free of 0x%016llx rejected (slab integrity check failed, err=%d)\n", (uint64_t)(uintptr_t)pointer, result);
-            report_error(result == -2 ? layout_error : invalid_free, pointer);
+            plogk_once("alloc: Free of 0x%lx rejected (slab integrity check failed, err=%d)\n", (uintptr_t)pointer, result);
+            report_error(result == -EFAULT ? layout_error : invalid_free, pointer);
             return;
         }
     } else {
         large_header_t *large = owner;
         if (large->magic != LARGE_MAGIC || large->cookie != large_cookie(large) || large->state != LARGE_ALLOCATED || large->user != pointer || large->page_index != owner_index) {
-            plogk("alloc: Free of 0x%016llx rejected (large block header corrupt)\n", (uint64_t)(uintptr_t)pointer);
+            plogk_once("alloc: Free of 0x%016llx rejected (large block header corrupt)\n", ((uint64_t)(uintptr_t)pointer));
             report_error(invalid_free, pointer);
             return;
         }
@@ -643,7 +648,8 @@ void free(void *pointer)
         large->state   = 0;
         large->magic   = 0;
         if (page_free(owner_index, order)) {
-            plogk("alloc: Buddy release failed for 0x%016llx (order %u)\n", (uint64_t)(uintptr_t)pointer, order);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("alloc: Buddy release failed for 0x%lx (order %u)\n", (uintptr_t)pointer, order);
             report_error(layout_error, pointer);
             return;
         }
@@ -681,10 +687,11 @@ void *realloc(void *pointer, size_t new_size)
         } else {
             ((large_header_t *)owner)->requested = new_size;
         }
-        if (new_size > old_size)
+        if (new_size > old_size) {
             stat_add(&heap.allocated_bytes, new_size - old_size);
-        else
+        } else {
             stat_sub(&heap.allocated_bytes, old_size - new_size);
+        }
         return pointer;
     }
 
@@ -717,10 +724,10 @@ void *slab_cache_alloc(slab_cache_t *cache)
 /* Return an object to its originating slab cache. */
 int slab_cache_free(slab_cache_t *cache, void *object)
 {
-    if (!cache || !object) return -1;
+    if (!cache || !object) return -EINVAL;
     size_t owner_index;
     void  *owner;
-    if (pointer_owner(object, &owner_index, &owner)) return -1;
+    if (pointer_owner(object, &owner_index, &owner)) return -EFAULT;
     (void)owner_index;
     return cache_free_object(cache, (slab_header_t *)owner, object, NULL);
 }
@@ -743,11 +750,11 @@ size_t slab_cache_shrink(slab_cache_t *cache)
 /* Tear down a dynamic cache once it holds no objects. */
 int slab_cache_destroy(slab_cache_t *cache)
 {
-    if (!cache || !cache->dynamic) return -1;
+    if (!cache || !cache->dynamic) return -EINVAL;
     uint64_t rflags = spin_lock_irqsave(&cache->lock);
     if (cache->objects) {
         spin_unlock_irqrestore(&cache->lock, rflags);
-        return -1;
+        return -EBUSY;
     }
     cache->destroying = 1;
     while (cache->empty) slab_release_locked(cache, cache->empty);
@@ -796,19 +803,19 @@ static int validate_list(slab_cache_t *cache, slab_header_t *head, unsigned expe
     slab_header_t *previous = NULL;
     for (slab_header_t *slab = head; slab; slab = slab->next) {
         if (count++ > cache->slab_count || slab->previous != previous || slab->list != expected_list || slab->cache != cache || slab->magic != SLAB_MAGIC || slab->cookie != slab_cookie(slab))
-            return -1;
-        if (expected_list == SLAB_LIST_EMPTY && slab->inuse != 0) return -1;
-        if (expected_list == SLAB_LIST_FULL && slab->inuse != slab->object_count) return -1;
-        if (expected_list == SLAB_LIST_PARTIAL && (!slab->inuse || slab->inuse == slab->object_count)) return -1;
+            return -EFAULT;
+        if (expected_list == SLAB_LIST_EMPTY && slab->inuse != 0) return -EFAULT;
+        if (expected_list == SLAB_LIST_FULL && slab->inuse != slab->object_count) return -EFAULT;
+        if (expected_list == SLAB_LIST_PARTIAL && (!slab->inuse || slab->inuse == slab->object_count)) return -EFAULT;
         previous = slab;
     }
-    return count == expected_count ? 0 : -1;
+    return count == expected_count ? 0 : -EFAULT;
 }
 
 /* Check buddy and size-cache invariants; for debugging. */
 int heap_validate(void)
 {
-    if (!heap.online) return -1;
+    if (!heap.online) return -EINVAL;
     uint64_t rflags = spin_lock_irqsave(&heap.page_lock);
     int      result = buddy_validate(&heap.pages);
     spin_unlock_irqrestore(&heap.page_lock, rflags);
@@ -820,7 +827,7 @@ int heap_validate(void)
         result              = validate_list(cache, cache->partial, SLAB_LIST_PARTIAL, cache->partial_count) || validate_list(cache, cache->full, SLAB_LIST_FULL, cache->full_count)
                  || validate_list(cache, cache->empty, SLAB_LIST_EMPTY, cache->empty_count) || cache->slab_count != cache->partial_count + cache->full_count + cache->empty_count;
         spin_unlock_irqrestore(&cache->lock, rflags);
-        if (result) return -1;
+        if (result) return -EFAULT;
     }
     return 0;
 }

@@ -11,26 +11,17 @@
 #include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
-#include <arch/gdt.h>
+#include <arch/idt.h>
 #include <arch/smp.h>
-#include <arch/tss.h>
-#include <boot/limine.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/debug/debug.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
 #include <process/sched.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 
 static cpu_processor_t *cpus;
@@ -41,7 +32,7 @@ static volatile uint64_t  tlb_shootdown_generation;
 static volatile uint64_t *tlb_shootdown_ack;
 static volatile uint32_t  smp_ready;
 static volatile uint32_t  smp_tsc_aux_ready;
-spinlock_t                ap_start_lock = {0};
+static spinlock_t         ap_start_lock = {0};
 static spinlock_t         tlb_shootdown_lock;
 
 /*
@@ -55,7 +46,13 @@ static int smp_topology_shifts(uint8_t *smt_shift, uint8_t *core_shift)
     uint32_t leaf;
 
     cpuid_safe(0, 0, &max_leaf, &ebx, &ecx, &edx);
-    leaf = max_leaf >= 0x1f ? 0x1f : (max_leaf >= 0x0b ? 0x0b : 0);
+    if (max_leaf >= 0x1f) {
+        leaf = 0x1f;
+    } else if (max_leaf >= 0x0b) {
+        leaf = 0x0b;
+    } else {
+        leaf = 0;
+    }
     if (!leaf) return 0;
 
     *smt_shift  = 0;
@@ -66,10 +63,11 @@ static int smp_topology_shifts(uint8_t *smt_shift, uint8_t *core_shift)
         if (!ebx) break;
         uint32_t type  = (ecx >> 8) & 0xffU;
         uint8_t  shift = (uint8_t)(eax & 0x1fU);
-        if (type == 1)
+        if (type == 1) {
             *smt_shift = shift;
-        else if (type == 2)
+        } else if (type == 2) {
             *core_shift = shift;
+        }
     }
     if (!*core_shift) *core_shift = *smt_shift;
     return *core_shift || *smt_shift;
@@ -88,7 +86,7 @@ static uint32_t smp_topology_mask(uint8_t bits)
  * flush_tlb_all() requests are stronger: toggling PGE invalidates both
  * global and non-global entries on this logical CPU.
  */
-static inline void flush_local_tlb_all(void)
+static void flush_local_tlb_all(void)
 {
     uint64_t cr4;
     __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
@@ -98,7 +96,7 @@ static inline void flush_local_tlb_all(void)
         return;
     }
     uint64_t cr3;
-    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    cr3 = get_cr3();
     __asm__ volatile("mov %0, %%cr3" : : "r"(cr3) : "memory");
 }
 
@@ -110,11 +108,11 @@ int smp_handle_nmi(void)
     if (cpu_id >= cpu_count) return 0;
 
     /*
-     * Flush for the generation observed at entry, then re-check: an
-     * initiator may have bumped the generation while we were flushing.
-     * Publishing ack only for a generation whose flush we completed keeps
-     * "ack >= G" a truthful statement about OUR translation cache state,
-     * so no later generation can ever satisfy an earlier waiter for us.
+     * Flush for the generation observed at entry, then re-check: an initiator may
+     * have bumped the generation while the flush was in progress.  Publishing the
+     * ack only for a generation whose flush completed keeps "ack >= G" a truthful
+     * statement about this CPU's translation cache state, so no later generation
+     * can satisfy an earlier waiter.
      */
     uint64_t generation;
     do {
@@ -137,21 +135,16 @@ int smp_handle_nmi(void)
     return 1;
 }
 
-void ipi_reschedule_handle_frame(syscall_frame_t *frame) __attribute__((used, noinline));
-
 /* Reschedule and deliver signals with the complete interrupted register set. */
-void ipi_reschedule_handle_frame(syscall_frame_t *frame)
+__attribute__((used)) void ipi_reschedule_handle_frame(syscall_frame_t *frame)
 {
     disable_intr();
     send_eoi();
     sched_ipi_reschedule();
-    if ((frame->cs & 3U) == 3U) (void)signal_deliver_if_pending(frame);
+    if (user_mode(frame)) (void)signal_deliver_if_pending(frame);
 }
 
-/*
- * Compiler-generated interrupt prologues save only registers selected by the
- * optimizer.  Signals need every GPR for sigreturn, so use one fixed frame.
- */
+/* Compiler-generated interrupt prologues save only registers selected by the optimizer.  Signals need every GPR for sigreturn, so use one fixed frame. */
 __asm__(".text\n"
         ".global ipi_reschedule_entry\n"
         ".type ipi_reschedule_entry, @function\n"
@@ -204,16 +197,17 @@ __asm__(".text\n"
         "iretq\n"
         ".size ipi_reschedule_entry, .-ipi_reschedule_entry\n");
 
+/* Ipi reschedule entry. */
 void ipi_reschedule_entry(void);
 
 /* Downtime Request */
-INTERRUPT_BEGIN static void ipi_halt_handler(interrupt_frame_t *frame)
+INTERRUPT_BEGIN __attribute__((noreturn)) static void ipi_halt_handler(interrupt_frame_t *frame)
 {
     irq_enter_gs(frame);
     disable_intr();
     lapic_timer_stop();
     send_eoi();
-    while (1) __asm__ volatile("hlt");
+    krn_halt();
 }
 INTERRUPT_END
 
@@ -227,6 +221,7 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
     uint64_t generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
     if (tlb_shootdown_ack && cpu_id < cpu_count) __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
     send_eoi();
+
     /*
      * Keep interrupts masked until the compiler-generated interrupt epilogue
      * executes IRETQ.  Re-enabling them here allowed a timer/reschedule IPI to
@@ -239,12 +234,12 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
 INTERRUPT_END
 
 /* Emergency Error Broadcast */
-INTERRUPT_BEGIN static void ipi_panic_handler(interrupt_frame_t *frame)
+INTERRUPT_BEGIN __attribute__((noreturn)) static void ipi_panic_handler(interrupt_frame_t *frame)
 {
     irq_enter_gs(frame);
     disable_intr();
     send_eoi();
-    while (1) __asm__ volatile("hlt");
+    krn_halt();
 }
 INTERRUPT_END
 
@@ -283,15 +278,14 @@ void flush_tlb_all(void)
     __atomic_store_n(&tlb_shootdown_ack[self], generation, __ATOMIC_RELEASE);
 
     /*
-     * x86 NMIs are not queued: an NMI that arrives while another NMI is
-     * still being delivered or handled is silently dropped.  Waiting for a
-     * per-CPU ack alone is therefore unsound - a LATER generation's flush
-     * would satisfy THIS waiter while the target never flushed our pages,
-     * letting it keep stale translations to freed and reused frames.
-     * Re-arm the NMI whenever a target stays silent past the deadline so
-     * every drop is repaired instead of masked.
+     * x86 NMIs are not queued: an NMI arriving while another is still being
+     * delivered or handled is silently dropped.  Waiting for a per-CPU ack alone
+     * is therefore unsound - a LATER generation's flush would satisfy THIS waiter
+     * while the target never flushed the pages, letting it keep stale
+     * translations to freed and reused frames.  Re-arm the NMI whenever a target
+     * stays silent past the deadline so every drop is repaired instead of masked.
      */
-    const uint64_t resend_period = 200000ULL; /* ~80 us at 2.5 GHz TSC */
+    const uint64_t resend_period = 200000ULL; // ~80 us at 2.5 GHz TSC
 
     for (size_t i = 0; i < cpu_count; i++) {
         if (i == self) continue;
@@ -314,7 +308,7 @@ void flush_tlb_all(void)
                 send_ipi(cpus[i].lapic_id, IPI_TLB_SHOOTDOWN | APIC_ICR_PHYSICAL);
                 deadline = rdtsc() + resend_period;
             }
-            __asm__ volatile("pause");
+            cpu_relax();
         }
     }
     spin_unlock_irqrestore(&tlb_shootdown_lock, irq_flags);
@@ -346,6 +340,10 @@ uint32_t get_current_cpu_id(void)
         (void)rdtscp(&cpu_id);
         if (cpu_id < cpu_count) return cpu_id;
     }
+
+    /* Before smp_init() the LAPIC is not mapped yet and only the BSP runs. */
+    if (!cpu_count) return 0;
+
     uint64_t current_lapic_id = lapic_id();
     for (size_t i = 0; i < cpu_count; i++)
         if (cpus[i].lapic_id == current_lapic_id) return i;
@@ -420,7 +418,7 @@ static void ap_init_gdt(cpu_processor_t *cpu)
 
     cpu->gdt->pointer = ((gdt_register_t) {
         .size = (uint16_t)(sizeof(gdt_entries_t) - 1),
-        .ptr  = (gdt_entries_t *)&cpu->gdt->entries,
+        .ptr  = (&cpu->gdt->entries),
     });
 
     __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f(%%rip), %%rax; push %%rax; lretq;"
@@ -446,8 +444,40 @@ static void cpu_gs_install(cpu_processor_t *cpu)
     set_user_gs_base(0);                        // KernelGSBase: no user GS yet
 }
 
+/* Read the current task from the GS-relative per-CPU window (one load) */
+struct task *percpu_gs_current(void)
+{
+    struct task *t;
+    __asm__("movq %%gs:%c1, %0" : "=r"(t) : "i"(SYSCALL_CPU_CURRENT_OFFSET) : "memory");
+    return t;
+}
+
+/* Store the current task into the GS-relative per-CPU window */
+void percpu_gs_set_current(struct task *t)
+{
+    __asm__("movq %0, %%gs:%c1" : : "r"(t), "i"(SYSCALL_CPU_CURRENT_OFFSET) : "memory");
+}
+
+/* Read the logical CPU number without the serializing RDTSCP instruction. */
+uint32_t percpu_gs_cpu_id(void)
+{
+    uint32_t cpu_id;
+    __asm__("movl %%gs:%c1, %0" : "=r"(cpu_id) : "i"(SYSCALL_CPU_ID_OFFSET) : "memory");
+    return cpu_id;
+}
+
+/*
+ * Park the current task's user GS base in KERNEL_GS_BASE.  In kernel mode the
+ * hidden GS base is the per-CPU window, so the user GS lives in KERNEL_GS_BASE
+ * and the return-to-user swapgs restores it.
+ */
+void set_user_gs_base(uint64_t user_gs_base)
+{
+    wrmsr(0xC0000102, user_gs_base);
+}
+
 /* Multi-core boot entry */
-void ap_entry(struct limine_smp_info *info)
+__attribute__((noreturn)) void ap_entry(struct limine_smp_info *info)
 {
     fpu_init();
     cpu_enable_nx();
@@ -499,22 +529,23 @@ void smp_init(void)
         return;
     }
 
-    cpu_count         = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
+    cpu_count = smp->cpu_count;
+    if (CONFIG_CPU_MAX_COUNT && cpu_count > CONFIG_CPU_MAX_COUNT) cpu_count = CONFIG_CPU_MAX_COUNT;
     cpus              = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
     tlb_shootdown_ack = calloc(cpu_count, sizeof(*tlb_shootdown_ack));
     if (!cpus || !tlb_shootdown_ack) panic("smp: Cannot allocate CPU state.");
 
     /* aligned_alloc() does not clear memory; never expose stale per-CPU state. */
     memset(cpus, 0, sizeof(cpu_processor_t) * cpu_count);
-    plogk("smp: Found %d CPUs.\n", cpu_count);
+    plogk("smp: Found %zd CPUs.\n", cpu_count);
 
     /*
-     * The Limine MP response identifies the BSP by LAPIC ID but does not
-     * promise that its entry is first.  The scheduler deliberately reserves
-     * logical CPU 0 for the boot task and the global tick, so build our
-     * logical topology with the BSP first instead of inheriting firmware
-     * enumeration order.  Scan the complete response before applying the
-     * configured CPU limit so the BSP cannot be truncated out.
+     * The Limine MP response identifies the BSP by LAPIC ID but does not promise
+     * that its entry is first.  The scheduler reserves logical CPU 0 for the boot
+     * task and the global tick, so the logical topology is built with the BSP
+     * first instead of inheriting firmware enumeration order.  Scan the complete
+     * response before applying the configured CPU limit so the BSP cannot be
+     * truncated out.
      */
     uint64_t bsp_index = smp->cpu_count;
     for (uint64_t i = 0; i < smp->cpu_count; i++) {
@@ -545,13 +576,13 @@ void smp_init(void)
             uint32_t smt_mask  = smp_topology_mask(smt_shift);
             uint32_t core_bits = core_shift > smt_shift ? core_shift - smt_shift : 0;
             uint32_t core_mask = smp_topology_mask((uint8_t)core_bits);
-            cpus[i].thread_id  = (uint32_t)cpu->lapic_id & smt_mask;
-            cpus[i].core_id    = smt_shift >= 32 ? 0 : ((uint32_t)cpu->lapic_id >> smt_shift) & core_mask;
-            cpus[i].package_id = core_shift >= 32 ? 0 : (uint32_t)cpu->lapic_id >> core_shift;
+            cpus[i].thread_id  = cpu->lapic_id & smt_mask;
+            cpus[i].core_id    = smt_shift >= 32 ? 0 : (cpu->lapic_id >> smt_shift) & core_mask;
+            cpus[i].package_id = core_shift >= 32 ? 0 : cpu->lapic_id >> core_shift;
         } else {
             /* Conservative fallback: no fake SMT sharing, one package. */
             cpus[i].thread_id  = 0;
-            cpus[i].core_id    = (uint32_t)cpu->lapic_id;
+            cpus[i].core_id    = cpu->lapic_id;
             cpus[i].package_id = 0;
         }
         cpus[i].capacity           = 1024;
@@ -563,9 +594,10 @@ void smp_init(void)
         cpus[i].fpu.fpu_live       = NULL;
         cpus[i].fpu.fpu_kernel_cnt = 0;
         cpus[i].fpu.fpu_irq_saved  = 0;
+
         /* Allocate kernel stack for each CPU */
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
-        if (!cpus[i].kernel_stack) { panic("smp: failed to allocate kernel stack for CPU %u", i); }
+        if (!cpus[i].kernel_stack) panic("smp: failed to allocate kernel stack for CPU %u", i);
 
         /* Special handling for BSP */
         if (i == 0) {
@@ -584,14 +616,14 @@ void smp_init(void)
             continue;
         }
         cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
-        if (!cpus[i].gdt) { panic("smp: failed to allocate GDT for CPU %u", i); }
+        if (!cpus[i].gdt) panic("smp: failed to allocate GDT for CPU %u", i);
         memset(cpus[i].gdt, 0, sizeof(gdt_t)); // Clear dirty data
         cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
-        if (!cpus[i].tss_stack) { panic("smp: failed to allocate TSS stack for CPU %u", i); }
+        if (!cpus[i].tss_stack) panic("smp: failed to allocate TSS stack for CPU %u", i);
         cpus[i].nmi_stack = malloc(sizeof(tss_stack_t));
-        if (!cpus[i].nmi_stack) { panic("smp: failed to allocate NMI stack for CPU %u", i); }
+        if (!cpus[i].nmi_stack) panic("smp: failed to allocate NMI stack for CPU %u", i);
         cpus[i].tss = (tss_t *)aligned_alloc(16, ALIGN_UP(sizeof(tss_t), 16));
-        if (!cpus[i].tss) { panic("smp: failed to allocate TSS for CPU %u", i); }
+        if (!cpus[i].tss) panic("smp: failed to allocate TSS for CPU %u", i);
         memset(cpus[i].tss, 0, sizeof(tss_t)); // Clear dirty data
 
         /* Configure the AP entry point */
@@ -607,9 +639,9 @@ void smp_init(void)
     plogk("smp: IPI handlers registered.\n");
 
     /* Wait for all APs to be ready */
-    while (__atomic_load_n(&ap_ready_count, __ATOMIC_ACQUIRE) < cpu_count - 1) __asm__ volatile("pause");
+    while (__atomic_load_n(&ap_ready_count, __ATOMIC_ACQUIRE) < cpu_count - 1) cpu_relax();
     if (cpu_support_rdtscp()) __atomic_store_n(&smp_tsc_aux_ready, 1, __ATOMIC_RELEASE);
     __atomic_store_n(&smp_ready, 1, __ATOMIC_RELEASE);
-    for (size_t i = 0; i < cpu_count; i++) plogk("smp: CPU %03u: tss_stack = %p, nmi_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].nmi_stack, cpus[i].kernel_stack);
-    plogk("smp: All APs are up, total %llu CPUs.\n", cpu_count);
+    for (size_t i = 0; i < cpu_count; i++) plogk("smp: CPU %03llu: tss_stack = %p, nmi_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].nmi_stack, cpus[i].kernel_stack);
+    plogk("smp: All APs are up, total %zu CPUs.\n", cpu_count);
 }

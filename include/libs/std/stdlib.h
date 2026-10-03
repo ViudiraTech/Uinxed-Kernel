@@ -13,7 +13,6 @@
 
 #include <kernel/writer.h>
 #include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 
 #define ZEROPAD 1  // pad with zero
 #define SIGN    2  // unsigned/signed long

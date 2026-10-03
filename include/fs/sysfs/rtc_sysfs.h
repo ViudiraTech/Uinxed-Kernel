@@ -12,6 +12,10 @@
 #define INCLUDE_RTC_SYSFS_H_
 
 /* Register /sys/class/rtc/rtc0 with the standard date/time attributes. */
+#if CONFIG_SYSFS
 void rtc_sysfs_init(void);
+#else
+static inline void rtc_sysfs_init(void) {}
+#endif
 
 #endif // INCLUDE_RTC_SYSFS_H_

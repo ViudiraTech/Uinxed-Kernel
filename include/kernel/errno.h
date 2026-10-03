@@ -11,9 +11,9 @@
 #ifndef INCLUDE_ERRNO_H_
 #define INCLUDE_ERRNO_H_
 
-#define ERRNO_MASK 0x7FFFFFFFFFFFF000
+#define ERRNO_MASK 0x7FFFFFFFFFFFF000 // Mask of the error-code bits in -errno returns
 
-#define EOK                   0
+#define EOK                   0       // Success (not an errno)
 #define EPERM                 1       // Operation not permitted
 #define ENOENT                2       // No such file or directory
 #define ESRCH                 3       // No such process

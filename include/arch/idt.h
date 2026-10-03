@@ -11,7 +11,11 @@
 #ifndef INCLUDE_IDT_H_
 #define INCLUDE_IDT_H_
 
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+
+/* True when the trapped context ran in user mode.  Operates on any frame whose saved iret state begins with cs. */
+#define user_mode(frame) (((frame)->cs & 3U) == 3U)
 
 #define ISR_0  0  // #DE Division by 0 exception
 #define ISR_1  1  // #DB Debugging exceptions
@@ -56,6 +60,10 @@ typedef struct {
         void    *ptr;
 } __attribute__((packed)) idt_register_t;
 
+/* The exact 10-byte operand lidt expects: 2-byte limit followed by a 64-bit base. */
+_Static_assert(sizeof(idt_register_t) == 10, "idt_register_t descriptor size");
+_Static_assert(offsetof(idt_register_t, ptr) == 2, "idt_register_t base offset");
+
 typedef struct {
         uint16_t offset_low; // Processing function pointer low 16-bit address
         uint16_t selector;   // Segment Selector
@@ -66,13 +74,21 @@ typedef struct {
         uint32_t reserved;
 } __attribute__((packed)) idt_entry_t;
 
+_Static_assert(sizeof(idt_entry_t) == 16, "x86-64 IDT gate descriptor size");
+
 typedef struct {
         uint64_t rip;
         uint64_t cs;
         uint64_t rflags;
         uint64_t rsp;
         uint64_t ss;
-} __attribute__((packed)) interrupt_frame_t;
+} interrupt_frame_t;
+
+/* The frame the CPU pushes for a vector that carries no error code. */
+_Static_assert(sizeof(interrupt_frame_t) == 40, "x86-64 interrupt frame size");
+_Static_assert(offsetof(interrupt_frame_t, rflags) == 16, "interrupt frame rflags offset");
+_Static_assert(offsetof(interrupt_frame_t, rsp) == 24, "interrupt frame rsp offset");
+_Static_assert(offsetof(interrupt_frame_t, ss) == 32, "interrupt frame ss offset");
 
 extern idt_register_t idt_pointer;
 
@@ -81,5 +97,8 @@ void init_idt(void);
 
 /* Register an interrupt handler */
 void register_interrupt_handler(uint16_t vector, void *handler, uint8_t ist, uint8_t flags);
+
+/* Restore an interrupt vector to its default empty handler */
+void unregister_interrupt_handler(uint16_t vector);
 
 #endif // INCLUDE_IDT_H_

@@ -8,43 +8,28 @@
  *
  */
 
-#include <drivers/block/core/blockdev.h>
 #include <drivers/block/core/gendisk.h>
 #include <drivers/block/core/partition.h>
 #include <fs/sysfs/block_sysfs.h>
-#include <fs/sysfs/sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/kobject/kobject.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
 
-/* Per-block-device wrapper */
+#if CONFIG_SYSFS
 
-typedef struct block_sysfs_dev {
-        struct kobject    kobj;
-        blockdev_device_t bdev;
-        char              name[32];
-        uint32_t          partition;
-        uint64_t          start_lba;
-        int               read_only;
-        int               removable;
-        int               valid;
-} block_sysfs_dev_t;
-
+/* /sys/block: parent kobject of every block device. */
 static struct kobject *block_root_kobj;
 
 /* Return the block sysfs wrapper containing a kobject. */
 static block_sysfs_dev_t *to_bsd(struct kobject *kobj)
 {
-    return (block_sysfs_dev_t *)((char *)kobj - offsetof(block_sysfs_dev_t, kobj));
+    return container_of(kobj, block_sysfs_dev_t, kobj);
 }
 
+/* Block sysfs dev publish. */
 static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd);
+
+/* Block sysfs dev unpublish. */
 static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd);
 
 /* Show the device size in 512-byte sectors. */
@@ -54,7 +39,7 @@ static ssize_t size_show(struct kobject *kobj, struct attribute *attr, char *buf
     (void)attr;
     if (!bsd->valid) return -EIO;
     uint64_t sz = bsd->bdev.sector_count * (bsd->bdev.sector_size / 512);
-    return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)sz);
+    return (ssize_t)sysfs_emit(buf, "%llu\n", sz);
 }
 
 /* Show the logical sector size. */
@@ -85,7 +70,7 @@ static ssize_t start_show(struct kobject *kobj, struct attribute *attr, char *bu
 {
     block_sysfs_dev_t *bsd = to_bsd(kobj);
     (void)attr;
-    return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)bsd->start_lba * (bsd->bdev.sector_size / 512));
+    return (ssize_t)sysfs_emit(buf, "%llu\n", bsd->start_lba * (bsd->bdev.sector_size / 512));
 }
 
 /* Show whether the device is removable. */
@@ -114,13 +99,13 @@ static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, cha
         for (int i = 0; i < env.envp_idx; i++) at += sysfs_emit_at(buf, at, "%s\n", env.envp[i]);
         return at;
     }
-    return -EIO;
+    return -EINVAL;
 }
 
 /* Handle the writable uevent attribute. */
 static ssize_t block_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
-    if (!streq(attr->name, "uevent")) return -EIO;
+    if (!streq(attr->name, "uevent")) return -EINVAL;
     process_t *process = process_current();
     if (!process || process->uid != 0) return -EPERM;
     int ret = kobject_synth_uevent(kobj, buf, count);
@@ -136,8 +121,8 @@ static const struct sysfs_ops block_sysfs_ops = {
 
 static struct attribute size_attr        = __ATTR_RO(size);
 static struct attribute sector_size_attr = __ATTR_RO(sector_size);
-static struct attribute ro_attr          = __ATTR_RO(ro);
 static struct attribute removable_attr   = __ATTR_RO(removable);
+static struct attribute ro_attr          = __ATTR_RO(ro);
 static struct attribute partition_attr   = __ATTR_RO(partition);
 static struct attribute start_attr       = __ATTR_RO(start);
 static struct attribute uevent_attr      = __ATTR(uevent, 0644);
@@ -215,10 +200,11 @@ static int block_add_partitions(block_sysfs_dev_t *disk)
         part->start_lba = info->start_lba;
         part->read_only = info->read_only;
         part->valid     = 1;
-        if (disk->name[strlen(disk->name) - 1] >= '0' && disk->name[strlen(disk->name) - 1] <= '9')
+        if (disk->name[strlen(disk->name) - 1] >= '0' && disk->name[strlen(disk->name) - 1] <= '9') {
             (void)snprintf(part->name, sizeof(part->name), "%sp%u", disk->name, info->number);
-        else
+        } else {
             (void)snprintf(part->name, sizeof(part->name), "%s%u", disk->name, info->number);
+        }
 
         kobject_init(&part->kobj, &partition_ktype);
         status = kobject_add(&part->kobj, &disk->kobj, "%s", part->name);
@@ -233,12 +219,7 @@ static int block_add_partitions(block_sysfs_dev_t *disk)
     return status;
 }
 
-/* Helper: add a single block device */
-
-/*
- * Map a Linux disk/partition name ("sda", "nvme0n1p2", "hdb", "sr1", ...)
- * to the conventional (major, minor) pair used by /sys/dev/block.
- */
+/* Map a disk/partition name ("sda", "nvme0n1p2", "hdb", "sr1", ...) to the conventional (major, minor) pair used by /sys/dev/block. */
 static void block_sysfs_devt(const char *name, uint32_t *major, uint32_t *minor)
 {
     const char *n  = name;
@@ -280,9 +261,9 @@ static void block_sysfs_devt(const char *name, uint32_t *major, uint32_t *minor)
 /* Create the /sys/dev/block major:minor symlink for a device. */
 static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd)
 {
-    uint32_t               major, minor;
-    char                   link[24];
-    extern struct kobject *sysfs_dev_block_kobj;
+    uint32_t major, minor;
+    char     link[24];
+
     if (!bsd || !bsd->name[0]) return;
     block_sysfs_devt(bsd->name, &major, &minor);
     (void)snprintf(link, sizeof(link), "%u:%u", major, minor);
@@ -292,9 +273,9 @@ static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd)
 /* Remove the /sys/dev/block major:minor symlink. */
 static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd)
 {
-    uint32_t               major, minor;
-    char                   link[24];
-    extern struct kobject *sysfs_dev_block_kobj;
+    uint32_t major, minor;
+    char     link[24];
+
     if (!bsd || !bsd->name[0]) return;
     block_sysfs_devt(bsd->name, &major, &minor);
     (void)snprintf(link, sizeof(link), "%u:%u", major, minor);
@@ -304,7 +285,6 @@ static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd)
 /* Register a whole disk under /sys/block/ with its partitions. */
 int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable, block_sysfs_dev_t **handle)
 {
-#if CONFIG_SYSFS
     block_sysfs_dev_t *bsd;
     int                status;
 
@@ -329,19 +309,11 @@ int block_sysfs_register_device(const char *name, const blockdev_device_t *devic
     if (status != EOK && status != -ENOENT) plogk("block_sysfs: Cannot scan partitions on %s: %d\n", name, status);
     *handle = bsd;
     return EOK;
-#else
-    (void)name;
-    (void)device;
-    (void)removable;
-    (void)handle;
-    return -ENOSYS;
-#endif
 }
 
 /* Remove a disk and its partitions from sysfs. */
 void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
 {
-#if CONFIG_SYSFS
     if (!handle) return;
     handle->valid = 0;
     while (handle->kobj.children) {
@@ -354,18 +326,13 @@ void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
     block_sysfs_dev_unpublish(handle);
     kobject_del(&handle->kobj);
     kobject_put(&handle->kobj);
-#else
-    (void)handle;
-#endif
 }
 
 /* Export every registered disk to /sys/block/. */
 void block_sysfs_init(void)
 {
-#if CONFIG_SYSFS
-    extern struct kobject *sysfs_root_kobj;
-    clist_t                node;
-    int                    count = 0;
+    clist_t node;
+    int     count = 0;
 
     if (!sysfs_root_kobj) return;
 
@@ -381,14 +348,17 @@ void block_sysfs_init(void)
         plogk("block_sysfs: /sys/block/ kobject not found.\n");
         return;
     }
-    for (int i = 0; i < block_disk_count(); i++) {
-        gendisk_t         *disk = block_get_disk(i);
-        block_sysfs_dev_t *handle;
-        if (!disk) continue;
-        if (!disk->scan_partitions) continue;
-        if (block_sysfs_register_device(disk->name, &disk->device, false, &handle) == EOK) count++;
+    for (int index = 0;; index++) {
+        gendisk_t disk;
+        if (!block_disk_snapshot(index, &disk)) break;
+        if (disk.scan_partitions) {
+            block_sysfs_dev_t *handle;
+            if (block_sysfs_register_device(disk.name, &disk.device, false, &handle) == EOK) count++;
+        }
+        blockdev_release(&disk.device);
     }
 
     plogk("block_sysfs: exported %d block device(s) to /sys/block\n", count);
-#endif
 }
+
+#endif

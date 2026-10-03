@@ -11,15 +11,14 @@
 #include <drivers/block/ata/pata/ide.h>
 #include <drivers/block/core/blockdev.h>
 #include <fs/core/vfs.h>
+#include <fs/core/vfs_stub.h>
 #include <fs/fatfs/fatfs_disk.h>
-#include <fs/fatfs/fatfs_vfs.h>
-#include <fs/fatfs/ff.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
-static int fatfs_vfs_id = 0;
+#if CONFIG_FAT_FS
 
 typedef struct fatfs_mount {
         FATFS fs;
@@ -37,6 +36,8 @@ typedef struct fatfs_handle {
         BYTE           open_mode;
         int            owns_mount;
 } fatfs_handle_t;
+
+static int fatfs_vfs_id = 0;
 
 /* Map a FatFs result code to a kernel errno. */
 static int fatfs_result_to_errno(FRESULT res)
@@ -75,10 +76,11 @@ static void fatfs_handle_destroy(fatfs_handle_t *handle)
     if (!handle) return;
 
     if (handle->opened) {
-        if (handle->is_dir)
+        if (handle->is_dir) {
             f_closedir(&handle->dir);
-        else
+        } else {
             f_close(&handle->file);
+        }
         handle->opened = 0;
     }
 
@@ -309,7 +311,6 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
     FRESULT         res;
 
     if (!src || !node) return -EINVAL;
-
     char vol_str[4] = {0};
 
     if (strlen(src) == 2 && src[1] == ':') {
@@ -431,10 +432,11 @@ static int fatfs_open_child(vfs_node_t node)
     }
 
     handle->is_dir = (handle->info.fattrib & AM_DIR) != 0;
-    if (handle->is_dir)
+    if (handle->is_dir) {
         res = f_opendir(&handle->dir, fullpath);
-    else
+    } else {
         res = f_open(&handle->file, fullpath, FA_READ | FA_OPEN_EXISTING);
+    }
 
     if (res != FR_OK) {
         free(handle->path);
@@ -467,11 +469,11 @@ static void fatfs_vfs_close(void *current)
 
     if (!handle) return;
     if (!handle->opened) return;
-
-    if (handle->is_dir)
+    if (handle->is_dir) {
         f_closedir(&handle->dir);
-    else
+    } else {
         f_close(&handle->file);
+    }
     handle->opened = 0;
 }
 
@@ -614,15 +616,6 @@ static int fatfs_vfs_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
-/* Reject ioctl requests (fatfs supports none). */
-static int fatfs_vfs_ioctl(void *file, size_t req, void *arg)
-{
-    (void)file;
-    (void)req;
-    (void)arg;
-    return -ENOTTY;
-}
-
 /* Duplicate a VFS node sharing its parent's mount. */
 static vfs_node_t fatfs_vfs_dup(vfs_node_t node)
 {
@@ -643,13 +636,6 @@ static vfs_node_t fatfs_vfs_dup(vfs_node_t node)
         copy->linkname = 0;
     copy->permissions = node->permissions;
     return copy;
-}
-
-/* Report the requested events as ready. */
-static int fatfs_vfs_poll(void *file, size_t events)
-{
-    (void)file;
-    return (int)events;
 }
 
 /* Close and free the FatFs handle. */
@@ -725,9 +711,9 @@ static struct vfs_callback fatfs_vfs_callbacks = {
     .link     = fatfs_vfs_no_link,
     .symlink  = fatfs_vfs_no_link,
     .stat     = fatfs_vfs_stat,
-    .ioctl    = fatfs_vfs_ioctl,
+    .ioctl    = vfs_stub_ioctl_notty,
     .dup      = fatfs_vfs_dup,
-    .poll     = fatfs_vfs_poll,
+    .poll     = vfs_poll_all,
     .free     = fatfs_vfs_free,
     .delete   = fatfs_vfs_delete,
     .rename   = fatfs_vfs_rename,
@@ -738,12 +724,10 @@ static struct vfs_callback fatfs_vfs_callbacks = {
 /* Register the fatfs filesystem with the VFS layer. */
 void fatfs_vfs_regist(void)
 {
-#if CONFIG_FAT_FS
     f_setcp(936); // Default active code page (GBK) for SFN
     fatfs_vfs_id = vfs_regist_fs("fatfs", &fatfs_vfs_callbacks);
-    if (fatfs_vfs_id & ERRNO_MASK) plogk("fatfs: Register error.\n");
+    if (fatfs_vfs_id & ERRNO_MASK) plogk("fatfs: Register error (%d)\n", fatfs_vfs_id);
     if (!(fatfs_vfs_id & ERRNO_MASK)) plogk("fatfs: Filesystem registered (fsid=%d)\n", fatfs_vfs_id);
-#endif
 }
 
 /* Mount a FatFs volume at a VFS path. */
@@ -768,3 +752,5 @@ int fatfs_vfs_mount_volume(const char *src, const char *path)
     vfs_close(node);
     return status;
 }
+
+#endif

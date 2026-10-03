@@ -1,7 +1,7 @@
 /*
  *
  *      ptrace.h
- *      Linux-compatible process tracing interface
+ *      Process tracing interface
  *
  *      2026/7/28 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -15,13 +15,9 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/signal.h>
-#include <sync/spin_lock.h>
+#include <syscall/abi.h>
 
-typedef struct process       process_t;
-typedef struct task          task_t;
-typedef struct syscall_frame syscall_frame_t;
-
-/* Linux x86-64 ptrace requests. */
+/* x86-64 ptrace requests. */
 #define PTRACE_TRACEME              0
 #define PTRACE_PEEKTEXT             1
 #define PTRACE_PEEKDATA             2
@@ -94,6 +90,10 @@ typedef struct syscall_frame syscall_frame_t;
 #define PTRACE_USER_DEBUGREG_OFFSET 848
 #define PTRACE_USER_AREA_SIZE       912
 
+typedef struct process       process_t;
+typedef struct task          task_t;
+typedef struct syscall_frame syscall_frame_t;
+
 typedef struct ptrace_user_regs {
         uint64_t r15, r14, r13, r12, rbp, rbx;
         uint64_t r11, r10, r9, r8, rax, rcx, rdx, rsi, rdi;
@@ -103,16 +103,15 @@ typedef struct ptrace_user_regs {
         uint64_t ds, es, fs, gs;
 } ptrace_user_regs_t;
 
-typedef struct ptrace_iovec {
-        void  *base;
-        size_t len;
-} ptrace_iovec_t;
+_Static_assert(sizeof(ptrace_user_regs_t) == 216, "Linux x86_64 user_regs_struct ABI size");
 
 typedef struct ptrace_peeksiginfo_args {
         uint64_t off;
         uint32_t flags;
         int32_t  nr;
 } ptrace_peeksiginfo_args_t;
+
+_Static_assert(sizeof(ptrace_peeksiginfo_args_t) == 16, "Linux x86_64 ptrace_peeksiginfo_args ABI size");
 
 typedef struct ptrace_syscall_info {
         uint8_t  op;
@@ -131,6 +130,12 @@ typedef struct ptrace_syscall_info {
                 } exit;
         } data;
 } ptrace_syscall_info_t;
+
+/*
+ * Linux is 88 (its union also carries the seccomp arm); this side is smaller, so a
+ * copy into a userspace buffer never overruns.
+ */
+_Static_assert(sizeof(ptrace_syscall_info_t) == 80, "ptrace_syscall_info current size");
 
 typedef enum {
     PTRACE_RUN_CONT,

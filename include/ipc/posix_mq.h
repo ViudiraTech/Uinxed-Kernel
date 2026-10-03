@@ -11,19 +11,14 @@
 #ifndef INCLUDE_POSIX_MQ_H_
 #define INCLUDE_POSIX_MQ_H_
 
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/signal.h>
 
-/* POSIX MQ attributes */
-
-#define MQ_MAXMSG_DEFAULT  10
-#define MQ_MSGSIZE_DEFAULT 8192
-#define MQ_MAXMSG_MAX      256
-#define MQ_MSGSIZE_MAX     65536
-#define MQ_PRIO_MAX        32768
-
-#define MQ_NAME_MAX 256
+#define SIGEV_NONE   1
+#define SIGEV_SIGNAL 2
+#define SIGEV_THREAD 3
 
 /* mq_attr structure */
 
@@ -34,6 +29,8 @@ typedef struct mq_attr {
         int64_t mq_curmsgs;
         int64_t __pad[4];
 } mq_attr_t;
+
+_Static_assert(sizeof(mq_attr_t) == 64, "Linux x86_64 mq_attr ABI size (four longs plus four padding longs)");
 
 /* sigevent structure (for mq_notify) */
 
@@ -46,9 +43,10 @@ typedef struct sigevent {
         int32_t __pad[12];
 } sigevent_t;
 
-#define SIGEV_NONE   1
-#define SIGEV_SIGNAL 2
-#define SIGEV_THREAD 3
+/* glibc sigevent is 64 bytes (__pad[8]); mq_notify's copy_from_user over-reads 16. */
+_Static_assert(sizeof(sigevent_t) == 80, "sigevent current size");
+
+#if CONFIG_POSIX_MQ
 
 /* Open or create a message queue. */
 int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr);
@@ -70,5 +68,33 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
 
 /* Initialize the POSIX MQ subsystem. */
 void posix_mq_init(void);
+
+#else
+static inline int64_t sys_mq_open(const char *, int, uint32_t, mq_attr_t *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_mq_unlink(const char *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_mq_timedsend(int, const char *, size_t, uint32_t, const void *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_mq_timedreceive(int, char *, size_t, uint32_t *, const void *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_mq_notify(int, const sigevent_t *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_mq_getsetattr(int, const mq_attr_t *, mq_attr_t *)
+{
+    return -ENOSYS;
+}
+static inline void posix_mq_init(void) {}
+#endif
 
 #endif // INCLUDE_POSIX_MQ_H_

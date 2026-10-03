@@ -12,9 +12,10 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/heap.h>
 #include <process/sched.h>
+
+#if CONFIG_EXTFS
 
 /*
  * Block and inode allocation
@@ -41,7 +42,10 @@ static void extfs_clear_bit(uint8_t *bitmap, uint32_t bit)
     bitmap[bit / 8] &= ~(1 << (bit % 8));
 }
 
+/* extfs initialize block bitmap. */
 static int extfs_initialize_block_bitmap(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap);
+
+/* extfs initialize inode bitmap. */
 static int extfs_initialize_inode_bitmap(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap);
 
 /* Find a free bit in a block/inode bitmap, initializing it if needed. */
@@ -113,7 +117,7 @@ static int extfs_free_bit_in_bitmap(extfs_sb_info_t *sb, uint32_t group, int ino
 /* Number of valid data blocks in a group (the last group may be short). */
 static uint32_t extfs_blocks_in_group(extfs_sb_info_t *sb, uint32_t group)
 {
-    uint64_t first = (uint64_t)sb->s_first_data_block + (uint64_t)group * sb->blocks_per_group;
+    uint64_t first = (uint64_t)sb->s_first_data_block + ((uint64_t)group * sb->blocks_per_group);
     uint64_t total = sb->blocks_count;
     if (first >= total) return 0;
     uint64_t remaining = total - first;
@@ -153,7 +157,7 @@ static int extfs_group_has_super(extfs_sb_info_t *sb, uint32_t group)
 /* Mark a physical block as allocated in a group bitmap. */
 static void extfs_mark_group_block(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap, uint64_t physical)
 {
-    uint64_t first = (uint64_t)sb->s_first_data_block + (uint64_t)group * sb->blocks_per_group;
+    uint64_t first = (uint64_t)sb->s_first_data_block + ((uint64_t)group * sb->blocks_per_group);
     if (physical >= first && physical < first + sb->blocks_per_group) extfs_set_bit(bitmap, (uint32_t)(physical - first));
 }
 
@@ -161,7 +165,7 @@ static void extfs_mark_group_block(extfs_sb_info_t *sb, uint32_t group, uint8_t 
 static int extfs_initialize_block_bitmap(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap)
 {
     memset(bitmap, 0, sb->block_size);
-    uint64_t first = (uint64_t)sb->s_first_data_block + (uint64_t)group * sb->blocks_per_group;
+    uint64_t first = (uint64_t)sb->s_first_data_block + ((uint64_t)group * sb->blocks_per_group);
     if (extfs_group_has_super(sb, group)) {
         uint32_t overhead = 1 + sb->gdb_count + sb->es->s_reserved_gdt_blocks;
         for (uint32_t block = 0; block < overhead; block++) extfs_mark_group_block(sb, group, bitmap, first + block);
@@ -209,17 +213,14 @@ static int extfs_initialize_inode_bitmap(extfs_sb_info_t *sb, uint32_t group, ui
 int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
 {
     uint32_t group, i, bit;
-    int      status;
+    int      status = -ENOSPC;
 
     if (!sb || !sb->es || !out) return -EINVAL;
     if (sb->read_only) return -EROFS;
     *out = 0;
     if (sb->es->s_free_blocks_count == 0) {
-        static uint64_t last_log;
-        if (sched_ticks() - last_log >= 1000) {
-            plogk("extfs: Drive %u: filesystem full (no free blocks)\n", sb->device.drive);
-            last_log = sched_ticks();
-        }
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("extfs: Drive %u: filesystem full (no free blocks)\n", sb->device.drive);
         return -ENOSPC;
     }
 
@@ -254,11 +255,8 @@ int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
         }
     }
 
-    static uint64_t last_log;
-    if (sched_ticks() - last_log >= 1000) {
-        plogk("extfs: Drive %u: block allocation failed, filesystem full.\n", sb->device.drive);
-        last_log = sched_ticks();
-    }
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    if (ratelimit_allow(&ratelimit)) plogk("extfs: Drive %u: block allocation failed, no free block in any group (%d)\n", sb->device.drive, status);
     return -ENOSPC;
 }
 
@@ -273,7 +271,6 @@ void extfs_free_block(extfs_sb_info_t *sb, uint32_t block)
     bit   = (block - sb->s_first_data_block) % sb->blocks_per_group;
 
     if (group >= sb->groups_count) return;
-
     if (bit >= extfs_blocks_in_group(sb, group)) return;
     int status = extfs_free_bit_in_bitmap(sb, group, 0, sb->group_desc[group].bg_block_bitmap, bit);
     if (status != EOK) {
@@ -296,17 +293,14 @@ void extfs_free_block(extfs_sb_info_t *sb, uint32_t block)
 int extfs_alloc_inode(extfs_sb_info_t *sb, uint32_t *out)
 {
     uint32_t i;
-    int      status;
+    int      status = -ENOSPC;
 
     if (!sb || !sb->es || !out) return -EINVAL;
     if (sb->read_only) return -EROFS;
     *out = 0;
     if (sb->es->s_free_inodes_count == 0) {
-        static uint64_t last_log;
-        if (sched_ticks() - last_log >= 1000) {
-            plogk("extfs: Drive %u: inode table exhausted (no free inodes)\n", sb->device.drive);
-            last_log = sched_ticks();
-        }
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("extfs: Drive %u: inode table exhausted (no free inodes)\n", sb->device.drive);
         return -ENOSPC;
     }
 
@@ -332,11 +326,8 @@ int extfs_alloc_inode(extfs_sb_info_t *sb, uint32_t *out)
         }
     }
 
-    static uint64_t last_log;
-    if (sched_ticks() - last_log >= 1000) {
-        plogk("extfs: Drive %u: inode allocation failed, inode table full.\n", sb->device.drive);
-        last_log = sched_ticks();
-    }
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    if (ratelimit_allow(&ratelimit)) plogk("extfs: Drive %u: inode allocation failed, no free inode in any group (%d)\n", sb->device.drive, status);
     return -ENOSPC;
 }
 
@@ -351,7 +342,6 @@ void extfs_free_inode(extfs_sb_info_t *sb, uint32_t ino)
     bit   = (ino - 1) % sb->inodes_per_group;
 
     if (group >= sb->groups_count) return;
-
     if (ino < sb->s_first_ino || bit >= extfs_inodes_in_group(sb, group)) return;
     int status = extfs_free_bit_in_bitmap(sb, group, 1, sb->group_desc[group].bg_inode_bitmap, bit);
     if (status != EOK) {
@@ -406,3 +396,5 @@ uint32_t extfs_count_free_inodes(extfs_sb_info_t *sb)
 
     return count;
 }
+
+#endif

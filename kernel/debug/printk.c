@@ -9,91 +9,114 @@
  */
 
 #include <arch/smp.h>
+#include <drivers/firmware/acpi.h>
 #include <drivers/tty/tty.h>
 #include <kernel/printk.h>
-#include <libs/std/stdarg.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
+#include <process/sched.h>
 #include <sync/spin_lock.h>
 
-#ifdef KERNEL_LOG
-#    include <drivers/firmware/acpi.h>
-#endif
+/* Deepest nesting the log path allows before it drops a message. */
+#define PRINTK_MAX_RECURSION 3
 
-#define BUF_SIZE 2048
-
-/* Lock for printk */
-spinlock_t printk_lock = {
-    .lock   = 0,
-    .rflags = 0,
-};
-
-/* Kernel print string */
-void printk(const char *format, ...)
-{
-    spin_lock(&printk_lock);
-    va_list args;
-    va_start(args, format);
-    vwprintf(&tty_writer, format, args);
-    va_end(args);
-    spin_unlock(&printk_lock);
-}
-
-/* Kernel print log */
-void plogk(const char *format, ...)
-{
-#if KERNEL_LOG
-    /* Prefix and body are one record and must not interleave across CPUs. */
-    spin_lock(&printk_lock);
-    uint64_t now = nano_time();
-    char     prefix[48];
-    snprintf(prefix, sizeof(prefix), "[%5llu.%06llu] ", (unsigned long long)(now / 1000000000), (unsigned long long)((now / 1000) % 1000000));
-    tty_print_str(prefix);
-    va_list args;
-    va_start(args, format);
-    vwprintf(&tty_writer, format, args);
-    va_end(args);
-    spin_unlock(&printk_lock);
-#else
-    (void)format;
-#endif
-}
-
-/*
- * NMI-safe logging: per-CPU message slot + deferred drain.
- *
- * plogk() cannot run in NMI context: it takes printk_lock and the console
- * writes take port->lock / tty_flush_spinlock, all held with IRQs masked.
- * An NMI (non-maskable) can interrupt a holder and spin forever, hanging the
- * CPU.  Instead, the NMI handler formats the message and parks it in a
- * per-CPU slot; the periodic timer tick (a maskable interrupt, which can
- * never interrupt a lock holder because every spinlock disables IRQs) drains
- * the slot through the ordinary plogk() path.
- *
- * Each CPU only ever touches its own slot, and writer (NMI) and drainer
- * (timer) run nested on that same CPU, never concurrently: an NMI returns
- * before the next maskable interrupt can run (the NMI gate masks IF), so a
- * plain slot is race-free.  Two NMIs before a tick keep the first message;
- * an NMI during the drain copies a fresh message into the slot after busy is
- * cleared, so it waits for the next tick instead of being lost.
- */
-#define NMI_LOG_MAX_CPUS 256
-
+/* Per-CPU NMI message slot, drained by nmi_log_flush() on the next timer tick. */
 struct nmi_log_slot {
         char msg[NMI_LOG_MSG_SIZE];
         bool busy;
 };
 
-static struct nmi_log_slot nmi_log_slots[NMI_LOG_MAX_CPUS];
-static uint64_t            nmi_log_lost[NMI_LOG_MAX_CPUS]; // dropped per CPU
+/* Lock for printk */
+static spinlock_t printk_lock = {
+    .lock   = 0,
+    .rflags = 0,
+};
+
+static struct nmi_log_slot nmi_log_slots[CONFIG_NMI_LOG_MAX_CPUS];
+static uint64_t            nmi_log_lost[CONFIG_NMI_LOG_MAX_CPUS]; // dropped per CPU
+static uint8_t             printk_depth[CONFIG_NMI_LOG_MAX_CPUS]; // log nesting, per CPU
+
+/* Per-CPU log recursion depth: the first entry takes printk_lock, a nested one writes unlocked, and an entry past PRINTK_MAX_RECURSION is dropped.  False means drop. */
+static bool printk_enter(uint32_t *cpu_out, uint64_t *rflags)
+{
+    uint32_t cpu = get_current_cpu_id();
+    if (cpu >= CONFIG_NMI_LOG_MAX_CPUS) return false;
+    *cpu_out = cpu;
+    *rflags  = 0;
+
+    if (printk_depth[cpu] >= PRINTK_MAX_RECURSION) return false;
+    if (printk_depth[cpu] == 0) *rflags = spin_lock_irqsave(&printk_lock);
+    printk_depth[cpu]++;
+    return true;
+}
+
+/* Release the log lock when the outermost entry on this CPU leaves. */
+static void printk_exit(uint32_t cpu, uint64_t rflags)
+{
+    printk_depth[cpu]--;
+    if (printk_depth[cpu] == 0) spin_unlock_irqrestore(&printk_lock, rflags);
+}
+
+/* Kernel print string */
+__attribute__((format(printf, 1, 2))) void printk(const char *format, ...)
+{
+    uint32_t cpu;
+    uint64_t rflags;
+    if (!printk_enter(&cpu, &rflags)) return;
+
+    va_list args;
+    va_start(args, format);
+    vwprintf(&tty_writer, format, args);
+    va_end(args);
+
+    printk_exit(cpu, rflags);
+}
+
+/* Kernel print log */
+__attribute__((format(printf, 1, 2))) void plogk(const char *format, ...)
+{
+#if CONFIG_KERNEL_LOG
+    uint32_t cpu;
+    uint64_t rflags;
+    if (!printk_enter(&cpu, &rflags)) return;
+
+    /* Prefix and body are one record and must not interleave across CPUs. */
+    uint64_t now = nano_time();
+    char     prefix[48];
+    (void)snprintf(prefix, sizeof(prefix), "[%5llu.%06llu] ", (now / 1000000000), ((now / 1000) % 1000000));
+    tty_print_str(prefix);
+    va_list args;
+    va_start(args, format);
+    vwprintf(&tty_writer, format, args);
+    va_end(args);
+
+    printk_exit(cpu, rflags);
+#else
+    (void)format;
+#endif
+}
+
+/* True when the state still allows a message.  One caller advances the window and refills the budget; the rest only spend what is left, so no lock is needed on the interrupt path. */
+bool ratelimit_allow(ratelimit_state_t *state)
+{
+    uint64_t now   = sched_ticks();
+    uint64_t begin = __atomic_load_n(&state->begin, __ATOMIC_RELAXED);
+
+    if (now - begin >= state->interval && __atomic_compare_exchange_n(&state->begin, &begin, now, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+        __atomic_store_n(&state->left, state->burst, __ATOMIC_RELAXED);
+    }
+
+    uint32_t left = __atomic_load_n(&state->left, __ATOMIC_RELAXED);
+    while (left > 0) {
+        if (__atomic_compare_exchange_n(&state->left, &left, left - 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) return true;
+    }
+    return false;
+}
 
 /* Park a message for the current CPU's next timer tick (NMI context). */
 void nmi_log_message(const char *msg, size_t len)
 {
     uint32_t cpu = get_current_cpu_id();
-    if (cpu >= NMI_LOG_MAX_CPUS) return;
+    if (cpu >= CONFIG_NMI_LOG_MAX_CPUS) return;
     struct nmi_log_slot *s = &nmi_log_slots[cpu];
     if (s->busy) {
         __atomic_add_fetch(&nmi_log_lost[cpu], 1, __ATOMIC_RELAXED);
@@ -109,408 +132,16 @@ void nmi_log_message(const char *msg, size_t len)
 void nmi_log_flush(void)
 {
     uint32_t cpu = get_current_cpu_id();
-    if (cpu >= NMI_LOG_MAX_CPUS) return;
+    if (cpu >= CONFIG_NMI_LOG_MAX_CPUS) return;
     struct nmi_log_slot *s = &nmi_log_slots[cpu];
 
     /* Report dropped messages (first-wins policy) before the pending one. */
     uint64_t lost = __atomic_exchange_n(&nmi_log_lost[cpu], 0, __ATOMIC_RELAXED);
-    if (lost) plogk("nmi_log: %llu message%s lost due to overflow.\n", (unsigned long long)lost, lost == 1 ? "" : "s");
+    if (lost) plogk("nmi_log: %llu message%s lost due to overflow.\n", lost, lost == 1 ? "" : "s");
 
     if (!s->busy) return;
     char local[NMI_LOG_MSG_SIZE];
     memcpy(local, s->msg, NMI_LOG_MSG_SIZE);
     s->busy = false; // a new NMI may now overwrite the slot
     plogk("%s", local);
-}
-
-/* Handler of unsafe buf writing */
-uint8_t unsafe_buf_write(writer *writer, char c)
-{
-    unsafe_buf_data *data = (unsafe_buf_data *)writer->data;
-    data->buf[data->idx]  = c;
-    ++data->idx;
-    return 1; // always succeeds: the unsafe buffer cannot overflow here
-}
-
-/* Handler of safe buf writing with size limit */
-uint8_t unsafe_buf_write_safe(writer *writer, char c)
-{
-    unsafe_buf_data *data = (unsafe_buf_data *)writer->data;
-    if (data->size == 0 || data->idx < data->size - 1) {
-        data->buf[data->idx] = c;
-        ++data->idx;
-        return 1;
-    }
-    return 0; // Buffer full
-}
-
-/* Store the formatted output in a character array */
-int sprintf(char *str, const char *fmt, ...)
-{
-    int             c                 = 0;
-    unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0};
-    writer          unsafe_buf_writer = {
-                 .data    = &unsafe_buf_data,
-                 .handler = unsafe_buf_write,
-    };
-    va_list arg;
-    va_start(arg, fmt);
-
-    c = (int)vwprintf(&unsafe_buf_writer, fmt, arg);
-    unsafe_buf_writer.handler(&unsafe_buf_writer, '\0');
-
-    va_end(arg);
-    return c;
-}
-
-/* Store the formatted output in a character array with size limit */
-int snprintf(char *str, size_t size, const char *fmt, ...)
-{
-    int             c                 = 0;
-    unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0, .size = size};
-    writer          unsafe_buf_writer = {
-                 .data    = &unsafe_buf_data,
-                 .handler = unsafe_buf_write_safe,
-    };
-    va_list arg;
-    va_start(arg, fmt);
-
-    c = (int)vwprintf(&unsafe_buf_writer, fmt, arg);
-    if (size > 0) {
-        size_t idx = unsafe_buf_data.idx < size ? unsafe_buf_data.idx : size - 1;
-        str[idx]   = '\0';
-    }
-
-    va_end(arg);
-    return c;
-}
-
-/* Format with va_list, then store the formatted output in a character array */
-int vsprintf(char *str, const char *fmt, va_list args)
-{
-    int             c                 = 0;
-    unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0};
-    writer          unsafe_buf_writer = {
-                 .data    = &unsafe_buf_data,
-                 .handler = unsafe_buf_write,
-    };
-    c = (int)vwprintf(&unsafe_buf_writer, fmt, args);
-    unsafe_buf_writer.handler(&unsafe_buf_writer, '\0');
-    return c;
-}
-
-/* Format with va_list, then store the formatted output in a character array with size limit */
-int vsnprintf(char *str, size_t size, const char *fmt, va_list args)
-{
-    int             c                 = 0;
-    unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0, .size = size};
-    writer          unsafe_buf_writer = {
-                 .data    = &unsafe_buf_data,
-                 .handler = unsafe_buf_write_safe,
-    };
-    c = (int)vwprintf(&unsafe_buf_writer, fmt, args);
-    if (size > 0) {
-        size_t idx = unsafe_buf_data.idx < size ? unsafe_buf_data.idx : size - 1;
-        str[idx]   = '\0';
-    }
-    return c;
-}
-
-typedef enum num_size {
-    HALF_2 = 0, // char
-    HALF_1 = 1, // short
-    INT    = 2, // int
-    LONG_1 = 3, // long
-    LONG_2 = 4, // long long
-    SIZE_T = 5, // size_t
-} num_size_t;
-
-/* Formatted output processing */
-void wfmt_arg(writer *writer, args_fmter *fmter, va_list args)
-{
-    char         *str           = 0; // for `%s`
-    size_t        write_counter = 0;
-    size_t        str_len       = 0; // for align `%s`
-    const char  **fmt_ptr       = fmter->fmt_ptr;
-    write_handler write         = writer->handler;
-
-    num_formatter_t num_fmter = {};
-    num_fmt_type    num_flag  = {};
-    int8_t          size_cnt  = INT;
-
-    /* Error args */
-    if (!writer || !write || !fmt_ptr || !(*fmt_ptr) || **fmt_ptr != '%') return;
-
-    while (1) {
-        ++(*fmt_ptr); // Skip '%' or any flags
-        switch (**fmt_ptr) {
-            case '-' :
-                num_flag.left = 1;
-                continue;
-            case '+' :
-                num_flag.plus = 1;
-                continue;
-            case ' ' :
-                num_flag.space = 1;
-                continue;
-            case '#' :
-                num_flag.special = 1;
-                continue;
-            case '0' :
-                num_flag.zeropad = 1;
-                continue;
-            default :
-                break;
-        }
-
-        /* Calc num_fmter.size */
-        if (IS_DIGIT(**fmt_ptr)) {
-            num_fmter.size = skip_atoi(fmt_ptr);
-        } else if (**fmt_ptr == '*') {
-            /* by the following argument */
-            ++(*fmt_ptr); // Skip '*'
-            num_fmter.size = (size_t)va_arg(args, int);
-        }
-
-        /* Calc num_fmter.precision */
-        if (**fmt_ptr == '.') {
-            ++(*fmt_ptr); // Skip '.'
-            if (IS_DIGIT(**fmt_ptr)) {
-                num_fmter.precision = skip_atoi(fmt_ptr);
-            } else if (**fmt_ptr == '*') {
-                /* by the following argument */
-                ++(*fmt_ptr); // Skip '*'
-                num_fmter.precision = (size_t)va_arg(args, int);
-            }
-        }
-
-        /* Calc size_cnt */
-        switch (**fmt_ptr) {
-            case 'h' :
-                size_cnt--;
-                if (size_cnt < HALF_2) size_cnt = HALF_2; // hh
-                continue;
-            case 'L' :      // += 2
-                size_cnt++; // fallthrough
-            case 'l' :
-                size_cnt++;
-                if (size_cnt > LONG_2) size_cnt = LONG_2; // ll
-                continue;
-            case 'z' :
-                size_cnt = SIZE_T; // z
-                continue;
-            default :
-                break;
-        }
-
-        /* Read argument */
-        switch (**fmt_ptr) {
-            case 'c' :
-                num_fmter.num = va_arg(args, int);
-                break;
-            case 's' :
-                str                    = va_arg(args, char *);
-                static char null_str[] = "(null)";
-                if (str == 0) str = null_str;
-                break;
-            case 'd' :
-            case 'i' :
-                switch (size_cnt) {
-                    case HALF_2 :
-                        num_fmter.num = (size_t)(char)va_arg(args, int);
-                        break;
-                    case HALF_1 :
-                        num_fmter.num = (size_t)(short)va_arg(args, int);
-                        break;
-                    case INT :
-                        num_fmter.num = (size_t)(int)va_arg(args, int);
-                        break;
-                    case LONG_1 :
-                        num_fmter.num = (size_t)(long)va_arg(args, long);
-                        break;
-                    case LONG_2 :
-                        num_fmter.num = (size_t)(long long)va_arg(args, long long);
-                        break;
-                    case SIZE_T : // fallthrough
-                    default :
-                        num_fmter.num = va_arg(args, size_t);
-                        break;
-                }
-                break;
-            case 'o' :
-            case 'x' :
-            case 'X' :
-            case 'b' :
-            case 'u' :
-                switch (size_cnt) {
-                    case HALF_2 :
-                        num_fmter.num = (size_t)(unsigned char)va_arg(args, int);
-                        break;
-                    case HALF_1 :
-                        num_fmter.num = (size_t)(unsigned short)va_arg(args, int);
-                        break;
-                    case INT :
-                        num_fmter.num = (size_t)(unsigned int)va_arg(args, int);
-                        break;
-                    case LONG_1 :
-                        num_fmter.num = (size_t)(unsigned long)va_arg(args, long);
-                        break;
-                    case LONG_2 :
-                        num_fmter.num = (size_t)(unsigned long long)va_arg(args, long long);
-                        break;
-                    case SIZE_T : // fallthrough
-                    default :
-                        num_fmter.num = va_arg(args, size_t);
-                        break;
-                }
-                break;
-            case 'p' :
-                num_fmter.num = (size_t)va_arg(args, void *);
-                break;
-            default : // may no data
-                break;
-        }
-
-        /* Calc length of `%s` and set num_flag */
-        switch (**fmt_ptr) {
-            case 'c' :
-                /* The alignment loops subtract one for the character itself. */
-                if (num_fmter.size == 0) num_fmter.size = 1;
-                break;
-            case 's' :
-                str_len = strlen(str);
-                if (num_fmter.size < str_len) num_fmter.size = str_len;
-                break;
-            case 'o' :
-                num_fmter.base = 8;
-                break;
-            case 'p' :
-                num_flag.small   = 1;
-                num_flag.special = 1;
-                num_flag.zeropad = 1;
-                if (num_fmter.size < 16) num_fmter.size = 16;
-                num_fmter.base = 16;
-                break;
-            case 'x' :
-                num_flag.small = 1; // fallthrough
-            case 'X' :
-                num_fmter.base = 16;
-                break;
-            case 'd' :
-            case 'i' :
-                num_flag.sign = 1; // fallthrough
-            case 'u' :
-                num_fmter.base = 10;
-                break;
-            case 'b' :
-                num_fmter.base = 2;
-                break;
-            case 'n' :
-                *(fmter->write_counter) += write_counter;
-                *(int *)va_arg(args, void *) = (int)*fmter->write_counter;
-                break;
-            case '%' :
-                break;
-            default :
-                /* Unexpected */
-                return;
-        }
-
-        /* Write to arg space */
-        switch (**fmt_ptr) {
-            case 'c' :
-                /* Right align */
-                if (!(num_flag.left)) {
-                    while (write_counter < num_fmter.size - 1) {
-                        write(writer, ' ');
-                        ++write_counter;
-                    }
-                }
-
-                /* Write char */
-                write(writer, (char)num_fmter.num);
-
-                /* Left align */
-                if (num_flag.left) {
-                    while (write_counter < num_fmter.size - 1) {
-                        write(writer, ' ');
-                        ++write_counter;
-                    }
-                }
-                break;
-            case 's' :
-                /* Right align */
-                if (!(num_flag.left)) {
-                    while (write_counter < num_fmter.size - str_len) {
-                        write(writer, ' ');
-                        ++write_counter;
-                    }
-                    str_len = num_fmter.size;
-                }
-
-                /* Write string */
-                while (write_counter < str_len) {
-                    write(writer, *str);
-                    ++str;
-                    ++write_counter;
-                }
-
-                /* Left align */
-                if (num_flag.left) {
-                    while (write_counter < num_fmter.size - str_len) {
-                        write(writer, ' ');
-                        ++write_counter;
-                    }
-                }
-                break;
-            case 'o' : // fallthrough
-            case 'p' : // fallthrough
-            case 'x' : // fallthrough
-            case 'X' : // fallthrough
-            case 'd' : // fallthrough
-            case 'i' : // fallthrough
-            case 'u' : // fallthrough
-            case 'b' :
-                write_counter += wnumber(writer, num_fmter, num_flag);
-                break; // Format number with `writer`
-            case '%' :
-                write(writer, '%');
-                break;
-            default :
-                break;
-        }
-        break;
-    }
-    *(fmter->write_counter) += write_counter;
-    /* Unnecessary to update `fmt_ptr` */
-}
-
-/* Use a `writer` to write formatted string */
-size_t vwprintf(writer *writer, const char *fmt, va_list args)
-{
-    const char   *fmt_ptr = fmt;
-    size_t        result  = 0;
-    write_handler write   = writer->handler;
-
-    args_fmter fmter = {
-        .fmt_ptr       = &fmt_ptr,
-        .write_counter = &result,
-    };
-
-    while (*fmt_ptr != '\0') {
-        if (*fmt_ptr != '%') {
-            if (!write(writer, *fmt_ptr)) {
-                /* Write failed, return current result */
-                return result;
-            }
-            fmt_ptr++;
-            result++;
-            continue;
-        }
-
-        /* *fmt_ptr == '%' */
-        wfmt_arg(writer, &fmter, args);
-        fmt_ptr++;
-    }
-    return result;
 }

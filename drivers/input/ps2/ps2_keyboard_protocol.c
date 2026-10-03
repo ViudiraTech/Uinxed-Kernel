@@ -10,6 +10,8 @@
 
 #include <drivers/input/ps2/ps2_keyboard.h>
 
+#if CONFIG_PS2_KEYBOARD_MOUSE
+
 /* Map a translated scan-set-1 scancode to an evdev KEY_* code. */
 uint16_t ps2_keyboard_keycode_for_scancode(uint16_t scan)
 {
@@ -122,3 +124,5 @@ int ps2_keyboard_decode_byte(ps2_keyboard_decoder_t *decoder, uint8_t byte, ps2_
 
     return ps2_keyboard_decode_key(decoder, byte, event);
 }
+
+#endif

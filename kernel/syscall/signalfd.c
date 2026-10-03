@@ -9,19 +9,13 @@
  */
 
 #include <fs/core/vfs.h>
+#include <fs/core/vfs_stub.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
-#include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 
@@ -53,20 +47,6 @@ static void signalfd_format_info(signalfd_siginfo_t *dest, int sig, const siginf
     dest->ssi_arch      = source->si_arch;
 }
 
-/* VFS open callback (no-op) */
-static void signalfd_vfs_open(void *parent, const char *name, vfs_node_t node)
-{
-    (void)parent;
-    (void)name;
-    (void)node;
-}
-
-/* VFS close callback (no-op) */
-static void signalfd_vfs_close(void *current)
-{
-    (void)current;
-}
-
 /* VFS read callback: dequeue a pending signal, blocking if needed */
 static size_t signalfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
@@ -95,10 +75,7 @@ static size_t signalfd_vfs_read(void *file, void *addr, size_t offset, size_t si
         }
         if (!block) return (size_t)-1;
 
-        /*
-         * Close the check-to-sleep race: install the waiter first, then
-         * recheck the process pending bitmap.
-         */
+        /* Close the check-to-sleep race: install the waiter first, then recheck the process pending bitmap. */
         wait_queue_prepare(&ctx->wq);
         if (signal_has_pending_masked(proc, &mask)) wait_queue_wake_all(&ctx->wq);
         wait_queue_sleep();
@@ -136,88 +113,6 @@ static int signalfd_vfs_free(void *handle)
     return EOK;
 }
 
-/* Unsupported unmount callback */
-static void signalfd_stub_unmount(void *root)
-{
-    (void)root;
-}
-
-/* Unsupported stat callback */
-static int signalfd_stub_stat(void *f, vfs_node_t n)
-{
-    (void)f;
-    (void)n;
-    return EOK;
-}
-
-/* Unsupported mkdir/mkfile/link/symlink callback */
-static int signalfd_stub_mk(void *p, const char *nm, vfs_node_t n)
-{
-    (void)p;
-    (void)nm;
-    (void)n;
-    return -ENOSYS;
-}
-
-/* Unsupported write callback */
-static size_t signalfd_stub_write(void *f, const void *a, size_t o, size_t s)
-{
-    (void)f;
-    (void)a;
-    (void)o;
-    (void)s;
-    return (size_t)-1;
-}
-
-/* Unsupported readlink callback */
-static size_t signalfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
-{
-    (void)n;
-    (void)a;
-    (void)o;
-    (void)s;
-    return (size_t)-1;
-}
-
-/* Unsupported ioctl callback */
-static int signalfd_stub_ioctl(void *f, size_t o, void *a)
-{
-    (void)f;
-    (void)o;
-    (void)a;
-    return -ENOSYS;
-}
-
-/* Unsupported dup callback */
-static vfs_node_t signalfd_stub_dup(vfs_node_t n)
-{
-    (void)n;
-    return NULL;
-}
-
-/* Unsupported delete callback */
-static int signalfd_stub_del(void *p, vfs_node_t n)
-{
-    (void)p;
-    (void)n;
-    return -ENOSYS;
-}
-
-/* Unsupported rename callback */
-static int signalfd_stub_rename(const vfs_rename_context_t *context)
-{
-    (void)context;
-    return -ENOSYS;
-}
-
-/* Unsupported mount callback */
-static int signalfd_stub_mount(const char *s, vfs_node_t n)
-{
-    (void)s;
-    (void)n;
-    return -ENOSYS;
-}
-
 /* Allocate and initialize a signalfd VFS node */
 static vfs_node_t signalfd_node_create(sigset_t sigmask, int flags)
 {
@@ -243,12 +138,6 @@ static vfs_node_t signalfd_node_create(sigset_t sigmask, int flags)
     node->mode   = O_RDONLY;
 
     return node;
-}
-
-/* signalfd syscall: create a signalfd descriptor */
-int sys_signalfd(int fd, const void *mask, int flags)
-{
-    return sys_signalfd4(fd, mask, 8, flags);
 }
 
 /* signalfd4 syscall: create or update a signalfd descriptor */
@@ -281,7 +170,7 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
 
     spin_lock(&proc->fd_lock);
     process_file_t *file = NULL;
-    if (fd >= 0 && fd < PROCESS_MAX_FD) {
+    if (fd >= 0 && fd < CONFIG_PROCESS_MAX_FD) {
         file = proc->fds[fd];
         if (file) process_file_get(file);
     }
@@ -314,7 +203,7 @@ void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source)
     (void)source;
 
     spin_lock(&proc->fd_lock);
-    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+    for (int i = 0; i < CONFIG_PROCESS_MAX_FD; i++) {
         process_file_t *file = proc->fds[i];
         if (!file || !file->node || !file->node->handle) continue;
         if (file->node->fsid != signalfd_fsid) continue;
@@ -342,27 +231,26 @@ void signalfd_init(void)
         plogk("signalfd: Failed to allocate callback.\n");
         return;
     }
-    cb->mount     = signalfd_stub_mount;
-    cb->unmount   = signalfd_stub_unmount;
-    cb->open      = signalfd_vfs_open;
-    cb->close     = signalfd_vfs_close;
+    cb->unmount   = vfs_stub_unmount;
+    cb->open      = vfs_stub_open;
+    cb->close     = vfs_stub_close;
     cb->read      = signalfd_vfs_read;
-    cb->write     = signalfd_stub_write;
-    cb->readlink  = signalfd_stub_readlink;
-    cb->mkdir     = signalfd_stub_mk;
-    cb->mkfile    = signalfd_stub_mk;
-    cb->link      = signalfd_stub_mk;
-    cb->symlink   = signalfd_stub_mk;
-    cb->stat      = signalfd_stub_stat;
-    cb->ioctl     = signalfd_stub_ioctl;
-    cb->dup       = signalfd_stub_dup;
+    cb->write     = vfs_stub_write;
+    cb->readlink  = vfs_stub_readlink;
+    cb->mkdir     = vfs_stub_mk;
+    cb->mkfile    = vfs_stub_mk;
+    cb->link      = vfs_stub_mk;
+    cb->symlink   = vfs_stub_mk;
+    cb->stat      = vfs_stub_stat;
+    cb->ioctl     = vfs_stub_ioctl;
+    cb->dup       = vfs_stub_dup;
     cb->poll      = signalfd_vfs_poll;
     cb->file_read = signalfd_vfs_file_read;
     cb->free      = signalfd_vfs_free;
-    cb->delete    = signalfd_stub_del;
-    cb->rename    = signalfd_stub_rename;
+    cb->delete    = vfs_stub_del;
+    cb->rename    = vfs_stub_rename;
 
-    signalfd_fsid = vfs_regist(cb);
+    signalfd_fsid = vfs_regist_fs("signalfd", cb);
     if (signalfd_fsid < 0) {
         plogk("signalfd: Failed to register VFS callback.\n");
         free(cb);

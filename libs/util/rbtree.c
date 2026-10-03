@@ -8,7 +8,6 @@
  *
  */
 
-#include <libs/std/stddef.h>
 #include <libs/util/rbtree.h>
 
 /* Recompute the augmented value up the chain to the root. */
@@ -301,7 +300,7 @@ rb_node_t *rb_next(rb_node_t *node)
     /* If right subtree exists, return leftmost of right subtree */
     if (node->right) return rb_subtree_min(node->right);
 
-    /* Otherwise, go up until we find a node that is a left child */
+    /* Otherwise, go up until a node that is a left child is found */
     rb_node_t *parent = node->parent;
     while (parent && node == parent->right) {
         node   = parent;
@@ -388,9 +387,8 @@ int rb_erase_augmented(rb_root_t *root, rb_node_t *node, rb_augment_fn augment, 
 
         if (successor->parent == node) {
             /*
-             * This is the subtle direct-successor case: child used to point
-             * back at node in the old implementation, leaving a detached
-             * scheduler entity in the ancestry chain after erase.
+             * Direct-successor case: the successor stays in place, so both the child's
+             * ancestry link and the rebalance start point move to it.
              */
             rebalance_parent = successor;
             if (child) child->parent = successor;
@@ -407,7 +405,7 @@ int rb_erase_augmented(rb_root_t *root, rb_node_t *node, rb_augment_fn augment, 
         successor->color        = node->color;
     }
 
-    /* The old successor path reaches the transplanted successor and root. */
+    /* Rebalance starts from the successor's former position up to the root. */
     if (augment) augment_propagate(rebalance_parent, augment, data);
 
     /* Fix double-black violations */

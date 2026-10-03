@@ -9,8 +9,8 @@
  */
 
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
-#include <kernel/printk.h>
-#include <mem/alloc.h>
+
+#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Display information */
 int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
@@ -49,10 +49,7 @@ int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *
     struct virtio_gpu_resp_edid resp;
     int                         ret;
 
-    if (!vgdev->has_edid) {
-        plogk("virtgpu: Get_edid: device does not support EDID.\n");
-        return -ENOSYS;
-    }
+    if (!vgdev->has_edid) return -EOPNOTSUPP;
 
     memset(&cmd, 0, sizeof(cmd));
     cmd.hdr.type   = VIRTIO_GPU_CMD_GET_EDID;
@@ -83,10 +80,7 @@ int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virti
     cmd.hdr.type    = VIRTIO_GPU_CMD_RESOURCE_CREATE_2D;
     cmd.resource_id = obj->hw_res_handle;
     cmd.format      = virtgpu_drm_format_to_virtio(obj->format);
-    if (!cmd.format) {
-        plogk("virtgpu: Create_resource_2d: unsupported format (format=%u)\n", (unsigned)obj->format);
-        return -EINVAL;
-    }
+    if (!cmd.format) return -EINVAL;
     cmd.width  = obj->width;
     cmd.height = obj->height;
 
@@ -132,14 +126,13 @@ int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_o
     size_t                                  cmd_size;
     int                                     ret;
 
-    if (!vgdev || !obj || !blob || (!!obj->num_entries != !!obj->entries)) {
-        plogk("virtgpu: Create_blob: invalid argument (num_entries=%u)\n", obj ? (unsigned)obj->num_entries : 0);
-        return -EINVAL;
-    }
+    if (!vgdev || !obj || !blob || (!!obj->num_entries != !!obj->entries)) return -EINVAL;
+
     cmd_size = sizeof(*cmd) + (size_t)obj->num_entries * sizeof(*obj->entries);
     cmd      = malloc(cmd_size);
     if (!cmd) {
-        plogk("virtgpu: Create_blob: command allocation failed (size=%lu)\n", (unsigned long)cmd_size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Create_blob: command allocation failed (size=%llu)\n", cmd_size);
         return -ENOMEM;
     }
     memset(cmd, 0, cmd_size);
@@ -184,15 +177,13 @@ int virtgpu_cmd_attach_backing(struct virtio_gpu_device *vgdev, struct virtio_gp
     struct virtio_gpu_mem_entry               *entries;
     int                                        ret, cmd_size;
 
-    if (!obj->num_entries || !obj->entries) {
-        plogk("virtgpu: Attach_backing: no backing entries.\n");
-        return -EINVAL;
-    }
+    if (!obj->num_entries || !obj->entries) return -EINVAL;
 
     cmd_size = sizeof(*cmd) + obj->num_entries * sizeof(struct virtio_gpu_mem_entry);
     cmd      = malloc(cmd_size);
     if (!cmd) {
-        plogk("virtgpu: Attach_backing: command allocation failed (size=%d)\n", cmd_size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Attach_backing: command allocation failed (size=%d)\n", cmd_size);
         return -ENOMEM;
     }
 
@@ -255,14 +246,9 @@ int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct
     struct virtio_gpu_ctrl_hdr            resp;
 
     if (!vgdev || !obj || !xf || !xf->box.w || !xf->box.h || xf->box.z || xf->box.d > 1 || xf->box.x >= obj->width || xf->box.y >= obj->height || xf->box.w > obj->width - xf->box.x
-        || xf->box.h > obj->height - xf->box.y || xf->level || xf->stride || xf->layer_stride) {
-        plogk("virtgpu: Transfer_to_host_2d_rect: invalid transfer box.\n");
+        || xf->box.h > obj->height - xf->box.y || xf->level || xf->stride || xf->layer_stride)
         return -EINVAL;
-    }
-    if ((uint64_t)xf->offset + (uint64_t)(xf->box.h - 1) * obj->stride + (uint64_t)xf->box.w * 4 > obj->base.size) {
-        plogk("virtgpu: Transfer_to_host_2d_rect: transfer out of bounds (offset=%u, size=%u)\n", (unsigned)xf->offset, (unsigned)obj->base.size);
-        return -EINVAL;
-    }
+    if ((uint64_t)xf->offset + (uint64_t)(xf->box.h - 1) * obj->stride + (uint64_t)xf->box.w * 4 > obj->base.size) return -EINVAL;
 
     memset(&cmd, 0, sizeof(cmd));
     cmd.hdr.type    = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D;
@@ -279,16 +265,12 @@ int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct
 /* Transfer and flush one damage rectangle with a single queue kick. */
 int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rect, uint64_t offset)
 {
-    struct virtio_gpu_rect                damage;
+    struct virtio_gpu_rect damage;
 
-    if (!vgdev || !obj) {
-        plogk("virtgpu: Update_2d: invalid argument.\n");
-        return -EINVAL;
-    }
-
-    if (rect)
+    if (!vgdev || !obj) return -EINVAL;
+    if (rect) {
         damage = *rect;
-    else {
+    } else {
         damage.x      = 0;
         damage.y      = 0;
         damage.width  = obj->width;
@@ -315,8 +297,9 @@ int virtgpu_cmd_update_2d_rects(struct virtio_gpu_device *vgdev, struct virtio_g
         const struct virtio_gpu_rect *rect = &rects[i];
         if (!rect->width || !rect->height || rect->x >= obj->width || rect->y >= obj->height || rect->width > obj->width - rect->x || rect->height > obj->height - rect->y
             || offsets[i] > obj->base.size || (uint64_t)(rect->height - 1) * obj->stride > obj->base.size - offsets[i]
-            || (uint64_t)rect->width * sizeof(uint32_t) > obj->base.size - offsets[i] - (uint64_t)(rect->height - 1) * obj->stride)
+            || (uint64_t)rect->width * sizeof(uint32_t) > obj->base.size - offsets[i] - (uint64_t)(rect->height - 1) * obj->stride) {
             return -EINVAL;
+        }
 
         memset(&transfers[i], 0, sizeof(transfers[i]));
         transfers[i].hdr.type    = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D;
@@ -326,8 +309,9 @@ int virtgpu_cmd_update_2d_rects(struct virtio_gpu_device *vgdev, struct virtio_g
     }
 
     if (!flush_rect->width || !flush_rect->height || flush_rect->x >= obj->width || flush_rect->y >= obj->height || flush_rect->width > obj->width - flush_rect->x
-        || flush_rect->height > obj->height - flush_rect->y)
+        || flush_rect->height > obj->height - flush_rect->y) {
         return -EINVAL;
+    }
     memset(&flush, 0, sizeof(flush));
     flush.hdr.type    = VIRTIO_GPU_CMD_RESOURCE_FLUSH;
     flush.r           = *flush_rect;
@@ -353,10 +337,7 @@ int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_i
     struct virtgpu_vq_command             commands[3];
     uint32_t                              count = 0;
 
-    if (!vgdev || !obj || !width || !height || width > obj->width || height > obj->height) {
-        plogk("virtgpu: Update_scanout_2d: invalid argument.\n");
-        return -EINVAL;
-    }
+    if (!vgdev || !obj || !width || !height || width > obj->width || height > obj->height) return -EINVAL;
 
     memset(&transfer, 0, sizeof(transfer));
     transfer.hdr.type    = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D;
@@ -427,9 +408,9 @@ int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gp
     memset(&cmd, 0, sizeof(cmd));
     cmd.hdr.type    = VIRTIO_GPU_CMD_RESOURCE_FLUSH;
     cmd.resource_id = obj->hw_res_handle;
-    if (rect)
+    if (rect) {
         cmd.r = *rect;
-    else {
+    } else {
         cmd.r.x      = 0;
         cmd.r.y      = 0;
         cmd.r.width  = obj->width;
@@ -476,10 +457,8 @@ int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id
     struct virtio_gpu_ctrl_hdr         responses[2];
     struct virtgpu_vq_command          commands[2];
 
-    if (!vgdev || !obj || !obj->created_blob || !obj->width || !obj->height || !obj->stride) {
-        plogk("virtgpu: Set_scanout_blob: invalid argument (created_blob=%u)\n", obj ? (unsigned)obj->created_blob : 0);
-        return -EINVAL;
-    }
+    if (!vgdev || !obj || !obj->created_blob || !obj->width || !obj->height || !obj->stride) return -EINVAL;
+
     memset(&scanout, 0, sizeof(scanout));
     scanout.hdr.type    = VIRTIO_GPU_CMD_SET_SCANOUT_BLOB;
     scanout.r.width     = obj->width;
@@ -489,10 +468,9 @@ int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id
     scanout.width       = obj->width;
     scanout.height      = obj->height;
     scanout.format      = virtgpu_drm_format_to_virtio(obj->format);
-    if (!scanout.format) {
-        plogk("virtgpu: Set_scanout_blob: unsupported format (format=%u)\n", (unsigned)obj->format);
-        return -EINVAL;
-    }
+
+    if (!scanout.format) return -EINVAL;
+
     scanout.strides[0] = obj->stride;
 
     memset(&flush, 0, sizeof(flush));
@@ -515,10 +493,7 @@ int virtgpu_cmd_ctx_create(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uin
     memset(&cmd, 0, sizeof(cmd));
     cmd.hdr.type   = VIRTIO_GPU_CMD_CTX_CREATE;
     cmd.hdr.ctx_id = ctx_id;
-    if (name_len >= sizeof(cmd.debug_name)) {
-        plogk("virtgpu: Ctx_create: debug name too long (name_len=%u, max=%lu)\n", (unsigned)name_len, (unsigned long)sizeof(cmd.debug_name));
-        return -EINVAL;
-    }
+    if (name_len >= sizeof(cmd.debug_name)) return -EINVAL;
     cmd.nlen         = name_len;
     cmd.context_init = context_init;
     if (name_len && debug_name) memcpy(cmd.debug_name, debug_name, name_len);
@@ -606,7 +581,8 @@ int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint
 
     cmd = malloc(sizeof(*cmd) + size);
     if (!cmd) {
-        plogk("virtgpu: Submit_3d: command allocation failed (size=%u)\n", (unsigned)size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Submit_3d: command allocation failed (size=%u)\n", size);
         return -ENOMEM;
     }
 
@@ -662,7 +638,8 @@ int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, 
     resp_size = sizeof(struct virtio_gpu_resp_capset) + max_size;
     resp      = malloc(resp_size);
     if (!resp) {
-        plogk("virtgpu: Get_capset: response allocation failed (size=%d)\n", resp_size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Get_capset: response allocation failed (size=%d)\n", resp_size);
         return -ENOMEM;
     }
 
@@ -682,3 +659,5 @@ int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, 
     free(resp);
     return 0;
 }
+
+#endif

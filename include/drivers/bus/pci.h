@@ -12,8 +12,6 @@
 #define INCLUDE_PCI_H_
 
 #include <drivers/firmware/acpi.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 
 #define PCI_HEADER_TYPE_MASK 0x7F
 
@@ -24,6 +22,11 @@
 #define PCI_CONF_REVISION    0x8  // Revision ID
 #define PCI_CONF_HEADER_TYPE 0xe  // Header Type
 #define PCI_CONF_BAR0        0x10 // Base Address Register 0
+
+/* PCI Command register bits (PCI_CONF_COMMAND) */
+#define PCI_CMD_IO        0x1 // I/O space decode
+#define PCI_CMD_MEM       0x2 // Memory space decode
+#define PCI_CMD_BUSMASTER 0x4 // Bus mastering
 
 #define PCI_COMMAND_PORT 0xCF8
 #define PCI_DATA_PORT    0xCFC
@@ -71,21 +74,36 @@
 #define MSI_ADDRESS_BASE       0xFEE00000
 #define MSI_ADDRESS_DEST(dest) (MSI_ADDRESS_BASE | ((dest) << 12))
 
+/* Flag bit in base_address_register_t.size: set for 64-bit BARs */
+#define BAR_64BIT_FLAG 0x80000000
+
+/* Maximum MSI/MSI-X vectors per device */
+#define PCI_MAX_MSI_VECTORS 32
+
+/* Interrupt request modes for pci_request_irq() */
+#define PCI_IRQ_MSI    0x1 // Try MSI first
+#define PCI_IRQ_MSIX   0x2 // Try MSI-X if MSI is unavailable
+#define PCI_IRQ_LEGACY 0x4 // Fall back to the INTx line
+
 typedef enum {
     BAR_S32      = 0x0,
     BAR_Reserved = 0x1,
     BAR_S64      = 0x2,
 } bar_size_t;
 
-/* Flag bit in base_address_register_t.size: set for 64-bit BARs */
-#define BAR_64BIT_FLAG 0x80000000
-
 typedef struct {
         uint8_t  prefetchable;
         void    *address;
-        uint32_t size;
+        uint64_t size;
         int      type;
 } base_address_register_t;
+
+/* Mapped PCI BAR resource */
+typedef struct {
+        void    *virt; // Virtual address of the mapped BAR region
+        uint64_t phys; // Physical address of the BAR region
+        uint64_t size; // Size of the BAR region in bytes
+} pci_bar_t;
 
 typedef struct {
         uint16_t domain;
@@ -100,9 +118,6 @@ typedef enum {
     HEADER_TYPE_CARDBUS = 2,
 } header_type_t;
 
-/* Maximum MSI/MSI-X vectors per device */
-#define PCI_MAX_MSI_VECTORS 32
-
 /* MSI state stored per device */
 typedef struct {
         int   msi_cap;                           // MSI capability offset, 0 if none
@@ -114,11 +129,18 @@ typedef struct {
         void *msix_table;                        // Mapped MSI-X table MMIO virtual address
 } pci_msi_state_t;
 
+/* Interrupt state set up by pci_request_irq() */
+typedef struct {
+        int     vector;        // IDT vector in use, or -1 (shared dispatcher)
+        uint8_t irq;           // INTx line in legacy mode
+        int     mode;          // PCI_IRQ_* mode in use
+        int     legacy_ioapic; // Legacy direct route: 1 = IO-APIC routing was added
+} pci_irq_state_t;
+
 /* PCI cached searching */
 typedef struct pci_device_cache {
         pci_device_t            *device;
         mcfg_entry_t            *entry;
-        uint32_t                 value_c;
         uint32_t                 vendor_id;
         uint32_t                 device_id;
         uint32_t                 class_code;
@@ -141,6 +163,19 @@ typedef struct {
         size_t              devices_count;
 } pci_devices_cache_t;
 
+/* Optional MSI-X post-enable setup hook; return 0 on success or a negative errno */
+typedef int (*pci_msix_setup_fn)(pci_device_cache_t *dev, void *context);
+
+/* Interrupt request options for pci_request_irq() */
+typedef struct {
+        int               modes;         // PCI_IRQ_* modes to try, in order
+        void             *idt_handler;   // Handler registered at the IDT vector
+        pci_msix_setup_fn msix_setup;    // Optional MSI-X setup, NULL = none
+        void             *msix_context;  // Context passed to msix_setup
+        int               legacy_base;   // Direct route: vector = base + irq
+        int               legacy_ioapic; // Direct route: route through the IO-APIC
+} pci_irq_request_t;
+
 /* PCI device finding */
 typedef enum {
     PCI_FOUND_CLASS,  // Search by class code
@@ -159,14 +194,12 @@ typedef struct {
 typedef enum {
     PCI_FINDING_SUCCESS = 0, // Success
     PCI_FINDING_NOT_FOUND,   // Device not found
-    PCI_RESULT_EXPIRED,      // It means that iter may be expired
     PCI_FINDING_ERROR,       // Other error
 } pci_finding_error_t;
 
 typedef struct pci_finding_response_iter {
-        pci_device_cache_t                        *device; // Found device cache
-        pci_finding_error_t                        error;  // Error code, 0 if no error
-        volatile struct pci_finding_response_iter *next;   // Maybe = NULL (but you can update it by function)
+        pci_device_cache_t *device; // Found device cache
+        pci_finding_error_t error;  // Error code, 0 if no error
 } pci_finding_response_iter_t;
 
 typedef struct {
@@ -177,21 +210,6 @@ typedef struct {
         } req;
         volatile pci_finding_response_iter_t *response; // Response pointer
 } pci_finding_request_t;
-
-typedef struct pci_usable_node {
-        pci_finding_request_t  *request; // Pointer to the request
-        struct pci_usable_node *next;    // Pointer to the next node
-} pci_usable_node_t;
-
-typedef struct {
-        pci_usable_node_t *head;  // Head of the queue
-        size_t             count; // Number of requests in the queue
-} pci_usable_list_t;
-
-typedef struct {
-        uint16_t start;
-        uint16_t end;
-} bus_range_t;
 
 /* Get ECAM address of register */
 void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg);
@@ -208,26 +226,17 @@ uint32_t pci_read_command_status(pci_device_cache_t *device);
 /* Write a value to the PCI device command status register */
 void pci_write_command_status(pci_device_cache_t *device, uint32_t value);
 
+/* Set the PCI command register bits */
+void pci_enable_device(pci_device_cache_t *dev, uint16_t cmd_flags);
+
+/* Clear the PCI command register bits */
+void pci_disable_device(pci_device_cache_t *dev, uint16_t cmd_flags);
+
 /* Get detailed information about the base address register */
 base_address_register_t get_base_address_register(pci_device_cache_t *device, uint32_t bar);
 
-/* BAR iterator for safe traversal of Base Address Registers */
-typedef struct {
-        pci_device_cache_t     *device;
-        uint32_t                current_bar;
-        uint32_t                max_bars;
-        base_address_register_t current_value;
-        int                     valid;
-} pci_bar_iterator_t;
-
-/* Initialize a BAR iterator for a PCI device */
-void pci_bar_iterator_init(pci_bar_iterator_t *iter, pci_device_cache_t *device);
-
-/* Move to the next BAR, returns 0 if no more BARs */
-int pci_bar_iterator_next(pci_bar_iterator_t *iter);
-
-/* Get the current BAR value from the iterator */
-base_address_register_t pci_bar_iterator_get(pci_bar_iterator_t *iter);
+/* Map a memory BAR of the PCI device into the kernel address space */
+int pci_map_bar(pci_device_cache_t *dev, uint32_t bar, pci_bar_t *out);
 
 /* Get the I/O port base address of the PCI device */
 uint32_t pci_get_port_base(pci_device_cache_t *device);
@@ -238,17 +247,8 @@ uint32_t read_bar_n(pci_device_cache_t *device, uint32_t bar_n);
 /* Get the interrupt number of the PCI device */
 uint32_t pci_get_irq(pci_device_cache_t *device);
 
-/* Configuring PCI Devices */
-void pci_config(pci_device_cache_t *cache, uint32_t addr);
-
 /* Finding PCI devices */
 void pci_device_find(pci_finding_request_t *request);
-
-/* Finding next matching PCI device */
-void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_response_iter_t *response);
-
-/* Update the usable list */
-void pci_update_usable_list(void);
 
 /* Returns the device name based on the class code */
 const char *pci_classname(uint32_t classcode);
@@ -271,16 +271,16 @@ int pci_find_capability(pci_device_cache_t *dev, int cap_id);
 /* Initialize MSI/MSI-X for a device (detect capabilities, disable at boot) */
 void pci_msi_init(pci_device_cache_t *dev);
 
-/* Enable MSI with a single vector. Returns the allocated vector number, or -1 on error. */
+/* Enable MSI with a single vector. Returns the allocated vector number, or negative errno. */
 int pci_enable_msi(pci_device_cache_t *dev);
 
-/* Enable MSI with up to nvec vectors. Returns number of vectors allocated, or -1 on error. */
+/* Enable MSI with up to nvec vectors. Returns number of vectors allocated, or negative errno. */
 int pci_enable_msi_range(pci_device_cache_t *dev, int nvec);
 
 /* Disable MSI */
 void pci_disable_msi(pci_device_cache_t *dev);
 
-/* Enable MSI-X with nvec vectors. Returns the number of vectors allocated, or -1 on error. */
+/* Enable MSI-X with nvec vectors. Returns the number of vectors allocated, or negative errno. */
 int pci_enable_msix(pci_device_cache_t *dev, int nvec);
 
 /* Disable MSI-X */
@@ -288,5 +288,11 @@ void pci_disable_msix(pci_device_cache_t *dev);
 
 /* Get interrupt vector for MSI/MSI-X (index 0..nvec-1). For MSI, use index 0. */
 int pci_irq_vector(pci_device_cache_t *dev, int index);
+
+/* Request a device interrupt, trying MSI, MSI-X and INTx in order */
+int pci_request_irq(pci_device_cache_t *dev, pci_irq_request_t *request, pci_irq_state_t *out);
+
+/* Release the device interrupt requested by pci_request_irq() */
+void pci_free_irq(pci_device_cache_t *dev, pci_irq_state_t *state);
 
 #endif // INCLUDE_PCI_H_

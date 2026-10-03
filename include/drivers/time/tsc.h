@@ -12,7 +12,6 @@
 #define INCLUDE_TSC_H_
 
 #include <drivers/firmware/acpi.h>
-#include <libs/std/stdint.h>
 
 /* Check if TSC is constant (not affected by CPU frequency changes) */
 int tsc_check_invariant(void);

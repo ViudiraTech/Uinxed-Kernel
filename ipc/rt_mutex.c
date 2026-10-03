@@ -12,19 +12,12 @@
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/list/intrusive_list.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <libs/util/rbtree.h>
 #include <mem/alloc.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
 #include <sync/rt_mutex.h>
-#include <sync/spin_lock.h>
 
 /*
  * Locking protocol
@@ -36,12 +29,10 @@
  *
  * pi_propagate_chain() walks the blocked_on chain across several mutexes; it
  * therefore runs OUTSIDE every mutex->lock and only performs relaxed atomic
- * reads/writes on chain pointers and weights, like Linux's RT-mutex PI walk.
+ * reads/writes on chain pointers and weights, like the RT-mutex PI walk.
  * The scheduler wait queue is guarded by scheduler.lock alone; it is taken
  * and released on its own, never while holding a mutex->lock.
  */
-
-/* Helpers: convert weight -> "priority" for rbtree ordering */
 
 /*
  * PI waiters are ordered by weight (higher weight = higher priority).
@@ -64,8 +55,6 @@ void pi_waiter_augment(rb_node_t *node, void *data)
     (void)data;
     (void)node;
 }
-
-/* Priority inheritance / donation */
 
 /*
  * Determine the effective weight that should be donated to @owner
@@ -101,9 +90,7 @@ void pi_propagate_chain(task_t *owner)
             if (__atomic_load_n(&owner->weight, __ATOMIC_RELAXED) != base) __atomic_store_n(&owner->weight, base, __ATOMIC_RELAXED);
             return;
         }
-
         uint32_t new_weight = pi_effective_weight(owner);
-
         if (__atomic_load_n(&owner->weight, __ATOMIC_RELAXED) != new_weight) __atomic_store_n(&owner->weight, new_weight, __ATOMIC_RELAXED);
 
         owner = __atomic_load_n(&mutex->owner, __ATOMIC_RELAXED);
@@ -123,25 +110,17 @@ void pi_waiter_remove(task_t *waiter)
     rt_mutex_t *mutex = waiter->blocked_on;
 
     if (!mutex) return;
-    if (rb_erase_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_augment, NULL)) {
-        panic("rt_mutex: PI waiter %llu is not linked in its blocked-on tree", waiter->pid);
-    }
+    if (rb_erase_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_augment, NULL)) panic("rt_mutex: PI waiter %llu is not linked in its blocked-on tree", waiter->pid);
 
     waiter->blocked_on = NULL;
     pi_propagate_chain(mutex->owner);
 }
 
-/*
- * Add a waiter to the pi_waiters tree of its blocked_on mutex,
- * then propagate the chain to donate priority if necessary.
- * Caller must hold mutex->lock.
- */
+/* Add a waiter to the pi_waiters tree of its blocked_on mutex, then propagate the chain to donate priority if necessary. Caller must hold mutex->lock. */
 void pi_waiter_add(task_t *waiter, rt_mutex_t *mutex)
 {
     waiter->blocked_on = mutex;
-    if (rb_insert_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_less, pi_waiter_augment, NULL)) {
-        panic("rt_mutex: duplicate/cross-tree PI waiter insertion for task %llu", waiter->pid);
-    }
+    if (rb_insert_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_less, pi_waiter_augment, NULL)) panic("rt_mutex: duplicate/cross-tree PI waiter insertion for task %llu", waiter->pid);
     pi_propagate_chain(mutex->owner);
 }
 
@@ -189,10 +168,7 @@ void pi_mutex_set_owner(rt_mutex_t *mutex, task_t *old_owner, task_t *new_owner)
     }
 }
 
-/*
- * Take a reference on an rt_mutex.  Must be taken under the futex bucket
- * lock so it cannot race entry cleanup, which drops the entry's own ref.
- */
+/* Take a reference on an rt_mutex.  Must be taken under the futex bucket lock so it cannot race entry cleanup, which drops the entry's own ref. */
 void rt_mutex_ref(rt_mutex_t *mutex)
 {
     __atomic_add_fetch(&mutex->refs, 1, __ATOMIC_RELAXED);
@@ -257,10 +233,9 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
 
         if (mutex->owner == self) {
             /*
-             * Seeing ourselves as owner is either a genuine recursive lock
-             * (-EDEADLK, before we ever waited) or a hand-off completed by
-             * rt_mutex_unlock() picking us as top waiter - the latter is
-             * success.
+             * Seeing self as owner is either a genuine recursive lock (-EDEADLK, before
+             * any wait) or a hand-off completed by rt_mutex_unlock() picking the top
+             * waiter - the latter is success.
              */
             int ret = waited ? EOK : -EDEADLK;
             spin_unlock(&mutex->lock);
@@ -268,7 +243,7 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
         }
 
         /*
-         * Contended: queue as PI waiter unless an earlier attempt left us
+         * Contended: queue as PI waiter unless an earlier attempt left the node
          * queued (foreign wake-up retry keeps the existing node).
          */
         self->base_weight = self->weight;
@@ -280,9 +255,9 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
         wait_queue_prepare(&mutex->wq);
 
         /*
-         * Re-check ownership after linking into the wait queue but before
-         * committing to sleep.  A concurrent release must not leave us
-         * sleeping behind a condition that already became true.
+         * Re-check ownership after linking into the wait queue but before committing
+         * to sleep.  A concurrent release must not leave the waiter sleeping behind a
+         * condition that already became true.
          */
         spin_lock(&mutex->lock);
         bool ready = !mutex->owner || mutex->owner == self;
@@ -290,16 +265,15 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
 
         if (ready) {
             /*
-             * Withdraw OUR OWN prepared entry instead of sleeping on it.
-             * Never wake_one(): waking some other waiter would leave this
-             * sched_node behind in the queue and corrupt the next prepare.
-             * The cancel removes us from whichever queue currently holds
-             * the node, so even a concurrent requeue cannot strand it.
+             * Withdraw the prepared entry instead of sleeping on it.  Never wake_one():
+             * waking another waiter would leave this sched_node behind in the queue and
+             * corrupt the next prepare.  The cancel removes the node from whichever queue
+             * currently holds it, so even a concurrent requeue cannot strand it.
              */
             wait_queue_cancel(&mutex->wq);
             spin_lock(&mutex->lock);
 
-            /* No-op when an unlock already popped us (blocked_on == NULL). */
+            /* No-op when an unlock already popped the node (blocked_on == NULL). */
             pi_waiter_remove(self);
             spin_unlock(&mutex->lock);
             continue;
@@ -318,10 +292,9 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
         if (died) return -EOWNERDEAD;
 
         /*
-         * Handed to us: loop and take the owner==self branch with
-         * waited == true.  Any other wake-up: either still queued in the PI
-         * tree (retry reuses the same node) or already popped (retry adds a
-         * fresh node); both are consistent states.
+         * Handed over: loop and take the owner==self branch with waited == true.  Any
+         * other wake-up is either still queued in the PI tree (retry reuses the same
+         * node) or already popped (retry adds a fresh node); both are consistent.
          */
     }
 }
@@ -356,7 +329,8 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
         spin_unlock(&scheduler.lock);
         if (has_waiters) new_futex_val |= FUTEX_WAITERS;
         if (mutex->uaddr && copy_to_user(mutex->uaddr, &new_futex_val, sizeof(new_futex_val))) {
-            plogk("rt_mutex: copy_to_user failed for uaddr %p, waiter %llu may spin.\n", (void *)mutex->uaddr, (unsigned long long)next->pid);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("rt_mutex: copy_to_user failed for uaddr %p, waiter %llu may spin.\n", mutex->uaddr, next->pid);
 
             /* Still wake next owner but report fault to caller */
             task_wakeup(next);
@@ -367,10 +341,7 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
     return EOK;
 }
 
-/*
- * Remove and return the highest-priority waiter from the PI tree.
- * Caller must hold mutex->lock.
- */
+/* Remove and return the highest-priority waiter from the PI tree. Caller must hold mutex->lock. */
 task_t *rt_mutex_wake_top_waiter(rt_mutex_t *mutex)
 {
     if (!mutex) return NULL;

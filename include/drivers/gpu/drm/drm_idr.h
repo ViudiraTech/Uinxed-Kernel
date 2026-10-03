@@ -11,9 +11,10 @@
 #ifndef INCLUDE_DRM_IDR_H_
 #define INCLUDE_DRM_IDR_H_
 
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
+
+#define DRM_IDR_INVALID 0U
 
 struct drm_idr_entry {
         uint32_t id;
@@ -28,18 +29,13 @@ struct drm_idr {
         uint32_t              count;    // live entries
 };
 
-#define DRM_IDR_INVALID 0U
-
 /* Initialize an empty IDR. */
 void drm_idr_init(struct drm_idr *idr);
 
 /* Release all IDR storage. Entries are not freed (callers own them). */
 void drm_idr_destroy(struct drm_idr *idr);
 
-/*
- * Allocate a new id in [start, end) bound to @ptr.
- * Returns 0 and stores the id in *@id_out, or a negative errno on failure.
- */
+/* Allocate a new id in [start, end) bound to @ptr. Returns 0 and stores the id in *@id_out, or a negative errno on failure. */
 int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, uint32_t *id_out);
 
 /* Allocate the specific @id; returns 0 or -EEXIST/-ENOMEM. */

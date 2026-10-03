@@ -11,7 +11,7 @@
 #include <libs/gfx/gfx_proc.h>
 
 /* Convert color to fb_color */
-uint32_t color_to_fb_color(color_t color)
+extern inline __attribute__((always_inline)) uint32_t color_to_fb_color(color_t color)
 {
     video_info_t fb = video_get_info();
 
@@ -23,7 +23,7 @@ uint32_t color_to_fb_color(color_t color)
 }
 
 /* Convert fb_color to color */
-color_t fb_color_to_color(uint32_t fb_color)
+extern inline __attribute__((always_inline)) color_t fb_color_to_color(uint32_t fb_color)
 {
     video_info_t fb = video_get_info();
 

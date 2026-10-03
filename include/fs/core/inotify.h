@@ -1,7 +1,7 @@
 /*
  *
  *      inotify.h
- *      Linux-compatible filesystem event notification
+ *      Filesystem event notification
  *
  *      2026/7/28 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,11 +12,8 @@
 #define INCLUDE_INOTIFY_H_
 
 #include <fs/core/vfs.h>
-#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
 
 #define IN_ACCESS        0x00000001U
 #define IN_MODIFY        0x00000002U
@@ -50,16 +47,6 @@
 #define IN_CLOEXEC  0x00080000
 #define IN_NONBLOCK 0x00000800
 
-#ifndef INOTIFY_MAX_QUEUED_EVENTS
-#    define INOTIFY_MAX_QUEUED_EVENTS 16384U
-#endif
-#ifndef INOTIFY_MAX_USER_INSTANCES
-#    define INOTIFY_MAX_USER_INSTANCES 128U
-#endif
-#ifndef INOTIFY_MAX_USER_WATCHES
-#    define INOTIFY_MAX_USER_WATCHES 8192U
-#endif
-
 struct inotify_event {
         int32_t  wd;
         uint32_t mask;
@@ -69,7 +56,7 @@ struct inotify_event {
 };
 
 _Static_assert(sizeof(struct inotify_event) == 16, "Linux x86_64 inotify_event must be 16 bytes");
-_Static_assert(__builtin_offsetof(struct inotify_event, len) == 12, "inotify_event.len must start at byte 12");
+_Static_assert(offsetof(struct inotify_event, len) == 12, "inotify_event.len must start at byte 12");
 
 typedef struct inotify_queue_event {
         struct inotify_queue_event *next;

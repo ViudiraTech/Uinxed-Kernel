@@ -11,6 +11,7 @@
 #ifndef INCLUDE_PIPE_H_
 #define INCLUDE_PIPE_H_
 
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 /* Initialize the pipe subsystem. */
@@ -23,6 +24,9 @@ int64_t sys_pipe(int pipefd[2]);
 int64_t sys_pipe2(int pipefd[2], int flags);
 
 /* Create a FIFO (named pipe) node at the given resolved path. */
-int pipe_mknod(char *path, uint16_t mode, uint64_t dev);
+int pipe_mknod(char *path, uint16_t mode);
+
+/* Copy up to len bytes between two pipe endpoints without consuming the input. */
+int64_t pipe_tee(void *in_private, void *out_private, size_t len, uint64_t flags);
 
 #endif // INCLUDE_PIPE_H_

@@ -8,17 +8,14 @@
  *
  */
 
-#include <drivers/gpu/drm/drm.h>
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/uaccess.h>
+
+#if CONFIG_DRM
 
 /* drm_ioctl_permit - check auth / master flags against file_priv */
 int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
@@ -37,10 +34,7 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
         if (!file_priv->authenticated) return -EACCES;
     }
 
-    /*
-     * DRM_ROOT_ONLY - no root concept in freestanding kernel;
-     * always deny for safety.
-     */
+    /* DRM_ROOT_ONLY - no root concept in freestanding kernel; always deny for safety. */
     if (flags & DRM_ROOT_ONLY) return -EACCES;
 
     return 0;
@@ -50,7 +44,6 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_get_cap *cap = (struct drm_get_cap *)data;
-
     (void)file_priv;
 
     if (!dev || !cap) return -EINVAL;
@@ -103,7 +96,6 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_set_client_cap *cap = (struct drm_set_client_cap *)data;
-
     (void)dev;
 
     if (!data || !file_priv) return -EINVAL;
@@ -134,8 +126,6 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
     return 0;
 }
 
-/* drm_ioctl - dispatch an ioctl command to the registered handler */
-
 /* Built-in core ioctls that are always available. */
 static const struct drm_ioctl_desc drm_core_ioctls[] = {
     /* 0x00 - 0x0d: core / GEM / cap */
@@ -160,7 +150,7 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     /* 0x3a: vblank */
     {DRM_IOCTL_WAIT_VBLANK,            drm_wait_vblank_ioctl,            0                    },
 
-    /* 0xA0 - 0xBF: KMS */
+    /* 0xA0 - 0xCE: KMS */
     {DRM_IOCTL_MODE_GETRESOURCES,      drm_mode_getresources,            DRM_AUTH             },
     {DRM_IOCTL_MODE_GETCRTC,           drm_mode_getcrtc,                 DRM_AUTH             },
     {DRM_IOCTL_MODE_SETCRTC,           drm_mode_setcrtc,                 DRM_MASTER | DRM_AUTH},
@@ -210,23 +200,20 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     unsigned int                 size;
     int                          ret;
 
-    if (!dev || !dev->driver || !file_priv) {
-        DRM_ERROR("Ioctl 0x%x on invalid device/file state.\n", cmd);
-        return -EINVAL;
-    }
+    if (!dev || !dev->driver || !file_priv) return -EINVAL;
 
-    /* 1. Validate DRM magic type byte. */
+    /* Validate DRM magic type byte. */
     if (_IOC_TYPE(cmd) != DRM_IOCTL_BASE) return -ENOTTY;
 
-    /* 2. Validate direction bits. */
+    /* Validate direction bits. */
     dir = _IOC_DIR(cmd);
     if (dir & ~(_IOC_READ | _IOC_WRITE)) return -EINVAL;
 
-    /* 3. Validate size is reasonable (max 16 KB). */
+    /* Validate size is reasonable (max 16 KB). */
     size = _IOC_SIZE(cmd);
     if (size > 0x4000) return -EINVAL;
 
-    /* 4. Allocate kernel buffer and copy from user if needed. */
+    /* Allocate kernel buffer and copy from user if needed. */
     if (size > 0) {
         kdata = malloc(size);
         if (!kdata) {
@@ -234,14 +221,8 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
             return -ENOMEM;
         }
         if (dir & _IOC_WRITE) {
-            /*
-             * copy_from_user: kernel and user share the same address
-             * space in this freestanding kernel, but we still make a
-             * private copy so the handler cannot scribble on user
-             * memory.
-             */
+            /* Single address space, but the handler gets a private copy so it cannot scribble on user memory. */
             if (copy_from_user(kdata, user_data, size)) {
-                DRM_ERROR("Ioctl 0x%x copy_from_user failed, returning -EFAULT\n", cmd);
                 free(kdata);
                 return -EFAULT;
             }
@@ -250,14 +231,10 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
         }
     }
 
-    /* 5. Search driver ioctls (full cmd match). */
+    /* Search driver ioctls (full cmd match). */
     if (dev->driver->ioctls && dev->driver->num_ioctls > 0) desc = find_ioctl_desc(cmd, dev->driver->ioctls, dev->driver->num_ioctls);
 
-    /*
-     * 6. Dumb-buffer / PRIME fallback dispatch.
-     * These are handled separately because the core table has NULL
-     * func entries and we dispatch through the driver callbacks.
-     */
+    /* 6. Dumb-buffer / PRIME fallback dispatch through the driver callbacks. */
     if (!desc) {
         if (cmd == DRM_IOCTL_MODE_CREATE_DUMB) {
             ret = drm_ioctl_permit(DRM_AUTH, file_priv);
@@ -303,7 +280,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
         }
     }
 
-    /* 7. Fall back to core ioctls. */
+    /* Fall back to core ioctls. */
     if (!desc) desc = find_ioctl_desc(cmd, drm_core_ioctls, sizeof(drm_core_ioctls) / sizeof(drm_core_ioctls[0]));
 
     if (!desc) {
@@ -311,12 +288,9 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
         goto out;
     }
 
-    /* 8. Permission check + dispatch. */
+    /* Permission check + dispatch. */
     ret = drm_ioctl_permit(desc->flags, file_priv);
-    if (ret) {
-        DRM_ERROR("Ioctl 0x%x flags 0x%x DENIED: master=%d auth=%d\n", cmd, desc->flags, file_priv->master != NULL, file_priv->authenticated);
-        goto out;
-    }
+    if (ret) goto out;
 
     if (!desc->func) {
         /* A NULL func means this ioctl is a no-op success. */
@@ -326,14 +300,12 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
 
     ret = desc->func(dev, kdata, file_priv);
 copy_out:
-    /* 9. Copy results back to user if the ioctl reads data. */
+    /* Copy results back to user if the ioctl reads data. */
     if (ret == 0 && kdata && (dir & _IOC_READ) && copy_to_user(user_data, kdata, size)) ret = -EFAULT;
 out:
     free(kdata);
     return ret;
 }
-
-/* drm_version - handle DRM_IOCTL_VERSION */
 
 /* Copy a driver string into the user-provided version buffer. */
 static int drm_version_copy_string(uint64_t user_ptr, uint64_t capacity, uint64_t *length, const char *value)
@@ -366,11 +338,9 @@ int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
     uint64_t            desc_ptr;
     uint64_t            desc_capacity;
     int                 ret;
-
     (void)file_priv;
 
     if (!dev || !data) return -EINVAL;
-
     ver = (struct drm_version *)data;
 
     /* Preserve the user pointers while filling the result structure. */
@@ -409,3 +379,5 @@ int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_pri
     (void)file_priv;
     return 0;
 }
+
+#endif

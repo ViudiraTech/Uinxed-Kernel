@@ -8,191 +8,209 @@
  *
  */
 
+#include <arch/common.h>
+#include <arch/exception_entry.h>
+#include <arch/fpu.h>
+#include <arch/idt.h>
 #include <arch/smp.h>
 #include <kernel/debug/debug.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
-#include <process/uaccess.h>
-#include <sync/signal.h>
 #include <syscall/syscall.h>
 
-void     page_fault_entry(void);
-void     exception_0_entry(void);
-void     exception_1_entry(void);
-void     exception_3_entry(void);
-void     exception_4_entry(void);
-void     exception_5_entry(void);
-void     exception_6_entry(void);
-void     exception_7_entry(void);
-void     exception_10_entry(void);
-void     exception_11_entry(void);
-void     exception_12_entry(void);
-void     exception_13_entry(void);
-void     exception_16_entry(void);
-void     exception_17_entry(void);
-void     exception_19_entry(void);
+/* Reserved DR6 bits, which read back set in the value the register returns. */
+#define DR6_RESERVED 0xffff0ff0ULL
+
 uint64_t nmi_spurious_count;
+
+/* Interrupt/exception entry handler for vector 0. */
+void exception_0_entry(void);
+
+/* Interrupt/exception entry handler for vector 1. */
+void exception_1_entry(void);
+
+/* Interrupt/exception entry handler for vector 3. */
+void exception_3_entry(void);
+
+/* Interrupt/exception entry handler for vector 4. */
+void exception_4_entry(void);
+
+/* Interrupt/exception entry handler for vector 5. */
+void exception_5_entry(void);
+
+/* Interrupt/exception entry handler for vector 6. */
+void exception_6_entry(void);
+
+/* Interrupt/exception entry handler for vector 7. */
+void exception_7_entry(void);
+
+/* Interrupt/exception entry handler for vector 10. */
+void exception_10_entry(void);
+
+/* Interrupt/exception entry handler for vector 11. */
+void exception_11_entry(void);
+
+/* Interrupt/exception entry handler for vector 12. */
+void exception_12_entry(void);
+
+/* Interrupt/exception entry handler for vector 13. */
+void exception_13_entry(void);
+
+/* Interrupt/exception entry handler for vector 16. */
+void exception_16_entry(void);
+
+/* Interrupt/exception entry handler for vector 17. */
+void exception_17_entry(void);
+
+/* Interrupt/exception entry handler for vector 19. */
+void exception_19_entry(void);
+
+/* Page-fault entry, generated alongside the fixed-exception entries. */
+void page_fault_entry(void);
+
+/* Entry handlers for the reserved vectors 15 and 20-31. */
+void reserved_15_entry(void);
+void reserved_20_entry(void);
+void reserved_21_entry(void);
+void reserved_22_entry(void);
+void reserved_23_entry(void);
+void reserved_24_entry(void);
+void reserved_25_entry(void);
+void reserved_26_entry(void);
+void reserved_27_entry(void);
+void reserved_28_entry(void);
+void reserved_29_entry(void);
+void reserved_30_entry(void);
+void reserved_31_entry(void);
 
 _Static_assert(offsetof(syscall_frame_t, rip) == 15 * sizeof(uint64_t), "bad fixed exception GPR layout");
 _Static_assert(offsetof(syscall_frame_t, cs) == 16 * sizeof(uint64_t), "bad fixed exception iret layout");
 
-typedef struct exception_error_frame {
-        uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
-        uint64_t rdi, rsi, rbp, rdx, rcx, rbx, rax;
-        uint64_t error_code;
-        uint64_t rip, cs, rflags, rsp, ss;
-} __attribute__((packed)) exception_error_frame_t;
-
-_Static_assert(offsetof(exception_error_frame_t, error_code) == 15 * sizeof(uint64_t), "bad fixed error-code layout");
-_Static_assert(offsetof(exception_error_frame_t, rip) == 16 * sizeof(uint64_t), "bad fixed error-code iret layout");
+/* Signal, si_code, si_addr source and console text for one fixed exception vector. */
+typedef struct {
+        int         signal;
+        int         code;   // si_code, or 0 for the vectors whose code comes from hardware state
+        bool        use_ip; // si_addr carries the trapping instruction pointer
+        const char *name;
+        const char *message;
+} exception_signal_t;
 
 /*
- * A user #GP usually carries no fault address.  The old one-line report only
- * named the pid, which made an alignment fault in a shared library
- * indistinguishable from a bad selector or a corrupted return frame.  Keep a
- * compact, one-shot crash record with enough information to resolve the RIP
- * against the executable/shared object and inspect the faulting instruction.
- * This is emitted only when a process is about to receive SIGSEGV, so it does
- * not reintroduce the high-volume Weston diagnostics.
+ * Signal and si_code for each fixed exception vector; the vectors with
+ * dedicated handlers (#PF, #DF, NMI, #MC, reserved) are absent.  #NM is
+ * unreachable: no instruction raises it while CR0.TS and CR0.EM are clear.
  */
-static void user_gp_report(interrupt_frame_t *frame, uint64_t error_code)
+static const exception_signal_t exception_signals[] = {
+    [ISR_0]  = {SIGFPE,  FPE_INTDIV, true,  "#DE", "divide error"                 },
+    [ISR_1]  = {SIGTRAP, 0,          true,  "#DB", "debug trap"                   },
+    [ISR_3]  = {SIGTRAP, SI_KERNEL,  false, "#BP", "breakpoint"                   },
+    [ISR_4]  = {SIGSEGV, SI_KERNEL,  false, "#OF", "integer overflow"             },
+    [ISR_5]  = {SIGSEGV, SI_KERNEL,  false, "#BR", "bound range exceeded"         },
+    [ISR_6]  = {SIGILL,  ILL_ILLOPN, false, "#UD", "invalid opcode"               },
+    [ISR_7]  = {SIGILL,  ILL_COPROC, false, "#NM", "device not available"         },
+    [ISR_10] = {SIGSEGV, SI_KERNEL,  false, "#TS", "invalid TSS"                  },
+    [ISR_11] = {SIGBUS,  SI_KERNEL,  false, "#NP", "segment not present"          },
+    [ISR_12] = {SIGBUS,  SI_KERNEL,  false, "#SS", "stack-segment fault"          },
+    [ISR_13] = {SIGSEGV, SI_KERNEL,  false, "#GP", "general protection fault"     },
+    [ISR_16] = {SIGFPE,  0,          true,  "#MF", "x87 floating-point exception" },
+    [ISR_17] = {SIGBUS,  BUS_ADRALN, false, "#AC", "alignment check"              },
+    [ISR_19] = {SIGFPE,  0,          true,  "#XM", "SIMD floating-point exception"},
+};
+
+/* si_code for #DB, from the DR6 bits that name the breakpoint which fired; the B0-B3 bits stay set, so single step is tested first. */
+static int exception_debug_code(void)
 {
-    process_t *proc = process_current();
-    task_t    *task = current_task();
-    if (!proc || !task || !frame) return;
+    uint64_t dr6;
+    __asm__ volatile("mov %%dr6, %0" : "=r"(dr6));
+    dr6 ^= DR6_RESERVED; // drop the reserved bits so an untouched DR6 reads as zero
 
-    uintptr_t  map_start = 0;
-    uintptr_t  map_end   = 0;
-    uint64_t   file_off  = 0;
-    vm_flags_t map_flags = 0;
-    int        map_type  = -1;
-    char       map_name[VFS_NAME_MAX + 1];
-    strcpy(map_name, "[anonymous]");
-
-    spin_lock(&proc->mmap_lock);
-    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
-        if (frame->rip < vma->start || frame->rip >= vma->end) continue;
-        map_start = vma->start;
-        map_end   = vma->end;
-        map_flags = vma->flags;
-        map_type  = (int)vma->type;
-        file_off  = vma->vm_pgoff * 4096ULL + (frame->rip - vma->start);
-        if (vma->vm_file && vma->vm_file->name) {
-            strncpy(map_name, vma->vm_file->name, sizeof(map_name) - 1);
-            map_name[sizeof(map_name) - 1] = '\0';
-        }
-        break;
-    }
-    spin_unlock(&proc->mmap_lock);
-
-    uint8_t code[16] = {0};
-    size_t  code_len = 0;
-    while (code_len < sizeof(code) && !copy_from_user(&code[code_len], (const void *)(frame->rip + code_len), 1)) code_len++;
-
-    uint64_t stack[4]  = {0};
-    size_t   stack_len = 0;
-    while (stack_len < 4 && !copy_from_user(&stack[stack_len], (const void *)(frame->rsp + stack_len * sizeof(uint64_t)), sizeof(uint64_t))) stack_len++;
-
-    plogk("[exception] #GP pid=%llu tgid=%llu comm=%s process=%s\n", (unsigned long long)task->pid, (unsigned long long)task->tgid, task->name, proc->name);
-    plogk("[exception] exe=%s rip=%p rsp=%p error=0x%llx cs=0x%llx ss=0x%llx rflags=0x%llx\n", proc->exe_path[0] ? proc->exe_path : "[unknown]", (void *)frame->rip, (void *)frame->rsp,
-          (unsigned long long)error_code, (unsigned long long)frame->cs, (unsigned long long)frame->ss, (unsigned long long)frame->rflags);
-    plogk("[exception] gp-source external=%u table=%u selector-index=%llu fsbase=%p fpu-init=%u fpu-active=%u\n", (unsigned)(error_code & 1U), (unsigned)((error_code >> 1) & 3U),
-          (unsigned long long)(error_code >> 3), (void *)task->thread.fs_base, (unsigned)task->thread.fpu_initialized, (unsigned)task->thread.fpu_active);
-    if (map_start) {
-        plogk("[exception] vma=%p-%p %c%c%c%c type=%d file=%s file-offset=0x%llx\n", (void *)map_start, (void *)map_end, (map_flags & VM_READ) ? 'r' : '-', (map_flags & VM_WRITE) ? 'w' : '-',
-              (map_flags & VM_EXEC) ? 'x' : '-', (map_flags & VM_SHARED) ? 's' : 'p', map_type, map_name, (unsigned long long)file_off);
-    } else {
-        plogk("[exception] rip-vma=[unmapped]\n");
-    }
-    plogk("[exception] code[%zu]=%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", code_len, code[0], code[1], code[2], code[3], code[4], code[5], code[6], code[7],
-          code[8], code[9], code[10], code[11], code[12], code[13], code[14], code[15]);
-    plogk("[exception] stack[%zu]=%p %p %p %p\n", stack_len, (void *)stack[0], (void *)stack[1], (void *)stack[2], (void *)stack[3]);
+    if (dr6 & 0x4000) return TRAP_TRACE;  // BS: single step
+    if (dr6 & 0x000f) return TRAP_HWBKPT; // B0-B3: hardware breakpoint
+    return TRAP_BRKPT;                    // ICEBP
 }
 
-static bool fixed_exception_signal(uint32_t vector, int *signal, int *code, const char **name, const char **message)
+/* Fill `out` for a fixed exception vector, completing the si_codes that come from hardware state.  An unknown vector leaves `out` at its defaults. */
+static void fixed_exception_signal(uint32_t vector, exception_signal_t *out)
 {
-    switch (vector) {
-        case 0 : *signal = SIGFPE; *code = FPE_INTDIV; *name = "#DE"; *message = "divide error"; return true;
-        case 1 : *signal = SIGTRAP; *code = TRAP_TRACE; *name = "#DB"; *message = "debug trap"; return true;
-        case 3 : *signal = SIGTRAP; *code = TRAP_BRKPT; *name = "#BP"; *message = "breakpoint"; return true;
-        case 4 : *signal = SIGFPE; *code = FPE_INTOVF; *name = "#OF"; *message = "integer overflow"; return true;
-        case 5 : *signal = SIGSEGV; *code = SEGV_ACCERR; *name = "#BR"; *message = "bound range exceeded"; return true;
-        case 6 : *signal = SIGILL; *code = ILL_ILLOPC; *name = "#UD"; *message = "invalid opcode"; return true;
-        case 7 : *signal = SIGILL; *code = ILL_COPROC; *name = "#NM"; *message = "device not available"; return true;
-        case 10 : *signal = SIGSEGV; *code = SEGV_ACCERR; *name = "#TS"; *message = "invalid TSS"; return true;
-        case 11 : *signal = SIGSEGV; *code = SEGV_ACCERR; *name = "#NP"; *message = "segment not present"; return true;
-        case 12 : *signal = SIGSEGV; *code = SEGV_ACCERR; *name = "#SS"; *message = "stack-segment fault"; return true;
-        case 13 : *signal = SIGSEGV; *code = SEGV_ACCERR; *name = "#GP"; *message = "general protection fault"; return true;
-        case 16 : *signal = SIGFPE; *code = FPE_FLTINV; *name = "#MF"; *message = "x87 floating-point exception"; return true;
-        case 17 : *signal = SIGBUS; *code = BUS_ADRALN; *name = "#AC"; *message = "alignment check"; return true;
-        case 19 : *signal = SIGFPE; *code = FPE_FLTINV; *name = "#XM"; *message = "SIMD floating-point exception"; return true;
-        default : return false;
+    if (vector >= sizeof(exception_signals) / sizeof(exception_signals[0])) return;
+    *out = exception_signals[vector];
+
+    if (vector == ISR_1) {
+        out->code = exception_debug_code();
+    } else if (vector == ISR_16 || vector == ISR_19) {
+        out->code = fpu_exception_code(vector);
+        if (out->code == 0) out->signal = 0; // spurious floating-point exception
     }
 }
 
-void fixed_exception_handle_frame(exception_error_frame_t *frame, uint32_t vector) __attribute__((used, noinline));
-
-void fixed_exception_handle_frame(exception_error_frame_t *frame, uint32_t vector)
+/* Fixed exception handle frame. */
+__attribute__((used)) void fixed_exception_handle_frame(exception_frame_t *frame, uint32_t vector)
 {
-    int         signal = SIGSEGV;
-    int         code = SEGV_ACCERR;
-    const char *name = "#??";
-    const char *message = "unknown exception";
+    exception_signal_t sig = {.name = "#??", .message = "unknown exception"};
 
     disable_intr();
-    (void)fixed_exception_signal(vector, &signal, &code, &name, &message);
-    if ((frame->cs & 3U) != 3U) {
-        carry_error_code = vector == 10 || vector == 11 || vector == 12 || vector == 13 || vector == 17;
-        panic("Kernel exception: %s vector=%u rip=%p cs=0x%llx error=0x%llx", name, vector, (void *)frame->rip, (unsigned long long)frame->cs, (unsigned long long)frame->error_code);
+    fixed_exception_signal(vector, &sig);
+    if (!user_mode(frame)) {
+        carry_error_code = vector == ISR_10 || vector == ISR_11 || vector == ISR_12 || vector == ISR_13 || vector == ISR_17;
+        panic("Kernel exception: %s", sig.name);
     }
+    if (!sig.signal) return; // no signal to deliver
+
+    /* INT3 is the trap whose RIP has already advanced; the rest may re-execute. */
+    exception_deliver_signal(frame, sig.signal, sig.code, sig.use_ip ? frame->rip : 0, sig.message, vector == ISR_3);
+}
+
+/* Copy an exception frame into the signal-delivery frame, leaving error_code alone. */
+static void exception_frame_to_syscall(syscall_frame_t *dst, const exception_frame_t *src)
+{
+    memcpy(dst, src, offsetof(syscall_frame_t, rip));
+    dst->rip    = src->rip;
+    dst->cs     = src->cs;
+    dst->rflags = src->rflags;
+    dst->rsp    = src->rsp;
+    dst->ss     = src->ss;
+}
+
+/* Write a delivered signal frame back into the exception frame. */
+static void syscall_frame_to_exception(exception_frame_t *dst, const syscall_frame_t *src)
+{
+    memcpy(dst, src, offsetof(syscall_frame_t, rip));
+    dst->rip    = src->rip;
+    dst->cs     = src->cs;
+    dst->rflags = src->rflags;
+    dst->rsp    = src->rsp;
+    dst->ss     = src->ss;
+}
+
+/* Deliver a synchronous signal for a user-mode exception.  The console line is rate limited and emitted only when the signal has no handler. */
+void exception_deliver_signal(exception_frame_t *frame, int sig, int code, uintptr_t addr, const char *message, bool trap)
+{
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
 
     process_t *proc = process_current();
     task_t    *task = current_task();
-    if (!proc || !task) task_exit();
-
-    if (vector == 13) {
-        interrupt_frame_t report = {
-            .rip = frame->rip, .cs = frame->cs, .rflags = frame->rflags, .rsp = frame->rsp, .ss = frame->ss,
-        };
-        user_gp_report(&report, frame->error_code);
-    } else {
-        plogk("[exception] %s pid=%llu rip=%p: %s\n", name, (unsigned long long)task->pid, (void *)frame->rip, message);
-    }
+    if (!proc || !task) panic("Exception %s with no process context", message);
 
     siginfo_t info = {0};
-    info.si_signo  = signal;
+    info.si_signo  = sig;
     info.si_code   = code;
-    info.si_addr   = (void *)frame->rip;
+    info.si_addr   = (void *)addr;
 
-    /*
-     * Returning to a faulting instruction with its synchronous signal
-     * blocked/ignored spins forever in the exception path.  INT3 is a trap
-     * and has already advanced RIP, so it alone may safely remain blocked.
-     */
-    if (vector != 3 && signal_is_blocked_or_ignored(proc, signal)) process_exit_group(-signal);
-    signal_send_thread(task, signal, &info);
+    /* A blocked or ignored signal would re-execute the fault forever; forcing delivery keeps an installed handler reachable, and a trap has already advanced RIP. */
+    if (!trap) signal_force_delivery(proc, sig);
+    if (signal_is_unhandled(proc, sig) && ratelimit_allow(&ratelimit))
+        plogk("%s[%llu]: %s at %p ip %p sp %p error 0x%llx\n", task->name, task->pid, message, (void *)addr, (void *)frame->rip, (void *)frame->rsp, frame->error_code);
+
+    (void)signal_send_thread(task, sig, &info);
 
     syscall_frame_t sigframe;
-    memcpy(&sigframe, frame, offsetof(syscall_frame_t, rip));
-    sigframe.rip    = frame->rip;
-    sigframe.cs     = frame->cs;
-    sigframe.rflags = frame->rflags;
-    sigframe.rsp    = frame->rsp;
-    sigframe.ss     = frame->ss;
+    exception_frame_to_syscall(&sigframe, frame);
     if (signal_deliver_if_pending(&sigframe) == 1) task_exit();
+    syscall_frame_to_exception(frame, &sigframe);
 
-    memcpy(frame, &sigframe, offsetof(syscall_frame_t, rip));
-    frame->rip    = sigframe.rip;
-    frame->cs     = sigframe.cs;
-    frame->rflags = sigframe.rflags;
-    frame->rsp    = sigframe.rsp;
-    frame->ss     = sigframe.ss;
     sched_maybe_preempt();
 }
 
@@ -202,7 +220,7 @@ void fixed_exception_handle_frame(exception_error_frame_t *frame, uint32_t vecto
  * zero, making the C layout and restore path identical for all entries.
  */
 __asm__(".text\n"
-        ".macro FIXED_EXCEPTION name, vector, has_error\n"
+        ".macro EXCEPTION_ENTRY name, vector, has_error, chandler\n"
         ".global \\name\n"
         ".type \\name, @function\n"
         "\\name:\n"
@@ -233,7 +251,7 @@ __asm__(".text\n"
         "movq %r12, %rdi\n"
         "movl $\\vector, %esi\n"
         "andq $-16, %rsp\n"
-        "call fixed_exception_handle_frame\n"
+        "call \\chandler\n"
         "movq %r12, %rsp\n"
         "popq %r15\n"
         "popq %r14\n"
@@ -259,20 +277,63 @@ __asm__(".text\n"
         "iretq\n"
         ".size \\name, .-\\name\n"
         ".endm\n"
-        "FIXED_EXCEPTION exception_0_entry, 0, 0\n"
-        "FIXED_EXCEPTION exception_1_entry, 1, 0\n"
-        "FIXED_EXCEPTION exception_3_entry, 3, 0\n"
-        "FIXED_EXCEPTION exception_4_entry, 4, 0\n"
-        "FIXED_EXCEPTION exception_5_entry, 5, 0\n"
-        "FIXED_EXCEPTION exception_6_entry, 6, 0\n"
-        "FIXED_EXCEPTION exception_7_entry, 7, 0\n"
-        "FIXED_EXCEPTION exception_10_entry, 10, 1\n"
-        "FIXED_EXCEPTION exception_11_entry, 11, 1\n"
-        "FIXED_EXCEPTION exception_12_entry, 12, 1\n"
-        "FIXED_EXCEPTION exception_13_entry, 13, 1\n"
-        "FIXED_EXCEPTION exception_16_entry, 16, 0\n"
-        "FIXED_EXCEPTION exception_17_entry, 17, 1\n"
-        "FIXED_EXCEPTION exception_19_entry, 19, 0\n");
+        "EXCEPTION_ENTRY exception_0_entry, 0, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_1_entry, 1, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_3_entry, 3, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_4_entry, 4, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_5_entry, 5, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_6_entry, 6, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_7_entry, 7, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_10_entry, 10, 1, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_11_entry, 11, 1, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_12_entry, 12, 1, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_13_entry, 13, 1, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_16_entry, 16, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_17_entry, 17, 1, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY exception_19_entry, 19, 0, fixed_exception_handle_frame\n"
+        "EXCEPTION_ENTRY page_fault_entry, 14, 1, page_fault_handle_frame\n"
+
+        /* #CP (21), #VC (29) and #SX (30) push an error code; the stub synthesises a zero for the rest. */
+        "EXCEPTION_ENTRY reserved_15_entry, 15, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_20_entry, 20, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_21_entry, 21, 1, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_22_entry, 22, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_23_entry, 23, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_24_entry, 24, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_25_entry, 25, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_26_entry, 26, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_27_entry, 27, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_28_entry, 28, 0, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_29_entry, 29, 1, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_30_entry, 30, 1, exception_reserved_panic\n"
+        "EXCEPTION_ENTRY reserved_31_entry, 31, 0, exception_reserved_panic\n");
+
+/* An interrupt from user mode runs with the user's GS; swap to the per-CPU base on entry and back before returning (frame->cs tells which case). */
+void irq_enter_gs(interrupt_frame_t *frame)
+{
+    if (user_mode(frame)) __asm__ volatile("swapgs" ::: "memory");
+}
+
+/* Leave: cli closes the scheduling/swapgs->iretq window; iretq restores the saved IF. */
+void irq_leave_gs(interrupt_frame_t *frame)
+{
+    if (user_mode(frame)) {
+        /*
+         * Device IRQs can wake a task on this CPU without sending an IPI.
+         * Honor that wake before restoring userspace so an input/compositor
+         * waiter is not stranded until the next periodic timer interrupt.
+         */
+        disable_intr();
+        sched_maybe_preempt();
+        __asm__ volatile("swapgs" ::: "memory");
+    }
+}
+
+/* Leave an NMI/other non-preemptible entry without entering the scheduler. */
+void irq_leave_gs_no_preempt(interrupt_frame_t *frame)
+{
+    if (user_mode(frame)) __asm__ volatile("swapgs" ::: "memory");
+}
 
 /* Non-maskable interrupt (#NMI) */
 INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
@@ -286,15 +347,7 @@ INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
         return;
     }
 
-    /*
-     * Not a TLB-shootdown NMI: an unknown hardware NMI (LINT1 assertion,
-     * NMI button, watchdog).  Mirror Linux's default_do_nmi() - log it and
-     * continue, a real NMI must not be fatal.  plogk() cannot run here (it
-     * would spin forever against a lock the interrupted context holds), so
-     * park the message and let the timer tick drain it through the normal
-     * log, reaching every enabled console just like any other message.
-     * Also count it, visible through /proc/interrupts.
-     */
+    /* Unknown hardware NMI: parked for the timer tick to drain, since plogk() cannot run here. */
     (void)__atomic_add_fetch(&nmi_spurious_count, 1, __ATOMIC_RELAXED);
     char msg[NMI_LOG_MSG_SIZE];
     int  n = snprintf(msg, sizeof(msg), "NMI received for unknown reason on CPU %u (RIP %p)\n", get_current_cpu_id(), (void *)frame->rip);
@@ -304,7 +357,7 @@ INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
 INTERRUPT_END
 
 /* Double fault (#DF) */
-INTERRUPT_BEGIN static void ISR_8_handle(interrupt_frame_t *frame, uint64_t error_code)
+INTERRUPT_BEGIN __attribute__((noreturn)) static void ISR_8_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     irq_enter_gs(frame);
     (void)frame;
@@ -315,7 +368,7 @@ INTERRUPT_BEGIN static void ISR_8_handle(interrupt_frame_t *frame, uint64_t erro
 INTERRUPT_END
 
 /* Coprocessor segment overrun */
-INTERRUPT_BEGIN static void ISR_9_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN __attribute__((noreturn)) static void ISR_9_handle(interrupt_frame_t *frame)
 {
     irq_enter_gs(frame);
     (void)frame;
@@ -323,10 +376,8 @@ INTERRUPT_BEGIN static void ISR_9_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
-/* ISR 14 (#PF) is handled by the paging subsystem */
-
 /* Machine check (#MC) */
-INTERRUPT_BEGIN static void ISR_18_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN __attribute__((noreturn)) static void ISR_18_handle(interrupt_frame_t *frame)
 {
     irq_enter_gs(frame);
     (void)frame;
@@ -334,15 +385,25 @@ INTERRUPT_BEGIN static void ISR_18_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Reserved-vector entry: no recovery path, and the frame is never inspected. */
+__attribute__((used, noreturn)) void exception_reserved_panic(exception_frame_t *frame, uint32_t vector)
+{
+    (void)frame;
+    disable_intr();
+    carry_error_code = vector == 21 || vector == 29 || vector == 30; // the reserved vectors that push an error code
+    panic("Reserved exception vector %u", vector);
+}
+
 /* Register ISR interrupt processing */
 void isr_registe_handle(void)
 {
     register_interrupt_handler(ISR_0, (void *)exception_0_entry, 0, 0x8e);
+
+    /* #DB stays on IST 0: exception_deliver_signal() may preempt from its user-mode path. */
     register_interrupt_handler(ISR_1, (void *)exception_1_entry, 0, 0x8e);
     register_interrupt_handler(ISR_2, (void *)ISR_2_handle, 2, 0x8e);
 
     /* User processes may execute INT3; expose the breakpoint gate at DPL=3. */
-
     register_interrupt_handler(ISR_3, (void *)exception_3_entry, 0, 0xee);
     register_interrupt_handler(ISR_4, (void *)exception_4_entry, 0, 0x8e);
     register_interrupt_handler(ISR_5, (void *)exception_5_entry, 0, 0x8e);
@@ -362,14 +423,35 @@ void isr_registe_handle(void)
     register_interrupt_handler(ISR_11, (void *)exception_11_entry, 0, 0x8e);
     register_interrupt_handler(ISR_12, (void *)exception_12_entry, 0, 0x8e);
     register_interrupt_handler(ISR_13, (void *)exception_13_entry, 0, 0x8e);
-    register_interrupt_handler(ISR_14, (void *)page_fault_entry, 0, 0x8e);
 
-    /* ISR 15 CPU reserved */
+    /*
+     * #PF stays on IST 0: exception_deliver_signal() calls
+     * sched_maybe_preempt(), which must not switch tasks while running on an
+     * IST stack.
+     */
+    register_interrupt_handler(ISR_14, (void *)page_fault_entry, 0, 0x8e);
+    register_interrupt_handler(ISR_15, (void *)reserved_15_entry, 0, 0x8e);
 
     register_interrupt_handler(ISR_16, (void *)exception_16_entry, 0, 0x8e);
     register_interrupt_handler(ISR_17, (void *)exception_17_entry, 0, 0x8e);
+
+    /* #MC stays on IST 0: the handler only panics, and #DF already has its own stack. */
     register_interrupt_handler(ISR_18, (void *)ISR_18_handle, 0, 0x8e);
     register_interrupt_handler(ISR_19, (void *)exception_19_entry, 0, 0x8e);
+
+    /* Vectors 20-31 are reserved by the CPU: entering one is unrecoverable. */
+    register_interrupt_handler(20, (void *)reserved_20_entry, 0, 0x8e);
+    register_interrupt_handler(21, (void *)reserved_21_entry, 0, 0x8e);
+    register_interrupt_handler(22, (void *)reserved_22_entry, 0, 0x8e);
+    register_interrupt_handler(23, (void *)reserved_23_entry, 0, 0x8e);
+    register_interrupt_handler(24, (void *)reserved_24_entry, 0, 0x8e);
+    register_interrupt_handler(25, (void *)reserved_25_entry, 0, 0x8e);
+    register_interrupt_handler(26, (void *)reserved_26_entry, 0, 0x8e);
+    register_interrupt_handler(27, (void *)reserved_27_entry, 0, 0x8e);
+    register_interrupt_handler(28, (void *)reserved_28_entry, 0, 0x8e);
+    register_interrupt_handler(29, (void *)reserved_29_entry, 0, 0x8e);
+    register_interrupt_handler(30, (void *)reserved_30_entry, 0, 0x8e);
+    register_interrupt_handler(31, (void *)reserved_31_entry, 0, 0x8e);
 
     plogk("isr: All ISR handlers are registered.\n");
 }

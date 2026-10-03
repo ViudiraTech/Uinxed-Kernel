@@ -9,7 +9,6 @@
  */
 
 #include <arch/common.h>
-#include <arch/cpuid.h>
 #include <libs/std/string.h>
 
 #define MSR_IA32_EFER 0xC0000080
@@ -463,8 +462,9 @@ void cpu_build_flags(char *buf, size_t size)
             pos += l;
         }
 
-    if (pos)
+    if (pos) {
         buf[pos] = '\0';
-    else
+    } else {
         buf[0] = '\0';
+    }
 }

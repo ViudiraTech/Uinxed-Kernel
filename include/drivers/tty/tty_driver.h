@@ -1,7 +1,7 @@
 /*
  *
  *      tty_driver.h
- *      TTY driver registration (Linux drivers/tty/tty_io.c analog)
+ *      TTY driver registration
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,8 +12,6 @@
 #define INCLUDE_TTY_DRIVER_H_
 
 #include <drivers/tty/tty_core.h>
-#include <fs/core/vfs.h>
-#include <libs/std/stdint.h>
 
 typedef struct tty_driver tty_driver_t;
 

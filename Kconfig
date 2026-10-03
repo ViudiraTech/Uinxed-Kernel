@@ -1,14 +1,4 @@
-mainmenu "Uinxed Kernel Configuration"
-
 menu "Processor type and features"
-
-  config CPU_MAX_COUNT
-    int "Maximum number of CPUs"
-    default 0
-    help
-      Limits the maximum number of CPUs the kernel can use.
-      Set to 0 for no limit (auto-detect all cores).
-
   config CPU_FEATURE_FPU
     bool "x87 FPU / MMX support"
     default y
@@ -37,31 +27,98 @@ menu "Processor type and features"
       Enable AVX-512 state preservation and usage on capable CPUs.
       Most current CPUs do not support AVX-512.
 
+  config CPU_MAX_COUNT
+    int "Maximum number of CPUs"
+    default 0
+    help
+      Limits the maximum number of CPUs the kernel can use.
+      Set to 0 for no limit (auto-detect all cores).
 endmenu
 
 menu "Memory management"
+  menu "Page frame allocator"
+    config BUDDY_MAX_ORDER
+      int "Buddy allocator maximum order"
+      default 30
+      range 4 30
+      help
+        Highest allocation order supported by the buddy page allocator.
 
-  config KERNEL_HEAP_MAX_SIZE
-    int "Maximum kernel heap size (MiB)"
-    default 512
-    range 16 4096
-    help
-      Maximum size of the kernel heap in megabytes. The kernel heap is
-      used for kmalloc(), internal kernel data structures, and driver
-      allocations. Lower this on memory-constrained VMs.
+    config FRAME_PCP_BATCH
+      int "Per-CPU frame batch size"
+      default 16
+      range 1 256
+      help
+        Number of pages moved in one batch between the per-CPU lists and the buddy allocator.
 
-  config SWAP
-    bool "Swap area manager"
-    default y
-    help
-      Anonymous-memory swap area manager used to back overcommit and
-      reclaimable anonymous pages. Disable on memory-constrained or
-      diskless systems.
+    config FRAME_PCP_HIGH
+      int "Per-CPU frame list high watermark"
+      default 64
+      range 1 4096
+      help
+        Drain trigger for the per-CPU page lists. Must never be smaller
+        than CONFIG_FRAME_PCP_BATCH.
 
+    config FRAME_RECLAIM_BATCH
+      int "Frame reclaim batch size"
+      default 16
+      range 1 256
+      help
+        Number of pages reclaimed from the per-CPU lists in one reclaim step.
+
+    config FRAME_PCP_MAX_CPUS
+      int "Maximum per-CPU frame list CPUs"
+      default 256
+      range 1 1024
+      help
+        Maximum number of CPUs with per-CPU page lists allocated.
+  endmenu
+
+  menu "Kernel heap and slab"
+    config KERNEL_HEAP_MAX_MIB
+      int "Maximum kernel heap size (MiB)"
+      default 512
+      range 16 4096
+      help
+        Maximum size of the kernel heap in megabytes. The kernel heap is
+        used for kmalloc(), internal kernel data structures, and driver
+        allocations. Lower this on memory-constrained VMs.
+
+    config SLAB_MAX_ORDER
+      int "Slab allocator maximum order"
+      default 8
+      range 1 12
+      help
+        Highest order a slab cache may request from the buddy allocator.
+
+    config HEAP_MIN_ALIGNMENT
+      int "Kernel heap minimum alignment (bytes)"
+      default 16
+      range 1 64
+      help
+        Minimum alignment guaranteed by kmalloc() allocations.
+  endmenu
+
+  menu "Swap"
+    config SWAP
+      bool "Swap area manager"
+      default y
+      help
+        Anonymous-memory swap area manager used to back overcommit and
+        reclaimable anonymous pages. Disable on memory-constrained or
+        diskless systems.
+
+    config SWAP_MAX_AREAS
+      int "Maximum swap areas"
+      depends on SWAP
+      default 32
+      range 1 256
+      help
+        Maximum number of concurrently active swap areas.
+  endmenu
 endmenu
 
 menu "Scheduler"
-
   config TIMER_HZ
     int "Periodic timer frequency (Hz)"
     default 1000
@@ -131,9 +188,36 @@ menu "Scheduler"
       Hysteresis against repeatedly bouncing a hot task between CPUs. Idle-CPU
       stealing may override this when leaving a CPU idle would be worse.
 
+  config TASK_DEFAULT_SLICE
+    int "Default initial task time slice (ticks)"
+    default 5
+    range 1 64
+    help
+      Initial time slice assigned to a newly created task.
+
+  config SCHED_DOMAIN_MAX_LEVELS
+    int "Maximum scheduler domain nesting levels"
+    default 3
+    range 1 8
+    help
+      Depth of the hierarchical scheduling domain structure.
 endmenu
 
 menu "Process management"
+  config CGROUP
+    bool "Control group (cgroup) support"
+    default y
+    help
+      Linux-style cgroup subsystem with cgroupfs, process
+      membership tracking, and pids controller.
+
+  config INIT_MODULE
+    bool "Bootloader init module fallback"
+    default n
+    help
+      Fall back to the bootloader-supplied "init" module when no other init
+      program can be loaded. Disabled by default; enable only when booting
+      with a bootloader that provides an init module.
 
   config PROCESS_MAX_FD
     int "Maximum file descriptors per process"
@@ -150,19 +234,61 @@ menu "Process management"
       Maximum number of simultaneously existing processes.
       Lower values save memory on small systems.
 
-  config PROCESS_KERNEL_STACK_SIZE
+  config KERNEL_WORKER_MAX
+    int "Kernel worker threads"
+    default 64
+    range 4 1024
+    help
+      Concurrently registered kernel worker threads.
+
+  config PROCESS_KERNEL_STACK
     int "Kernel stack size per process (bytes)"
     default 65536
     range 65536 262144
     help
       Size of the kernel-mode stack allocated for each process.
 
-  config PROCESS_USER_STACK_SIZE
+  config PROCESS_STACK_SIZE
     int "Default user stack size (bytes)"
     default 8388608
     range 1048576 67108864
     help
       Default user-space stack size for newly created processes.
+
+  config PROCESS_MAX_ARGV
+    int "Maximum total argv size (bytes)"
+    default 4096
+    range 64 65536
+    help
+      Upper bound on the combined size of a process argument vector.
+
+  config PROCESS_MAX_ENVP
+    int "Maximum total envp size (bytes)"
+    default 4096
+    range 64 65536
+    help
+      Upper bound on the combined size of a process environment vector.
+
+  config PROCESS_MAX_GROUPS
+    int "Maximum supplementary groups per process"
+    default 64
+    range 1 1024
+    help
+      Maximum number of supplementary groups a process may belong to.
+
+  config PROCESS_HEAP_START
+    int "Default process heap start offset (bytes)"
+    default 1048576
+    range 4096 1073741824
+    help
+      Offset from process base where the brk heap begins by default.
+
+  config PROCESS_HEAP_MAX
+    int "Maximum process heap size (bytes)"
+    default 2146435072
+    range 65536 2146435072
+    help
+      Upper bound on the size of a process brk heap region.
 
   config INIT_PATH
     string "Default init program path"
@@ -172,110 +298,572 @@ menu "Process management"
       kernel tries this path after any `init=` boot parameter and before
       the conventional /sbin/init, /etc/init, /bin/init and /bin/sh
       locations. Leave empty to disable this fallback.
+endmenu
 
-  config INIT_MODULE
-    bool "Bootloader init module fallback"
+menu "Loadable module support"
+  config MODULES
+    bool "Enable loadable kernel module support"
+    default y
+    help
+      Load and unload ELF64 relocatable kernel modules through the Linux
+      init_module, finit_module, and delete_module system calls.
+
+  config MODULE_FORCE_LOAD
+    bool "Allow forced loading across version mismatches"
+    depends on MODULES
     default n
     help
-      Fall back to the bootloader-supplied "init" module when no other init
-      program can be loaded. Disabled by default; enable only when booting
-      with a bootloader that provides an init module.
+      Permit privileged callers to ignore module version magic. Modules
+      loaded this way taint the kernel.
 
+  config MODULE_FORCE_UNLOAD
+    bool "Allow forced unloading of busy modules"
+    depends on MODULES
+    default n
+    help
+      Permit privileged callers to unload modules with live references.
+      This is unsafe and taints the kernel.
+
+  config MODULE_SIG_FORCE
+    bool "Require valid module signatures"
+    depends on MODULES
+    default n
+    help
+      Reject unsigned modules and modules that cannot be verified by the
+      installed platform signature verifier.
+
+  config MODULE_MAX_SIZE
+    int "Maximum module image size (MiB)"
+    depends on MODULES
+    default 64
+    range 1 512
+    help
+      Upper bound on the size of a loadable kernel module image, in MiB.
+
+  config MODULE_NAME_LEN
+    int "Maximum module name length (bytes)"
+    depends on MODULES
+    default 64
+    range 16 256
+    help
+      Maximum length of a module name accepted by init_module().
+
+  config MODULE_PARAM_MAX
+    int "Maximum module parameter string length (bytes)"
+    depends on MODULES
+    default 4096
+    range 256 65536
+    help
+      Maximum size of the module parameter string accepted by
+      init_module().
 endmenu
 
 menu "IPC (Inter-Process Communication)"
+  menu "Pipes"
+    config PIPE_BUF_SIZE
+      int "Pipe ring buffer size (bytes)"
+      default 65536
+      range 4096 1048576
+      help
+        Size of the ring buffer used by each pipe. Uinxed keeps POSIX PIPE_BUF
+        atomicity independently of the total ring capacity.
 
-  config PIPE_BUF_SIZE
-    int "Pipe ring buffer size (bytes)"
-    default 65536
-    range 4096 1048576
-    help
-      Size of the ring buffer used by each pipe. Uinxed keeps POSIX PIPE_BUF
-      atomicity independently of the total ring capacity.
+    config PIPE_ATOMIC_SIZE
+      int "Pipe atomic write size (bytes)"
+      default 4096
+      range 256 65536
+      help
+        Maximum size of an atomic pipe write (POSIX PIPE_BUF guarantee).
 
-  config PIPE_ADAPTIVE_SPIN_ITERS
-    int "Pipe remote-peer adaptive spin iterations"
-    default 192
-    range 0 4096
-    help
-      Before sleeping on an empty/full pipe, briefly spin only when the peer
-      last ran on another CPU. This targets very short producer/consumer gaps
-      without starving a peer that shares the current CPU. Set 0 to disable.
+    config PIPE_ADAPTIVE_SPIN_ITERS
+      int "Pipe remote-peer adaptive spin iterations"
+      default 192
+      range 0 4096
+      help
+        Before sleeping on an empty/full pipe, briefly spin only when the peer
+        last ran on another CPU. This targets very short producer/consumer gaps
+        without starving a peer that shares the current CPU. Set 0 to disable.
+  endmenu
 
-  config SOCKET_BUF_SIZE
-    int "Socket send/receive buffer size (bytes)"
-    default 65536
-    range 4096 1048576
-    help
-      Default buffer size for UNIX domain socket send and receive
-      queues.
+  menu "Unix domain sockets"
+    config SOCK_BUF_SIZE
+      int "Socket send/receive buffer size (bytes)"
+      default 65536
+      range 4096 1048576
+      help
+        Default buffer size for UNIX domain socket send and receive
+        queues.
 
-  config SOCKET_ACCEPT_QUEUE_MAX
-    int "Maximum socket listen backlog"
-    default 4096
-    range 16 4096
-    help
-      Maximum number of pending connections on a listening socket.
+    config SOCK_ACCEPT_QUEUE_MAX
+      int "Maximum socket listen backlog"
+      default 4096
+      range 16 4096
+      help
+        Maximum number of pending connections on a listening socket.
+  endmenu
 
-  config EPOLL_MAX_FDS
-    int "Maximum epoll registered descriptors"
-    default 1024
-    range 64 65536
-    help
-      Maximum number of file descriptors that can be registered
-      with a single epoll instance.
+  menu "epoll"
+    config EPOLL_MAX_FDS
+      int "Maximum epoll registered descriptors"
+      default 1024
+      range 64 65536
+      help
+        Maximum number of file descriptors that can be registered
+        with a single epoll instance.
 
-  config FUTEX_HASH_BITS
-    int "Futex hash table bits (2^N buckets)"
-    default 8
-    range 4 16
-    help
-      Number of bits for the futex hash table.
-      A value of 8 gives 256 buckets.
+    config EPOLL_MAX_EVENTS
+      int "Maximum events returned by a single epoll_wait"
+      default 256
+      range 16 4096
+      help
+        Upper bound on the number of events a single epoll_wait() call may return.
 
-  config SYSVIPC
-    bool "System V IPC support"
-    default y
-    help
-      System V IPC: semaphores, shared memory, and message queues.
-      Disable on minimal userspace environments.
+    config EPOLL_MAX_NESTS
+      int "Maximum epoll nesting depth"
+      default 4
+      range 1 32
+      help
+        How deep an epoll instance may be nested inside another epoll.
+  endmenu
 
-  config POSIX_MQ
-    bool "POSIX message queue support"
-    default y
-    help
-      POSIX message queues (mq_open, mq_send, mq_receive, etc.).
+  menu "futex"
+    config FUTEX_HASH_BITS
+      int "Futex hash table bits (2^N buckets)"
+      default 8
+      range 4 16
+      help
+        Number of bits for the futex hash table.
+        A value of 8 gives 256 buckets.
 
+    config FUTEX_WAITV_MAX
+      int "Maximum futex waitv count"
+      default 128
+      range 1 1024
+      help
+        Maximum number of waiters accepted by a single futex_waitv() call.
+  endmenu
+
+  menu "System V IPC"
+    config SYSVIPC
+      bool "System V IPC support"
+      default y
+      help
+        System V IPC: semaphores, shared memory, and message queues.
+        Disable on minimal userspace environments.
+
+    config MSGMAX
+      int "Maximum SYSV message size (bytes)"
+      depends on SYSVIPC
+      default 8192
+      range 512 1048576
+      help
+        Maximum size of a single System V message queue message.
+
+    config MSG_MAX_QUEUES
+      int "Maximum SYSV message queues system-wide"
+      depends on SYSVIPC
+      default 128
+      range 1 1024
+      help
+        Total number of System V message queues that may exist at once.
+
+    config SEM_MAX_NSEMS
+      int "Maximum semaphores per SYSV set"
+      depends on SYSVIPC
+      default 250
+      range 1 2048
+      help
+        Maximum number of semaphores in a single System V semaphore set.
+
+    config SEM_MAX_SETS
+      int "Maximum SYSV semaphore sets system-wide"
+      depends on SYSVIPC
+      default 128
+      range 1 1024
+      help
+        Total number of System V semaphore sets that may exist at once.
+
+    config SHM_MAX_SEGS
+      int "Maximum SYSV shared memory segments system-wide"
+      depends on SYSVIPC
+      default 128
+      range 1 4096
+      help
+        Total number of System V shared memory segments that may exist at once.
+  endmenu
+
+  menu "POSIX message queues"
+    config POSIX_MQ
+      bool "POSIX message queue support"
+      default y
+      help
+        POSIX message queues (mq_open, mq_send, mq_receive, etc.).
+
+    config MQ_MAXMSG_DEFAULT
+      int "Default POSIX MQ message count"
+      depends on POSIX_MQ
+      default 10
+      range 1 256
+      help
+        Default mq_maxmsg used when a POSIX message queue is created without attributes.
+
+    config MQ_MAXMSG_MAX
+      int "Maximum POSIX MQ message count"
+      depends on POSIX_MQ
+      default 256
+      range 1 4096
+      help
+        Ceiling for the mq_maxmsg attribute of a POSIX message queue.
+
+    config MQ_MSGSIZE_DEFAULT
+      int "Default POSIX MQ message size (bytes)"
+      depends on POSIX_MQ
+      default 8192
+      range 256 65536
+      help
+        Default mq_msgsize used when a POSIX message queue is created without attributes.
+
+    config MQ_MSGSIZE_MAX
+      int "Maximum POSIX MQ message size (bytes)"
+      depends on POSIX_MQ
+      default 65536
+      range 1024 1048576
+      help
+        Ceiling for the mq_msgsize attribute of a POSIX message queue.
+
+    config MQ_MAX_QUEUES
+      int "Maximum POSIX MQ queues system-wide"
+      depends on POSIX_MQ
+      default 64
+      range 1 1024
+      help
+        Total number of POSIX message queues that may exist at once.
+
+    config MQ_NAME_MAX
+      int "Maximum POSIX MQ name length"
+      depends on POSIX_MQ
+      default 256
+      range 16 1024
+      help
+        Maximum length of a POSIX message queue name including the leading slash.
+
+    config MQ_PRIO_MAX
+      int "Maximum POSIX MQ priority"
+      depends on POSIX_MQ
+      default 32768
+      range 128 65536
+      help
+        Highest priority accepted for POSIX message queue messages.
+  endmenu
 endmenu
 
 menu "Networking"
+  menu "Networking core"
+    config NET
+      bool "Networking support"
+      default y
+      help
+        Enable the kernel networking core and network device support.
 
-  config NET
-    bool "Networking support"
-    default y
-    help
-      Enable the kernel networking core and network device support.
+    config NETDEV_MAX
+      int "Maximum network devices"
+      depends on NET
+      default 16
+      range 1 256
+      help
+        Maximum number of registered network devices.
 
-  config INET
-    bool "TCP/IP networking"
-    depends on NET
-    default y
-    help
-      Enable the IPv4 protocol family and Internet sockets.
+    config NETDEV_MTU_MAX
+      int "Maximum network device MTU (bytes)"
+      depends on NET
+      default 9000
+      range 1280 65536
+      help
+        Maximum MTU accepted for any network device.
 
-  config NETLINK
-    bool "Netlink socket support (AF_NETLINK)"
-    default y
-    help
-      Enable AF_NETLINK socket family for kernel-userspace
-      communication. Required for uevent/hotplug delivery.
+    config NETDEV_NAME_MAX
+      int "Network device name length"
+      depends on NET
+      default 16
+      range 8 128
+      help
+        Maximum length of a network interface name.
 
+    config NETDEV_DNS_MAX
+      int "Maximum DNS servers per device"
+      depends on NET
+      default 2
+      range 1 16
+      help
+        Maximum number of DNS server entries stored per network device.
+
+    config SOCK_BUF_MAX
+      int "Maximum socket buffer size (bytes)"
+      depends on NET
+      default 262144
+      range 4096 4194304
+      help
+        Ceiling for the send/receive buffer size of a socket.
+
+    config SOCK_RIGHTS_MAX
+      int "Maximum SCM_RIGHTS descriptors"
+      depends on NET
+      default 64
+      range 1 1024
+      help
+        Maximum number of file descriptors that may be passed in a single SCM_RIGHTS message.
+
+    config SOCK_BOUND_MAX
+      int "Maximum bound sockets per process"
+      depends on NET
+      default 256
+      range 1 4096
+      help
+        Maximum number of bound (listening/connected) sockets per process.
+
+    config LOOPBACK_QUEUE_MAX
+      int "Loopback device queue depth"
+      depends on NET
+      default 256
+      range 16 4096
+      help
+        Maximum number of queued packets on the loopback device.
+
+    config LOOPBACK_BYTES_MAX
+      int "Loopback device queue byte limit"
+      depends on NET
+      default 2097152
+      range 65536 33554432
+      help
+        Maximum total bytes queued on the loopback device.
+  endmenu
+
+  menu "TCP/IP networking"
+    config INET
+      bool "TCP/IP networking"
+      depends on NET
+      default y
+      help
+        Enable the IPv4/IPv6 protocol families and Internet sockets.
+        This compiles the ARP, IPv4, IPv6, ICMP, NDP, TCP and UDP
+        implementation.  Disabling it removes the TCP/IP stack from the
+        kernel; socket(AF_INET) and socket(AF_INET6) then fail with
+        EAFNOSUPPORT.
+
+    config TCP_SYN_RETRIES_DEFAULT
+      int "TCP SYN retransmission count"
+      depends on INET
+      default 6
+      range 1 16
+      help
+        Number of SYN retransmissions before a connect attempt is given up.
+
+    config TCP_DATA_RETRIES_DEFAULT
+      int "TCP data retransmission count"
+      depends on INET
+      default 15
+      range 1 64
+      help
+        Number of data segment retransmissions before a connection is reset.
+
+    config ARP_CACHE_CAPACITY
+      int "ARP cache capacity (entries)"
+      depends on INET
+      default 64
+      range 8 1024
+      help
+        Maximum number of entries in the ARP cache.
+
+    config ARP_MAX_RETRIES
+      int "ARP resolution retries"
+      depends on INET
+      default 3
+      range 0 16
+      help
+        Number of ARP request retries before a resolution is abandoned.
+
+    config ARP_PENDING_TOTAL
+      int "Pending ARP requests"
+      depends on INET
+      default 256
+      range 4 4096
+      help
+        Unresolved neighbours queued while an ARP probe is running.
+
+    config NDP_CACHE_CAPACITY
+      int "NDP cache capacity (entries)"
+      depends on INET
+      default 64
+      range 8 1024
+      help
+        Maximum number of entries in the IPv6 neighbor cache.
+
+    config NDP_MAX_RETRIES
+      int "NDP resolution retries"
+      depends on INET
+      default 3
+      range 0 16
+      help
+        Number of Neighbor Solicitation retries before a resolution is abandoned.
+
+    config NDP_PENDING_TOTAL
+      int "Pending neighbour solicitations"
+      depends on INET
+      default 128
+      range 4 4096
+      help
+        Unresolved neighbours queued while an IPv6 solicitation is running.
+
+    config TCP_ENDPOINT_MAX
+      int "Maximum TCP endpoints"
+      depends on INET
+      default 128
+      range 4 1024
+      help
+        Maximum number of TCP endpoints (sockets) that may exist at once.
+
+    config TCP_ACCEPT_MAX
+      int "Maximum pending TCP connections"
+      depends on INET
+      default 16
+      range 1 256
+      help
+        Maximum number of pending connections on a TCP listening socket.
+
+    config TCP_RX_BUFFER_MAX
+      int "Maximum TCP receive buffer (bytes)"
+      depends on INET
+      default 65535
+      range 1024 1048576
+      help
+        Ceiling for the TCP receive buffer size.
+
+    config TCP_OOO_SEGMENT_MAX
+      int "Maximum TCP out-of-order segments"
+      depends on INET
+      default 16
+      range 1 128
+      help
+        Maximum number of out-of-order segments tracked per TCP connection.
+
+    config TCP_TX_SEGMENT_MAX
+      int "Maximum TCP transmit queue segments"
+      depends on INET
+      default 32
+      range 1 256
+      help
+        Maximum number of segments buffered in the TCP transmit queue.
+
+    config UDP_ENDPOINT_MAX
+      int "Maximum UDP endpoints"
+      depends on INET
+      default 128
+      range 4 1024
+      help
+        Maximum number of UDP endpoints (sockets) that may exist at once.
+
+    config UDP_RX_QUEUE_MAX
+      int "Maximum UDP receive queue depth"
+      depends on INET
+      default 64
+      range 4 1024
+      help
+        Maximum number of datagrams queued on a UDP socket.
+
+    config UDP_RX_BYTES_MAX
+      int "Maximum UDP receive queue bytes"
+      depends on INET
+      default 131072
+      range 4096 1048576
+      help
+        Maximum total bytes queued on a UDP socket.
+
+    config ICMP_ENDPOINT_MAX
+      int "Maximum ICMP endpoints"
+      depends on INET
+      default 16
+      range 1 256
+      help
+        Maximum number of ICMP endpoints that may exist at once.
+
+    config ICMP_RX_QUEUE_MAX
+      int "Maximum ICMP receive queue depth"
+      depends on INET
+      default 64
+      range 1 256
+      help
+        Maximum number of queued ICMP packets per endpoint.
+
+    config ICMP_RX_BYTES_MAX
+      int "Maximum ICMP receive queue bytes"
+      depends on INET
+      default 131072
+      range 4096 1048576
+      help
+        Maximum total bytes queued for ICMP receive.
+
+    config IPV4_REASSEMBLY_SLOTS
+      int "IPv4 reassembly slots"
+      depends on INET
+      default 4
+      range 1 32
+      help
+        Maximum number of concurrent IPv4 fragmentation reassemblies.
+
+    config IPV6_REASSEMBLY_SLOTS
+      int "IPv6 reassembly slots"
+      depends on INET
+      default 4
+      range 1 32
+      help
+        Maximum number of concurrent IPv6 fragmentation reassemblies.
+  endmenu
+
+  menu "Netlink"
+    config NETLINK
+      bool "Netlink socket support (AF_NETLINK)"
+      depends on NET
+      default y
+      help
+        Enable AF_NETLINK socket family for kernel-userspace
+        communication. Required for uevent/hotplug delivery.
+
+    config NETLINK_MAX
+      int "Maximum netlink protocol families"
+      depends on NETLINK
+      default 24
+      range 4 64
+      help
+        Maximum number of netlink protocol families.
+
+    config NL_RECV_QUEUE_MAX
+      int "Netlink receive queue depth"
+      depends on NETLINK
+      default 1024
+      range 16 4096
+      help
+        Maximum number of messages queued for a netlink socket.
+
+    config RTMSG_BUF_SIZE
+      int "Netlink route message buffer size"
+      depends on NETLINK
+      default 256
+      range 64 4096
+      help
+        Bytes reserved for one netlink route message payload.
+
+    config NL_BROADCAST_MAX
+      int "Netlink broadcast subscribers"
+      depends on NETLINK
+      default 256
+      range 4 4096
+      help
+        Sockets that may subscribe to one netlink broadcast group.
+  endmenu
 endmenu
 
 menu "Device Drivers"
-
   menu "Block devices"
-
     config ATA
       bool "ATA/SATA (IDE and AHCI) support"
       default y
@@ -290,18 +878,46 @@ menu "Device Drivers"
       help
         Enable the NVMe storage subsystem for PCIe solid-state drives.
 
+    config NVME_MAX_CONTROLLERS
+      int "Maximum NVMe controllers"
+      depends on NVME
+      default 8
+      range 1 64
+      help
+        NVMe controllers tracked by the NVMe driver.
+
+    config NVME_MAX_NAMESPACES
+      int "Maximum NVMe namespaces per controller"
+      depends on NVME
+      default 16
+      range 1 256
+      help
+        Namespaces tracked per NVMe controller.
+
+    config BLOCKDEV_MAX_TYPES
+      int "Block device operation types"
+      default 16
+      range 4 64
+      help
+        Distinct block device operation sets the block core can host.
+
+    config PARTITION_MAX_COUNT
+      int "Maximum partitions per disk"
+      default 255
+      range 4 1024
+      help
+        Partitions parsed from one disk, and block device nodes exposed
+        by devtmpfs for it.
   endmenu
 
   menu "Character devices"
-
     menu "Teletype devices"
-
-      config TTY_DEFAULT_DEV
-        string "Default TTY device name"
-        default "tty0"
+      config UNIX98_PTYS
+        bool "Unix98 pseudoterminal support"
+        default y
         help
-          Specifies the default teletype device used when no device is
-          explicitly set by boot parameters.
+          Provides /dev/ptmx and dynamically allocated /dev/pts/N
+          pseudoterminals.
 
       config TTY_BUF_SIZE
         int "TTY line buffer size"
@@ -320,8 +936,22 @@ menu "Device Drivers"
           for read/receive buffering, and by each Unix98 pty pair.
           Lower values reduce memory on systems with many terminals.
 
-      menu "Virtual terminal (VT)"
+      config UNIX98_PTY_MAX
+        int "Maximum Unix98 pseudoterminals"
+        depends on UNIX98_PTYS
+        default 4096
+        range 1 4096
+        help
+          Maximum number of simultaneous pseudoterminal pairs.
 
+      config TTY_DEFAULT_DEV
+        string "Default TTY device name"
+        default "tty0"
+        help
+          Specifies the default teletype device used when no device is
+          explicitly set by boot parameters.
+
+      menu "Virtual terminal (VT)"
         config VT
           bool "Virtual terminal support"
           default y
@@ -341,28 +971,10 @@ menu "Device Drivers"
             Number of virtual terminal devices, including /dev/tty0
             (so 8 yields /dev/tty0 through /dev/tty7). Each VT reserves
             a line-discipline input buffer.
-
       endmenu
-
-      config UNIX98_PTYS
-        bool "Unix98 pseudoterminal support"
-        default y
-        help
-          Provides /dev/ptmx and dynamically allocated /dev/pts/N
-          pseudoterminals.
-
-    config UNIX98_PTY_MAX
-      int "Maximum Unix98 pseudoterminals"
-      depends on UNIX98_PTYS
-      default 4096
-      range 1 4096
-        help
-          Maximum number of simultaneous pseudoterminal pairs.
-
     endmenu
 
     menu "Serial port devices"
-
       config SERIAL
         bool "Serial port (RS-232) support"
         default y
@@ -373,7 +985,7 @@ menu "Device Drivers"
       config SERIAL_BAUD_RATE
         int "Serial port baud rate"
         depends on SERIAL
-        default 9600
+        default 115200
         range 9600 115200
         help
           Default baud rate used by the RS-232 serial port driver.
@@ -394,12 +1006,37 @@ menu "Device Drivers"
         help
           Number of stop bits per character for the serial port device.
 
+      config SERIAL_PARITY
+        int "Serial port parity"
+        depends on SERIAL
+        default 0
+        range 0 2
+        help
+          Parity mode: 0 = none, 1 = odd, 2 = even. Applied to the
+          line-control register along with CONFIG_SERIAL_DATA_BITS and
+          CONFIG_SERIAL_STOP_BITS.
+
+      config UART_RX_BUF_SIZE
+        int "Serial receive buffer size (bytes)"
+        depends on SERIAL
+        default 256
+        range 64 65536
+        help
+          Size of the per-port serial receive ring buffer.
+
+      config UART_TX_BUF_SIZE
+        int "Serial transmit buffer size (bytes)"
+        depends on SERIAL
+        default 8192
+        range 128 131072
+        help
+          Size of the per-port serial transmit ring buffer.
     endmenu
 
     menu "Input device support"
-
       config PS2_KEYBOARD_MOUSE
         bool "PS/2 keyboard and mouse driver"
+        depends on INPUT_EVDEV
         default y
         help
           PS/2 keyboard and mouse driver via i8042 controller.
@@ -421,34 +1058,39 @@ menu "Device Drivers"
           Size of the per-client evdev event ring buffer, must be
           a power of 2.
 
-    endmenu
-
-    menu "Parallel port"
-
-      config PARPORT
-        bool "IEEE 1284 parallel port support"
-        default y
+      config EVDEV_MAX_DEVICES
+        int "Maximum evdev devices"
+        depends on INPUT_EVDEV
+        default 32
+        range 4 256
         help
-          Parallel port (LPT) driver. Enable for legacy printer or
-          device access.
-
+          Event devices exposed through evdev.
     endmenu
 
-    menu "TPM hardware support"
+    config PARPORT
+      bool "IEEE 1284 parallel port support"
+      default y
+      help
+        Parallel port (LPT) driver. Enable for legacy printer or
+        device access.
 
-      config TPM
-        bool "Trusted Platform Module (TPM 2.0) support"
-        default y
-        help
-          TPM 2.0 support (TIS and CRB interfaces) for measured boot,
-          key sealing, and remote attestation.
+    config PARPORT_MAX_PORTS
+      int "Maximum parallel ports"
+      depends on PARPORT
+      default 4
+      range 1 16
+      help
+        Parallel ports registered by the parport core.
 
-    endmenu
-
+    config TPM
+      bool "Trusted Platform Module (TPM 2.0) support"
+      default y
+      help
+        TPM 2.0 support (TIS and CRB interfaces) for measured boot,
+        key sealing, and remote attestation.
   endmenu
 
   menu "Network device support"
-
     config E1000
       bool "Intel E1000 Gigabit Ethernet support"
       depends on NET
@@ -472,11 +1114,9 @@ menu "Device Drivers"
       help
         Enable support for Realtek RTL8139-compatible Fast Ethernet
         controllers (10ec:8129/8139/8138 and rebrands).
-
   endmenu
 
   menu "USB support"
-
     config USB
       bool "USB host-side support"
       default y
@@ -515,7 +1155,7 @@ menu "Device Drivers"
 
     config USB_HID
       bool "USB HID support"
-      depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI) && INPUT_EVDEV
+      depends on USB && (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI) && INPUT_EVDEV
       default y
       help
         Enable report-descriptor based USB keyboard, mouse, controller,
@@ -523,58 +1163,48 @@ menu "Device Drivers"
 
     config USB_STORAGE
       bool "USB Mass Storage support"
-      depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI)
+      depends on USB && (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI)
       default y
       help
         Enable Bulk-Only Transport devices using the SCSI transparent
         command set, including removable disk and partition nodes.
 
+    config USB_MSC_MAX_DISKS
+      int "Maximum USB mass storage disks"
+      depends on USB_STORAGE
+      default 256
+      range 1 256
+      help
+        Mass storage logical units exposed as block devices.
+
     config USB_HUB
       bool "USB Hub support"
-      depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI)
+      depends on USB && (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI)
       default y
       help
         Enable USB 2.0 and USB 3.x hub support for dynamically attached
         devices, including external USB hubs and QEMU virtual hubs.
-        Required for U盘 storage and HID devices connected through a hub.
+        Required for USB mass storage and HID devices connected through a hub.
 
+    config USB_HUB_MAX_HUBS
+      int "Maximum USB hubs"
+      depends on USB_HUB
+      default 16
+      range 1 64
+      help
+        Hubs tracked by the USB hub driver.
   endmenu
 
   menu "Graphics support"
-
     config DRM
-      bool "Direct Rendering Manager (DRM) subsystem"
+      bool "Direct Rendering Manager (DRM) support"
       default y
       help
         Enable the DRM subsystem providing /dev/dri/card0 for GPU
         device access and Kernel Mode Setting (KMS).
 
-    menu "GPU drivers"
-      depends on DRM
-
-      config SIMPLEDRM
-        bool "Simple framebuffer (simpledrm) DRM driver"
-        depends on DRM
-        default y
-        help
-          Software-scanout DRM driver for the bootloader-provided GOP
-          framebuffer.  Used as a fallback when no real GPU driver can
-          probe, giving userspace compositors (Weston) a working KMS
-          device without dedicated GPU hardware.
-
-      config VIRTIO_GPU
-        bool "VirtIO GPU DRM driver"
-        depends on DRM && VIRTIO
-        default n
-        help
-          VirtIO-GPU DRM driver for paravirtualised GPU devices.
-          Provides KMS display pipeline, render node, and optional
-          3D acceleration via virgl context protocol.
-
-    endmenu
-
     config BOOT_LOGO
-      bool "Boot logo"
+      bool "Bootup logo"
       default y
       help
         Displays CPU logos at the top of the screen during kernel
@@ -596,58 +1226,253 @@ menu "Device Drivers"
         Resolution used for the kernel console when a GPU driver reports
         neither a usable EDID nor display-info scanout modes.
 
+    config SIMPLEDRM
+      bool "Simple framebuffer (simpledrm) DRM driver"
+      depends on DRM
+      default y
+      help
+        Software-scanout DRM driver for the bootloader-provided GOP
+        framebuffer.  Used as a fallback when no real GPU driver can
+        probe, giving userspace compositors (Weston) a working KMS
+        device without dedicated GPU hardware.
+
+    config DRM_MAX_DEVICES
+      int "Maximum DRM devices"
+      depends on DRM
+      default 16
+      range 1 64
+      help
+        DRM devices registered with the DRM core.
+
+    config GEM_MAX_NAMES
+      int "GEM handle name space"
+      depends on DRM
+      default 1024
+      range 64 65536
+      help
+        GEM handle names available per DRM file.
+
+    config PRIME_FD_MAX
+      int "PRIME buffer tracking slots"
+      depends on DRM
+      default 1024
+      range 64 65536
+      help
+        Imported and exported PRIME buffers tracked per DRM device.
+
+    config GPU_MAX_GPU_DRIVERS
+      int "Maximum GPU drivers"
+      default 16
+      range 1 64
+      help
+        GPU driver implementations the graphics core can host.
   endmenu
 
   menu "VirtIO drivers"
-
     config VIRTIO
+      bool "VirtIO support"
+      default n
+      help
+        Enable support for the VirtIO family of paravirtualised
+        devices.  Individual transports and device drivers are
+        enabled by the options below.
+
+    config VIRTIO_PCI
       bool "VirtIO PCI transport layer"
+      depends on VIRTIO
       default n
       help
         Enable the VirtIO PCI transport layer, providing generic
         MMIO-based capability discovery and virtqueue management.
 
+    config VIRTIO_GPU
+      bool "VirtIO GPU DRM driver"
+      depends on DRM && VIRTIO_PCI
+      default n
+      help
+        VirtIO-GPU DRM driver for paravirtualised GPU devices.
+        Provides KMS display pipeline, render node, and optional
+        3D acceleration via virgl context protocol.
   endmenu
 
-  menu "Sound card support"
+  menu "Audio support"
+    config AUDIO
+      bool "Audio support"
+      default y
+      help
+        Generic ALSA-like audio subsystem: card registry, PCM ring
+        buffers, and the /dev/snd + /sys/class/sound nodes.  The
+        individual sound-card drivers build on top of this core.
 
-    config SOUND_HDA
+    config AUDIO_HDA
       bool "Intel HD Audio (HDA) driver"
+      depends on AUDIO
       default y
       help
         Intel High Definition Audio driver for HDA-compatible
         audio controllers found on most modern x86 systems.
 
-    config SOUND_SB16
+    config AUDIO_SB16
       bool "Sound Blaster 16 / ESS AudioDrive driver"
+      depends on AUDIO
       default n
       help
         Sound Blaster 16 and ESS AudioDrive PCI audio driver.
         Enable for legacy ISA/PCI SB16-compatible sound cards.
 
-    config PCSPKR
+    config AUDIO_PCSPKR
       bool "PC speaker (buzzer) support"
       default n
       help
         PC internal speaker support via PIT channel 2 for basic
         beep functionality.
 
+    config AUDIO_MAX_CARDS
+      int "Maximum sound cards"
+      depends on AUDIO
+      default 4
+      range 1 32
+      help
+        Sound cards registered with the audio core.
   endmenu
 
-  menu "I2C bus support"
-
+  menu "I2C support"
     config I2C
-      bool "I2C subsystem"
+      bool "I2C support"
       default y
       help
         Enable the I2C bus subsystem including adapter registration,
         bus transfer API, and SMBus protocol emulation.
 
+    config I2C_MAX_ADAPTERS
+      int "Maximum I2C adapters"
+      depends on I2C
+      default 16
+      range 1 64
+      help
+        I2C adapters registered with the I2C core.
   endmenu
-
 endmenu
 
 menu "File systems"
+  menu "Virtual filesystem"
+    config VFS_PATH_MAX
+      int "Maximum path length (bytes)"
+      default 4096
+      range 256 65536
+      help
+        Maximum length of a canonical path accepted by the VFS.
+
+    config VFS_DCACHE_BUCKETS
+      int "VFS dentry cache hash buckets"
+      default 1024
+      range 64 4096
+      help
+        Number of hash buckets in the VFS dentry cache.  The bucket index is
+        derived by masking the hash with this value minus one, so it must be
+        a power of two.
+
+    config VFS_DCACHE_MAX_NEGATIVE
+      int "Maximum negative dentries cached"
+      default 4096
+      range 64 65536
+      help
+        Maximum number of negative (failed-lookup) dentries kept in the dcache.
+
+    config VFS_ICACHE_BUCKETS
+      int "VFS inode cache hash buckets"
+      default 512
+      range 32 2048
+      help
+        Number of hash buckets in the VFS inode cache.  The bucket index is
+        derived by masking the hash with this value minus one, so it must be
+        a power of two.
+
+    config VFS_ICACHE_MAX_UNUSED
+      int "Maximum unused inodes cached"
+      default 4096
+      range 64 65536
+      help
+        Maximum number of unused inodes kept in the icache.
+
+    config PAGECACHE_HASH_MAX_BITS
+      int "Page cache hash maximum bits"
+      default 12
+      range 6 20
+      help
+        Highest bucket count shift the page cache hash may grow to.
+
+    config PAGECACHE_READAHEAD_MAX
+      int "Page cache readahead window"
+      default 16
+      range 1 256
+      help
+        Largest readahead window issued for one file mapping, in pages.
+
+    config PAGECACHE_RECLAIM_MAX_WRITEBACK
+      int "Page cache reclaim writeback batch"
+      default 4
+      range 1 64
+      help
+        Pages written back in one reclaim step.
+  endmenu
+
+  menu "Filesystem drivers"
+    config NTFS_FS
+      bool "NTFS filesystem support (read-only)"
+      default y
+      help
+        NTFS filesystem support for reading NTFS volumes.
+        Read-only driver with MFT parsing and directory enumeration.
+
+    config FAT_FS
+      bool "FAT12/16/32 and exFAT filesystem support"
+      default y
+      help
+        FAT12/16/32 and exFAT filesystem support (FatFs) for
+        reading and writing FAT/exFAT-formatted disks.
+
+    config ISO9660_FS
+      bool "ISO 9660 filesystem support"
+      default y
+      help
+        ISO 9660 (CD-ROM) filesystem support with Rock Ridge
+        extensions for optical disc access.
+
+    config EXTFS
+      bool "ext2/ext3/ext4 filesystem support"
+      default y
+      help
+        ext2/ext3/ext4 filesystem support for reading and writing
+        ext2-formatted disks. Supports basic ext2 operations
+        including block allocation, directory management, and
+        hard/soft links.
+  endmenu
+
+  menu "sysfs and devtmpfs"
+    config SYSFS
+      bool "sysfs support"
+      default y
+      help
+        sysfs virtual filesystem providing a structured view of kernel
+        objects, devices, buses, drivers, and classes.
+
+    config DEVTMPFS_MOUNT
+      bool "Automatically mount devtmpfs at /dev"
+      default y
+      help
+        Mount devtmpfs on /dev during boot so kernel-populated device
+        nodes appear automatically. Disable to leave /dev managed by
+        userspace (e.g. udev/mdev mounting devtmpfs itself).
+
+    config DEVTMPFS_MAX_DEVICES
+      int "Maximum devtmpfs devices"
+      depends on DEVTMPFS_MOUNT
+      default 512
+      range 16 4096
+      help
+        Maximum number of device nodes in devtmpfs.
+  endmenu
 
   config INOTIFY_MAX_QUEUED_EVENTS
     int "Maximum queued inotify events per instance"
@@ -670,116 +1495,83 @@ menu "File systems"
     range 256 1048576
     help
       Maximum number of active inotify watches owned by one UID.
-
-  config SYSFS
-    bool "sysfs filesystem (/sys)"
-    default y
-    help
-      sysfs virtual filesystem providing a structured view of kernel
-      objects, devices, buses, drivers, and classes.
-
-  config UEVENT_HELPER
-    bool "uevent hotplug event delivery"
-    depends on NETLINK && SYSFS
-    default y
-    help
-      Broadcast kernel object events (add/remove/change/move) to
-      userspace via netlink KOBJECT_UEVENT protocol.
-
-  config DEVTMPFS_MOUNT
-    bool "Automatically mount devtmpfs at /dev"
-    default y
-    help
-      Mount devtmpfs on /dev during boot so kernel-populated device
-      nodes appear automatically. Disable to leave /dev managed by
-      userspace (e.g. udev/mdev mounting devtmpfs itself).
-
-  config NTFS_FS
-    bool "NTFS filesystem support (read-only)"
-    default y
-    help
-      NTFS filesystem support for reading NTFS volumes.
-      Read-only driver with MFT parsing and directory enumeration.
-
-  config FAT_FS
-    bool "FAT12/16/32 filesystem support"
-    default y
-    help
-      FAT filesystem support (FatFs) for reading and writing
-      FAT-formatted disks.
-
-  config ISO9660_FS
-    bool "ISO 9660 filesystem support"
-    default y
-    help
-      ISO 9660 (CD-ROM) filesystem support with Rock Ridge
-      extensions for optical disc access.
-
-  config EXTFS
-    bool "ext2/ext3/ext4 filesystem support"
-    default y
-    help
-      ext2/ext3/ext4 filesystem support for reading and writing
-      ext2-formatted disks. Supports basic ext2 operations
-      including block allocation, directory management, and
-      hard/soft links.
-
-  config CGROUP
-    bool "Control group (cgroup) support"
-    default y
-    help
-      Linux-style cgroup subsystem with cgroupfs, process
-      membership tracking, and pids controller.
-
 endmenu
 
-menu "Loadable module support"
-
-  config MODULES
-    bool "Enable loadable kernel module support"
-    default y
+menu "Kernel interfaces"
+  config POLL_NFDS_MAX
+    int "Maximum poll descriptors"
+    default 65536
+    range 64 1048576
     help
-      Load and unload ELF64 relocatable kernel modules through the Linux
-      init_module, finit_module, and delete_module system calls.
+      Upper bound on the number of descriptors in a single poll() call.
 
-  config MODULE_FORCE_LOAD
-    bool "Allow forced loading across version mismatches"
-    depends on MODULES
-    default n
+  config SELECT_NFDS_MAX
+    int "Maximum select descriptors"
+    default 1024
+    range 64 65536
     help
-      Permit privileged callers to ignore module version magic. Modules
-      loaded this way taint the kernel.
+      Upper bound on the file descriptor count accepted by select().
 
-  config MODULE_FORCE_UNLOAD
-    bool "Allow forced unloading of busy modules"
-    depends on MODULES
-    default n
+  config SIGQUEUE_MAX
+    int "Maximum queued realtime signals per process"
+    default 32
+    range 1 1024
     help
-      Permit privileged callers to unload modules with live references.
-      This is unsafe and taints the kernel.
+      Maximum number of pending realtime signals queued per process.
 
-  config MODULE_SIG_FORCE
-    bool "Require valid module signatures"
-    depends on MODULES
-    default n
+  config SECCOMP_MAX_INSNS_PER_FILTER
+    int "Maximum seccomp BPF instructions per filter"
+    default 4096
+    range 32 65536
     help
-      Reject unsigned modules and modules that cannot be verified by the
-      installed platform signature verifier.
-
-  config MODULE_MAX_SIZE
-    int "Maximum module image size (MiB)"
-    depends on MODULES
-    default 64
-    range 1 512
-
-endmenu
-
-menu "Kernel debugging"
+      Upper bound on the number of BPF instructions in a single seccomp filter.
 
   config KERNEL_LOG
-    bool "Kernel debug log output"
+    bool "Kernel runtime log output"
     default y
     help
-      Output kernel debug messages via the ring buffer and serial console.
+      Emit kernel log messages (plogk) to the console with a timestamp.
+      Turning this off silences them; printk() is unaffected.
 
+  config NMI_LOG_MAX_CPUS
+    int "NMI log per-CPU slots"
+    default 256
+    range 1 1024
+    help
+      Per-CPU buffers reserved for logging from NMI context.
+
+  config LOG_MAX_LENGTH
+    int "Ring log entry length"
+    default 1024
+    range 64 4096
+    help
+      Maximum length of one ring log entry, terminator included.
+
+  config LOG_BUFFER_SIZE
+    int "Ring log entry count"
+    default 32
+    range 4 1024
+    help
+      Number of entries retained by each ring log.
+
+  config UEVENT_BUFFER_SIZE
+    int "uevent environment block size"
+    default 2048
+    range 256 16384
+    help
+      Bytes reserved for the environment block of one uevent.
+
+  config UEVENT_NUM_ENVP
+    int "uevent environment entries"
+    default 64
+    range 4 256
+    help
+      Maximum environment variables carried by one uevent.
+
+  config ACPI_MAX_GPE_HANDLERS
+    int "ACPI GPE handler slots"
+    default 32
+    range 4 256
+    help
+      Handlers that can be registered for general purpose events.
 endmenu

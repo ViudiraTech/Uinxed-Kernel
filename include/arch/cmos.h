@@ -13,8 +13,8 @@
 
 #include <libs/std/stdint.h>
 
-#define cmos_index    0x70
-#define cmos_data     0x71
+#define cmos_index    0x70 // CMOS index port
+#define cmos_data     0x71 // CMOS data port
 #define CMOS_CUR_SEC  0x0  // CMOS current second (BCD)
 #define CMOS_ALA_SEC  0x1  // CMOS alarm seconds (BCD)
 #define CMOS_CUR_MIN  0x2  // CMOS current division (BCD)
@@ -28,11 +28,11 @@
 #define CMOS_DEV_TYPE 0x12 // CMOS Driver Format
 #define CMOS_CUR_CEN  0x32 // CMOS Current Century (BCD)
 
-#define BCD_HEX(n) ((((n) >> 4) * 10) + ((n) & 0xf))
-#define HEX_BCD(n) (((n) >= 0xa) ? ((n) - 0xa + 0x10) : (n))
+#define BCD_HEX(n) ((((n) >> 4) * 10) + ((n) & 0xf))         // BCD byte to binary value
+#define HEX_BCD(n) (((n) >= 0xa) ? ((n) - 0xa + 0x10) : (n)) // Binary value to BCD nibble
 
-#define BCD_ASCII_first(n) ((((n) << 4) >> 4) + 0x30)
-#define BCD_ASCII_S(n)     (((n) << 4) + 0x30)
+#define BCD_ASCII_first(n) ((((n) << 4) >> 4) + 0x30) // Low BCD nibble to ASCII digit
+#define BCD_ASCII_S(n)     (((n) << 4) + 0x30)        // BCD nibble shifted to the high nibble, plus ASCII base
 
 /* Reading data from CMOS memory */
 uint8_t read_cmos(uint8_t p);

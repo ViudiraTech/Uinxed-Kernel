@@ -11,6 +11,21 @@
 #ifndef INCLUDE_STDINT_H_
 #define INCLUDE_STDINT_H_
 
+#define SIZE_MAX (18446744073709551615UL)
+
+#define UINT8_MAX  0xFFU
+#define UINT16_MAX 0xFFFFU
+#define UINT32_MAX 0xFFFFFFFFU
+#define UINT64_MAX 0xFFFFFFFFFFFFFFFFULL
+#define INT8_MAX   0x7F
+#define INT16_MAX  0x7FFF
+#define INT32_MAX  0x7FFFFFFF
+#define INT64_MAX  0x7FFFFFFFFFFFFFFFLL
+#define INT8_MIN   (-INT8_MAX - 1)
+#define INT16_MIN  (-INT16_MAX - 1)
+#define INT32_MIN  (-INT32_MAX - 1)
+#define INT64_MIN  (-INT64_MAX - 1)
+
 #ifdef __UINT8_TYPE__
 typedef __UINT8_TYPE__ uint8_t;
 #endif
@@ -24,7 +39,7 @@ typedef __UINT32_TYPE__ uint32_t;
 #endif
 
 #ifdef __UINT64_TYPE__
-typedef __UINT64_TYPE__ uint64_t;
+typedef unsigned long long uint64_t;
 #endif
 
 #ifdef __INT8_TYPE__
@@ -40,7 +55,7 @@ typedef __INT32_TYPE__ int32_t;
 #endif
 
 #ifdef __INT64_TYPE__
-typedef __INT64_TYPE__ int64_t;
+typedef long long int64_t;
 #endif
 
 typedef __UINT_LEAST8_TYPE__  uint_least8_t;
@@ -72,21 +87,6 @@ typedef __INTPTR_TYPE__ intptr_t;
 
 typedef __UINTMAX_TYPE__ uintmax_t;
 typedef __INTMAX_TYPE__  intmax_t;
-
-#define SIZE_MAX (18446744073709551615UL)
-
-#define UINT8_MAX  0xFFU
-#define UINT16_MAX 0xFFFFU
-#define UINT32_MAX 0xFFFFFFFFU
-#define UINT64_MAX 0xFFFFFFFFFFFFFFFFULL
-#define INT8_MAX   0x7F
-#define INT16_MAX  0x7FFF
-#define INT32_MAX  0x7FFFFFFF
-#define INT64_MAX  0x7FFFFFFFFFFFFFFFLL
-#define INT8_MIN   (-INT8_MAX - 1)
-#define INT16_MIN  (-INT16_MAX - 1)
-#define INT32_MIN  (-INT32_MAX - 1)
-#define INT64_MIN  (-INT64_MAX - 1)
 
 /* Cast pointer and address with union */
 typedef union {

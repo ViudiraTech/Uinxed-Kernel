@@ -29,10 +29,10 @@ Components
    License:   FatFs custom BSD-style license
    Copyright (C) 2025, ChaN, all right reserved.
 
-4. 8x8 dot-matrix bitmap font
+4. VGA 8x16 dot-matrix bitmap font
    Path:      libs/gfx/fonts.c
-   Origin:    Public-domain 8x8 bitmap font data (public-domain style,
-              no attribution or license obligations).
+   Origin:    8x16 bitmap font data, widely redistributed; see note below.
+              No formal license grant, no known rights claims.
 
 -----------------------------------------------------------------------
 1. OVMF / EDK2 - BSD 2-Clause Plus Patent License
@@ -110,9 +110,9 @@ The copyright owner or contributors be NOT LIABLE for any damages caused
 by use of this software.
 
 -----------------------------------------------------------------------
-4. 8x8 dot-matrix bitmap font
+4. VGA 8x16 dot-matrix bitmap font
 -----------------------------------------------------------------------
 
-The glyph data in libs/gfx/fonts.c is taken from widely redistributed
-public-domain 8x8 bitmap fonts. It is provided without warranty and
-without any license obligations.
+The glyph data in libs/gfx/fonts.c comes from an 8x16 bitmap font that is
+widely redistributed without a formal license grant. No rights claims are
+known against it. It is provided without warranty.

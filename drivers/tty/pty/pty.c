@@ -9,34 +9,18 @@
  */
 
 #include <drivers/base/device.h>
-#include <drivers/tty/pty/pty.h>
 #include <drivers/tty/tty_core.h>
 #include <fs/devtmpfs/devtmpfs.h>
-#include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/termios.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 #include <syscall/poll.h>
 
-#ifndef CONFIG_UNIX98_PTYS
-#    define CONFIG_UNIX98_PTYS 1
-#endif
-#ifndef CONFIG_UNIX98_PTY_MAX
-#    define CONFIG_UNIX98_PTY_MAX 4096
-#endif
+#if CONFIG_UNIX98_PTYS
 
-#define PTY_BUFFER_SIZE TTY_CORE_BUFFER_SIZE
-#define PTS_MAJOR       136
+#    define PTS_MAJOR 136
 
 typedef struct pty_pair {
         /* Protects all pair state; with lifetime lock, lifetime is acquired first. */
@@ -46,7 +30,7 @@ typedef struct pty_pair {
         vfs_poll_source_t master_poll_source;
         vfs_poll_source_t slave_poll_source;
         tty_core_t        slave_tty;
-        uint8_t           master_buffer[PTY_BUFFER_SIZE];
+        uint8_t           master_buffer[CONFIG_TTY_CORE_BUFFER_SIZE];
         size_t            master_head;
         size_t            master_tail;
         size_t            master_count;
@@ -77,17 +61,6 @@ static spinlock_t  pty_id_lock;
 static spinlock_t  pty_lifetime_lock;
 static uint64_t    pty_ids[(CONFIG_UNIX98_PTY_MAX + 63) / 64];
 static pty_pair_t *pty_pairs[CONFIG_UNIX98_PTY_MAX];
-
-/* True when the current process has an interrupting signal pending. */
-static bool pty_signal_pending(void)
-{
-    process_t *proc = process_current();
-    if (!proc) return false;
-    spin_lock(&proc->signal.lock);
-    bool pending = signal_has_interrupting_pending(&proc->signal);
-    spin_unlock(&proc->signal.lock);
-    return pending;
-}
 
 /* Increment the pair's reference count (both endpoints hold a reference) */
 static void pty_get(pty_pair_t *pair)
@@ -139,14 +112,12 @@ static int pty_allocate_number(void)
         }
     }
     spin_unlock(&pty_id_lock);
-    plogk("pty: No free pty numbers (limit %d)\n", CONFIG_UNIX98_PTY_MAX);
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    if (ratelimit_allow(&ratelimit)) plogk("pty: No free pty numbers (limit %d)\n", CONFIG_UNIX98_PTY_MAX);
     return -ENOSPC;
 }
 
-/*
- * Slave tty output path: copy bytes into the master ring buffer,
- * blocking (or returning EAGAIN) when the master's buffer is full
- */
+/* Slave tty output path: copy bytes into the master ring buffer, blocking (or returning EAGAIN) when the master's buffer is full */
 static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
 {
     pty_pair_t *pair   = context;
@@ -154,7 +125,7 @@ static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint6
 
     while (copied < size) {
         spin_lock(&pair->lock);
-        while (pair->master_count == PTY_BUFFER_SIZE && pair->master_open) {
+        while (pair->master_count == CONFIG_TTY_CORE_BUFFER_SIZE && pair->master_open) {
             if (flags & O_NONBLOCK) {
                 spin_unlock(&pair->lock);
                 if (copied) {
@@ -163,13 +134,13 @@ static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint6
                 }
                 return copied ? (int)copied : -EAGAIN;
             }
-            if (pty_signal_pending()) {
+            if (signal_has_interrupting_pending_current()) {
                 spin_unlock(&pair->lock);
                 return copied ? (int)copied : -ERESTARTSYS;
             }
             wait_queue_prepare(&pair->master_space_wait);
             spin_unlock(&pair->lock);
-            bool interrupted = pty_signal_pending();
+            bool interrupted = signal_has_interrupting_pending_current();
             if (copied || interrupted) wait_queue_cancel(&pair->master_space_wait);
             if (copied) {
                 wait_queue_wake_all(&pair->master_wait);
@@ -189,7 +160,7 @@ static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint6
             return copied ? (int)copied : -EIO;
         }
         pair->master_buffer[pair->master_head] = data[copied++];
-        pair->master_head                      = (pair->master_head + 1) % PTY_BUFFER_SIZE;
+        pair->master_head                      = (pair->master_head + 1) % CONFIG_TTY_CORE_BUFFER_SIZE;
         pair->master_count++;
         spin_unlock(&pair->lock);
     }
@@ -244,19 +215,19 @@ static int64_t pty_master_read(pty_pair_t *pair, uint64_t flags, void *buffer, s
         if (pair->master_count) break;
         if (!pair->slave_opens) {
             spin_unlock(&pair->lock);
-            return -EIO;
+            return -EPIPE;
         }
         if (flags & O_NONBLOCK) {
             spin_unlock(&pair->lock);
             return -EAGAIN;
         }
-        if (pty_signal_pending()) {
+        if (signal_has_interrupting_pending_current()) {
             spin_unlock(&pair->lock);
             return -ERESTARTSYS;
         }
         wait_queue_prepare(&pair->master_wait);
         spin_unlock(&pair->lock);
-        if (pty_signal_pending()) {
+        if (signal_has_interrupting_pending_current()) {
             wait_queue_cancel(&pair->master_wait);
             return -ERESTARTSYS;
         }
@@ -267,7 +238,7 @@ static int64_t pty_master_read(pty_pair_t *pair, uint64_t flags, void *buffer, s
     if (pair->packet_mode) output[copied++] = TIOCPKT_DATA;
     while (copied < size && pair->master_count) {
         output[copied++]  = pair->master_buffer[pair->master_tail];
-        pair->master_tail = (pair->master_tail + 1) % PTY_BUFFER_SIZE;
+        pair->master_tail = (pair->master_tail + 1) % CONFIG_TTY_CORE_BUFFER_SIZE;
         pair->master_count--;
     }
     spin_unlock(&pair->lock);
@@ -276,13 +247,26 @@ static int64_t pty_master_read(pty_pair_t *pair, uint64_t flags, void *buffer, s
     return (int64_t)copied;
 }
 
-static int                pty_open(vfs_node_t node, uint64_t flags, void **private_data);
-static void               pty_release(vfs_node_t node, void *private_data);
-static int64_t            pty_read(void *context, void *private_data, uint64_t flags, void *address, size_t offset, size_t size);
-static int64_t            pty_write(void *context, void *private_data, uint64_t flags, const void *address, size_t offset, size_t size);
-static int                pty_poll(void *context, void *private_data, uint64_t flags, size_t events);
+/* Pseudo-terminal open. */
+static int pty_open(vfs_node_t node, uint64_t flags, void **private_data);
+
+/* Pseudo-terminal release. */
+static void pty_release(vfs_node_t node, void *private_data);
+
+/* Pseudo-terminal read. */
+static int64_t pty_read(void *context, void *private_data, uint64_t flags, void *address, size_t offset, size_t size);
+
+/* Pseudo-terminal write. */
+static int64_t pty_write(void *context, void *private_data, uint64_t flags, const void *address, size_t offset, size_t size);
+
+/* Pseudo-terminal poll. */
+static int pty_poll(void *context, void *private_data, uint64_t flags, size_t events);
+
+/* Pseudo-terminal poll source. */
 static vfs_poll_source_t *pty_poll_source(void *context, void *private_data);
-static int                pty_ioctl(void *context, void *private_data, uint64_t flags, size_t request, void *argument);
+
+/* Pseudo-terminal ioctl. */
+static int pty_ioctl(void *context, void *private_data, uint64_t flags, size_t request, void *argument);
 
 static const tmpfs_device_ops_t pty_slave_operations = {
     .open             = pty_open,
@@ -323,7 +307,8 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
     if ((flags & O_PATH) || (flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
     pty_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
     if (!endpoint) {
-        plogk("pty: Failed to allocate endpoint.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pty: Failed to allocate endpoint.\n");
         return -ENOMEM;
     }
 
@@ -339,7 +324,8 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
             pty_ids[number / 64] &= ~(1ULL << (number % 64));
             spin_unlock(&pty_id_lock);
             free(endpoint);
-            plogk("pty: Failed to allocate pair for /dev/pts/%d\n", number);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("pty: Failed to allocate pair for /dev/pts/%d\n", number);
             return -ENOMEM;
         }
         pair->number       = (unsigned int)number;
@@ -358,7 +344,8 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
         spin_unlock(&pty_lifetime_lock);
         int result = pty_create_slave(pair);
         if (result) {
-            plogk("pty: Failed to create slave node /dev/pts/%u: %d\n", pair->number, result);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("pty: Failed to create slave node /dev/pts/%u: %d\n", pair->number, result);
             spin_lock(&pty_lifetime_lock);
             pty_pairs[pair->number] = NULL;
             spin_unlock(&pty_lifetime_lock);
@@ -375,20 +362,20 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
         if (number >= CONFIG_UNIX98_PTY_MAX || pty_pairs[number] != pair) {
             spin_unlock(&pty_lifetime_lock);
             free(endpoint);
-            return -EIO;
+            return -ENODEV;
         }
         spin_lock(&pair->lock);
         if (pair->slave_locked) {
             spin_unlock(&pair->lock);
             spin_unlock(&pty_lifetime_lock);
             free(endpoint);
-            return -EIO;
+            return -ENODEV;
         }
         if (!pair->master_open) {
             spin_unlock(&pair->lock);
             spin_unlock(&pty_lifetime_lock);
             free(endpoint);
-            return -EIO;
+            return -ENODEV;
         }
         process_t *current = process_current();
         if (pair->slave_exclusive && (!current || current->uid != 0)) {
@@ -450,7 +437,7 @@ static int64_t pty_read(void *context, void *private_data, uint64_t flags, void 
     (void)context;
     (void)offset;
     pty_endpoint_t *endpoint = private_data;
-    if (!endpoint) return -EIO;
+    if (!endpoint) return -ENODEV;
     if (endpoint->kind == PTY_MASTER) return pty_master_read(endpoint->pair, flags, address, size);
     int64_t result = tty_core_read(&endpoint->pair->slave_tty, address, size, flags);
     if (result > 0) vfs_poll_source_notify(&endpoint->pair->master_poll_source, POLLOUT);
@@ -463,13 +450,13 @@ static int64_t pty_write(void *context, void *private_data, uint64_t flags, cons
     (void)context;
     (void)offset;
     pty_endpoint_t *endpoint = private_data;
-    if (!endpoint) return -EIO;
+    if (!endpoint) return -ENODEV;
     if (endpoint->kind == PTY_SLAVE) return tty_core_write(&endpoint->pair->slave_tty, address, size, flags);
 
     spin_lock(&endpoint->pair->lock);
     bool slave_open = endpoint->pair->slave_opens != 0;
     spin_unlock(&endpoint->pair->lock);
-    if (!slave_open) return -EIO;
+    if (!slave_open) return -ENODEV;
     int64_t result = tty_core_receive(&endpoint->pair->slave_tty, address, size, flags);
     if (result > 0) vfs_poll_source_notify(&endpoint->pair->slave_poll_source, POLLIN);
     return result;
@@ -486,7 +473,7 @@ static int pty_poll(void *context, void *private_data, uint64_t flags, size_t ev
     if (endpoint->kind == PTY_SLAVE) {
         int result = tty_core_poll(&pair->slave_tty, events);
         spin_lock(&pair->lock);
-        if (!pair->master_open || pair->master_count == PTY_BUFFER_SIZE) result &= ~POLLOUT;
+        if (!pair->master_open || pair->master_count == CONFIG_TTY_CORE_BUFFER_SIZE) result &= ~POLLOUT;
         if (!pair->master_open) result |= POLLHUP;
         spin_unlock(&pair->lock);
         return result;
@@ -494,7 +481,7 @@ static int pty_poll(void *context, void *private_data, uint64_t flags, size_t ev
 
     int result = 0;
     spin_lock(&pair->slave_tty.lock);
-    bool slave_room = pair->slave_tty.input_count < TTY_CORE_BUFFER_SIZE && !pair->slave_tty.hung_up;
+    bool slave_room = pair->slave_tty.input_count < CONFIG_TTY_CORE_BUFFER_SIZE && !pair->slave_tty.hung_up;
     spin_unlock(&pair->slave_tty.lock);
     spin_lock(&pair->lock);
     if ((events & POLLIN) && (pair->master_count || (pair->packet_mode && pair->packet_status))) result |= POLLIN;
@@ -514,12 +501,6 @@ static vfs_poll_source_t *pty_poll_source(void *context, void *private_data)
     return endpoint->kind == PTY_MASTER ? &endpoint->pair->master_poll_source : &endpoint->pair->slave_poll_source;
 }
 
-/* Encode a device number in the dev_t layout. */
-static unsigned int pty_linux_dev(unsigned int major, unsigned int minor)
-{
-    return (minor & 0xff) | (major << 8) | ((minor & ~0xff) << 12);
-}
-
 /* Handle the TIOC[SG]EXCL / TIOC[SN]XCL exclusive-access ioctls. */
 static int pty_exclusive_ioctl(pty_pair_t *pair, bool master, size_t request, void *argument)
 {
@@ -527,10 +508,11 @@ static int pty_exclusive_ioctl(pty_pair_t *pair, bool master, size_t request, vo
 
     spin_lock(&pair->lock);
     bool *exclusive = master ? &pair->master_exclusive : &pair->slave_exclusive;
-    if (request == TIOCEXCL)
+    if (request == TIOCEXCL) {
         *exclusive = true;
-    else if (request == TIOCNXCL)
+    } else if (request == TIOCNXCL) {
         *exclusive = false;
+    }
     value = *exclusive;
     spin_unlock(&pair->lock);
     if (request == TIOCGEXCL) return copy_to_user(argument, &value, sizeof(value)) ? -EFAULT : 0;
@@ -582,7 +564,7 @@ static int pty_master_ioctl(pty_pair_t *pair, uint64_t flags, size_t request, vo
             spin_unlock(&pair->lock);
             return copy_to_user(argument, &value, sizeof(value)) ? -EFAULT : 0;
         case TIOCGDEV :
-            unsigned_value = pty_linux_dev(PTS_MAJOR, pair->number);
+            unsigned_value = dev_encode_uapi(MKDEV(PTS_MAJOR, pair->number));
             return copy_to_user(argument, &unsigned_value, sizeof(unsigned_value)) ? -EFAULT : 0;
         case FIONREAD :
             spin_lock(&pair->lock);
@@ -597,12 +579,19 @@ static int pty_master_ioctl(pty_pair_t *pair, uint64_t flags, size_t request, vo
             spin_lock(&pair->lock);
             vfs_node_t slave_node = pair->slave_node;
             spin_unlock(&pair->lock);
-            if (!slave_node) return -EIO;
-            uint32_t access        = (peer_flags & O_ACCMODE) == O_WRONLY ? VFS_ACCESS_W : (peer_flags & O_ACCMODE) == O_RDWR ? VFS_ACCESS_R | VFS_ACCESS_W : VFS_ACCESS_R;
-            int      access_result = vfs_access_check(slave_node, access);
+            if (!slave_node) return -ENODEV;
+            uint32_t access;
+            if ((peer_flags & O_ACCMODE) == O_WRONLY) {
+                access = VFS_ACCESS_W;
+            } else if ((peer_flags & O_ACCMODE) == O_RDWR) {
+                access = VFS_ACCESS_R | VFS_ACCESS_W;
+            } else {
+                access = VFS_ACCESS_R;
+            }
+            int access_result = vfs_access_check(slave_node, access);
             if (access_result) return access_result;
             vfs_node_t slave = vfs_node_retain(slave_node);
-            if (!slave) return -EIO;
+            if (!slave) return -ENODEV;
             process_t *current = process_current();
             int        fd      = current ? process_fd_install(current, slave, peer_flags) : -ESRCH;
             if (fd < 0) vfs_close(slave);
@@ -642,7 +631,7 @@ static int pty_ioctl(void *context, void *private_data, uint64_t flags, size_t r
 {
     (void)context;
     pty_endpoint_t *endpoint = private_data;
-    if (!endpoint) return -EIO;
+    if (!endpoint) return -ENODEV;
     if (endpoint->kind == PTY_MASTER) return pty_master_ioctl(endpoint->pair, flags, request, argument);
 
     switch (request) {
@@ -665,7 +654,7 @@ static int pty_ioctl(void *context, void *private_data, uint64_t flags, size_t r
             return 0;
         }
         case TIOCGDEV : {
-            unsigned int device = pty_linux_dev(PTS_MAJOR, endpoint->pair->number);
+            unsigned int device = dev_encode_uapi(MKDEV(PTS_MAJOR, endpoint->pair->number));
             return copy_to_user(argument, &device, sizeof(device)) ? -EFAULT : 0;
         }
         default :
@@ -673,7 +662,6 @@ static int pty_ioctl(void *context, void *private_data, uint64_t flags, size_t r
     }
 }
 
-#if CONFIG_UNIX98_PTYS
 const tmpfs_device_ops_t pty_ptmx_operations = {
     .open             = pty_open,
     .release          = pty_release,
@@ -683,4 +671,5 @@ const tmpfs_device_ops_t pty_ptmx_operations = {
     .file_poll_source = pty_poll_source,
     .file_ioctl       = pty_ioctl,
 };
+
 #endif

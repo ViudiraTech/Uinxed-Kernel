@@ -12,19 +12,10 @@
 #define INCLUDE_DRM_INIT_H_
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <libs/std/stddef.h>
 
 struct vm_area;
 
-#define DRM_MAX_DEVICES 16
-
-/* Run the DRM subsystem functional self-test. */
-void drm_run_test(void);
-
-/*
- * Look up a registered device by minor type and index; returns with a
- * reference held that the caller must drop with drm_dev_put().
- */
+/* Look up a registered device by minor type and index; returns with a reference held that the caller must drop with drm_dev_put(). */
 struct drm_device *drm_get_device_by_minor(int type, int index);
 
 /*
@@ -63,19 +54,35 @@ void drm_kms_console_handoff(struct drm_device *dev, struct drm_framebuffer *fb)
  * is cheap to call on every fbdev ioctl / sysfs read.  Pointer is static and
  * remains valid.
  */
+#if CONFIG_DRM
 const char *drm_active_driver_name(void);
+#else
+static inline const char *drm_active_driver_name(void)
+{
+    return NULL;
+}
+#endif
 
-/*
- * Per-open callbacks used by tmpfs/devtmpfs. DRM state is attached to each
- * file descriptor, never to the shared directory node.
- */
-int     drm_dev_open(void *node, uint64_t flags, void **private_data);
-void    drm_dev_release(void *node, void *private_data);
-int     drm_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
+/* Per-open callbacks used by tmpfs/devtmpfs. DRM state is attached to each file descriptor, never to the shared directory node. */
+int drm_dev_open(void *node, uint64_t flags, void **private_data);
+
+/* DRM dev release. */
+void drm_dev_release(void *node, void *private_data);
+
+/* DRM dev file ioctl. */
+int drm_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
+
+/* DRM dev file read. */
 int64_t drm_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+
+/* DRM dev file write. */
 int64_t drm_dev_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
-int     drm_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
-void   *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
+
+/* DRM dev file poll. */
+int drm_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
+
+/* DRM dev file mmap. */
+void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
 
 /* DRM VFS operation callbacks (registered with devtmpfs at node creation). */
 size_t drm_dev_read(void *file, void *addr, size_t offset, size_t size);

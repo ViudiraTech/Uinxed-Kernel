@@ -12,27 +12,16 @@
 #define INCLUDE_DEVICE_H_
 
 #include <fs/sysfs/sysfs.h>
+#include <kernel/kdev_t.h>
 #include <libs/kobject/kobject.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 
 /* Forward declarations */
-
 struct device;
 struct device_driver;
 struct bus_type;
 struct class;
 
-/* Device type identifiers (major / minor encoding) */
-
-typedef uint64_t dev_t;
-
-#define MAJOR(dev)    ((uint32_t)(((dev) >> 32) & 0xFFFFF))
-#define MINOR(dev)    ((uint32_t)((dev) & 0xFFFFF))
-#define MKDEV(ma, mi) ((((uint64_t)(ma) & 0xFFFFF) << 32) | ((uint64_t)(mi) & 0xFFFFF))
-
 /* Device attribute type (attribute + device-specific show/store) */
-
 struct device_attribute {
         struct attribute attr;
         ssize_t (*show)(struct device *dev, struct device_attribute *attr, char *buf);
@@ -40,7 +29,6 @@ struct device_attribute {
 };
 
 /* Bus attribute type */
-
 struct bus_attribute {
         struct attribute attr;
         ssize_t (*show)(struct bus_type *bus, struct bus_attribute *attr, char *buf);
@@ -48,7 +36,6 @@ struct bus_attribute {
 };
 
 /* Driver attribute type */
-
 struct driver_attribute {
         struct attribute attr;
         ssize_t (*show)(struct device_driver *drv, struct driver_attribute *attr, char *buf);
@@ -56,7 +43,6 @@ struct driver_attribute {
 };
 
 /* Class attribute type */
-
 struct class_attribute {
         struct attribute attr;
         ssize_t (*show)(struct class *cls, struct class_attribute *attr, char *buf);
@@ -64,7 +50,6 @@ struct class_attribute {
 };
 
 /* bus_type - a communication channel between CPUs and devices */
-
 struct bus_type {
         const char  *name;
         const char  *dev_name;
@@ -86,7 +71,6 @@ struct bus_type {
 };
 
 /* device_driver - binds to a bus and handles a class of devices */
-
 struct device_driver {
         const char      *name;
         struct bus_type *bus;
@@ -102,7 +86,6 @@ struct device_driver {
 };
 
 /* device - represents a physical or virtual device in the system */
-
 struct device {
         struct kobject        kobj;   // appears under /sys/devices/
         struct device        *parent; // parent device (NULL = root)
@@ -124,12 +107,13 @@ struct device {
 };
 
 /* class - groups devices by functional type (e.g. "net", "tty") */
-
 struct class
 {
-        const char     *name;
-        struct kset     subsys;   // kset under /sys/class/
-        struct kobject *dev_kobj; // for /sys/class/<name>/devices/
+        const char *name;
+        struct kset subsys; // kset under /sys/class/
+
+        clist_t    devices;      // devices registered against this class
+        spinlock_t devices_lock; // protects devices
 
         int (*dev_uevent)(struct device *dev, struct kobj_uevent_env *env);
         void (*dev_release)(struct device *dev);
@@ -150,8 +134,12 @@ void bus_remove_file(struct bus_type *bus, struct bus_attribute *attr);
 int  device_register(struct device *dev);
 void device_unregister(struct device *dev);
 
+/* Take/drop a reference on a device */
+struct device *get_device(struct device *dev);
+void           put_device(struct device *dev);
+
 /* Create and register a device with a formatted name, or NULL on failure */
-struct device *device_create(struct class *cls, struct device *parent, dev_t devt, void *drvdata, const char *fmt, ...);
+__attribute__((format(printf, 5, 6))) struct device *device_create(struct class *cls, struct device *parent, dev_t devt, void *drvdata, const char *fmt, ...);
 
 /* Unregister and destroy a device created by device_create */
 void device_destroy(struct class *cls, dev_t devt);
@@ -188,11 +176,7 @@ int  device_model_init(void);
 void device_model_exit(void);
 
 /* Helper: get a device's sysfs name (kobject name) */
-static inline const char *dev_name(const struct device *dev)
-{
-    if (!dev) return "(null)";
-    return kobject_name(&dev->kobj);
-}
+const char *dev_name(const struct device *dev);
 
 /* Find a device driver by name on a bus */
 struct device_driver *bus_find_driver_by_name(struct bus_type *bus, const char *name);

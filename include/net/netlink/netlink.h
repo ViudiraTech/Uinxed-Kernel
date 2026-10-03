@@ -11,30 +11,10 @@
 #ifndef INCLUDE_NETLINK_H_
 #define INCLUDE_NETLINK_H_
 
+#include <kernel/errno.h>
 #include <libs/list/circular_list.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
-
-/* Netlink socket address */
-
-typedef struct sockaddr_nl {
-        uint16_t nl_family; // AF_NETLINK
-        uint16_t nl_pad;    // zero
-        uint32_t nl_pid;    // port ID (0 = kernel)
-        uint32_t nl_groups; // multicast groups mask
-} sockaddr_nl_t;
-
-/* Netlink message header (16 bytes, 4-byte aligned) */
-
-typedef struct nlmsghdr {
-        uint32_t nlmsg_len;   // Length of message including header
-        uint16_t nlmsg_type;  // Message type
-        uint16_t nlmsg_flags; // Flags (NLM_F_*)
-        uint32_t nlmsg_seq;   // Sequence number
-        uint32_t nlmsg_pid;   // Sending port ID
-} nlmsghdr_t;
 
 #define NLMSG_HDRLEN            ((uint32_t)sizeof(nlmsghdr_t))
 #define NLMSG_ALIGNTO           4U
@@ -72,13 +52,52 @@ typedef struct nlmsghdr {
 #define NLMSG_DONE    0x0003 // End of a multipart dump
 #define NLMSG_OVERRUN 0x0004 // Data lost
 
-/* Linux rtnetlink message types used for read-only network discovery. */
+/* rtnetlink message types used for read-only network discovery. */
 #define RTM_NEWLINK  16
 #define RTM_GETLINK  18
 #define RTM_NEWADDR  20
 #define RTM_GETADDR  22
 #define RTM_NEWROUTE 24
 #define RTM_GETROUTE 26
+
+#define RTA_ALIGNTO     4U
+#define RTA_ALIGN(len)  (((len) + RTA_ALIGNTO - 1) & ~(RTA_ALIGNTO - 1))
+#define RTA_LENGTH(len) (RTA_ALIGN(sizeof(rtattr_t)) + (uint32_t)(len))
+#define RTA_DATA(rta)   ((void *)((uint8_t *)(rta) + RTA_ALIGN(sizeof(rtattr_t))))
+
+#define IFLA_ADDRESS   1
+#define IFLA_IFNAME    3
+#define IFLA_MTU       4
+#define IFLA_OPERSTATE 16
+
+#define IFA_ADDRESS   1
+#define IFA_LOCAL     2
+#define IFA_LABEL     3
+#define IFA_BROADCAST 4
+
+#define RTA_DST     1
+#define RTA_OIF     4
+#define RTA_GATEWAY 5
+#define RTA_PREFSRC 7
+
+/* Netlink socket address */
+
+typedef struct sockaddr_nl {
+        uint16_t nl_family; // AF_NETLINK
+        uint16_t nl_pad;    // zero
+        uint32_t nl_pid;    // port ID (0 = kernel)
+        uint32_t nl_groups; // multicast groups mask
+} sockaddr_nl_t;
+
+/* Netlink message header (16 bytes, 4-byte aligned) */
+
+typedef struct nlmsghdr {
+        uint32_t nlmsg_len;   // Length of message including header
+        uint16_t nlmsg_type;  // Message type
+        uint16_t nlmsg_flags; // Flags (NLM_F_*)
+        uint32_t nlmsg_seq;   // Sequence number
+        uint32_t nlmsg_pid;   // Sending port ID
+} nlmsghdr_t;
 
 typedef struct ifinfomsg {
         uint8_t  ifi_family;
@@ -119,45 +138,18 @@ typedef struct rtattr {
         uint16_t rta_type;
 } rtattr_t;
 
-#define RTA_ALIGNTO     4U
-#define RTA_ALIGN(len)  (((len) + RTA_ALIGNTO - 1) & ~(RTA_ALIGNTO - 1))
-#define RTA_LENGTH(len) (RTA_ALIGN(sizeof(rtattr_t)) + (uint32_t)(len))
-#define RTA_DATA(rta)   ((void *)((uint8_t *)(rta) + RTA_ALIGN(sizeof(rtattr_t))))
-
-#define IFLA_ADDRESS   1
-#define IFLA_IFNAME    3
-#define IFLA_MTU       4
-#define IFLA_OPERSTATE 16
-
-#define IFA_ADDRESS   1
-#define IFA_LOCAL     2
-#define IFA_LABEL     3
-#define IFA_BROADCAST 4
-
-#define RTA_DST     1
-#define RTA_OIF     4
-#define RTA_GATEWAY 5
-#define RTA_PREFSRC 7
-
 _Static_assert(sizeof(ifinfomsg_t) == 16, "Linux ifinfomsg ABI");
 _Static_assert(sizeof(ifaddrmsg_t) == 8, "Linux ifaddrmsg ABI");
 _Static_assert(sizeof(rtmsg_t) == 12, "Linux rtmsg ABI");
 _Static_assert(sizeof(rtgenmsg_t) == 1, "Linux rtgenmsg ABI");
 _Static_assert(sizeof(rtattr_t) == 4, "Linux rtattr ABI");
 
-/* Netlink error message (follows nlmsghdr) */
-
-typedef struct nlmsgerr {
-        int32_t    error;
-        nlmsghdr_t msg; // Original message header
-} nlmsgerr_t;
-
 /* Netlink protocol families */
 
 #define NETLINK_ROUTE          0  // Routing/device hook
 #define NETLINK_UNUSED         1  // Unused
 #define NETLINK_USERSOCK       2  // Reserved for user-mode socket protocols
-#define NETLINK_FIREWALL       3  // Unused (was ip_queue)
+#define NETLINK_FIREWALL       3  // Unused
 #define NETLINK_SOCK_DIAG      4  // Socket monitoring
 #define NETLINK_NFLOG          5  // Netfilter/iptables ULOG
 #define NETLINK_XFRM           6  // IPsec
@@ -177,28 +169,36 @@ typedef struct nlmsgerr {
 #define NETLINK_CRYPTO         21 // Crypto layer
 #define NETLINK_SMC            22 // SMC protocol
 #define NETLINK_INET_DIAG      23 // INET socket monitoring
-#define NETLINK_MAX            24
 
-#define NETLINK_ADD_MEMBERSHIP  1
-#define NETLINK_DROP_MEMBERSHIP 2
-#define NETLINK_PKTINFO         3
-#define NETLINK_BROADCAST_ERROR 4
-#define NETLINK_NO_ENOBUFS      5
-#define NETLINK_LISTEN_ALL_NSID 8
-#define NETLINK_CAP_ACK         10
-#define NETLINK_EXT_ACK         11
-#define NETLINK_GET_STRICT_CHK  12
+#define NETLINK_ADD_MEMBERSHIP  1  // Join a multicast group
+#define NETLINK_DROP_MEMBERSHIP 2  // Leave a multicast group
+#define NETLINK_PKTINFO         3  // Request packet metadata (dst port/pid)
+#define NETLINK_BROADCAST_ERROR 4  // Notify multicast send errors to the group
+#define NETLINK_NO_ENOBUFS      5  // Suppress ENOBUFS when the socket queue is full
+#define NETLINK_LISTEN_ALL_NSID 8  // Listen across all network namespaces
+#define NETLINK_CAP_ACK         10 // Require CAP_NET_ADMIN for netlink acks
+#define NETLINK_EXT_ACK         11 // Request extended acknowledgement
+#define NETLINK_GET_STRICT_CHK  12 // Strict checking for GET requests
+
+/* Netlink socket state - per-socket private data */
+#define NL_SOCK_RECV_BUF_SIZE (128 * 1024) // 128KB default recv buffer
+
+/* Global multicast table entry */
+#define NL_MAX_MULTICAST_GROUPS 32 // groups 0-31
+
+/* Netlink error message (follows nlmsghdr) */
+
+typedef struct nlmsgerr {
+        int32_t    error;
+        nlmsghdr_t msg; // Original message header
+} nlmsgerr_t;
 
 typedef struct nl_pktinfo {
         uint32_t group;
 } nl_pktinfo_t;
 
-/* Netlink socket state - per-socket private data */
-
-#define NL_SOCK_RECV_BUF_SIZE (128 * 1024) // 128KB default recv buffer
-
 typedef struct nl_sock {
-        uint32_t     nl_pid;              // Our port ID (0 = unbound/kernel)
+        uint32_t     nl_pid;              // Port ID of this socket (0 = unbound/kernel)
         uint32_t     nl_groups;           // Multicast groups subscribed
         uint32_t     nl_protocol;         // Netlink protocol (NETLINK_*)
         uint32_t     nl_seq;              // Next outgoing sequence number
@@ -209,8 +209,7 @@ typedef struct nl_sock {
         unsigned int overrun         : 1;
         unsigned int nl_pad          : 27;
 
-        /* Receive queue: each entry is a complete nlmsghdr-framed message */
-        /* stored as a contiguous allocation (header + payload) */
+        /* Receive queue: each entry is a complete nlmsghdr-framed message stored as a contiguous allocation (header + payload). */
         clist_t    recv_queue;     // circular list of nl_msg_t
         uint32_t   recv_queue_len; // number of messages queued
         uint32_t   recv_queue_max; // max messages (prevents DoS)
@@ -252,11 +251,12 @@ typedef struct nl_msg {
         uint32_t refcount; // for potential shared delivery
 } nl_msg_t;
 
-/* Global multicast table entry */
+/* Internal: socket operations called from ipc/socket.c */
+struct socket;
 
-#define NL_MAX_MULTICAST_GROUPS 32 // groups 0-31
+#if CONFIG_NETLINK && CONFIG_NET
 
-/* Initialise the netlink subsystem. Must be called before socket_init(). */
+/* Zero the multicast-group and port-ID tables; no ordering dependency on socket_init(). */
 void netlink_init(void);
 
 /* Broadcast a netlink message to all sockets subscribed to the given Returns number of sockets the message was delivered to, or negative errno. */
@@ -265,18 +265,8 @@ int netlink_broadcast(uint32_t protocol, uint32_t group, const void *data, uint3
 /* Send a unicast netlink message to a specific socket. Returns 0 on success or negative errno. */
 int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags);
 
-/*
- * Check if any process is listening on the given protocol+group multicast.
- * Returns non-zero if listeners exist, 0 otherwise.
- */
+/* Check if any process is listening on the given protocol+group multicast. Returns non-zero if listeners exist, 0 otherwise. */
 int netlink_has_listeners(uint32_t protocol, uint32_t group);
-
-/* Internal: socket operations called from ipc/socket.c */
-
-struct socket;
-
-/* One-shot diagnostic: report the site returning -EINVAL to userspace. */
-void netlink_einval_trace(const char *where, long a, long b);
 
 /* Allocate and initialise a new netlink socket */
 struct socket *netlink_sock_alloc(uint32_t protocol);
@@ -311,5 +301,66 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
 
 /* Netlink-specific getsockopt */
 int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *optlen);
+
+#else
+static inline void netlink_init(void) {}
+static inline int  netlink_broadcast(uint32_t, uint32_t, const void *, uint32_t, int)
+{
+    return 0;
+}
+static inline int netlink_unicast(struct socket *, const void *, uint32_t, int)
+{
+    return -ENOSYS;
+}
+static inline int netlink_has_listeners(uint32_t, uint32_t)
+{
+    return 0;
+}
+static inline struct socket *netlink_sock_alloc(uint32_t)
+{
+    return NULL;
+}
+static inline int netlink_bind(struct socket *, const sockaddr_nl_t *, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int netlink_connect(struct socket *, const sockaddr_nl_t *, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int netlink_getsockname(struct socket *, sockaddr_nl_t *)
+{
+    return -ENOSYS;
+}
+static inline int netlink_sendmsg(struct socket *, const void *, size_t, const sockaddr_nl_t *, uint32_t, int)
+{
+    return -ENOSYS;
+}
+static inline int netlink_recvmsg(struct socket *, void *, size_t, sockaddr_nl_t *, uint32_t *, int)
+{
+    return -ENOSYS;
+}
+static inline int netlink_recvmsg_kern(struct socket *, void *, size_t, sockaddr_nl_t *, int, uint32_t *, uint32_t *, int *)
+{
+    return -ENOSYS;
+}
+static inline void netlink_close(struct socket *) {}
+static inline int  netlink_poll(struct socket *, size_t)
+{
+    return -ENOSYS;
+}
+static inline int netlink_packet_info_enabled(struct socket *)
+{
+    return 0;
+}
+static inline int netlink_setsockopt(struct socket *, int, const void *, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int netlink_getsockopt(struct socket *, int, void *, uint32_t *)
+{
+    return -ENOSYS;
+}
+#endif
 
 #endif // INCLUDE_NETLINK_H_

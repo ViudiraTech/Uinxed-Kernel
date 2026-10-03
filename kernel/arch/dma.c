@@ -35,8 +35,10 @@ void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
     uint32_t addr = (uint32_t)(uintptr_t)address;
     if (addr >= DMA_ADDR_MAX || size > DMA_ADDR_MAX - addr) return;
 
-    /* 8237 address counters wrap within a 64 KiB (8-bit) or 128 KiB
-     * (16-bit) DMA window; reject a transfer that would silently wrap. */
+    /*
+     * 8237 address counters wrap within a 64 KiB (8-bit) or 128 KiB
+     * (16-bit) DMA window; reject a transfer that would silently wrap.
+     */
     uint32_t window = channel > 4 ? 0x20000U : 0x10000U;
     if ((addr & (window - 1U)) + size > window) return;
 

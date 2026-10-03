@@ -12,15 +12,14 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 
+#if CONFIG_FAT_FS
+
 PARTITION VolToPart[FF_VOLUMES];
 
 /* Map a FatFs logical volume to a physical drive and partition. */
 int fatfs_assign_volume(uint8_t volume, uint8_t drive, uint8_t partition)
 {
-    if (volume >= FF_VOLUMES) {
-        plogk("fatfs: Assign volume %u out of range (max %u)\n", volume, FF_VOLUMES);
-        return -EINVAL;
-    }
+    if (volume >= FF_VOLUMES) return -EINVAL;
 
     VolToPart[volume].pd = drive;
     VolToPart[volume].pt = partition;
@@ -35,3 +34,5 @@ void fatfs_reset_volumes(void)
         VolToPart[i].pt = 0;
     }
 }
+
+#endif

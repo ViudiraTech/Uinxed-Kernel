@@ -9,24 +9,17 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <fs/sysfs/drm_sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 
-/* Internal helpers from drm_mode_object.c and drm_property.c */
+#if CONFIG_DRM
 
 /*
- * drm_connector_type_name - Map a DRM_MODE_CONNECTOR_* value to its Linux name.
+ * drm_connector_type_name - Map a DRM_MODE_CONNECTOR_* value to its canonical name.
  * @type: DRM_MODE_CONNECTOR_* connector type
  *
  * Connector type names ("VGA", "DVI-I", "Virtual", ...).
@@ -87,17 +80,14 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
 {
     int ret;
 
-    if (!dev || !connector) {
-        DRM_ERROR("Init with NULL dev or connector.\n");
-        return -EINVAL;
-    }
+    if (!dev || !connector) return -EINVAL;
 
     /*
      * connector_type indexes dev->mode_config.connector_type_count[], so it
      * must stay inside the DRM_MODE_CONNECTOR_* range.
      */
     if (connector_type < 0 || connector_type > DRM_MODE_CONNECTOR_USB) {
-        DRM_ERROR("Init with out-of-range connector_type %d.\n", connector_type);
+        DRM_ERROR("Init with out-of-range connector_type %d\n", connector_type);
         return -EINVAL;
     }
 
@@ -115,10 +105,9 @@ int drm_connector_init(struct drm_device *dev, struct drm_connector *connector, 
     connector->dev               = dev;
     connector->connector_type    = (uint32_t)connector_type;
     connector->connector_type_id = ++dev->mode_config.connector_type_count[connector_type];
-    {
-        /* Name, e.g. "Virtual-1", used in logs and DRM_IOCTL_MODE_GETCONNECTOR. */
-        (void)snprintf(connector->name, sizeof(connector->name), "%s-%u", drm_connector_type_name(connector->connector_type), connector->connector_type_id);
-    }
+
+    /* Name, e.g. "Virtual-1", used in logs and DRM_IOCTL_MODE_GETCONNECTOR. */
+    (void)snprintf(connector->name, sizeof(connector->name), "%s-%u", drm_connector_type_name(connector->connector_type), connector->connector_type_id);
     connector->status                  = connector_status_unknown;
     connector->force                   = DRM_FORCE_UNSPECIFIED;
     connector->dpms                    = DRM_MODE_DPMS_ON;
@@ -175,10 +164,7 @@ int drm_connector_attach_encoder(struct drm_connector *connector, struct drm_enc
     uint32_t *new_ids;
     uint32_t  new_count;
 
-    if (!connector || !encoder) {
-        DRM_ERROR("Attach_encoder with NULL connector or encoder.\n");
-        return -EINVAL;
-    }
+    if (!connector || !encoder) return -EINVAL;
 
     new_count = connector->possible_encoders_count + 1;
     new_ids   = realloc(connector->possible_encoders_ids, (size_t)new_count * sizeof(uint32_t));
@@ -202,10 +188,7 @@ int drm_connector_attach_encoder(struct drm_connector *connector, struct drm_enc
  */
 int drm_connector_register(struct drm_connector *connector)
 {
-    if (!connector) {
-        DRM_ERROR("Register with NULL connector.\n");
-        return -EINVAL;
-    }
+    if (!connector) return -EINVAL;
     drm_sysfs_connector_add(connector);
     return 0;
 }
@@ -220,19 +203,13 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
     int                            encoder_count;
     uint32_t                       user_modes, user_encoders, user_props;
 
-    if (!dev || !conn_req) {
-        DRM_ERROR("Getconnector with invalid args.\n");
-        return -EINVAL;
-    }
+    if (!dev || !conn_req) return -EINVAL;
 
     user_modes    = conn_req->count_modes;
     user_encoders = conn_req->count_encoders;
     user_props    = conn_req->count_props;
     obj           = drm_mode_object_find(dev, file_priv, conn_req->connector_id, DRM_MODE_OBJECT_CONNECTOR);
-    if (!obj) {
-        DRM_ERROR("Connector %u not found.\n", conn_req->connector_id);
-        return -ENOENT;
-    }
+    if (!obj) return -ENOENT;
     connector = container_of(obj, struct drm_connector, base);
 
     /* Count modes in the modes list */
@@ -258,7 +235,6 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
         }
         for (uint32_t i = 0; i < count; i++, node = node->next) drm_convert_to_umode(&modes[i], container_of(node, struct drm_display_mode, head));
         if (!conn_req->modes_ptr || copy_to_user((void *)(uintptr_t)conn_req->modes_ptr, modes, (size_t)count * sizeof(*modes))) {
-            DRM_ERROR("Failed to copy modes to user.\n");
             free(modes);
             drm_mode_object_put(obj);
             return -EFAULT;
@@ -268,7 +244,6 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
     if (user_encoders && encoder_count) {
         uint32_t count = user_encoders < (uint32_t)encoder_count ? user_encoders : (uint32_t)encoder_count;
         if (!conn_req->encoders_ptr || copy_to_user((void *)(uintptr_t)conn_req->encoders_ptr, connector->possible_encoders_ids, (size_t)count * sizeof(*connector->possible_encoders_ids))) {
-            DRM_ERROR("Failed to copy encoders to user.\n");
             drm_mode_object_put(obj);
             return -EFAULT;
         }
@@ -299,7 +274,6 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
         if (count
             && (!conn_req->props_ptr || !conn_req->prop_values_ptr || copy_to_user((void *)(uintptr_t)conn_req->props_ptr, ids, (size_t)count * sizeof(*ids))
                 || copy_to_user((void *)(uintptr_t)conn_req->prop_values_ptr, values, (size_t)count * sizeof(*values)))) {
-            DRM_ERROR("Failed to copy properties to user.\n");
             free(ids);
             free(values);
             drm_mode_object_put(obj);
@@ -337,7 +311,6 @@ void drm_connector_cleanup(struct drm_connector *connector)
     struct drm_device *dev;
 
     if (!connector) return;
-
     dev = connector->dev;
 
     /* Remove the connector's /sys/class/drm/ device first. */
@@ -345,8 +318,7 @@ void drm_connector_cleanup(struct drm_connector *connector)
 
     while (connector->modes.next && connector->modes.next != &connector->modes) {
         struct drm_display_mode *mode = container_of(connector->modes.next, struct drm_display_mode, head);
-        ilist_remove(&mode->head);
-        free(mode); // NOLINT(clang-analyzer-unix.Malloc)
+        drm_mode_destroy(dev, mode);
     }
 
     ilist_remove(&connector->head);
@@ -357,6 +329,7 @@ void drm_connector_cleanup(struct drm_connector *connector)
         spin_unlock(&dev->mode_config.idr_mutex);
 
         if (dev->mode_config.num_connector > 0) dev->mode_config.num_connector--;
+
         /*
          * Give the per-type instance counter back so a re-init of the same
          * type keeps the names sequential (Virtual-1, not Virtual-2).
@@ -403,17 +376,14 @@ int drm_connector_property_set_ioctl(struct drm_device *dev, void *data, struct 
     struct drm_mode_connector_set_property *set_prop = (struct drm_mode_connector_set_property *)data;
     struct drm_mode_obj_set_property        obj_set_prop;
 
-    if (!dev || !set_prop) {
-        DRM_ERROR("SETPROPERTY with invalid args (dev=%p, set_prop=%p)\n", dev, set_prop);
-        return -EINVAL;
-    }
+    if (!dev || !set_prop) return -EINVAL;
 
     obj_set_prop.value    = set_prop->value;
     obj_set_prop.prop_id  = set_prop->prop_id;
     obj_set_prop.obj_id   = set_prop->connector_id;
     obj_set_prop.obj_type = DRM_MODE_OBJECT_CONNECTOR;
 
-    /* It does all the locking and checking we need. */
+    /* Full validation and locking live in the shared mode-object path. */
     return drm_mode_obj_setproperty_ioctl(dev, &obj_set_prop, file_priv);
 }
 
@@ -423,18 +393,13 @@ int drm_connector_update_edid_property(struct drm_connector *connector, const un
     struct drm_device        *dev;
     struct drm_property_blob *new_blob = NULL;
 
-    if (!connector || !connector->dev) {
-        DRM_ERROR("Update_edid_property with invalid connector.\n");
-        return -EINVAL;
-    }
-
+    if (!connector || !connector->dev) return -EINVAL;
     dev = connector->dev;
 
     if (connector->edid_blob) {
         drm_property_blob_put(connector->edid_blob);
         connector->edid_blob = NULL;
     }
-
     if (edid && size > 0) {
         new_blob = drm_property_create_blob(dev, edid, size);
         if (!new_blob) {
@@ -447,14 +412,11 @@ int drm_connector_update_edid_property(struct drm_connector *connector, const un
     return 0;
 }
 
-/*
- * Add the Kconfig-driven fallback mode so a connector is never mode-less
- * when EDID/display-info probing yields nothing. Returns 0 on success.
- */
+/* Add the Kconfig-driven fallback mode so a connector is never mode-less when EDID/display-info probing yields nothing. Returns 0 on success. */
 int drm_connector_add_fallback_mode(struct drm_connector *connector)
 {
     struct drm_display_mode *mode;
-    uint32_t                 w = DRM_DEFAULT_WIDTH, h = DRM_DEFAULT_HEIGHT;
+    uint32_t                 w = CONFIG_DRM_DEFAULT_WIDTH, h = CONFIG_DRM_DEFAULT_HEIGHT;
 
     if (!connector || !connector->dev || !w || !h) return -EINVAL;
 
@@ -480,3 +442,5 @@ int drm_connector_add_fallback_mode(struct drm_connector *connector)
     drm_mode_probed_add(connector, mode);
     return 0;
 }
+
+#endif

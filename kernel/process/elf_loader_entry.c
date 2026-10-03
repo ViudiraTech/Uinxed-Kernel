@@ -9,7 +9,6 @@
  */
 
 #include <kernel/errno.h>
-#include <libs/std/stdbool.h>
 #include <process/elf_loader.h>
 #include <process/process.h>
 

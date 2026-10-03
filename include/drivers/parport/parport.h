@@ -1,7 +1,7 @@
 /*
  *
  *      parport.h
- *      Parallel port subsystem (Linux drivers/parport/ analog)
+ *      Parallel port subsystem
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,12 +12,9 @@
 #define INCLUDE_PARPORT_H_
 
 #include <kernel/debug/ringlog.h>
+#include <kernel/kdev_t.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
-
-extern log_buffer_t parallel_log;
-
-#define PARPORT_MAX_PORTS 4
 
 /* SPP register offsets */
 #define PARPORT_DATA_REG    0
@@ -38,7 +35,6 @@ extern log_buffer_t parallel_log;
 #define PARPORT_CONTROL_SELECT 0x08
 
 typedef struct parport parport_t;
-
 typedef uint8_t (*parport_read_data_t)(parport_t *p);
 typedef void (*parport_write_data_t)(parport_t *p, uint8_t v);
 typedef uint8_t (*parport_read_status_t)(parport_t *p);
@@ -51,7 +47,7 @@ struct parport {
         char     name[16];
         uint16_t base;         // legacy I/O base address
         int      irq;          // assigned IRQ line, or -1 when polled
-        uint32_t dev;          // dev_t (major 99, minor = number)
+        dev_t    dev;          // /dev/parportN device number
         bool     claimed;      // PPCLAIM ownership
         bool     exclusive;    // PPEXCL
         uint8_t  control;      // cached control register
@@ -66,6 +62,8 @@ struct parport {
 
         parport_t *next;
 };
+
+extern log_buffer_t parallel_log;
 
 /* Register a port in the global list. */
 int parport_register_port(const char *name, uint16_t base, int irq, void *private_data);
@@ -106,12 +104,20 @@ void parport_frob_control(parport_t *p, uint8_t mask, uint8_t v);
 /* Toggle the data direction. */
 void parport_data_reverse(parport_t *p, bool reverse);
 
+#if CONFIG_PARPORT
+
 /* Probe and register legacy PC parallel ports. */
 int parport_pc_init(void);
 
-/* drivers/parport/ppdev.c : /dev/parportN */
-
 /* Create /dev/parportN device nodes. */
 void ppdev_init(void);
+
+#else
+static inline int parport_pc_init(void)
+{
+    return 0;
+}
+static inline void ppdev_init(void) {}
+#endif
 
 #endif // INCLUDE_PARPORT_H_

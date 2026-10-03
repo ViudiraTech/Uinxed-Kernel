@@ -10,29 +10,20 @@
 
 #include <arch/smp.h>
 #include <fs/core/vfs.h>
+#include <fs/core/vfs_stub.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
-#include <process/sched.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
 
 typedef struct {
-        int64_t tv_sec;
-        int64_t tv_nsec;
-} timerfd_timespec_t;
-
-typedef struct {
-        timerfd_timespec_t it_interval;
-        timerfd_timespec_t it_value;
+        linux_timespec_t it_interval;
+        linux_timespec_t it_value;
 } timerfd_itimerspec_t;
 
 static int          timerfd_fsid = -1;
@@ -62,23 +53,13 @@ bool timerfd_deferred_due(uint64_t monotonic_ns)
 }
 
 /* Convert a timespec to nanoseconds, validating the input. */
-static int timerfd_timespec_to_ns(const timerfd_timespec_t *ts, uint64_t *ns)
+static int timerfd_timespec_to_ns(const linux_timespec_t *ts, uint64_t *ns)
 {
     if (!ts || !ns || ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= (int64_t)TIMER_NSEC_PER_SEC) return -EINVAL;
     if ((uint64_t)ts->tv_sec > (UINT64_MAX - (uint64_t)ts->tv_nsec) / TIMER_NSEC_PER_SEC) return -EINVAL;
 
     *ns = (uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC + (uint64_t)ts->tv_nsec;
     return EOK;
-}
-
-/* Convert nanoseconds back to a timespec. */
-static timerfd_timespec_t timerfd_ns_to_timespec(uint64_t ns)
-{
-    timerfd_timespec_t ts = {
-        .tv_sec  = (int64_t)(ns / TIMER_NSEC_PER_SEC),
-        .tv_nsec = (int64_t)(ns % TIMER_NSEC_PER_SEC),
-    };
-    return ts;
 }
 
 /* Current timeline for this timerfd. BOOTTIME currently aliases MONOTONIC. */
@@ -89,14 +70,6 @@ static uint64_t timerfd_now_ns(const timerfd_ctx_t *ctx)
         return realtime > 0 ? (uint64_t)realtime : 0;
     }
     return timer_monotonic_ns();
-}
-
-/* VFS open callback (no-op) */
-static void timerfd_vfs_open(void *parent, const char *name, vfs_node_t node)
-{
-    (void)parent;
-    (void)name;
-    (void)node;
 }
 
 /* Mark the timer closed and wake every blocked reader/poller. */
@@ -116,12 +89,11 @@ static void timerfd_vfs_close(void *current)
     if (!ctx) return;
 
     /*
-     * Take timerfd_list_lock before ctx->lock, the same order timerfd_tick()
-     * uses (list_lock -> ctx->lock).  The two are acquired/released
-     * sequentially here, never nested, but keeping the order consistent with
-     * the tick removes any chance of an AB-BA inversion if a future path
-     * nests them.  Unlinking first also means the tick can no longer reach
-     * this ctx once we mark it closed.
+     * Take timerfd_list_lock before ctx->lock, the same order timerfd_tick() uses
+     * (list_lock -> ctx->lock).  The two are acquired/released sequentially here,
+     * never nested, but keeping the order consistent with the tick removes any
+     * chance of an AB-BA inversion if a future path nests them.  Unlinking first
+     * also means the tick can no longer reach this ctx once it is marked closed.
      */
     spin_lock(&timerfd_list_lock);
     if (ctx->timers.next != &ctx->timers) ilist_remove(&ctx->timers);
@@ -230,88 +202,6 @@ static int timerfd_vfs_free(void *handle)
     return EOK;
 }
 
-/* Unsupported unmount callback */
-static void timerfd_stub_unmount(void *root)
-{
-    (void)root;
-}
-
-/* Unsupported stat callback */
-static int timerfd_stub_stat(void *f, vfs_node_t n)
-{
-    (void)f;
-    (void)n;
-    return EOK;
-}
-
-/* Unsupported mkdir/mkfile/link/symlink callback */
-static int timerfd_stub_mk(void *p, const char *nm, vfs_node_t n)
-{
-    (void)p;
-    (void)nm;
-    (void)n;
-    return -ENOSYS;
-}
-
-/* Unsupported write callback */
-static size_t timerfd_stub_write(void *f, const void *a, size_t o, size_t s)
-{
-    (void)f;
-    (void)a;
-    (void)o;
-    (void)s;
-    return (size_t)-1;
-}
-
-/* Unsupported readlink callback */
-static size_t timerfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
-{
-    (void)n;
-    (void)a;
-    (void)o;
-    (void)s;
-    return (size_t)-1;
-}
-
-/* Unsupported ioctl callback */
-static int timerfd_stub_ioctl(void *f, size_t o, void *a)
-{
-    (void)f;
-    (void)o;
-    (void)a;
-    return -ENOSYS;
-}
-
-/* Unsupported dup callback */
-static vfs_node_t timerfd_stub_dup(vfs_node_t n)
-{
-    (void)n;
-    return NULL;
-}
-
-/* Unsupported delete callback */
-static int timerfd_stub_del(void *p, vfs_node_t n)
-{
-    (void)p;
-    (void)n;
-    return -ENOSYS;
-}
-
-/* Unsupported rename callback */
-static int timerfd_stub_rename(const vfs_rename_context_t *context)
-{
-    (void)context;
-    return -ENOSYS;
-}
-
-/* Unsupported mount callback */
-static int timerfd_stub_mount(const char *s, vfs_node_t n)
-{
-    (void)s;
-    (void)n;
-    return -ENOSYS;
-}
-
 /* Allocate and initialize a timerfd VFS node */
 static vfs_node_t timerfd_node_create(int clockid, int flags)
 {
@@ -319,7 +209,8 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
 
     timerfd_ctx_t *ctx = calloc(1, sizeof(timerfd_ctx_t));
     if (!ctx) {
-        plogk("timerfd: Context allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("timerfd: Context allocation failed.\n");
         return NULL;
     }
 
@@ -334,7 +225,8 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
 
     vfs_node_t node = vfs_node_alloc(NULL, "[timerfd]");
     if (!node) {
-        plogk("timerfd: Node allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("timerfd: Node allocation failed.\n");
         free(ctx);
         return NULL;
     }
@@ -390,7 +282,7 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
 
     process_file_t *file = NULL;
     spin_lock(&proc->fd_lock);
-    if (fd >= 0 && fd < PROCESS_MAX_FD) {
+    if (fd >= 0 && fd < CONFIG_PROCESS_MAX_FD) {
         file = proc->fds[fd];
         if (file) process_file_get(file);
     }
@@ -412,14 +304,14 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         process_file_put(file);
         return -EINVAL;
     }
+
     /*
-     * Linux allows any combination of ABSTIME and CANCEL_ON_SET on either
+     * Any combination of ABSTIME and CANCEL_ON_SET is accepted on either
      * clock (systemd's time-change source uses ABSTIME|CANCEL_ON_SET on
      * CLOCK_REALTIME armed to a far-future expiry so it only fires on a
      * clock jump).  CANCEL_ON_SET timers are simply armed normally here;
      * without clock jumps they stay pending exactly as callers expect.
      */
-
     timerfd_itimerspec_t new_its;
     if (copy_from_user(&new_its, new_value, sizeof(new_its))) {
         process_file_put(file);
@@ -436,11 +328,10 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
     rc = timerfd_timespec_to_ns(&new_its.it_value, &value_ns);
     if (rc == -EINVAL && (flags & TFD_TIMER_ABSTIME)) {
         /*
-         * Far-future absolute arms (systemd uses it_value = TIME_T_MAX-1
-         * for its clock-change watchdog) overflow the ns scalar although
-         * Linux accepts them by keeping the sec/nsec pair unnormalized.
-         * Clamp instead of rejecting; the deadline then sits beyond any
-         * reachable clock value, which is exactly the caller's intent.
+         * Far-future absolute arms (systemd uses it_value = TIME_T_MAX-1 for its
+         * clock-change watchdog) overflow the ns scalar although the sec/nsec pair is
+         * accepted unnormalized.  Clamp instead of rejecting; the deadline then sits
+         * beyond any reachable clock value, which is exactly the caller's intent.
          */
         value_ns = UINT64_MAX;
     } else if (rc) {
@@ -453,8 +344,8 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
     if (old_value) {
         uint64_t             now_ns  = timerfd_now_ns(ctx);
         timerfd_itimerspec_t old_its = {
-            .it_interval = timerfd_ns_to_timespec(ctx->interval_ns),
-            .it_value    = timerfd_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
+            .it_interval = timer_ns_to_timespec(ctx->interval_ns),
+            .it_value    = timer_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
         };
         spin_unlock(&ctx->lock);
         if (copy_to_user(old_value, &old_its, sizeof(old_its))) {
@@ -498,7 +389,7 @@ int sys_timerfd_gettime(int fd, void *curr_value)
 
     process_file_t *file = NULL;
     spin_lock(&proc->fd_lock);
-    if (fd >= 0 && fd < PROCESS_MAX_FD) {
+    if (fd >= 0 && fd < CONFIG_PROCESS_MAX_FD) {
         file = proc->fds[fd];
         if (file) process_file_get(file);
     }
@@ -519,8 +410,8 @@ int sys_timerfd_gettime(int fd, void *curr_value)
     spin_lock(&ctx->lock);
     uint64_t             now_ns = timerfd_now_ns(ctx);
     timerfd_itimerspec_t its    = {
-           .it_interval = timerfd_ns_to_timespec(ctx->interval_ns),
-           .it_value    = timerfd_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
+           .it_interval = timer_ns_to_timespec(ctx->interval_ns),
+           .it_value    = timer_ns_to_timespec(ctx->armed && ctx->deadline_ns > now_ns ? ctx->deadline_ns - now_ns : 0),
     };
     spin_unlock(&ctx->lock);
 
@@ -539,22 +430,23 @@ void timerfd_tick(void)
 
     spin_lock(&timerfd_list_lock);
     for (ilist_node_t *node = timerfd_list.next; node != &timerfd_list; node = node->next) {
-        timerfd_ctx_t *ctx = (timerfd_ctx_t *)((char *)node - offsetof(timerfd_ctx_t, timers));
+        timerfd_ctx_t *ctx = container_of(node, timerfd_ctx_t, timers);
         spin_lock(&ctx->lock);
         uint64_t now_ns = timerfd_now_ns(ctx);
         if (ctx->armed && now_ns >= ctx->deadline_ns) {
             uint64_t expirations = 1;
             if (ctx->interval_ns) {
                 expirations += (now_ns - ctx->deadline_ns) / ctx->interval_ns;
-                __uint128_t next = (__uint128_t)ctx->deadline_ns + (__uint128_t)expirations * ctx->interval_ns;
+                __uint128_t next = (__uint128_t)ctx->deadline_ns + ((__uint128_t)expirations * ctx->interval_ns);
                 ctx->deadline_ns = next > UINT64_MAX ? UINT64_MAX : (uint64_t)next;
             } else {
                 ctx->armed = 0;
             }
-            if (UINT64_MAX - ctx->expire_count < expirations)
+            if (UINT64_MAX - ctx->expire_count < expirations) {
                 ctx->expire_count = UINT64_MAX;
-            else
+            } else {
                 ctx->expire_count += expirations;
+            }
             spin_unlock(&ctx->lock);
             wait_queue_wake_all(&ctx->wq);
 
@@ -591,28 +483,27 @@ void timerfd_init(void)
         plogk("timerfd: Failed to allocate callback.\n");
         return;
     }
-    cb->mount                 = timerfd_stub_mount;
-    cb->unmount               = timerfd_stub_unmount;
-    cb->open                  = timerfd_vfs_open;
+    cb->unmount               = vfs_stub_unmount;
+    cb->open                  = vfs_stub_open;
     cb->close                 = timerfd_vfs_close;
     cb->file_descriptor_close = timerfd_vfs_descriptor_close;
     cb->read                  = timerfd_vfs_read;
-    cb->write                 = timerfd_stub_write;
-    cb->readlink              = timerfd_stub_readlink;
-    cb->mkdir                 = timerfd_stub_mk;
-    cb->mkfile                = timerfd_stub_mk;
-    cb->link                  = timerfd_stub_mk;
-    cb->symlink               = timerfd_stub_mk;
-    cb->stat                  = timerfd_stub_stat;
-    cb->ioctl                 = timerfd_stub_ioctl;
-    cb->dup                   = timerfd_stub_dup;
+    cb->write                 = vfs_stub_write;
+    cb->readlink              = vfs_stub_readlink;
+    cb->mkdir                 = vfs_stub_mk;
+    cb->mkfile                = vfs_stub_mk;
+    cb->link                  = vfs_stub_mk;
+    cb->symlink               = vfs_stub_mk;
+    cb->stat                  = vfs_stub_stat;
+    cb->ioctl                 = vfs_stub_ioctl;
+    cb->dup                   = vfs_stub_dup;
     cb->poll                  = timerfd_vfs_poll;
     cb->file_read             = timerfd_vfs_file_read;
     cb->free                  = timerfd_vfs_free;
-    cb->delete                = timerfd_stub_del;
-    cb->rename                = timerfd_stub_rename;
+    cb->delete                = vfs_stub_del;
+    cb->rename                = vfs_stub_rename;
 
-    timerfd_fsid = vfs_regist(cb);
+    timerfd_fsid = vfs_regist_fs("timerfd", cb);
     if (timerfd_fsid < 0) {
         plogk("timerfd: Failed to register VFS callback.\n");
         free(cb);

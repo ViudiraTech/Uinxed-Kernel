@@ -15,7 +15,6 @@
 #include <libs/list/circular_list.h>
 #include <libs/std/string.h>
 #include <process/sched.h>
-#include <sync/spin_lock.h>
 
 #if CONFIG_I2C
 
@@ -34,8 +33,8 @@ static int        i2c_adapter_next_nr;
 int i2c_add_adapter(struct i2c_adapter *adap)
 {
     if (!adap || !adap->algo || !adap->algo->master_xfer) return -EINVAL;
-
     spin_lock(&i2c_adapter_lock);
+
     if (clist_search(i2c_adapter_list, adap)) {
         spin_unlock(&i2c_adapter_lock);
         return -EEXIST;
@@ -50,17 +49,17 @@ int i2c_add_adapter(struct i2c_adapter *adap)
 
     adap->nr = i2c_adapter_next_nr++;
     if (!adap->name[0]) (void)snprintf(adap->name, sizeof(adap->name), "i2c-%d", adap->nr);
+
     i2c_adapter_list = clist_append(i2c_adapter_list, adap);
     if (!clist_search(i2c_adapter_list, adap)) {
         spin_unlock(&i2c_adapter_lock);
         return -ENOMEM;
     }
-    spin_unlock(&i2c_adapter_lock);
 
+    spin_unlock(&i2c_adapter_lock);
     plogk("i2c: Adapter '%s' registered as bus %d\n", adap->name, adap->nr);
-#    if CONFIG_SYSFS
+
     (void)i2c_sysfs_adapter_add(adap);
-#    endif
     return 0;
 }
 
@@ -71,6 +70,7 @@ int i2c_del_adapter(struct i2c_adapter *adap)
 
     spin_lock(&adap->bus_lock);
     spin_lock(&i2c_adapter_lock);
+
     if (!clist_search(i2c_adapter_list, adap)) {
         spin_unlock(&i2c_adapter_lock);
         spin_unlock(&adap->bus_lock);
@@ -81,14 +81,14 @@ int i2c_del_adapter(struct i2c_adapter *adap)
         spin_unlock(&adap->bus_lock);
         return -EBUSY;
     }
+
     i2c_adapter_list = clist_delete(i2c_adapter_list, adap);
     adap->owners     = 0;
+
     spin_unlock(&i2c_adapter_lock);
     spin_unlock(&adap->bus_lock);
 
-#    if CONFIG_SYSFS
     i2c_sysfs_adapter_del(adap);
-#    endif
     plogk("i2c: Adapter '%s' (bus %d) unregistered.\n", adap->name, adap->nr);
     return 0;
 }
@@ -115,7 +115,6 @@ struct i2c_adapter *i2c_get_adapter(int nr)
 void i2c_put_adapter(struct i2c_adapter *adap)
 {
     if (!adap) return;
-
     spin_lock(&i2c_adapter_lock);
     if (adap->owners > 0) adap->owners--;
     spin_unlock(&i2c_adapter_lock);
@@ -159,14 +158,13 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
         spin_unlock(&adap->bus_lock);
         return -ENODEV;
     }
+
     ret = __i2c_transfer(adap, msgs, num);
     if (ret < 0 && ret != -EAGAIN && ret != -ENXIO && ret != -EINVAL && ret != -ENODEV) {
-        static uint64_t last_log;
-        if (sched_ticks() - last_log >= 1000) {
-            plogk("i2c: Transfer failed on adapter %s (msg count %d): %d\n", adap->name, num, ret);
-            last_log = sched_ticks();
-        }
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("i2c: Transfer failed on adapter %s (msg count %d): %d\n", adap->name, num, ret);
     }
+
     spin_unlock(&adap->bus_lock);
     return ret < 0 ? ret : num;
 }
@@ -181,7 +179,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
     uint8_t        tmp[I2C_SMBUS_BLOCK_MAX + 2];
 
     if (adap->owners <= 0) return -ENODEV;
-
     switch (protocol) {
         case I2C_SMBUS_QUICK :
             msg[0].addr  = addr;

@@ -19,35 +19,28 @@ typedef struct ilist_node {
 /*
  * Node lifecycle and invariants
  *
- * Every node is always in exactly one of three states, encoded entirely in
- * {prev, next}:
+ * {prev, next} encode exactly one of three states:
  *
- *   DETACHED  prev == next == NULL
- *       Fresh zeroed memory, or the state after a successful ilist_remove().
- *       The node is not a member of any list.
+ *   DETACHED  prev == next == NULL - fresh zeroed memory, or the state after a
+ *       successful ilist_remove().  Not a member of any list.
+ *   INITED    prev == next == self - produced by ilist_init().  A list head
+ *       stays usable as an insertion position for its whole life; a plain node
+ *       in this state may be inserted into exactly one list.
+ *   LINKED    prev and next point at other nodes of one circular list.  A node
+ *       is a member of at most ONE list.
  *
- *   INITED    prev == next == self
- *       Produced by ilist_init().  A list head stays usable as an insertion
- *       position for its whole life; a plain node in this state may be
- *       inserted into exactly one list.
- *
- *   LINKED    prev and next point at other nodes of one circular list.
- *       The node is a member of at most ONE list.  Re-inserting it is
- *       rejected instead of silently corrupting the ring.
- *
- * Rules enforced by this implementation:
- *  - insert validates both the position's ring consistency and that the new
- *    node is DETACHED or INITED before touching any pointer; on rejection no
- *    memory is modified and the error is reported to the caller.
+ * Rules enforced here:
+ *  - insert validates the position's ring consistency and that the new node is
+ *    DETACHED or INITED before touching any pointer; on rejection no memory is
+ *    modified.
  *  - remove requires a LINKED node whose neighbours still point back at it;
- *    removing a DETACHED/INITED node (including a list head) returns an
- *    error instead of dereferencing stale pointers.  After removal the node
- *    is DETACHED again.
+ *    removing a DETACHED/INITED node (including a list head) returns an error
+ *    instead of dereferencing stale pointers.
  *  - Callers must serialise concurrent operations on the same list with an
- *    external lock; these primitives are not atomic by themselves.
- *  - Return values: 0 = success, nonzero = operation refused because a rule
- *    above would be violated.  Critical callers treat refusal as proof of a
- *    broken invariant and must stop/panic rather than continue scheduling.
+ *    external lock; these primitives are not atomic.
+ *  - Return values: 0 = success, nonzero = refused because a rule above would
+ *    be violated.  Critical callers treat refusal as proof of a broken
+ *    invariant and must stop/panic rather than continue scheduling.
  */
 
 /* Initialize a list head (or reset a plain node to INITED state) */

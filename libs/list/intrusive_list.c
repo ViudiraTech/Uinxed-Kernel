@@ -32,6 +32,7 @@ static int node_linked_consistent(const struct ilist_node *node)
 static int node_insertable(const struct ilist_node *node)
 {
     if (!node) return 0;
+
     /* DETACHED (fresh or removed) or INITED (self-linked but unqueued) */
     if (!node->prev && !node->next) return 1;
     return node->prev == node && node->next == node;
@@ -41,6 +42,7 @@ static int node_insertable(const struct ilist_node *node)
 static int position_valid(const struct ilist_node *node)
 {
     if (!node) return 0;
+
     /* An empty head is self-linked and consistent by definition */
     if (node->next == node && node->prev == node) return 1;
     return node_linked_consistent(node);
@@ -80,10 +82,7 @@ int ilist_insert_before(struct ilist_node *node, struct ilist_node *new_node)
     if (!position_valid(node)) return 1;
     if (!node_insertable(new_node)) return 2;
 
-    /*
-     * Inlined insert_after(position->prev): position->prev has already been
-     * validated as part of the ring consistency check above.
-     */
+    /* Inlined ilist_insert_after(node->prev); node is already validated above. */
     struct ilist_node *prev = node->prev;
 
     new_node->prev = prev;

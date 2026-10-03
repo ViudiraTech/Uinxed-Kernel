@@ -12,9 +12,11 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 
-#define PS2_MOUSE_PACKET_SYNC       0x08
-#define PS2_MOUSE_PACKET_X_OVERFLOW 0x40
-#define PS2_MOUSE_PACKET_Y_OVERFLOW 0x80
+#if CONFIG_PS2_KEYBOARD_MOUSE
+
+#    define PS2_MOUSE_PACKET_SYNC       0x08
+#    define PS2_MOUSE_PACKET_X_OVERFLOW 0x40
+#    define PS2_MOUSE_PACKET_Y_OVERFLOW 0x80
 
 /* Return the packet byte length for the given mouse protocol. */
 size_t ps2_mouse_packet_size(enum ps2_mouse_protocol protocol)
@@ -35,18 +37,12 @@ int ps2_mouse_decode_packet(enum ps2_mouse_protocol protocol, const uint8_t *raw
 {
     uint8_t buttons;
 
-    if (!raw || !packet || !ps2_mouse_packet_size(protocol)) {
-        plogk("ps2: Decode_packet: invalid argument (protocol=%u)\n", (unsigned)protocol);
-        return -EINVAL;
-    }
+    if (!raw || !packet || !ps2_mouse_packet_size(protocol)) return -EINVAL;
     if (!(raw[0] & PS2_MOUSE_PACKET_SYNC)) {
         plogk("ps2: Decode_packet: packet sync byte missing (byte0=0x%x)\n", raw[0]);
         return -EINVAL;
     }
-    if (raw[0] & (PS2_MOUSE_PACKET_X_OVERFLOW | PS2_MOUSE_PACKET_Y_OVERFLOW)) {
-        plogk("ps2: Decode_packet: axis overflow (byte0=0x%x)\n", raw[0]);
-        return -EOVERFLOW;
-    }
+    if (raw[0] & (PS2_MOUSE_PACKET_X_OVERFLOW | PS2_MOUSE_PACKET_Y_OVERFLOW)) return -EOVERFLOW;
 
     *packet        = (struct ps2_mouse_packet) {0};
     buttons        = raw[0];
@@ -81,15 +77,9 @@ int ps2_mouse_stream_byte(struct ps2_mouse_stream *stream, uint8_t byte, struct 
     size_t packet_size;
     int    result;
 
-    if (!stream || !packet) {
-        plogk("ps2: Stream_byte: invalid argument.\n");
-        return -EINVAL;
-    }
+    if (!stream || !packet) return -EINVAL;
     packet_size = ps2_mouse_packet_size(stream->protocol);
-    if (!packet_size) {
-        plogk("ps2: Stream_byte: unsupported protocol (protocol=%u)\n", (unsigned)stream->protocol);
-        return -EINVAL;
-    }
+    if (!packet_size) return -EINVAL;
     if (!stream->count && !(byte & PS2_MOUSE_PACKET_SYNC)) return 0;
     stream->bytes[stream->count++] = byte;
     if (stream->count < packet_size) return 0;
@@ -97,3 +87,5 @@ int ps2_mouse_stream_byte(struct ps2_mouse_stream *stream, uint8_t byte, struct 
     result        = ps2_mouse_decode_packet(stream->protocol, stream->bytes, packet);
     return result == EOK ? 1 : result;
 }
+
+#endif

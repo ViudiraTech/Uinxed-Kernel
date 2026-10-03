@@ -8,17 +8,18 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
+#include <arch/idt.h>
 #include <arch/smp.h>
 #include <kernel/debug/debug.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/sched.h>
-#include <process/task.h>
+#include <sync/signal.h>
 
 #define FPU_FXSAVE_SIZE     512U
 #define FPU_STATE_ALIGNMENT 64U
@@ -43,11 +44,17 @@
 #define CR4_OSXMMEXCPT_SHIFT 10
 #define CR4_OSXSAVE_SHIFT    18
 
-static size_t   fpu_save_size   = FPU_FXSAVE_SIZE;
+#if CONFIG_CPU_FEATURE_FPU
+static size_t fpu_save_size = FPU_FXSAVE_SIZE;
+#endif
+
 static uint64_t fpu_xstate_mask = XCR0_FPU_MASK;
 static uint8_t  fpu_use_xsave;
 static uint8_t  fpu_use_xsaveopt;
-static uint8_t  fpu_config_ready;
+
+#if CONFIG_CPU_FEATURE_FPU
+static uint8_t fpu_config_ready;
+#endif
 
 /*
  * Set only when fpu_init() actually enabled SSE in hardware (CR4.OSFXSR).
@@ -56,16 +63,52 @@ static uint8_t  fpu_config_ready;
  */
 static uint8_t fpu_sse_enabled;
 
+/* Early-boot (pre-SMP) fallback for the BSP only */
+static fpu_percpu_t fpu_early_percpu;
+
+/* Ring-buffered FPU boot configuration dump (flushed by init/main.c once the console is up) */
+log_buffer_t fpu_log;
+
 /* Check whether the kernel may execute SSE/AVX instructions */
 int kernel_sse_available(void)
 {
     return fpu_sse_enabled;
 }
 
+/* si_code for #MF/#XM, or 0 when no unmasked exception is pending.  The x87 status word is masked by the control word, the MXCSR flags by the MXCSR mask field. */
+int fpu_exception_code(uint32_t vector)
+{
+#if CONFIG_CPU_FEATURE_FPU
+    uint32_t err;
+
+    if (vector == ISR_16) {
+        uint16_t swd, cwd;
+        __asm__ volatile("fnstsw %0" : "=a"(swd));
+        __asm__ volatile("fnstcw %0" : "=m"(cwd));
+        err = (uint32_t)(swd & ~cwd);
+    } else if (kernel_sse_available()) {
+        uint32_t mxcsr;
+        __asm__ volatile("stmxcsr %0" : "=m"(mxcsr));
+        err = ~(mxcsr >> 7) & mxcsr;
+    } else {
+        return 0;
+    }
+
+    if (err & 0x001) return FPE_FLTINV; // invalid operation
+    if (err & 0x004) return FPE_FLTDIV; // divide by zero
+    if (err & 0x008) return FPE_FLTOVF; // overflow
+    if (err & 0x012) return FPE_FLTUND; // denormal operand or underflow
+    if (err & 0x020) return FPE_FLTRES; // precision
+#else
+    (void)vector;
+#endif
+    return 0;
+}
+
 /* Return the FPU state size exposed to signal handlers */
 size_t fpu_signal_state_size(void)
 {
-#if CPU_FEATURE_FPU
+#if CONFIG_CPU_FEATURE_FPU
     return fpu_save_size;
 #else
     return 0;
@@ -79,10 +122,10 @@ size_t fpu_signal_state_size(void)
  * never used the FPU becomes live, so a fresh/exec'd task can never
  * observe another task's register leftovers.
  */
-static uint8_t fpu_initial_state[FPU_INITIAL_MAX] __attribute__((aligned(64)));
 
-/* Early-boot (pre-SMP) fallback for the BSP only */
-static fpu_percpu_t fpu_early_percpu;
+#if CONFIG_CPU_FEATURE_FPU
+static uint8_t fpu_initial_state[FPU_INITIAL_MAX] __attribute__((aligned(64)));
+#endif
 
 /* Return the per-CPU FPU state, falling back to the early-boot area pre-SMP */
 static fpu_percpu_t *fpu_percpu(void)
@@ -92,11 +135,12 @@ static fpu_percpu_t *fpu_percpu(void)
 }
 
 /* Save live FPU/SSE/AVX state, using XSAVE if the feature is active */
-static inline void fpu_save(void *state)
+static void fpu_save(void *state)
 {
     if (fpu_use_xsave) {
         uint32_t low  = (uint32_t)fpu_xstate_mask;
         uint32_t high = (uint32_t)(fpu_xstate_mask >> 32);
+
         /* AP feature validation may conservatively disable XSAVEOPT. */
         if (__atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE)) {
             __asm__ volatile("xsaveopt64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
@@ -109,7 +153,7 @@ static inline void fpu_save(void *state)
 }
 
 /* Restore FPU/SSE/AVX state, using XRSTOR if the feature is active */
-static inline void fpu_restore(const void *state)
+static void fpu_restore(const void *state)
 {
     if (fpu_use_xsave) {
         uint32_t low  = (uint32_t)fpu_xstate_mask;
@@ -119,6 +163,8 @@ static inline void fpu_restore(const void *state)
         __asm__ volatile("fxrstor64 (%0)" : : "r"(state) : "memory");
     }
 }
+
+#if CONFIG_CPU_FEATURE_FPU
 
 /* Reset a task's FPU state area to the x86-64 initial state */
 static void fpu_state_set_initial(void *state)
@@ -137,39 +183,39 @@ static void fpu_hw_reset_initial(void)
     fpu_restore(fpu_initial_state);
 }
 
+#endif
+
 /* Save the interrupt flag and disable interrupts, returning whether they were enabled */
-static inline uint64_t fpu_save_irq_and_cli(void)
+static uint64_t fpu_save_irq_and_cli(void)
 {
     uint64_t rflags;
-    __asm__ volatile("pushfq; pop %0" : "=r"(rflags));
-    __asm__ volatile("cli");
+    rflags = get_rflags();
+    disable_intr();
     return (rflags >> 9) & 1ULL;
 }
 
 /* Re-enable interrupts if they were enabled when fpu_save_irq_and_cli() ran */
-static inline void fpu_restore_irq(uint64_t if_enabled)
+static void fpu_restore_irq(uint64_t if_enabled)
 {
-    if (if_enabled) __asm__ volatile("sti");
+    if (if_enabled) enable_intr();
 }
 
 /* fpu_init - detect features and enable the FPU on this CPU */
 void fpu_init(void)
 {
     fpu_percpu_t *fp   = fpu_percpu();
-    bool          boot = !__atomic_load_n(&fpu_config_ready, __ATOMIC_ACQUIRE);
     fp->fpu_live       = NULL;
     fp->fpu_kernel_cnt = 0;
     fp->fpu_irq_saved  = 0;
-
-#if CPU_FEATURE_FPU
+#if CONFIG_CPU_FEATURE_FPU
+    bool     boot = !__atomic_load_n(&fpu_config_ready, __ATOMIC_ACQUIRE);
     uint64_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0) : : "memory");
     cr0 &= ~(1ULL << CR0_EM_SHIFT); // EM = 0
     cr0 |= (1ULL << CR0_MP_SHIFT);  // MP = 1
     cr0 &= ~(1ULL << CR0_TS_SHIFT); // TS = 0 (no lazy FPU)
     __asm__ volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
-
-#    if CPU_FEATURE_SSE
+#    if CONFIG_CPU_FEATURE_SSE
     /*
      * CR4.OSFXSR must be set before any SSE instruction executes
      * (LDMXCSR and the SSE/AVX instructions themselves raise #UD
@@ -185,7 +231,6 @@ void fpu_init(void)
         if (boot) fpu_sse_enabled = 1;
     }
 #    endif
-
     if (boot) {
         /*
          * The boot CPU publishes one system-wide XSAVE layout.  APs must use
@@ -195,9 +240,9 @@ void fpu_init(void)
          */
         if (cpu_support_xsave() && cpu_xcr0_supports(XCR0_FPU_MASK)) {
             uint64_t xcr0_mask = XCR0_FPU_MASK;
-#    if CPU_FEATURE_AVX
+#    if CONFIG_CPU_FEATURE_AVX
             if (cpu_support_avx() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT)) xcr0_mask |= XCR0_AVX_BIT;
-#        if CPU_FEATURE_AVX512
+#        if CONFIG_CPU_FEATURE_AVX512
             if (cpu_support_avx512f() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT | XCR0_AVX512_MASK)) xcr0_mask |= XCR0_AVX512_MASK;
 #        endif
 #    endif
@@ -215,7 +260,7 @@ void fpu_init(void)
 
                 /* The pre-heap template is deliberately bounded. */
                 if (fpu_save_size > sizeof(fpu_initial_state)) {
-                    plogk("fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state.\n", fpu_save_size, sizeof(fpu_initial_state));
+                    log_buffer_write(&fpu_log, "fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state.\n", fpu_save_size, sizeof(fpu_initial_state));
                     xcr0_mask = XCR0_FPU_MASK;
                     __asm__ volatile("xsetbv" : : "a"((uint32_t)xcr0_mask), "d"((uint32_t)(xcr0_mask >> 32)), "c"(0) : "memory");
                     cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
@@ -223,23 +268,33 @@ void fpu_init(void)
                 }
                 cpuid_count(0x0000000d, 1, &eax, &ebx, &ecx, &edx);
 
-                fpu_xstate_mask  = xcr0_mask;
-                fpu_use_xsave    = 1;
+                fpu_xstate_mask = xcr0_mask;
+                fpu_use_xsave   = 1;
                 __atomic_store_n(&fpu_use_xsaveopt, (eax & 0x1) ? 1 : 0, __ATOMIC_RELEASE);
             }
         }
         if (!fpu_use_xsave) {
-            fpu_save_size    = FPU_FXSAVE_SIZE;
-            fpu_xstate_mask  = XCR0_FPU_MASK;
-            fpu_use_xsave    = 0;
+            fpu_save_size   = FPU_FXSAVE_SIZE;
+            fpu_xstate_mask = XCR0_FPU_MASK;
+            fpu_use_xsave   = 0;
             __atomic_store_n(&fpu_use_xsaveopt, 0, __ATOMIC_RELEASE);
         }
 
         fpu_state_set_initial(fpu_initial_state);
         __atomic_store_n(&fpu_config_ready, 1, __ATOMIC_RELEASE);
+
+        /* Buffer the boot FPU/SSE/AVX configuration; the console is not up yet, so flush it before init_gdt(). */
+        log_buffer_write(&fpu_log, "fpu: x87 FPU (MMX=%d, FCW=0x%04x)\n", cpu_support_mmx(), FPU_DEFAULT_FCW);
+        log_buffer_write(&fpu_log, "fpu: SSE (SSE2=%d, SSE3=%d, SSSE3=%d, SSE4.1=%d, SSE4.2=%d)\n", cpu_support_sse2(), cpu_support_sse3(), cpu_support_ssse3(), cpu_support_sse41(),
+                         cpu_support_sse42());
+        log_buffer_write(&fpu_log, "fpu: %s (xsaveopt=%d, XCR0=0x%llx, save size=%zu B)\n", fpu_use_xsave ? "XSAVE/XRSTOR" : "FXSAVE/FXRSTOR", __atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE),
+                         fpu_xstate_mask, fpu_save_size);
+        log_buffer_write(&fpu_log, "fpu: AVX (CPUID support=%d, XCR0 enabled=%d, AVX2 support=%d)\n", cpu_support_avx(), (fpu_xstate_mask & XCR0_AVX_BIT) ? 1 : 0, cpu_support_avx2());
+        log_buffer_write(&fpu_log, "fpu: AVX-512 (AVX512F support=%d, XCR0 enabled=%d, OPMASK=%d, ZMM_HI256=%d, HI16_ZMM=%d)\n", cpu_support_avx512f(), (fpu_xstate_mask & XCR0_AVX512_MASK) ? 1 : 0,
+                         (fpu_xstate_mask & XCR0_OPMASK_BIT) ? 1 : 0, (fpu_xstate_mask & XCR0_ZMM_HI256_BIT) ? 1 : 0, (fpu_xstate_mask & XCR0_HI16_ZMM_BIT) ? 1 : 0);
     } else if (fpu_use_xsave) {
         /* Validate and install the boot CPU's immutable XCR0 contract. */
-        if (!cpu_support_xsave() || !cpu_xcr0_supports(fpu_xstate_mask)) panic("fpu: AP cannot support boot CPU XCR0 mask 0x%llx.", (unsigned long long)fpu_xstate_mask);
+        if (!cpu_support_xsave() || !cpu_xcr0_supports(fpu_xstate_mask)) panic("fpu: AP cannot support boot CPU XCR0 mask 0x%llx", fpu_xstate_mask);
 
         uint64_t cr4;
         __asm__ volatile("mov %%cr4, %0" : "=r"(cr4) : : "memory");
@@ -251,7 +306,7 @@ void fpu_init(void)
         uint32_t eax, ebx, ecx, edx;
         cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
         size_t local_size = (ebx + FPU_STATE_ALIGNMENT - 1) & ~(FPU_STATE_ALIGNMENT - 1);
-        if (local_size < fpu_save_size) panic("fpu: AP XSAVE area %zu is smaller than boot layout %zu.", local_size, fpu_save_size);
+        if (local_size < fpu_save_size) panic("fpu: AP XSAVE area %zu is smaller than boot layout %zu", local_size, fpu_save_size);
         cpuid_count(0x0000000d, 1, &eax, &ebx, &ecx, &edx);
         if (!(eax & 0x1)) __atomic_store_n(&fpu_use_xsaveopt, 0, __ATOMIC_RELEASE);
     }
@@ -266,12 +321,12 @@ void fpu_init(void)
 /* Allocate and initialize a task's FPU state area */
 int fpu_task_init(struct task *task)
 {
-#if CPU_FEATURE_FPU
-    if (!task) return -1;
+#if CONFIG_CPU_FEATURE_FPU
+    if (!task) return -EINVAL;
     task->thread.fpu_state = aligned_alloc(FPU_STATE_ALIGNMENT, fpu_save_size);
     if (!task->thread.fpu_state) {
         plogk("fpu: %s: FPU state allocation failed (%zu bytes)\n", task->name, fpu_save_size);
-        return -1;
+        return -ENOMEM;
     }
     fpu_state_set_initial(task->thread.fpu_state);
     task->thread.fpu_initialized = 0;
@@ -285,8 +340,9 @@ int fpu_task_init(struct task *task)
 /* Release a task's FPU state area */
 void fpu_task_destroy(struct task *task)
 {
-#if CPU_FEATURE_FPU
+#if CONFIG_CPU_FEATURE_FPU
     if (!task) return;
+
     /*
      * Defensive: if the dying task is still marked live on this CPU,
      * drop the pointer so a later fpu_switch() can never compare
@@ -306,7 +362,7 @@ void fpu_task_destroy(struct task *task)
 /* Copy the parent task's FPU state into the child */
 void fpu_task_clone(struct task *parent, struct task *child)
 {
-#if CPU_FEATURE_FPU
+#if CONFIG_CPU_FEATURE_FPU
     if (!parent || !child || !parent->thread.fpu_state || !child->thread.fpu_state) return;
 
     /*
@@ -339,7 +395,7 @@ void fpu_task_clone(struct task *parent, struct task *child)
 /* Reset a task's FPU state to the x86-64 initial state */
 void fpu_task_reset(struct task *task)
 {
-#if CPU_FEATURE_FPU
+#if CONFIG_CPU_FEATURE_FPU
     if (!task || !task->thread.fpu_state) return;
 
     fpu_state_set_initial(task->thread.fpu_state);
@@ -364,7 +420,7 @@ void fpu_task_reset(struct task *task)
 /* fpu_switch - active save/restore on context switch */
 void fpu_switch(struct task *prev, struct task *next)
 {
-#if CPU_FEATURE_FPU
+#if CONFIG_CPU_FEATURE_FPU
     if (!prev || !next || prev == next) return;
 
     fpu_percpu_t *fp = fpu_percpu();
@@ -395,14 +451,14 @@ void fpu_switch(struct task *prev, struct task *next)
 /* Save a task's FPU state into a signal frame */
 int fpu_signal_save(struct task *task, void *state, size_t capacity)
 {
-#if CPU_FEATURE_FPU
-    if (!task || !state || !task->thread.fpu_state || capacity < fpu_save_size || fpu_save_size > FPU_SIGNAL_STATE_MAX) return -1;
+#if CONFIG_CPU_FEATURE_FPU
+    if (!task || !state || !task->thread.fpu_state || capacity < fpu_save_size || fpu_save_size > FPU_SIGNAL_STATE_MAX) return -EINVAL;
 
     uint64_t      if_enabled = fpu_save_irq_and_cli();
     fpu_percpu_t *fp         = fpu_percpu();
     if (fp->fpu_kernel_cnt || current_task() != task) {
         fpu_restore_irq(if_enabled);
-        return -1;
+        return -EBUSY;
     }
 
     if (fp->fpu_live == task) {
@@ -425,14 +481,14 @@ int fpu_signal_save(struct task *task, void *state, size_t capacity)
 /* Restore a task's FPU state from a signal frame */
 int fpu_signal_restore(struct task *task, const void *state, size_t size)
 {
-#if CPU_FEATURE_FPU
-    if (!task || !state || !task->thread.fpu_state || size != fpu_save_size || size > FPU_SIGNAL_STATE_MAX) return -1;
+#if CONFIG_CPU_FEATURE_FPU
+    if (!task || !state || !task->thread.fpu_state || size != fpu_save_size || size > FPU_SIGNAL_STATE_MAX) return -EINVAL;
 
     uint64_t      if_enabled = fpu_save_irq_and_cli();
     fpu_percpu_t *fp         = fpu_percpu();
     if (fp->fpu_kernel_cnt || current_task() != task) {
         fpu_restore_irq(if_enabled);
-        return -1;
+        return -EBUSY;
     }
 
     memcpy(task->thread.fpu_state, state, fpu_save_size);
@@ -467,21 +523,17 @@ int fpu_signal_restore(struct task *task, const void *state, size_t size)
 #endif
 }
 
-/* kernel_fpu_begin/end - explicit kernel FPU sections */
-
 /* Begin an explicit kernel FPU/SSE/AVX section */
 void kernel_fpu_begin(void)
 {
-#if CPU_FEATURE_FPU
+#if CONFIG_CPU_FEATURE_FPU
     fpu_percpu_t *fp         = fpu_percpu();
     uint64_t      if_enabled = fpu_save_irq_and_cli();
 
     if (fp->fpu_kernel_cnt++ == 0) {
         fp->fpu_irq_saved = (uint8_t)if_enabled;
-        /*
-         * Save the current task's live state; the kernel owns the FPU
-         * registers until kernel_fpu_end().
-         */
+
+        /* Save the current task's live state; the kernel owns the FPU registers until kernel_fpu_end(). */
         task_t *cur = current_task();
         if (cur && fp->fpu_live == cur && cur->thread.fpu_state) {
             fpu_save(cur->thread.fpu_state);
@@ -496,14 +548,11 @@ void kernel_fpu_begin(void)
 /* End an explicit kernel FPU/SSE/AVX section */
 void kernel_fpu_end(void)
 {
-#if CPU_FEATURE_FPU
+#if CONFIG_CPU_FEATURE_FPU
     fpu_percpu_t *fp = fpu_percpu();
 
     if (--fp->fpu_kernel_cnt == 0) {
-        /*
-         * Restore the current task's state (or an initial state for
-         * tasks that never used the FPU).
-         */
+        /* Restore the current task's state (or an initial state for tasks that never used the FPU). */
         task_t *cur = current_task();
         if (cur && cur->thread.fpu_state) {
             if (cur->thread.fpu_initialized) {

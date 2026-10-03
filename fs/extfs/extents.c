@@ -15,8 +15,10 @@
 #include <libs/util/crc32c.h>
 #include <mem/heap.h>
 
-#define EXT4_EXT_UNWRITTEN 0x8000U
-#define EXT4_EXT_MAX_DEPTH 5U
+#if CONFIG_EXTFS
+
+#    define EXT4_EXT_UNWRITTEN 0x8000U
+#    define EXT4_EXT_MAX_DEPTH 5U
 
 /*
  * Overview
@@ -25,28 +27,6 @@
  * levels of index nodes; this file provides lookup, splitting,
  * insertion and removal of extents.
  */
-
-typedef struct ext4_extent_header {
-        uint16_t magic;
-        uint16_t entries;
-        uint16_t max;
-        uint16_t depth;
-        uint32_t generation;
-} __attribute__((packed)) ext4_extent_header_t;
-
-typedef struct ext4_extent {
-        uint32_t logical;
-        uint16_t length;
-        uint16_t start_hi;
-        uint32_t start_lo;
-} __attribute__((packed)) ext4_extent_t;
-
-typedef struct ext4_extent_index {
-        uint32_t logical;
-        uint32_t leaf_lo;
-        uint16_t leaf_hi;
-        uint16_t unused;
-} __attribute__((packed)) ext4_extent_index_t;
 
 typedef struct extent_item {
         uint32_t logical;
@@ -118,7 +98,7 @@ static uint32_t extent_checksum_seed(extfs_handle_t *h)
 static size_t extent_tail_offset(extfs_handle_t *h, const uint8_t *block)
 {
     const ext4_extent_header_t *header = (const ext4_extent_header_t *)block;
-    size_t                      offset = sizeof(*header) + (size_t)header->max * sizeof(ext4_extent_t);
+    size_t                      offset = sizeof(*header) + ((size_t)header->max * sizeof(ext4_extent_t));
     return offset <= h->sb->block_size - sizeof(uint32_t) ? offset : 0;
 }
 
@@ -158,7 +138,7 @@ static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t 
             uint32_t length   = entries[i].length & ~EXT4_EXT_UNWRITTEN;
             uint64_t physical = entries[i].start_lo | (uint64_t)entries[i].start_hi << 32;
             if (!length || physical == 0 || physical + length > h->sb->blocks_count || (i && entries[i].logical < previous_end)) {
-                plogk("extfs: Drive %u: inode %u invalid extent (logical %u, phys %llu, len %u)\n", h->sb->device.drive, h->inode_no, entries[i].logical, (unsigned long long)physical, length);
+                plogk("extfs: Drive %u: inode %u invalid extent (logical %u, phys %llu, len %u)\n", h->sb->device.drive, h->inode_no, entries[i].logical, physical, length);
                 return -EIO;
             }
             extent_item_t item = {
@@ -183,16 +163,15 @@ static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t 
     for (uint16_t i = 0; i < header->entries; i++) {
         uint64_t block = indices[i].leaf_lo | (uint64_t)indices[i].leaf_hi << 32;
         if (!block || block > UINT32_MAX || block >= h->sb->blocks_count || (i && indices[i].logical <= previous)) {
-            plogk("extfs: Drive %u: inode %u invalid extent index (logical %u, block %llu)\n", h->sb->device.drive, h->inode_no, indices[i].logical, (unsigned long long)block);
+            plogk("extfs: Drive %u: inode %u invalid extent index (logical %u, block %llu)\n", h->sb->device.drive, h->inode_no, indices[i].logical, block);
             status = -EIO;
             break;
         }
         previous = indices[i].logical;
         status   = extent_push_metadata(vector, (uint32_t)block);
-        if (status != EOK || (status = extfs_read_block(h->sb, (uint32_t)block, buffer)) != EOK) // NOLINT(bugprone-assignment-in-if-condition)
-            break;
+        if (status != EOK || (status = extfs_read_block(h->sb, (uint32_t)block, buffer)) != EOK) break;
         if (!extent_block_checksum_verify(h, buffer)) {
-            plogk("extfs: Drive %u: inode %u extent block %llu checksum mismatch.\n", h->sb->device.drive, h->inode_no, (unsigned long long)block);
+            plogk("extfs: Drive %u: inode %u extent block %llu checksum mismatch.\n", h->sb->device.drive, h->inode_no, block);
             status = -EIO;
             break;
         }
@@ -526,3 +505,5 @@ int extfs_extent_count_blocks(extfs_handle_t *h, uint64_t *blocks)
     extent_vector_destroy(&vector);
     return EOK;
 }
+
+#endif

@@ -9,12 +9,48 @@
  */
 
 #include <kernel/printk.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
-#include <libs/std/string.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>
+
+/* Get page size from walk state */
+size_t get_page_size_from_state(const page_walk_state_t *state)
+{
+    if (!state->is_valid) return PAGE_4K_SIZE;
+
+    switch (state->page_size) {
+        case 2 :
+            return PAGE_1G_SIZE; // 1GB page
+        case 1 :
+            return PAGE_2M_SIZE; // 2MB page
+        default :
+            return PAGE_4K_SIZE; // 4KB page
+    }
+}
+
+/* Check if address is aligned to specific page size */
+uint8_t is_page_aligned(uintptr_t addr, size_t page_size)
+{
+    return (addr & (page_size - 1)) == 0;
+}
+
+/* Align address down to specific page size */
+uintptr_t align_down_to_page(uintptr_t addr, size_t page_size)
+{
+    return addr & ~(page_size - 1);
+}
+
+/* Align address up to specific page size */
+uintptr_t align_up_to_page(uintptr_t addr, size_t page_size)
+{
+    return (addr + page_size - 1) & ~(page_size - 1);
+}
+
+/* Get next aligned address for specific page size */
+uintptr_t get_next_aligned_addr(uintptr_t addr, size_t page_size)
+{
+    return align_up_to_page(addr, page_size);
+}
 
 /* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr)
@@ -45,7 +81,7 @@ void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintp
 }
 
 /* Fast page table lookup helper */
-static inline uint8_t page_table_lookup(page_table_t *table, uint16_t index, page_table_t **next_table, uint64_t *entry_value)
+static uint8_t page_table_lookup(page_table_t *table, uint16_t index, page_table_t **next_table, uint64_t *entry_value)
 {
     if (!table || index >= 512) return 0;
     uint64_t entry = table->entries[index].value;
@@ -71,7 +107,7 @@ uint8_t page_walk_execute(page_walk_state_t *state)
         return 0;
     }
     if (is_huge_page(&state->l4_table->entries[state->l4_index])) {
-        plogk("page_walk: Illegal L4 huge-page entry for virtual address 0x%016llx (page table corruption)\n", (uint64_t)state->virtual_addr);
+        plogk_once("page_walk: Illegal L4 huge-page entry for virtual address 0x%016llx (page table corruption)\n", ((uint64_t)state->virtual_addr));
         state->is_valid = 0;
         return 0;
     }
@@ -152,6 +188,7 @@ void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_vi
             state->l3_table = 0;
             if (difference >> 39) { // L4 boundary
                 state->l4_index = PAGE_WALK_INDEX(next_virtual, 39);
+
                 /* l4_table remains the same (directory doesn't change) */
             }
         }
@@ -181,15 +218,15 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
             continue;
         }
 
-        /* Page is free - determine how much we can advance */
+        /* Page is free - determine the maximum advance */
         size_t current_free = PAGE_4K_SIZE; // At least 4K is free
 
-        /* Check if we can use larger pages */
+        /* Check whether larger pages are usable */
         if (desired_size >= PAGE_2M_SIZE && state->is_huge && state->page_size == 1) {
-            /* Check if we have enough space for 2MB page */
+            /* Check whether a 2MB page fits */
             if (length - free_bytes >= PAGE_2M_SIZE) current_free = PAGE_2M_SIZE;
         } else if (desired_size >= PAGE_1G_SIZE && state->is_huge && state->page_size == 2) {
-            /* Check if we have enough space for 1GB page */
+            /* Check whether a 1GB page fits */
             if (length - free_bytes >= PAGE_1G_SIZE) current_free = PAGE_1G_SIZE;
         }
         free_bytes += current_free;

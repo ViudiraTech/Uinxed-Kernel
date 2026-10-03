@@ -12,7 +12,6 @@
 #include <drivers/firmware/acpi.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/hhdm.h>
 
@@ -37,16 +36,19 @@ void facp_init(acpi_facp_t *facp0)
         plogk("facp: DSDT table not found.\n");
         return;
     }
+
     dsdt_table = phys_to_virt((uint64_t)dsdt_table);
     plogk("facp: DSDT found at %p\n", dsdt_table);
 
     if (!memcmp(dsdt_table->signature, "DSDT", 4)) {
         S5_addr = &(dsdt_table->definition_block);
         dsdtlen = dsdt_table->length - 36;
+
         while (dsdtlen--) {
             if (!memcmp(S5_addr, "_S5_", 4)) break;
             S5_addr++;
         }
+
         SLP_EN = 1 << 13;
         SCI_EN = 1;
 
@@ -55,9 +57,11 @@ void facp_init(acpi_facp_t *facp0)
                 S5_addr += 5;
                 S5_addr += ((*S5_addr & 0xc0) >> 6) + 2;
                 if (*S5_addr == 0x0a) S5_addr++;
+
                 SLP_TYPa = *(S5_addr) << 10;
                 S5_addr++;
                 if (*S5_addr == 0x0a) S5_addr++;
+
                 SLP_TYPb = *(S5_addr) << 10;
                 S5_addr++;
                 plogk("facp: SLP_TYPa = 0x%04hx, SLP_TYPb = 0x%04hx\n", SLP_TYPa, SLP_TYPb);
@@ -113,38 +117,54 @@ acpi_facp_t *get_acpi_facp(void)
     return facp;
 }
 
-/* Cycle the power */
-void power_reset(void)
+/*
+ * Reboot the system. Tries the ACPI reset register first, then falls back to
+ * the 8042 keyboard-controller reset and the 0xCF9 reset port, finally
+ * halting if none take effect. Never returns, so callers need no fallback.
+ */
+__attribute__((noreturn)) void power_reset(void)
 {
-    if (!facp || !facp->reset_reg.address || !facp->reset_value) return;
+    if (facp && facp->reset_reg.address && facp->reset_value) {
+        generic_address_t *reg = &facp->reset_reg;
 
-    generic_address_t *reg = &facp->reset_reg;
-    if (reg->address_space == 1) { // System I/O
-        if (reg->bit_width <= 8)
-            outb((uint16_t)reg->address, facp->reset_value);
-        else if (reg->bit_width <= 16)
-            outw((uint16_t)reg->address, facp->reset_value);
-        else
-            outl((uint16_t)reg->address, facp->reset_value);
-    } else if (reg->address_space == 0) { // System memory
-        volatile uint8_t *addr = (volatile uint8_t *)phys_to_virt(reg->address);
-        if (reg->bit_width <= 8)
-            *addr = facp->reset_value;
-        else if (reg->bit_width <= 16)
-            *(volatile uint16_t *)addr = facp->reset_value;
-        else
-            *(volatile uint32_t *)addr = facp->reset_value;
+        if (reg->address_space == 1) { // System I/O
+            if (reg->bit_width <= 8) {
+                outb((uint16_t)reg->address, facp->reset_value);
+            } else if (reg->bit_width <= 16) {
+                outw((uint16_t)reg->address, facp->reset_value);
+            } else {
+                outl((uint16_t)reg->address, facp->reset_value);
+            }
+        } else if (reg->address_space == 0) { // System memory
+            volatile uint8_t *addr = (volatile uint8_t *)phys_to_virt(reg->address);
+            if (reg->bit_width <= 8) {
+                *addr = facp->reset_value;
+            } else if (reg->bit_width <= 16) {
+                mmio_write16(addr, facp->reset_value);
+            } else {
+                mmio_write32(addr, facp->reset_value);
+            }
+        }
     }
+
+    for (uint32_t i = 0; i < 100000; i++)
+        if (!(inb(0x64) & 0x02)) { // 8042: wait for the input buffer to drain
+            outb(0x64, 0xFE);
+            break;
+        }
+    outb(0xCF9, 0x06); // Fast A20/Reset port
+    krn_halt();
 }
 
-/* Power off */
-void power_off(void)
+/* Power off via ACPI S5 if available; otherwise halt the CPU. Never returns, so it is safe to call from shutdown paths that already disabled interrupts. */
+__attribute__((noreturn)) void power_off(void)
 {
-    if (!facp || !SCI_EN || !facp->pm1a_cnt_blk) return;
-    while (1) {
-        outw((uint32_t)facp->pm1a_cnt_blk, SLP_TYPa | SLP_EN);
-        if (facp->pm1b_cnt_blk) outw((uint32_t)facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);
-    }
+    if (facp && SCI_EN && facp->pm1a_cnt_blk)
+        while (1) {
+            outw(facp->pm1a_cnt_blk, SLP_TYPa | SLP_EN);
+            if (facp->pm1b_cnt_blk) outw(facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);
+        }
+    krn_halt();
 }
 
 /* Obtain ACPI major version */

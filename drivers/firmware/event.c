@@ -10,20 +10,53 @@
 
 #include <arch/common.h>
 #include <arch/idt.h>
-#include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
+#include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
-#include <sync/spin_lock.h>
+
+/* Fixed event dispatch table */
+#define ACPI_NUM_FIXED_EVENTS 3
+
+typedef struct {
+        uint8_t               gpe_number;
+        acpi_event_callback_t handler;
+        void                 *context;
+} gpe_handler_t;
 
 /* PM1 register access via FADT */
-
 static uint16_t pm1a_sts; // PM1a status register port
 static uint16_t pm1b_sts; // PM1b status register port
 static uint16_t pm1a_en;  // PM1a enable register port
 static uint16_t pm1b_en;  // PM1b enable register port
+
+static struct {
+        acpi_event_callback_t handler;
+        void                 *context;
+        uint16_t              status_mask;
+        uint16_t              enable_mask;
+        const char           *name;
+} fixed_events[ACPI_NUM_FIXED_EVENTS] = {
+    [ACPI_EVENT_POWER_BUTTON] = {.status_mask = ACPI_PM1_STS_PWRBTN, .enable_mask = ACPI_PM1_EN_PWRBTN, .name = "power button"},
+    [ACPI_EVENT_SLEEP_BUTTON] = {.status_mask = ACPI_PM1_STS_SLPBTN, .enable_mask = ACPI_PM1_EN_SLPBTN, .name = "sleep button"},
+    [ACPI_EVENT_RTC]          = {.status_mask = ACPI_PM1_STS_RTC,    .enable_mask = ACPI_PM1_EN_RTC,    .name = "RTC"         },
+};
+
+static gpe_handler_t gpe_handlers[CONFIG_ACPI_MAX_GPE_HANDLERS];
+static int           gpe_handler_count;
+
+/* GPE block info decoded from FADT */
+static struct {
+        uint16_t block0_addr;
+        uint8_t  block0_len;  // in bytes
+        uint8_t  block0_base; // base GPE number = 0
+        uint16_t block1_addr;
+        uint8_t  block1_len;  // in bytes
+        uint8_t  block1_base; // base GPE number
+} gpe_blocks;
+
+/* SCI interrupt handler */
+static uint8_t sci_vector; // IDT vector of the SCI
 
 /* Decode the PM1 event/enable block addresses from the FADT. */
 static void pm1_setup(void)
@@ -46,8 +79,8 @@ static void pm1_setup(void)
     /* Enable register is at offset PM1_EVT_LEN/2 within the block */
     uint8_t evt_len = f->pm1_evt_len;
     if (!evt_len) evt_len = 4;
-    pm1a_en = pm1a_sts + evt_len / 2;
-    pm1b_en = pm1b_sts ? pm1b_sts + evt_len / 2 : 0;
+    pm1a_en = pm1a_sts + (evt_len / 2);
+    pm1b_en = pm1b_sts ? pm1b_sts + (evt_len / 2) : 0;
 }
 
 /* Read the PM1 status register. */
@@ -80,68 +113,30 @@ void acpi_pm1_enable_set(uint16_t bits)
     if (pm1b_en) outw(pm1b_en, bits);
 }
 
-/* Fixed event dispatch table */
-
-#define ACPI_NUM_FIXED_EVENTS 3
-
-static struct {
-        acpi_event_callback_t handler;
-        void                 *context;
-        uint16_t              status_mask;
-        uint16_t              enable_mask;
-        const char           *name;
-} fixed_events[ACPI_NUM_FIXED_EVENTS] = {
-    [ACPI_EVENT_POWER_BUTTON] = {.status_mask = ACPI_PM1_STS_PWRBTN, .enable_mask = ACPI_PM1_EN_PWRBTN, .name = "power button"},
-    [ACPI_EVENT_SLEEP_BUTTON] = {.status_mask = ACPI_PM1_STS_SLPBTN, .enable_mask = ACPI_PM1_EN_SLPBTN, .name = "sleep button"},
-    [ACPI_EVENT_RTC]          = {.status_mask = ACPI_PM1_STS_RTC,    .enable_mask = ACPI_PM1_EN_RTC,    .name = "RTC"         },
-};
-
 /* Register a handler for a fixed ACPI event. */
 int acpi_register_fixed_event(uint8_t event, acpi_event_callback_t handler, void *context)
 {
     if (event >= ACPI_NUM_FIXED_EVENTS) {
         plogk("acpi-event: Invalid fixed event id %u\n", event);
-        return -1;
+        return -EINVAL;
     }
     fixed_events[event].handler = handler;
     fixed_events[event].context = context;
     return 0;
 }
 
-/* GPE dispatch */
-
-#define ACPI_MAX_GPE_HANDLERS 32
-
-typedef struct {
-        uint8_t               gpe_number;
-        acpi_event_callback_t handler;
-        void                 *context;
-} gpe_handler_t;
-
-static gpe_handler_t gpe_handlers[ACPI_MAX_GPE_HANDLERS];
-static int           gpe_handler_count;
-
-/* GPE block info decoded from FADT */
-static struct {
-        uint16_t block0_addr;
-        uint8_t  block0_len;  // in bytes
-        uint8_t  block0_base; // base GPE number = 0
-        uint16_t block1_addr;
-        uint8_t  block1_len;  // in bytes
-        uint8_t  block1_base; // base GPE number
-} gpe_blocks;
-
 /* Decode the GPE block addresses from the FADT. */
 static void gpe_setup(void)
 {
     acpi_facp_t *f = get_acpi_facp();
-    if (!f) return;
 
+    if (!f) return;
     if (f->x_gpe0_blk.address && f->x_gpe0_blk.bit_width >= 32) {
         gpe_blocks.block0_addr = (uint16_t)f->x_gpe0_blk.address;
     } else {
         gpe_blocks.block0_addr = (uint16_t)f->gpe0_blk;
     }
+
     gpe_blocks.block0_len  = f->gpe0_blk_len;
     gpe_blocks.block0_base = 0;
 
@@ -150,6 +145,7 @@ static void gpe_setup(void)
     } else {
         gpe_blocks.block1_addr = (uint16_t)f->gpe1_blk;
     }
+
     gpe_blocks.block1_len  = f->gpe1_blk_len;
     gpe_blocks.block1_base = f->gpe1_base;
 }
@@ -183,32 +179,31 @@ static int gpe_number_to_bit(uint8_t gpe, uint8_t *block, uint8_t *bit)
         *bit   = gpe - gpe_blocks.block1_base;
         return 0;
     }
-    return -1;
+    return -EINVAL;
 }
 
 /* Register a handler for a GPE number. */
 int acpi_register_gpe(uint8_t gpe_number, acpi_event_callback_t handler, void *context)
 {
-    if (gpe_handler_count >= ACPI_MAX_GPE_HANDLERS) {
+    if (gpe_handler_count >= CONFIG_ACPI_MAX_GPE_HANDLERS) {
         plogk("acpi-event: Too many GPE handlers.\n");
-        return -1;
+        return -ENOSPC;
     }
+
     uint8_t block, bit;
+
     if (gpe_number_to_bit(gpe_number, &block, &bit)) {
         plogk("acpi-event: GPE %u out of range.\n", gpe_number);
-        return -1;
+        return -EINVAL;
     }
 
     gpe_handlers[gpe_handler_count].gpe_number = gpe_number;
     gpe_handlers[gpe_handler_count].handler    = handler;
     gpe_handlers[gpe_handler_count].context    = context;
     gpe_handler_count++;
+
     return 0;
 }
-
-/* SCI interrupt handler */
-
-static uint8_t sci_vector; // IDT vector of the SCI
 
 /* Dispatch pending fixed events */
 static void dispatch_fixed_events(uint16_t sts)
@@ -224,9 +219,10 @@ static void dispatch_gpes(void)
     for (int i = 0; i < gpe_handler_count; i++) {
         uint8_t block, bit;
         if (gpe_number_to_bit(gpe_handlers[i].gpe_number, &block, &bit)) {
-            plogk("acpi-event: GPE %u no longer maps to a GPE block; handler dropped.\n", gpe_handlers[i].gpe_number);
+            plogk("acpi-event: GPE %u no longer maps to a GPE block; skipping handler.\n", gpe_handlers[i].gpe_number);
             continue;
         }
+
         uint8_t sts = acpi_gpe_status(block);
         if (sts & (1 << bit)) {
             acpi_gpe_status_clear(block, bit);
@@ -252,7 +248,6 @@ INTERRUPT_BEGIN static void sci_handler(interrupt_frame_t *frame)
 
     /* Clear all pending fixed events */
     acpi_pm1_status_clear(sts);
-
     dispatch_fixed_events(sts);
     dispatch_gpes();
     send_eoi();
@@ -264,18 +259,12 @@ INTERRUPT_END
 int acpi_sci_init(void)
 {
     acpi_facp_t *f = get_acpi_facp();
-    if (!f) return -1;
+    if (!f) return -ENODEV;
 
-    /*
-     * Enable SCI-related fixed events.
-     * The power-button enable is set; callers can add more.
-     */
+    /* Enable SCI-related fixed events. The power-button enable is set; callers can add more. */
     acpi_pm1_enable_set(ACPI_PM1_EN_PWRBTN);
 
-    /*
-     * Map ISA IRQ (FADT->sci_int) to the APIC vector.
-     * Standard PC/AT routing: IRQ n -> vector (0x20 + n).
-     */
+    /* Map ISA IRQ (FADT->sci_int) to the APIC vector. Standard PC/AT routing: IRQ n -> vector (0x20 + n). */
     uint8_t irq = f->sci_int;
     if (irq == 0) irq = 9;
     sci_vector = IRQ_0 + irq;
@@ -291,6 +280,7 @@ void acpi_event_poll(void)
     uint16_t sts = acpi_pm1_status();
     uint16_t en  = acpi_pm1_enable();
     sts &= en;
+
     if (!sts) return;
 
     acpi_pm1_status_clear(sts);

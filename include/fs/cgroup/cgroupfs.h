@@ -12,6 +12,10 @@
 #define INCLUDE_CGROUPFS_H_
 
 /* Register the cgroup2 filesystem with the VFS layer. */
+#if CONFIG_CGROUP
 void cgroupfs_regist(void);
+#else
+static inline void cgroupfs_regist(void) {}
+#endif
 
 #endif // INCLUDE_CGROUPFS_H_

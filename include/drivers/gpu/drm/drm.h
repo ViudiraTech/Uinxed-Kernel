@@ -11,98 +11,12 @@
 #ifndef INCLUDE_DRM_H_
 #define INCLUDE_DRM_H_
 
-#include <libs/std/stddef.h>
+#include <kernel/ioctl.h>
 #include <libs/std/stdint.h>
-
-/* Fixed-width UAPI aliases. */
-typedef int8_t   __s8;
-typedef uint8_t  __u8;
-typedef int16_t  __s16;
-typedef uint16_t __u16;
-typedef int32_t  __s32;
-typedef uint32_t __u32;
-typedef int64_t  __s64;
-typedef uint64_t __u64;
-typedef uint32_t drm_handle_t;
-typedef uint32_t drm_context_t;
-typedef uint32_t drm_drawable_t;
-typedef uint32_t drm_magic_t;
 
 /* Generic DRM event ABI. */
 #define DRM_EVENT_VBLANK        0x01
 #define DRM_EVENT_FLIP_COMPLETE 0x02
-
-struct drm_event {
-        __u32 type;
-        __u32 length;
-};
-
-struct drm_event_vblank {
-        struct drm_event base;
-        __u64            user_data;
-        __u32            tv_sec;
-        __u32            tv_usec;
-        __u32            sequence;
-        __u32            crtc_id;
-};
-
-/*
- * ioctl encoding macros. Guarded with #ifndef so they coexist with
- * input_event.h which also defines them (the project has no single ioctl.h
- * header).
- */
-#ifndef _IOC_NRBITS
-#    define _IOC_NRBITS 8
-#endif
-#ifndef _IOC_TYPEBITS
-#    define _IOC_TYPEBITS 8
-#endif
-#ifndef _IOC_SIZEBITS
-#    define _IOC_SIZEBITS 14
-#endif
-#ifndef _IOC_DIRBITS
-#    define _IOC_DIRBITS 2
-#endif
-
-#ifndef _IOC_NONE
-#    define _IOC_NONE 0U
-#endif
-#ifndef _IOC_WRITE
-#    define _IOC_WRITE 1U
-#endif
-#ifndef _IOC_READ
-#    define _IOC_READ 2U
-#endif
-
-#ifndef _IOC
-#    define _IOC(dir, type, nr, size) (((dir) << 30) | ((type) << 8) | (nr) | ((size) << 16))
-#endif
-
-#ifndef _IO
-#    define _IO(type, nr) _IOC(_IOC_NONE, (type), (nr), 0)
-#endif
-#ifndef _IOR
-#    define _IOR(type, nr, size) _IOC(_IOC_READ, (type), (nr), (uint32_t)sizeof(size))
-#endif
-#ifndef _IOW
-#    define _IOW(type, nr, size) _IOC(_IOC_WRITE, (type), (nr), (uint32_t)sizeof(size))
-#endif
-#ifndef _IOWR
-#    define _IOWR(type, nr, size) _IOC(_IOC_READ | _IOC_WRITE, (type), (nr), (uint32_t)sizeof(size))
-#endif
-
-#ifndef _IOC_DIR
-#    define _IOC_DIR(cmd) (((cmd) >> 30) & 0x3)
-#endif
-#ifndef _IOC_TYPE
-#    define _IOC_TYPE(cmd) (((cmd) >> 8) & 0xff)
-#endif
-#ifndef _IOC_NR
-#    define _IOC_NR(cmd) ((cmd) & 0xff)
-#endif
-#ifndef _IOC_SIZE
-#    define _IOC_SIZE(cmd) (((cmd) >> 16) & 0x3fff)
-#endif
 
 #define DRM_IOCTL_BASE 'd'
 
@@ -121,6 +35,155 @@ struct drm_event_vblank {
 #define _DRM_LOCK_IS_HELD(lock)    ((lock) & _DRM_LOCK_HELD)
 #define _DRM_LOCK_IS_CONT(lock)    ((lock) & _DRM_LOCK_CONT)
 #define _DRM_LOCKING_CONTEXT(lock) ((lock) & ~(_DRM_LOCK_HELD | _DRM_LOCK_CONT))
+
+/* DRM core version, matching the UAPI (drivers report their own driver version through DRM_IOCTL_VERSION). */
+#define DRM_VERSION_MAJOR      1
+#define DRM_VERSION_MINOR      4
+#define DRM_VERSION_PATCHLEVEL 0
+
+#define DRM_ADD_COMMAND    0
+#define DRM_RM_COMMAND     1
+#define DRM_INST_HANDLER   2
+#define DRM_UNINST_HANDLER 3
+
+#define _DRM_PAGE_ALIGN    0x01
+#define _DRM_AGP_BUFFER    0x02
+#define _DRM_SG_BUFFER     0x04
+#define _DRM_FB_BUFFER     0x08
+#define _DRM_PCI_BUFFER_RO 0x10
+
+#define _DRM_VBLANK_HIGH_CRTC_SHIFT 1
+#define _DRM_VBLANK_TYPES_MASK      (_DRM_VBLANK_ABSOLUTE | _DRM_VBLANK_RELATIVE)
+#define _DRM_VBLANK_FLAGS_MASK      (_DRM_VBLANK_EVENT | _DRM_VBLANK_SIGNAL | _DRM_VBLANK_SECONDARY | _DRM_VBLANK_NEXTONMISS)
+
+#define _DRM_PRE_MODESET  1
+#define _DRM_POST_MODESET 2
+
+/* PRIME capability flags */
+#define DRM_PRIME_CAP_EXPORT 1
+#define DRM_PRIME_CAP_IMPORT 2
+
+/* DRM_IOCTL_GET_CAP / SET_CLIENT_CAP */
+#define DRM_CAP_DUMB_BUFFER            0x1
+#define DRM_CAP_VBLANK_HIGH_CRTC       0x2
+#define DRM_CAP_DUMB_PREFERRED_DEPTH   0x3
+#define DRM_CAP_DUMB_PREFER_SHADOW     0x4
+#define DRM_CAP_PRIME                  0x5
+#define DRM_CAP_TIMESTAMP_MONOTONIC    0x6
+#define DRM_CAP_ASYNC_PAGE_FLIP        0x7
+#define DRM_CAP_CURSOR_WIDTH           0x8
+#define DRM_CAP_CURSOR_HEIGHT          0x9
+#define DRM_CAP_ADDFB2_MODIFIERS       0x10
+#define DRM_CAP_PAGE_FLIP_TARGET       0x11
+#define DRM_CAP_CRTC_IN_VBLANK_EVENT   0x12
+#define DRM_CAP_SYNCOBJ                0x13
+#define DRM_CAP_SYNCOBJ_TIMELINE       0x14
+#define DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP 0x15
+
+#define DRM_CLIENT_CAP_STEREO_3D            1
+#define DRM_CLIENT_CAP_UNIVERSAL_PLANES     2
+#define DRM_CLIENT_CAP_ATOMIC               3
+#define DRM_CLIENT_CAP_ASPECT_RATIO         4
+#define DRM_CLIENT_CAP_WRITEBACK_CONNECTORS 5
+#define DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT 6
+
+/* ioctl command numbers. Values are ABI-fixed so that existing userspace drives this kernel without recompilation. */
+#define DRM_IOCTL_VERSION     DRM_IOWR(0x00, struct drm_version)
+#define DRM_IOCTL_GET_UNIQUE  DRM_IOWR(0x01, struct drm_unique)
+#define DRM_IOCTL_GET_MAGIC   DRM_IOR(0x02, struct drm_auth)
+#define DRM_IOCTL_IRQ_BUSID   DRM_IOWR(0x03, struct drm_irq_busid)
+#define DRM_IOCTL_GET_MAP     DRM_IOWR(0x04, struct drm_map)
+#define DRM_IOCTL_GET_CLIENT  DRM_IOWR(0x05, struct drm_client)
+#define DRM_IOCTL_GET_STATS   DRM_IOR(0x06, struct drm_stats)
+#define DRM_IOCTL_SET_VERSION DRM_IOWR(0x07, struct drm_set_version)
+#define DRM_IOCTL_MODESET_CTL DRM_IOW(0x08, struct drm_modeset_ctl)
+
+#define DRM_IOCTL_GEM_CLOSE      DRM_IOW(0x09, struct drm_gem_close)
+#define DRM_IOCTL_GEM_FLINK      DRM_IOWR(0x0a, struct drm_gem_flink)
+#define DRM_IOCTL_GEM_OPEN       DRM_IOWR(0x0b, struct drm_gem_open)
+#define DRM_IOCTL_GET_CAP        DRM_IOWR(0x0c, struct drm_get_cap)
+#define DRM_IOCTL_SET_CLIENT_CAP DRM_IOW(0x0d, struct drm_set_client_cap)
+
+#define DRM_IOCTL_SET_UNIQUE DRM_IOW(0x10, struct drm_unique)
+#define DRM_IOCTL_AUTH_MAGIC DRM_IOW(0x11, struct drm_auth)
+#define DRM_IOCTL_BLOCK      DRM_IOWR(0x12, struct drm_block)
+#define DRM_IOCTL_UNBLOCK    DRM_IOWR(0x13, struct drm_block)
+#define DRM_IOCTL_CONTROL    DRM_IOW(0x14, struct drm_control)
+
+#define DRM_IOCTL_ADD_MAP DRM_IOWR(0x15, struct drm_map)
+#define DRM_IOCTL_RM_MAP  DRM_IOW(0x1b, struct drm_map)
+
+#define DRM_IOCTL_SET_SAREA_CTX DRM_IOW(0x1c, struct drm_ctx_priv_map)
+#define DRM_IOCTL_GET_SAREA_CTX DRM_IOWR(0x1d, struct drm_ctx_priv_map)
+
+#define DRM_IOCTL_SET_MASTER  DRM_IO(0x1e)
+#define DRM_IOCTL_DROP_MASTER DRM_IO(0x1f)
+
+#define DRM_IOCTL_ADD_CTX    DRM_IOWR(0x20, struct drm_ctx)
+#define DRM_IOCTL_RM_CTX     DRM_IOWR(0x21, struct drm_ctx)
+#define DRM_IOCTL_MOD_CTX    DRM_IOW(0x22, struct drm_ctx)
+#define DRM_IOCTL_GET_CTX    DRM_IOWR(0x23, struct drm_ctx)
+#define DRM_IOCTL_SWITCH_CTX DRM_IOW(0x24, struct drm_ctx)
+#define DRM_IOCTL_NEW_CTX    DRM_IOW(0x25, struct drm_ctx)
+#define DRM_IOCTL_RES_CTX    DRM_IOWR(0x26, struct drm_ctx_res)
+
+#define DRM_IOCTL_ADD_DRAW DRM_IOWR(0x27, struct drm_draw)
+#define DRM_IOCTL_RM_DRAW  DRM_IOWR(0x28, struct drm_draw)
+
+#define DRM_IOCTL_DMA    DRM_IOWR(0x29, struct drm_dma)
+#define DRM_IOCTL_LOCK   DRM_IOW(0x2a, struct drm_lock)
+#define DRM_IOCTL_UNLOCK DRM_IOW(0x2b, struct drm_lock)
+#define DRM_IOCTL_FINISH DRM_IOW(0x2c, struct drm_lock)
+
+#define DRM_IOCTL_PRIME_HANDLE_TO_FD DRM_IOWR(0x2d, struct drm_prime_handle)
+#define DRM_IOCTL_PRIME_FD_TO_HANDLE DRM_IOWR(0x2e, struct drm_prime_handle)
+
+#define DRM_IOCTL_AGP_ACQUIRE DRM_IO(0x30)
+#define DRM_IOCTL_AGP_RELEASE DRM_IO(0x31)
+#define DRM_IOCTL_AGP_ENABLE  DRM_IOW(0x32, struct drm_agp_mode)
+#define DRM_IOCTL_AGP_INFO    DRM_IOR(0x33, struct drm_agp_info)
+#define DRM_IOCTL_AGP_ALLOC   DRM_IOWR(0x34, struct drm_agp_buffer)
+#define DRM_IOCTL_AGP_FREE    DRM_IOW(0x35, struct drm_agp_buffer)
+#define DRM_IOCTL_AGP_BIND    DRM_IOW(0x36, struct drm_agp_binding)
+#define DRM_IOCTL_AGP_UNBIND  DRM_IOW(0x37, struct drm_agp_binding)
+
+#define DRM_IOCTL_SG_ALLOC DRM_IOWR(0x38, struct drm_scatter_gather)
+#define DRM_IOCTL_SG_FREE  DRM_IOW(0x39, struct drm_scatter_gather)
+
+#define DRM_IOCTL_WAIT_VBLANK DRM_IOWR(0x3a, union drm_wait_vblank)
+#define DRM_IOCTL_UPDATE_DRAW DRM_IOW(0x3f, struct drm_update_draw)
+
+/* Driver-private ioctls (0x40..0x9f). Drivers install their own table. */
+#define DRM_COMMAND_BASE 0x40
+#define DRM_COMMAND_END  0xa0 // Mode-setting ioctls begin here; defined in drm_mode.h
+
+/* Fixed-width UAPI aliases. */
+typedef int8_t   __s8;
+typedef uint8_t  __u8;
+typedef int16_t  __s16;
+typedef uint16_t __u16;
+typedef int32_t  __s32;
+typedef uint32_t __u32;
+typedef int64_t  __s64;
+typedef uint64_t __u64;
+typedef uint32_t drm_handle_t;
+typedef uint32_t drm_context_t;
+typedef uint32_t drm_drawable_t;
+typedef uint32_t drm_magic_t;
+
+struct drm_event {
+        __u32 type;
+        __u32 length;
+};
+
+struct drm_event_vblank {
+        struct drm_event base;
+        __u64            user_data;
+        __u32            tv_sec;
+        __u32            tv_usec;
+        __u32            sequence;
+        __u32            crtc_id;
+};
 
 /* Clip rectangle (legacy) */
 struct drm_clip_rect {
@@ -147,14 +210,6 @@ struct drm_hw_lock {
         volatile __u32 lock;
         char           padding[60];
 };
-
-/*
- * DRM core version, matching the Linux UAPI (drivers report their own
- * driver version through DRM_IOCTL_VERSION).
- */
-#define DRM_VERSION_MAJOR      1
-#define DRM_VERSION_MINOR      4
-#define DRM_VERSION_PATCHLEVEL 0
 
 /* DRM_IOCTL_VERSION */
 struct drm_version {
@@ -189,11 +244,6 @@ struct drm_control {
         __s32 func;
         __s32 irq;
 };
-
-#define DRM_ADD_COMMAND    0
-#define DRM_RM_COMMAND     1
-#define DRM_INST_HANDLER   2
-#define DRM_UNINST_HANDLER 3
 
 enum drm_map_type {
     _DRM_FRAME_BUFFER   = 0,
@@ -297,12 +347,6 @@ struct drm_buf_desc {
         __u64 agp_start;
 };
 
-#define _DRM_PAGE_ALIGN    0x01
-#define _DRM_AGP_BUFFER    0x02
-#define _DRM_SG_BUFFER     0x04
-#define _DRM_FB_BUFFER     0x08
-#define _DRM_PCI_BUFFER_RO 0x10
-
 struct drm_buf_info {
         __s32 count;
         __u64 list;
@@ -391,10 +435,6 @@ enum drm_vblank_seq_type {
     _DRM_VBLANK_SIGNAL         = 0x40000000,
 };
 
-#define _DRM_VBLANK_HIGH_CRTC_SHIFT 1
-#define _DRM_VBLANK_TYPES_MASK      (_DRM_VBLANK_ABSOLUTE | _DRM_VBLANK_RELATIVE)
-#define _DRM_VBLANK_FLAGS_MASK      (_DRM_VBLANK_EVENT | _DRM_VBLANK_SIGNAL | _DRM_VBLANK_SECONDARY | _DRM_VBLANK_NEXTONMISS)
-
 struct drm_wait_vblank_request {
         enum drm_vblank_seq_type type;
         __u32                    sequence;
@@ -412,9 +452,6 @@ union drm_wait_vblank {
         struct drm_wait_vblank_request request;
         struct drm_wait_vblank_reply   reply;
 };
-
-#define _DRM_PRE_MODESET  1
-#define _DRM_POST_MODESET 2
 
 struct drm_modeset_ctl {
         __u32 crtc;
@@ -478,38 +515,10 @@ struct drm_gem_open {
         __u64 size;
 };
 
-/* PRIME capability flags */
-#define DRM_PRIME_CAP_EXPORT 1
-#define DRM_PRIME_CAP_IMPORT 2
-
-/* DRM_IOCTL_GET_CAP / SET_CLIENT_CAP */
-#define DRM_CAP_DUMB_BUFFER            0x1
-#define DRM_CAP_VBLANK_HIGH_CRTC       0x2
-#define DRM_CAP_DUMB_PREFERRED_DEPTH   0x3
-#define DRM_CAP_DUMB_PREFER_SHADOW     0x4
-#define DRM_CAP_PRIME                  0x5
-#define DRM_CAP_TIMESTAMP_MONOTONIC    0x6
-#define DRM_CAP_ASYNC_PAGE_FLIP        0x7
-#define DRM_CAP_CURSOR_WIDTH           0x8
-#define DRM_CAP_CURSOR_HEIGHT          0x9
-#define DRM_CAP_ADDFB2_MODIFIERS       0x10
-#define DRM_CAP_PAGE_FLIP_TARGET       0x11
-#define DRM_CAP_CRTC_IN_VBLANK_EVENT   0x12
-#define DRM_CAP_SYNCOBJ                0x13
-#define DRM_CAP_SYNCOBJ_TIMELINE       0x14
-#define DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP 0x15
-
 struct drm_get_cap {
         __u64 capability;
         __u64 value;
 };
-
-#define DRM_CLIENT_CAP_STEREO_3D            1
-#define DRM_CLIENT_CAP_UNIVERSAL_PLANES     2
-#define DRM_CLIENT_CAP_ATOMIC               3
-#define DRM_CLIENT_CAP_ASPECT_RATIO         4
-#define DRM_CLIENT_CAP_WRITEBACK_CONNECTORS 5
-#define DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT 6
 
 struct drm_set_client_cap {
         __u64 capability;
@@ -522,80 +531,5 @@ struct drm_prime_handle {
         __u32 handle;
         __u32 flags;
 };
-
-/*
- * ioctl command numbers. Values are ABI-fixed so that existing userspace
- * drives this kernel without recompilation.
- */
-#define DRM_IOCTL_VERSION     DRM_IOWR(0x00, struct drm_version)
-#define DRM_IOCTL_GET_UNIQUE  DRM_IOWR(0x01, struct drm_unique)
-#define DRM_IOCTL_GET_MAGIC   DRM_IOR(0x02, struct drm_auth)
-#define DRM_IOCTL_IRQ_BUSID   DRM_IOWR(0x03, struct drm_irq_busid)
-#define DRM_IOCTL_GET_MAP     DRM_IOWR(0x04, struct drm_map)
-#define DRM_IOCTL_GET_CLIENT  DRM_IOWR(0x05, struct drm_client)
-#define DRM_IOCTL_GET_STATS   DRM_IOR(0x06, struct drm_stats)
-#define DRM_IOCTL_SET_VERSION DRM_IOWR(0x07, struct drm_set_version)
-#define DRM_IOCTL_MODESET_CTL DRM_IOWR(0x08, struct drm_modeset_ctl)
-
-#define DRM_IOCTL_GEM_CLOSE      DRM_IOW(0x09, struct drm_gem_close)
-#define DRM_IOCTL_GEM_FLINK      DRM_IOWR(0x0a, struct drm_gem_flink)
-#define DRM_IOCTL_GEM_OPEN       DRM_IOWR(0x0b, struct drm_gem_open)
-#define DRM_IOCTL_GET_CAP        DRM_IOWR(0x0c, struct drm_get_cap)
-#define DRM_IOCTL_SET_CLIENT_CAP DRM_IOW(0x0d, struct drm_set_client_cap)
-
-#define DRM_IOCTL_SET_UNIQUE DRM_IOW(0x10, struct drm_unique)
-#define DRM_IOCTL_AUTH_MAGIC DRM_IOW(0x11, struct drm_auth)
-#define DRM_IOCTL_BLOCK      DRM_IOWR(0x12, struct drm_block)
-#define DRM_IOCTL_UNBLOCK    DRM_IOWR(0x13, struct drm_block)
-#define DRM_IOCTL_CONTROL    DRM_IOWR(0x14, struct drm_control)
-
-#define DRM_IOCTL_ADD_MAP DRM_IOWR(0x15, struct drm_map)
-#define DRM_IOCTL_RM_MAP  DRM_IOW(0x1b, struct drm_map)
-
-#define DRM_IOCTL_SET_SAREA_CTX DRM_IOW(0x1c, struct drm_ctx_priv_map)
-#define DRM_IOCTL_GET_SAREA_CTX DRM_IOWR(0x1d, struct drm_ctx_priv_map)
-
-#define DRM_IOCTL_SET_MASTER  DRM_IO(0x1e)
-#define DRM_IOCTL_DROP_MASTER DRM_IO(0x1f)
-
-#define DRM_IOCTL_ADD_CTX    DRM_IOWR(0x20, struct drm_ctx)
-#define DRM_IOCTL_RM_CTX     DRM_IOWR(0x21, struct drm_ctx)
-#define DRM_IOCTL_MOD_CTX    DRM_IOW(0x22, struct drm_ctx)
-#define DRM_IOCTL_GET_CTX    DRM_IOWR(0x23, struct drm_ctx)
-#define DRM_IOCTL_SWITCH_CTX DRM_IOW(0x24, struct drm_ctx)
-#define DRM_IOCTL_NEW_CTX    DRM_IOW(0x25, struct drm_ctx)
-#define DRM_IOCTL_RES_CTX    DRM_IOWR(0x26, struct drm_ctx_res)
-
-#define DRM_IOCTL_ADD_DRAW DRM_IOWR(0x27, struct drm_draw)
-#define DRM_IOCTL_RM_DRAW  DRM_IOWR(0x28, struct drm_draw)
-
-#define DRM_IOCTL_DMA    DRM_IOWR(0x29, struct drm_dma)
-#define DRM_IOCTL_LOCK   DRM_IOW(0x2a, struct drm_lock)
-#define DRM_IOCTL_UNLOCK DRM_IOW(0x2b, struct drm_lock)
-#define DRM_IOCTL_FINISH DRM_IOW(0x2c, struct drm_lock)
-
-#define DRM_IOCTL_PRIME_HANDLE_TO_FD DRM_IOWR(0x2d, struct drm_prime_handle)
-#define DRM_IOCTL_PRIME_FD_TO_HANDLE DRM_IOWR(0x2e, struct drm_prime_handle)
-
-#define DRM_IOCTL_AGP_ACQUIRE DRM_IO(0x30)
-#define DRM_IOCTL_AGP_RELEASE DRM_IO(0x31)
-#define DRM_IOCTL_AGP_ENABLE  DRM_IOW(0x32, struct drm_agp_mode)
-#define DRM_IOCTL_AGP_INFO    DRM_IOR(0x33, struct drm_agp_info)
-#define DRM_IOCTL_AGP_ALLOC   DRM_IOWR(0x34, struct drm_agp_buffer)
-#define DRM_IOCTL_AGP_FREE    DRM_IOW(0x35, struct drm_agp_buffer)
-#define DRM_IOCTL_AGP_BIND    DRM_IOW(0x36, struct drm_agp_binding)
-#define DRM_IOCTL_AGP_UNBIND  DRM_IOW(0x37, struct drm_agp_binding)
-
-#define DRM_IOCTL_SG_ALLOC DRM_IOWR(0x38, struct drm_scatter_gather)
-#define DRM_IOCTL_SG_FREE  DRM_IOW(0x39, struct drm_scatter_gather)
-
-#define DRM_IOCTL_WAIT_VBLANK DRM_IOWR(0x3a, union drm_wait_vblank)
-#define DRM_IOCTL_UPDATE_DRAW DRM_IOW(0x3f, struct drm_update_draw)
-
-/* Driver-private ioctls (0x40..0x9f). Drivers install their own table. */
-#define DRM_COMMAND_BASE 0x40
-#define DRM_COMMAND_END  0xa0
-
-/* Mode setting ioctls begin at 0xa0; defined in drm_mode.h */
 
 #endif // INCLUDE_DRM_H_

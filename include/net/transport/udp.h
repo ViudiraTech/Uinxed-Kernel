@@ -17,16 +17,35 @@
 #include <net/ipv6/ipv6.h>
 #include <process/task.h>
 
-#define UDP_ENDPOINT_MAX 128U
-#define UDP_RX_QUEUE_MAX 64U
-#define UDP_RX_BYTES_MAX 131072U
-
 #define UDP_READY_READ  0x01U
 #define UDP_READY_WRITE 0x02U
 #define UDP_READY_ERROR 0x04U
 
+typedef struct udp_packet   udp_packet_t;
 typedef struct udp_endpoint udp_endpoint_t;
 typedef void (*udp_event_callback_t)(udp_endpoint_t *endpoint, uint32_t events, void *context);
+
+typedef struct udp_endpoint {
+        uint16_t             family;
+        uint8_t              native6;
+        uint8_t              v6only;
+        uint32_t             local_address;
+        uint32_t             remote_address;
+        ipv6_address_t       local_address6;
+        ipv6_address_t       remote_address6;
+        uint16_t             local_port;
+        uint16_t             remote_port;
+        uint16_t             queue_length;
+        uint32_t             queue_bytes;
+        int                  pending_error;
+        uint8_t              bound;
+        udp_packet_t        *head;
+        udp_packet_t        *tail;
+        wait_queue_t         wait;
+        spinlock_t           lock;
+        udp_event_callback_t event_callback;
+        void                *event_context;
+} udp_endpoint_t;
 
 typedef struct udp_datagram {
         uint16_t       family;

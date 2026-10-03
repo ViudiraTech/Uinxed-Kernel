@@ -1,7 +1,7 @@
 /*
  *
  *      poll.h
- *      Linux-compatible poll/select syscall family definitions
+ *      poll/select syscall family definitions
  *
  *      2026/7/28 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,17 +12,7 @@
 #define INCLUDE_POLL_H_
 
 #include <libs/std/stdint.h>
-
-/* Linux ABI time types used by poll/select and clock syscalls. */
-typedef struct {
-        int64_t tv_sec;
-        int64_t tv_nsec;
-} linux_timespec_t;
-
-typedef struct {
-        int64_t tv_sec;
-        int64_t tv_usec;
-} linux_timeval_t;
+#include <syscall/abi.h>
 
 /* Poll event flags */
 #define POLLIN     0x0001

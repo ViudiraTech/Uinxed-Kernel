@@ -11,21 +11,14 @@
 #ifndef INCLUDE_ATAPI_H_
 #define INCLUDE_ATAPI_H_
 
+#include <drivers/block/ata/ata_cmds.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define GPCMD_TEST_UNIT_READY      0x00
-#define GPCMD_REQUEST_SENSE        0x03
 #define GPCMD_FORMAT_UNIT          0x04
-#define GPCMD_INQUIRY              0x12
 #define GPCMD_MODE_SELECT          0x15
-#define GPCMD_MODE_SENSE           0x1a
-#define GPCMD_START_STOP_UNIT      0x1b
 #define GPCMD_PREVENT_ALLOW_MEDIUM 0x1e
 #define GPCMD_READ_FORMAT_CAPS     0x23
-#define GPCMD_READ_CAPACITY        0x25
-#define GPCMD_READ_10              0x28
-#define GPCMD_WRITE_10             0x2a
 #define GPCMD_SEEK                 0x2b
 #define GPCMD_READ_SUBCHANNEL      0x42
 #define GPCMD_READ_TOC_PMA_ATIP    0x43
@@ -35,13 +28,8 @@
 #define GPCMD_PLAY_AUDIO_MSF       0x47
 #define GPCMD_PAUSE_RESUME         0x4b
 #define GPCMD_STOP_PLAY_SCAN       0x4e
-#define GPCMD_MODE_SENSE_10        0x5a
 #define GPCMD_MECHANISM_STATUS     0xbd
-#define GPCMD_READ_CD              0xbe
-#define GPCMD_READ_12              0xa8
-#define GPCMD_WRITE_12             0xaa
 #define GPCMD_READ_CD_MSF          0xb9
-#define GPCMD_GET_EVENT_STATUS     0x4a
 #define GPCMD_BLANK                0xa1
 #define GPCMD_SET_STREAMING        0xb6
 #define GPCMD_READ_MASTER_CUE      0x59
@@ -49,10 +37,8 @@
 #define GPCMD_FLUSH_CACHE          0x35
 #define GPCMD_WRITE_AND_VERIFY_10  0x2e
 
-#define SCSI_SENSE_BUFFER_SIZE   18
 #define SAM_STAT_GOOD            0x00
 #define SAM_STAT_CHECK_CONDITION 0x02
-#define ATAPI_CDB_LEN            16
 
 #define ATAPI_IREASON_MASK 0x03
 #define ATAPI_COD          0x01
@@ -60,10 +46,6 @@
 #define ATAPI_PKT_DMA      0x01
 #define ATAPI_DMADIR       0x04
 
-#define ATAPI_MISC      0
-#define ATAPI_READ      1
-#define ATAPI_WRITE     2
-#define ATAPI_READ_CD   3
 #define ATAPI_PASS_THRU 4
 
 #define ATAPI_PROT_NODATA 0

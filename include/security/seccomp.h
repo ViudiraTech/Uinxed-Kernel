@@ -1,7 +1,7 @@
 /*
  *
  *      seccomp.h
- *      Linux-compatible secure-computing ABI (follows <linux/seccomp.h>).
+ *      Secure-computing ABI.
  *
  *      2026/8/20 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -11,6 +11,7 @@
 #ifndef INCLUDE_SECCOMP_H_
 #define INCLUDE_SECCOMP_H_
 
+#include <kernel/ioctl.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -68,18 +69,6 @@
 #define BPF_MEMWORDS 16U
 #define BPF_MAXINSNS 4096U
 
-struct sock_filter {
-        uint16_t code;
-        uint8_t  jt;
-        uint8_t  jf;
-        uint32_t k;
-};
-
-struct sock_fprog {
-        uint16_t            len;
-        struct sock_filter *filter;
-};
-
 #define BPF_STMT(code, k)                     \
     {                                         \
         (uint16_t)(code), 0, 0, (uint32_t)(k) \
@@ -128,17 +117,42 @@ struct sock_fprog {
 #define AUDIT_ARCH_LE     0x40000000U
 #define AUDIT_ARCH_X86_64 (AUDIT_ARCH_64BIT | AUDIT_ARCH_LE | 62U)
 
+#define SECCOMP_DATA_NR_OFFSET   ((uint32_t)offsetof(struct seccomp_data, nr))
+#define SECCOMP_DATA_ARCH_OFFSET ((uint32_t)offsetof(struct seccomp_data, arch))
+#define SECCOMP_DATA_IP_OFFSET   ((uint32_t)offsetof(struct seccomp_data, instruction_pointer))
+#define SECCOMP_DATA_ARGS_OFFSET ((uint32_t)offsetof(struct seccomp_data, args))
+
+#define SECCOMP_IOC_MAGIC             '!'
+#define SECCOMP_IO(nr)                _IO(SECCOMP_IOC_MAGIC, nr)
+#define SECCOMP_IOR(nr, data_type)    _IOR(SECCOMP_IOC_MAGIC, nr, data_type)
+#define SECCOMP_IOW(nr, data_type)    _IOW(SECCOMP_IOC_MAGIC, nr, data_type)
+#define SECCOMP_IOWR(nr, data_type)   _IOWR(SECCOMP_IOC_MAGIC, nr, data_type)
+#define SECCOMP_IOCTL_NOTIF_RECV      _IOWR(SECCOMP_IOC_MAGIC, 0, struct seccomp_notif)
+#define SECCOMP_IOCTL_NOTIF_SEND      _IOWR(SECCOMP_IOC_MAGIC, 1, struct seccomp_notif_resp)
+#define SECCOMP_IOCTL_NOTIF_ID_VALID  _IOW(SECCOMP_IOC_MAGIC, 2, uint64_t)
+#define SECCOMP_IOCTL_NOTIF_ADDFD     _IOW(SECCOMP_IOC_MAGIC, 3, struct seccomp_notif_addfd)
+#define SECCOMP_IOCTL_NOTIF_SET_FLAGS _IOW(SECCOMP_IOC_MAGIC, 4, uint64_t)
+#define SECCOMP_MAX_INSNS_PER_PATH    ((1U << 18) / (uint32_t)sizeof(struct sock_filter))
+#define SECCOMP_FILTER_CHAIN_PENALTY  4U
+
+struct sock_filter {
+        uint16_t code;
+        uint8_t  jt;
+        uint8_t  jf;
+        uint32_t k;
+};
+
+struct sock_fprog {
+        uint16_t            len;
+        struct sock_filter *filter;
+};
+
 struct seccomp_data {
         int32_t  nr;
         uint32_t arch;
         uint64_t instruction_pointer;
         uint64_t args[6];
 };
-
-#define SECCOMP_DATA_NR_OFFSET   ((uint32_t)offsetof(struct seccomp_data, nr))
-#define SECCOMP_DATA_ARCH_OFFSET ((uint32_t)offsetof(struct seccomp_data, arch))
-#define SECCOMP_DATA_IP_OFFSET   ((uint32_t)offsetof(struct seccomp_data, instruction_pointer))
-#define SECCOMP_DATA_ARGS_OFFSET ((uint32_t)offsetof(struct seccomp_data, args))
 
 struct seccomp_notif_sizes {
         uint16_t seccomp_notif;
@@ -168,81 +182,10 @@ struct seccomp_notif_addfd {
         uint32_t newfd_flags;
 };
 
-/* Linux generic ioctl encoding, kept local to avoid a libc dependency. */
-#ifndef _IOC_NRBITS
-#    define _IOC_NRBITS 8
-#endif
-#ifndef _IOC_TYPEBITS
-#    define _IOC_TYPEBITS 8
-#endif
-#ifndef _IOC_SIZEBITS
-#    define _IOC_SIZEBITS 14
-#endif
-#ifndef _IOC_DIRBITS
-#    define _IOC_DIRBITS 2
-#endif
-#ifndef _IOC_NRSHIFT
-#    define _IOC_NRSHIFT 0
-#endif
-#ifndef _IOC_TYPESHIFT
-#    define _IOC_TYPESHIFT (_IOC_NRSHIFT + _IOC_NRBITS)
-#endif
-#ifndef _IOC_SIZESHIFT
-#    define _IOC_SIZESHIFT (_IOC_TYPESHIFT + _IOC_TYPEBITS)
-#endif
-#ifndef _IOC_DIRSHIFT
-#    define _IOC_DIRSHIFT (_IOC_SIZESHIFT + _IOC_SIZEBITS)
-#endif
-#ifndef _IOC_SIZEMASK
-#    define _IOC_SIZEMASK ((1U << _IOC_SIZEBITS) - 1U)
-#endif
-#ifndef _IOC_NONE
-#    define _IOC_NONE 0U
-#endif
-#ifndef _IOC_WRITE
-#    define _IOC_WRITE 1U
-#endif
-#ifndef _IOC_READ
-#    define _IOC_READ 2U
-#endif
-#ifndef _IOC
-#    define _IOC(dir, type, nr, size) (((dir) << _IOC_DIRSHIFT) | ((uint32_t)(type) << _IOC_TYPESHIFT) | ((nr) << _IOC_NRSHIFT) | ((size) << _IOC_SIZESHIFT))
-#endif
-#ifndef _IOC_SIZE
-#    define _IOC_SIZE(command) (((command) >> _IOC_SIZESHIFT) & _IOC_SIZEMASK)
-#endif
-#ifndef _IOW
-#    define _IOW(type, nr, data_type) _IOC(_IOC_WRITE, (type), (nr), (uint32_t)sizeof(data_type))
-#endif
-#ifndef _IO
-#    define _IO(type, nr) _IOC(_IOC_NONE, (type), (nr), 0)
-#endif
-#ifndef _IOR
-#    define _IOR(type, nr, data_type) _IOC(_IOC_READ, (type), (nr), (uint32_t)sizeof(data_type))
-#endif
-#ifndef _IOWR
-#    define _IOWR(type, nr, data_type) _IOC(_IOC_READ | _IOC_WRITE, (type), (nr), (uint32_t)sizeof(data_type))
-#endif
-
-#define SECCOMP_IOC_MAGIC             '!'
-#define SECCOMP_IO(nr)                _IO(SECCOMP_IOC_MAGIC, nr)
-#define SECCOMP_IOR(nr, data_type)    _IOR(SECCOMP_IOC_MAGIC, nr, data_type)
-#define SECCOMP_IOW(nr, data_type)    _IOW(SECCOMP_IOC_MAGIC, nr, data_type)
-#define SECCOMP_IOWR(nr, data_type)   _IOWR(SECCOMP_IOC_MAGIC, nr, data_type)
-#define SECCOMP_IOCTL_NOTIF_RECV      _IOWR(SECCOMP_IOC_MAGIC, 0, struct seccomp_notif)
-#define SECCOMP_IOCTL_NOTIF_SEND      _IOWR(SECCOMP_IOC_MAGIC, 1, struct seccomp_notif_resp)
-#define SECCOMP_IOCTL_NOTIF_ID_VALID  _IOW(SECCOMP_IOC_MAGIC, 2, uint64_t)
-#define SECCOMP_IOCTL_NOTIF_ADDFD     _IOW(SECCOMP_IOC_MAGIC, 3, struct seccomp_notif_addfd)
-#define SECCOMP_IOCTL_NOTIF_SET_FLAGS _IOW(SECCOMP_IOC_MAGIC, 4, uint64_t)
-
 struct seccomp_metadata {
         uint64_t filter_off;
         uint64_t flags;
 };
-
-#define SECCOMP_MAX_INSNS_PER_FILTER 4096U
-#define SECCOMP_MAX_INSNS_PER_PATH   ((1U << 18) / (uint32_t)sizeof(struct sock_filter))
-#define SECCOMP_FILTER_CHAIN_PENALTY 4U
 
 typedef struct task          task_t;
 typedef struct syscall_frame syscall_frame_t;

@@ -19,10 +19,6 @@
 #define KLOGO_LEFT_MARGIN 15
 #define KLOGO_GAP         15
 
-#ifndef BOOT_LOGO
-#    define BOOT_LOGO 1
-#endif
-
 extern uint8_t klogo_data[];
 
 /* Draw the kernel logo */

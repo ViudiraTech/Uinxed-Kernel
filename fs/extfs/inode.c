@@ -14,8 +14,9 @@
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <libs/util/crc32c.h>
-#include <mem/alloc.h>
 #include <mem/heap.h>
+
+#if CONFIG_EXTFS
 
 /*
  * Overview
@@ -132,7 +133,6 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
         }
         indir = h->ei.i_data[EXT2_IND_BLOCK];
         if (indir == 0) return 0;
-
         if (extfs_read_block(sb, indir, buf) != EOK) return 0;
         phys = buf[logical];
         if (phys == 0 && create) {
@@ -165,7 +165,7 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
     logical -= ptrs_per_block;
 
     /* Double indirect */
-    if (logical < (uint32_t)ptrs_per_block * ptrs_per_block) {
+    if (logical < ptrs_per_block * ptrs_per_block) {
         uint32_t idx1 = logical / ptrs_per_block;
         uint32_t idx2 = logical % ptrs_per_block;
 
@@ -182,7 +182,6 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
         }
         indir = h->ei.i_data[EXT2_DIND_BLOCK];
         if (indir == 0) return 0;
-
         if (extfs_read_block(sb, indir, buf) != EOK) return 0;
         uint32_t indir2 = buf[idx1];
         if (indir2 == 0 && create) {
@@ -229,10 +228,10 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
         }
         return phys;
     }
-    logical -= (uint32_t)ptrs_per_block * ptrs_per_block;
+    logical -= ptrs_per_block * ptrs_per_block;
 
     /* Triple indirect */
-    if (logical < (uint32_t)ptrs_per_block * ptrs_per_block * ptrs_per_block) {
+    if (logical < ptrs_per_block * ptrs_per_block * ptrs_per_block) {
         uint32_t idx1 = logical / (ptrs_per_block * ptrs_per_block);
         uint32_t idx2 = (logical / ptrs_per_block) % ptrs_per_block;
         uint32_t idx3 = logical % ptrs_per_block;
@@ -419,13 +418,11 @@ int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t
 
         if (inblock > 0 || chunk < sb->block_size) {
             if (extfs_read_block(sb, phys, block_buf) != EOK) {
-                plogk("extfs: Read of inode %llu failed at block %u\n", (unsigned long long)h->inode_no, phys);
+                plogk("extfs: Read of inode %u failed at block %u\n", h->inode_no, phys);
                 break;
             }
         }
-
         memcpy(block_buf + inblock, (const uint8_t *)buf + done, chunk);
-
         if (extfs_write_data_block(sb, phys, block_buf) != EOK) break;
 
         done += chunk;
@@ -551,7 +548,7 @@ int extfs_release_xattr_block(extfs_handle_t *h)
     if (status != EOK) return status;
     uint64_t block = raw.i_file_acl | (uint64_t)raw.l_i_file_acl_high << 32;
     if (!block) return EOK;
-    if (block >= sb->blocks_count || block > UINT32_MAX) return -EIO;
+    if (block >= sb->blocks_count || block > UINT32_MAX) return -EINVAL;
 
     uint8_t *buffer = malloc(sb->block_size);
     if (!buffer) return -ENOMEM;
@@ -562,7 +559,7 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         memcpy(&refcount, buffer + 4, sizeof(refcount));
         memcpy(&blocks, buffer + 8, sizeof(blocks));
         if (magic != 0xEA020000U || !refcount || blocks != 1) {
-            plogk("extfs: Drive %u: inode %u xattr block %llu has invalid header (magic 0x%x)\n", sb->device.drive, h->inode_no, (unsigned long long)block, magic);
+            plogk("extfs: Drive %u: inode %u xattr block %llu has invalid header (magic 0x%x)\n", sb->device.drive, h->inode_no, block, magic);
             status = -EIO;
         }
     }
@@ -575,7 +572,7 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         checksum          = crc32c_update(checksum, &zero, sizeof(zero));
         checksum          = crc32c_update(checksum, buffer + 20, sb->block_size - 20);
         if (stored != checksum) {
-            plogk("extfs: Drive %u: inode %u xattr block %llu checksum mismatch.\n", sb->device.drive, h->inode_no, (unsigned long long)block);
+            plogk("extfs: Drive %u: inode %u xattr block %llu checksum mismatch.\n", sb->device.drive, h->inode_no, block);
             status = -EIO;
         }
     }
@@ -644,8 +641,8 @@ static int extfs_free_branch_range(extfs_sb_info_t *sb, uint32_t block, uint32_t
     for (uint32_t i = begin; i < end; i++) {
         uint32_t child = entries[i];
         if (!child) continue;
-        uint64_t child_first = first > (uint64_t)i * span ? first - (uint64_t)i * span : 0;
-        uint64_t child_last  = last - (uint64_t)i * span;
+        uint64_t child_first = first > ((uint64_t)i * span) ? first - ((uint64_t)i * span) : 0;
+        uint64_t child_last  = last - ((uint64_t)i * span);
         if (child_last > span) child_last = span;
         if (depth == 1) {
             entries[i] = 0;
@@ -723,10 +720,11 @@ static int extfs_count_branch(extfs_sb_info_t *sb, uint32_t block, uint32_t dept
     if (status == EOK) {
         for (uint32_t i = 0; i < ptrs; i++) {
             if (!entries[i]) continue;
-            if (depth == 1)
+            if (depth == 1) {
                 (*blocks)++;
-            else if ((status = extfs_count_branch(sb, entries[i], depth - 1, blocks)) != EOK) // NOLINT(bugprone-assignment-in-if-condition)
+            } else if ((status = extfs_count_branch(sb, entries[i], depth - 1, blocks)) != EOK) {
                 break;
+            }
         }
     }
     free(entries);
@@ -798,7 +796,7 @@ int extfs_truncate(extfs_handle_t *h, uint64_t size)
                 if (!tail) return -ENOMEM;
                 status = extfs_read_block(sb, phys, tail);
                 if (status == EOK) {
-                    memset(tail + size % sb->block_size, 0, sb->block_size - size % sb->block_size);
+                    memset(tail + (size % sb->block_size), 0, sb->block_size - (size % sb->block_size));
                     status = extfs_write_data_block(sb, phys, tail);
                 }
                 free(tail);
@@ -827,3 +825,5 @@ int extfs_truncate(extfs_handle_t *h, uint64_t size)
 
     return EOK;
 }
+
+#endif

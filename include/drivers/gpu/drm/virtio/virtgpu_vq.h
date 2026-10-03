@@ -11,8 +11,6 @@
 #ifndef INCLUDE_VIRTGPU_VQ_H_
 #define INCLUDE_VIRTGPU_VQ_H_
 
-#include <drivers/gpu/drm/virtio/virtgpu_drv.h>
-
 /* Number of descriptors per virtqueue */
 #define VIRTGPU_VQ_NUM 256
 

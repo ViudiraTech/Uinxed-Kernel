@@ -89,14 +89,6 @@
 #define OHCI_PORT_PRSC        (1U << 20)
 #define OHCI_PORT_CHANGE_BITS 0x001f0000U
 
-/* Endpoint Descriptor (ED) */
-typedef struct __attribute__((packed, aligned(16))) {
-        uint32_t control;
-        uint32_t tail_pointer;
-        uint32_t head_pointer;
-        uint32_t next_ed;
-} ohci_ed_t;
-
 /* ED control bits */
 #define OHCI_ED_FA_SHIFT  0
 #define OHCI_ED_FA_MASK   (0x7fU << 0)
@@ -111,14 +103,6 @@ typedef struct __attribute__((packed, aligned(16))) {
 #define OHCI_ED_F         (1U << 15)
 #define OHCI_ED_MPS_SHIFT 16
 #define OHCI_ED_MPS_MASK  (0x7ffU << 16)
-
-/* General Transfer Descriptor (TD) */
-typedef struct __attribute__((packed, aligned(16))) {
-        uint32_t control;
-        uint32_t current_buffer_pointer;
-        uint32_t next_td;
-        uint32_t buffer_end;
-} ohci_gtd_t;
 
 /* TD control bits */
 #define OHCI_TD_R                  (1U << 18)
@@ -150,6 +134,22 @@ typedef struct __attribute__((packed, aligned(16))) {
 #define OHCI_TD_CC_BUFFER_OVERRUN  12
 #define OHCI_TD_CC_BUFFER_UNDERRUN 13
 #define OHCI_TD_CC_NOT_ACCESSED    15
+
+/* Endpoint Descriptor (ED) */
+typedef struct __attribute__((packed, aligned(16))) {
+        uint32_t control;
+        uint32_t tail_pointer;
+        uint32_t head_pointer;
+        uint32_t next_ed;
+} ohci_ed_t;
+
+/* General Transfer Descriptor (TD) */
+typedef struct __attribute__((packed, aligned(16))) {
+        uint32_t control;
+        uint32_t current_buffer_pointer;
+        uint32_t next_td;
+        uint32_t buffer_end;
+} ohci_gtd_t;
 
 /* HCCA (Host Controller Communication Area) */
 typedef struct __attribute__((packed, aligned(256))) {

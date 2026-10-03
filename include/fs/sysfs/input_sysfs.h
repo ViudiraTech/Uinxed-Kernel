@@ -14,7 +14,11 @@
 #include <drivers/input/evdev/evdev.h>
 
 /* Register the input class and publish every evdev device. */
+#if CONFIG_INPUT_EVDEV
 void input_sysfs_init(void);
+#else
+static inline void input_sysfs_init(void) {}
+#endif
 
 /* Publish an evdev device as inputN with an eventN child. */
 int input_sysfs_register_evdev(evdev_t *evdev);

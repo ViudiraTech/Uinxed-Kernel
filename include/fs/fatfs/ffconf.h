@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_ffconf_H_
-#define INCLUDE_ffconf_H_
+#ifndef INCLUDE_FFCONF_H_
+#define INCLUDE_FFCONF_H_
 
 /* Configurations of FatFs Module */
 
@@ -324,4 +324,5 @@
  */
 
 /*--- End of configuration options ---*/
-#endif // INCLUDE_ffconf_H_
+
+#endif // INCLUDE_FFCONF_H_

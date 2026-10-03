@@ -13,35 +13,7 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 
-#define HID_ITEM_TYPE_MAIN   0
-#define HID_ITEM_TYPE_GLOBAL 1
-#define HID_ITEM_TYPE_LOCAL  2
-
-#define HID_MAIN_INPUT          8
-#define HID_MAIN_OUTPUT         9
-#define HID_MAIN_COLLECTION     10
-#define HID_MAIN_FEATURE        11
-#define HID_MAIN_END_COLLECTION 12
-
-#define HID_GLOBAL_USAGE_PAGE   0
-#define HID_GLOBAL_LOGICAL_MIN  1
-#define HID_GLOBAL_LOGICAL_MAX  2
-#define HID_GLOBAL_REPORT_SIZE  7
-#define HID_GLOBAL_REPORT_ID    8
-#define HID_GLOBAL_REPORT_COUNT 9
-#define HID_GLOBAL_PUSH         10
-#define HID_GLOBAL_POP          11
-
-#define HID_LOCAL_USAGE     0
-#define HID_LOCAL_USAGE_MIN 1
-#define HID_LOCAL_USAGE_MAX 2
-
-#define HID_COLLECTION_APPLICATION 1
-
-#define HID_USAGE_PAGE_GENERIC_DESKTOP 0x01
-#define HID_USAGE_PAGE_KEYBOARD        0x07
-#define HID_USAGE_PAGE_BUTTON          0x09
-#define HID_USAGE_PAGE_CONSUMER        0x0c
+#if CONFIG_USB_HID && CONFIG_USB
 
 typedef struct {
         uint16_t usage_page;
@@ -108,7 +80,7 @@ static uint16_t hid_field_usage(const usb_hid_field_t *field, size_t index)
 }
 
 /* Resolve a field's usage page for an index. */
-static uint16_t hid_field_usage_page(const usb_hid_field_t *field, size_t index)
+uint16_t hid_field_usage_page(const usb_hid_field_t *field, size_t index)
 {
     if (index < field->usage_count) return field->usage_pages[index];
     if (field->usage_minimum_page == field->usage_maximum_page) return field->usage_minimum_page;
@@ -121,7 +93,7 @@ static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_
     uint32_t bits = (uint32_t)global->report_size * global->report_count;
 
     if (bits > UINT16_MAX || report->report_bits[global->report_id] > UINT16_MAX - bits) {
-        plogk("usb-hid: add_input_field: report bits overflow (report_id=%u, bits=%u)\n", global->report_id, (unsigned)bits);
+        plogk("usb-hid: add_input_field: report bits overflow (report_id=%u, bits=%u)\n", global->report_id, bits);
         return -EOVERFLOW;
     }
     if (!(flags & USB_HID_MAIN_CONSTANT)) {
@@ -168,10 +140,7 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
     uint8_t            current_application = 0;
     size_t             offset              = 0;
 
-    if (!descriptor || !report) {
-        plogk("usb-hid: parse_report: null descriptor or report.\n");
-        return -EINVAL;
-    }
+    if (!descriptor || !report) return -EINVAL;
     memset(report, 0, sizeof(*report));
     hid_local_reset(&local);
 
@@ -179,13 +148,13 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
         uint8_t prefix = descriptor[offset++];
         if (prefix == 0xfe) {
             if (length - offset < 2) {
-                plogk("usb-hid: parse_report: truncated long item header (offset=%lu)\n", (unsigned long)offset);
+                plogk("usb-hid: parse_report: truncated long item header (offset=%zu)\n", offset);
                 return -EINVAL;
             }
             size_t item_length = descriptor[offset];
             offset += 2;
             if (item_length > length - offset) {
-                plogk("usb-hid: parse_report: long item exceeds descriptor (item_length=%u, offset=%lu)\n", (unsigned)item_length, (unsigned long)offset);
+                plogk("usb-hid: parse_report: long item exceeds descriptor (item_length=%u, offset=%zu)\n", (unsigned)item_length, offset);
                 return -EINVAL;
             }
             offset += item_length;
@@ -195,7 +164,7 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
         size_t size = prefix & 3;
         if (size == 3) size = 4;
         if (size > length - offset) {
-            plogk("usb-hid: parse_report: item data exceeds descriptor (offset=%lu)\n", (unsigned long)offset);
+            plogk("usb-hid: parse_report: item data exceeds descriptor (offset=%zu)\n", offset);
             return -EINVAL;
         }
         uint8_t  type         = (prefix >> 2) & 3;
@@ -218,14 +187,14 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                     break;
                 case HID_GLOBAL_REPORT_SIZE :
                     if (value > 32) {
-                        plogk("usb-hid: parse_report: report size too large (size=%u)\n", (unsigned)value);
+                        plogk("usb-hid: parse_report: report size too large (size=%u)\n", value);
                         return -EINVAL;
                     }
                     global->report_size = (uint8_t)value;
                     break;
                 case HID_GLOBAL_REPORT_ID :
                     if (!value || value >= USB_HID_MAX_REPORT_IDS) {
-                        plogk("usb-hid: parse_report: invalid report id (value=%u)\n", (unsigned)value);
+                        plogk("usb-hid: parse_report: invalid report id (value=%u)\n", value);
                         return -EINVAL;
                     }
                     global->report_id        = (uint8_t)value;
@@ -233,14 +202,14 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                     break;
                 case HID_GLOBAL_REPORT_COUNT :
                     if (value > USB_HID_MAX_USAGES) {
-                        plogk("usb-hid: parse_report: report count too large (count=%u)\n", (unsigned)value);
+                        plogk("usb-hid: parse_report: report count too large (count=%u)\n", value);
                         return -E2BIG;
                     }
                     global->report_count = (uint8_t)value;
                     break;
                 case HID_GLOBAL_PUSH :
                     if ((size_t)global_depth + 1 >= sizeof(globals) / sizeof(globals[0])) {
-                        plogk("usb-hid: parse_report: global state push overflow (depth=%u)\n", (unsigned)global_depth);
+                        plogk("usb-hid: parse_report: global state push overflow (depth=%u)\n", global_depth);
                         return -E2BIG;
                     }
                     globals[global_depth + 1] = *global;
@@ -265,7 +234,7 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
             switch (tag) {
                 case HID_LOCAL_USAGE :
                     if (local.usage_count >= USB_HID_MAX_USAGES) {
-                        plogk("usb-hid: parse_report: too many local usages (count=%u)\n", (unsigned)local.usage_count);
+                        plogk("usb-hid: parse_report: too many local usages (count=%u)\n", local.usage_count);
                         return -E2BIG;
                     }
                     local.usages[local.usage_count]      = usage;
@@ -296,28 +265,38 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                 break;
             }
             case HID_MAIN_OUTPUT :
-                // HID Output report (e.g., keyboard LEDs). Record existence for SET_REPORT handling
-                // per HID 1.11 §7.2; do not affect Input report_bits.
+                /*
+                 * HID Output report (e.g., keyboard LEDs): record existence for SET_REPORT
+                 * handling. Per HID 1.11 §7.2, do not affect Input report_bits.
+                 */
                 report->has_output = true;
                 break;
             case HID_MAIN_FEATURE :
-                // Feature reports are ignored for Input parsing but reset local state.
+                /* Feature reports are ignored for Input parsing but reset local state. */
                 break;
             case HID_MAIN_COLLECTION :
                 if (collection_depth >= sizeof(applications)) {
-                    plogk("usb-hid: parse_report: collection nesting too deep (depth=%u)\n", (unsigned)collection_depth);
+                    plogk("usb-hid: parse_report: collection nesting too deep (depth=%u)\n", collection_depth);
                     return -E2BIG;
                 }
                 applications[collection_depth++] = current_application;
                 if ((uint8_t)value == HID_COLLECTION_APPLICATION) {
                     if (report->application_count >= USB_HID_MAX_APPLICATIONS) {
-                        plogk("usb-hid: parse_report: too many applications (count=%u)\n", (unsigned)report->application_count);
+                        plogk("usb-hid: parse_report: too many applications (count=%u)\n", report->application_count);
                         return -E2BIG;
                     }
                     current_application                = report->application_count++;
                     usb_hid_application_t *application = &report->applications[current_application];
-                    application->usage_page            = local.usage_count ? local.usage_pages[0] : (local.has_usage_minimum ? local.usage_minimum_page : global->usage_page);
-                    application->usage                 = local.usage_count ? local.usages[0] : (local.has_usage_minimum ? local.usage_minimum : 0);
+                    if (local.usage_count) {
+                        application->usage_page = local.usage_pages[0];
+                        application->usage      = local.usages[0];
+                    } else if (local.has_usage_minimum) {
+                        application->usage_page = local.usage_minimum_page;
+                        application->usage      = local.usage_minimum;
+                    } else {
+                        application->usage_page = global->usage_page;
+                        application->usage      = 0;
+                    }
                 }
                 break;
             case HID_MAIN_END_COLLECTION :
@@ -333,7 +312,7 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
         hid_local_reset(&local);
     }
     if (collection_depth || global_depth) {
-        plogk("usb-hid: parse_report: unterminated collection or global state (collection=%u, global=%u)\n", (unsigned)collection_depth, (unsigned)global_depth);
+        plogk("usb-hid: parse_report: unterminated collection or global state (collection=%u, global=%u)\n", collection_depth, global_depth);
         return -EINVAL;
     }
     if (!report->application_count) report->application_count = 1;
@@ -518,27 +497,29 @@ static void hid_decode_variable(usb_hid_field_t *field, size_t index, int32_t va
             break;
         case HID_USAGE_PAGE_GENERIC_DESKTOP :
             type = relative ? EV_REL : EV_ABS;
+
+            /* The generic-desktop axes share one numbering between REL_* and ABS_*. */
             switch (usage) {
                 case 0x30 :
-                    code = relative ? REL_X : ABS_X; // NOLINT(bugprone-branch-clone)
+                    code = REL_X;
                     break;
                 case 0x31 :
-                    code = relative ? REL_Y : ABS_Y; // NOLINT(bugprone-branch-clone)
+                    code = REL_Y;
                     break;
                 case 0x32 :
-                    code = relative ? REL_Z : ABS_Z; // NOLINT(bugprone-branch-clone)
+                    code = REL_Z;
                     break;
                 case 0x33 :
-                    code = relative ? REL_RX : ABS_RX; // NOLINT(bugprone-branch-clone)
+                    code = REL_RX;
                     break;
                 case 0x34 :
-                    code = relative ? REL_RY : ABS_RY; // NOLINT(bugprone-branch-clone)
+                    code = REL_RY;
                     break;
                 case 0x35 :
-                    code = relative ? REL_RZ : ABS_RZ; // NOLINT(bugprone-branch-clone)
+                    code = REL_RZ;
                     break;
                 case 0x38 :
-                    code = relative ? REL_WHEEL : ABS_WHEEL; // NOLINT(bugprone-branch-clone)
+                    code = REL_WHEEL;
                     break;
                 default :
                     break;
@@ -563,10 +544,7 @@ int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t 
     uint8_t report_id   = 0;
     size_t  event_count = 0;
 
-    if (!report || !data || (!events && event_capacity)) {
-        plogk("usb-hid: decode_report: invalid argument.\n");
-        return -EINVAL;
-    }
+    if (!report || !data || (!events && event_capacity)) return -EINVAL;
     if (report->numbered_reports) {
         if (!length) {
             plogk("usb-hid: decode_report: missing report id byte.\n");
@@ -580,7 +558,7 @@ int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t 
         }
     }
     if ((size_t)report->report_bits[report_id] > length * 8) {
-        plogk("usb-hid: decode_report: report too short for fields (report_id=%u, bits=%u, data_bits=%lu)\n", report_id, report->report_bits[report_id], (unsigned long)length * 8);
+        plogk("usb-hid: decode_report: report too short for fields (report_id=%u, bits=%u, data_bits=%zu)\n", report_id, report->report_bits[report_id], length * 8);
         return -EMSGSIZE;
     }
 
@@ -590,7 +568,7 @@ int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t 
 
         if (field->report_id != report_id) continue;
         for (size_t i = 0; i < field->report_count; i++) {
-            uint32_t raw = hid_extract_bits(data, length, field->bit_offset + i * field->report_size, field->report_size);
+            uint32_t raw = hid_extract_bits(data, length, field->bit_offset + (i * field->report_size), field->report_size);
             values[i]    = raw;
             if (field->flags & USB_HID_MAIN_VARIABLE) hid_decode_variable(field, i, hid_field_value(field, raw), events, event_capacity, &event_count);
         }
@@ -598,3 +576,5 @@ int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t 
     }
     return (int)event_count;
 }
+
+#endif

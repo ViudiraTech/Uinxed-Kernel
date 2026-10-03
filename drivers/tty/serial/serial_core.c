@@ -9,16 +9,19 @@
  */
 
 #include <drivers/tty/serial/serial_core.h>
-#include <drivers/tty/tty_core.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <syscall/fcntl.h>
+
+#if CONFIG_SERIAL
 
 static uart_driver_t *serial_uart_driver;
 static bool           serial_cores_inited;
 static spinlock_t     serial_core_lock;
 
-static tty_file_endpoint_t  serial_endpoints[UART_MAX_PORTS];
+static tty_file_endpoint_t serial_endpoints[UART_MAX_PORTS];
+
+/* Serial tty emit. */
 static int                  serial_tty_emit(void *context, const uint8_t *data, size_t size, uint64_t flags);
 static const tty_core_ops_t serial_operations = {.emit = serial_tty_emit, .event = NULL};
 
@@ -41,7 +44,7 @@ static int serial_tty_emit(void *context, const uint8_t *data, size_t size, uint
 {
     uart_port_t *port = context;
     (void)flags;
-    if (!port || !port->ops || !port->ops->tx_write) return -EIO;
+    if (!port || !port->ops || !port->ops->tx_write) return -EINVAL;
     return uart_write(port, data, size);
 }
 
@@ -196,7 +199,7 @@ void uart_register_driver(uart_driver_t *drv)
     spin_lock(&serial_core_lock);
     serial_uart_driver = drv;
     spin_unlock(&serial_core_lock);
-    tty_register_driver(&drv->tty_drv);
+    if (tty_register_driver(&drv->tty_drv) != EOK) plogk("serial: Cannot register the tty driver.\n");
 }
 
 /* Publish one serial port as a /dev/ttyS<N> device. */
@@ -212,7 +215,9 @@ int uart_add_port(uart_driver_t *drv, uart_port_t *port)
     spin_unlock(&serial_core_lock);
     if (!port->present) return 0;
     (void)snprintf(name, sizeof(name), "ttyS%d", port->number);
-    return tty_register_device(&drv->tty_drv, port->number, name);
+    int status = tty_register_device(&drv->tty_drv, port->number, name);
+    if (status != EOK) plogk("serial: Cannot register /dev/%s: %d\n", name, status);
+    return status;
 }
 
 /* Queue one received byte and feed it to the tty core. */
@@ -220,9 +225,9 @@ void uart_insert_char(uart_port_t *port, uint8_t ch)
 {
     if (!port) return;
     spin_lock(&port->rx_lock);
-    if (port->rx_count < UART_RX_BUF_SIZE) {
+    if (port->rx_count < CONFIG_UART_RX_BUF_SIZE) {
         port->rx_buf[port->rx_head] = ch;
-        port->rx_head               = (port->rx_head + 1) % UART_RX_BUF_SIZE;
+        port->rx_head               = (port->rx_head + 1) % CONFIG_UART_RX_BUF_SIZE;
         port->rx_count++;
     }
     spin_unlock(&port->rx_lock);
@@ -233,7 +238,7 @@ void uart_insert_char(uart_port_t *port, uint8_t ch)
 /* Transmit bytes through the port's hardware ops. */
 int uart_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
-    if (!port || !port->ops || !port->ops->tx_write) return -EIO;
+    if (!port || !port->ops || !port->ops->tx_write) return -EINVAL;
     uint64_t flags  = spin_lock_irqsave(&port->lock);
     int      result = port->ops->tx_write(port, data, len);
     spin_unlock_irqrestore(&port->lock, flags);
@@ -266,3 +271,5 @@ int serial_tty_core(int index, tty_core_t **core)
     *core = serial_uart_driver->ports[index].tty;
     return 0;
 }
+
+#endif

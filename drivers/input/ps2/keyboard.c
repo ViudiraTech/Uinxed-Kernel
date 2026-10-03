@@ -12,10 +12,11 @@
 #include <drivers/input/ps2/ps2.h>
 #include <drivers/input/ps2/ps2_keyboard.h>
 #include <drivers/tty/tty.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
-#include <sync/spin_lock.h>
+#include <libs/util/bitops.h>
+
+#if CONFIG_PS2_KEYBOARD_MOUSE
 
 static input_dev_t            ps2_keyboard_dev;
 static wait_queue_t           ps2kbd_event_wait;
@@ -23,12 +24,6 @@ static spinlock_t             ps2kbd_wait_lock;
 static size_t                 ps2kbd_pending_events;
 static ps2_keyboard_decoder_t ps2kbd_decoder;
 evdev_t                      *ps2_keyboard_evdev;
-
-/* Set one bit in a bitmap word array. */
-static void set_bit(unsigned int bit, uint32_t *bits)
-{
-    bits[bit / 32] |= 1U << (bit % 32);
-}
 
 /* Convert evdev LED bits to the PS/2 Set-LEDs bit order and push them. */
 static void ps2kbd_set_leds(uint8_t leds)
@@ -83,16 +78,16 @@ void ps2_keyboard_init(void)
     ps2_keyboard_decoder_init(&ps2kbd_decoder);
     ps2_keyboard_evdev = evdev_create(&ps2_keyboard_dev);
     if (!ps2_keyboard_evdev) {
-        plogk("evdev: Unable to allocate keyboard device.\n");
+        plogk("ps2: Unable to allocate keyboard device.\n");
         return;
     }
     if (evdev_register(ps2_keyboard_evdev) != EOK) {
         evdev_destroy(ps2_keyboard_evdev);
         ps2_keyboard_evdev = NULL;
-        plogk("evdev: Unable to register keyboard device.\n");
+        plogk("ps2: Unable to register keyboard device.\n");
         return;
     }
-    plogk("evdev: Keyboard registered as event%d\n", ps2_keyboard_evdev->minor);
+    plogk("ps2: Keyboard registered as event%d\n", ps2_keyboard_evdev->minor);
     evdev_register_led_notify(ps2kbd_led_notify, NULL);
     ps2kbd_set_leds(0);
 }
@@ -145,3 +140,5 @@ int ps2kbd_wait_events(void)
         wait_queue_sleep();
     }
 }
+
+#endif

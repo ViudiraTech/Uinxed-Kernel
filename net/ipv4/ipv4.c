@@ -8,23 +8,22 @@
  *
  */
 
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <net/core/endian.h>
 #include <net/ipv4/arp.h>
 #include <net/ipv4/icmp.h>
-#include <net/ipv4/ipv4.h>
 #include <net/transport/tcp.h>
 #include <net/transport/udp.h>
 #include <process/sched.h>
 
-#define IPV4_REASSEMBLY_TIMEOUT_TICKS ((uint64_t)30U * TIMER_HZ)
-#define IPV4_MAX_HEADER               60U
-#define IPV4_MAX_PAYLOAD              (UINT16_MAX - IPV4_HEADER_MIN)
-#define IPV4_BITMAP_SIZE              ((IPV4_MAX_PAYLOAD + 7U) / 8U)
+#if CONFIG_INET && CONFIG_NET
+
+#    define IPV4_REASSEMBLY_TIMEOUT_TICKS ((uint64_t)30U * CONFIG_TIMER_HZ)
+#    define IPV4_MAX_HEADER               60U
+#    define IPV4_MAX_PAYLOAD              (UINT16_MAX - IPV4_HEADER_MIN)
+#    define IPV4_BITMAP_SIZE              ((IPV4_MAX_PAYLOAD + 7U) / 8U)
 
 /*
  * ipv4.c implements the IPv4 layer: header encode/decode, route selection,
@@ -52,7 +51,7 @@ typedef struct ipv4_reassembly {
 
 static uint16_t          ipv4_id;
 static spinlock_t        ipv4_id_lock;
-static ipv4_reassembly_t ipv4_reassembly[IPV4_REASSEMBLY_SLOTS];
+static ipv4_reassembly_t ipv4_reassembly[CONFIG_IPV4_REASSEMBLY_SLOTS];
 static spinlock_t        ipv4_reassembly_lock;
 static ipv4_error_hook_t ipv4_error_hook;
 static spinlock_t        ipv4_hook_lock;
@@ -92,15 +91,15 @@ int net_ipv4_parse(const void *data, size_t length, net_ipv4_packet_t *packet)
     const uint8_t *bytes         = data;
     size_t         header_length = (size_t)(bytes[0] & 0x0fU) * 4U;
     if ((bytes[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > IPV4_MAX_HEADER || header_length > length) return -EBADMSG;
-    uint16_t total    = net_read_be16(bytes + 2);
-    uint16_t fragment = net_read_be16(bytes + 6);
+    uint16_t total    = load_be16(bytes + 2);
+    uint16_t fragment = load_be16(bytes + 6);
     if (total < header_length || total > length || (fragment & 0x8000U) || net_checksum(bytes, header_length) != 0) return -EBADMSG;
     packet->header_len      = (uint8_t)header_length;
     packet->total_len       = total;
     packet->protocol        = bytes[9];
-    packet->source          = net_read_be32(bytes + 12);
-    packet->destination     = net_read_be32(bytes + 16);
-    packet->identification  = net_read_be16(bytes + 4);
+    packet->source          = load_be32(bytes + 12);
+    packet->destination     = load_be32(bytes + 16);
+    packet->identification  = load_be16(bytes + 4);
     packet->fragment_offset = (uint16_t)((fragment & IPV4_FRAGMENT_MASK) * 8U);
     packet->more_fragments  = !!(fragment & IPV4_FLAG_MF);
     packet->payload         = bytes + header_length;
@@ -188,11 +187,8 @@ int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
         return 0;
     }
     if (search.fallback) netdev_put(search.fallback);
-    static uint64_t last_log;
-    if (sched_ticks() - last_log >= 1000) {
-        plogk("ipv4: No route to %u.%u.%u.%u\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff);
-        last_log = sched_ticks();
-    }
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    if (ratelimit_allow(&ratelimit)) plogk("ipv4: No route to %u.%u.%u.%u\n", (destination >> 24) & 0xff, (destination >> 16) & 0xff, (destination >> 8) & 0xff, destination & 0xff);
     return -ENETUNREACH;
 }
 
@@ -212,22 +208,24 @@ static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t 
 {
     net_pbuf_t *fragment = net_pbuf_alloc(IPV4_HEADER_MIN + length, NET_PBUF_HEADROOM);
     if (!fragment) {
-        plogk("ipv4: %s: Fragment alloc failed (dest=%u.%u.%u.%u len=%lu)\n", device->name, (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
-              (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned long)length);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit))
+            plogk("ipv4: %s: Fragment alloc failed (dest=%u.%u.%u.%u len=%lu)\n", device->name, (destination >> 24) & 0xff, (destination >> 16) & 0xff, (destination >> 8) & 0xff, destination & 0xff,
+                  length);
         return -ENOMEM;
     }
     uint8_t *header = fragment->data;
     memset(header, 0, IPV4_HEADER_MIN);
     header[0] = 0x45;
-    net_write_be16(header + 2, (uint16_t)fragment->length);
-    net_write_be16(header + 4, id);
-    net_write_be16(header + 6, flags_offset);
+    store_be16(header + 2, (uint16_t)fragment->length);
+    store_be16(header + 4, id);
+    store_be16(header + 6, flags_offset);
     header[8] = ttl ? ttl : 64;
     header[9] = protocol;
-    net_write_be32(header + 12, source);
-    net_write_be32(header + 16, destination);
+    store_be32(header + 12, source);
+    store_be32(header + 16, destination);
     if (length) memcpy(header + IPV4_HEADER_MIN, data, length);
-    net_write_be16(header + 10, net_checksum(header, IPV4_HEADER_MIN));
+    store_be16(header + 10, net_checksum(header, IPV4_HEADER_MIN));
     int status = arp_resolve(device, next_hop, fragment);
     net_pbuf_free(fragment);
     return status;
@@ -252,13 +250,10 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
     if (!source) source = device->ipv4_address;
     bool loopback_device = (device->flags & NETDEV_F_LOOPBACK) != 0;
     if (!ipv4_source_valid(source) || !next_hop || device->mtu <= IPV4_HEADER_MIN || ipv4_is_loopback(destination) != loopback_device || ipv4_is_loopback(source) != loopback_device) {
-        static uint64_t last_log;
-        if (sched_ticks() - last_log >= 1000) {
-            plogk("ipv4: %s: Output dropped (source %u.%u.%u.%u, next hop %u.%u.%u.%u)\n", device->name, (unsigned)(source >> 24) & 0xff, (unsigned)(source >> 16) & 0xff,
-                  (unsigned)(source >> 8) & 0xff, (unsigned)source & 0xff, (unsigned)(next_hop >> 24) & 0xff, (unsigned)(next_hop >> 16) & 0xff, (unsigned)(next_hop >> 8) & 0xff,
-                  (unsigned)next_hop & 0xff);
-            last_log = sched_ticks();
-        }
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit))
+            plogk("ipv4: %s: Output dropped (source %u.%u.%u.%u, next hop %u.%u.%u.%u)\n", device->name, (source >> 24) & 0xff, (source >> 16) & 0xff, (source >> 8) & 0xff, source & 0xff,
+                  (next_hop >> 24) & 0xff, (next_hop >> 16) & 0xff, (next_hop >> 8) & 0xff, next_hop & 0xff);
         if (release) netdev_put(device);
         return -ENETUNREACH;
     }
@@ -300,14 +295,15 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
 {
     ipv4_reassembly_t *free_entry = NULL;
     ipv4_reassembly_t *oldest     = NULL;
-    for (unsigned i = 0; i < IPV4_REASSEMBLY_SLOTS; i++) {
+    for (unsigned i = 0; i < CONFIG_IPV4_REASSEMBLY_SLOTS; i++) {
         ipv4_reassembly_t *entry = &ipv4_reassembly[i];
         if (entry->device == device && entry->source == ip->source && entry->destination == ip->destination && entry->identification == ip->identification && entry->protocol == ip->protocol)
             return entry;
-        if (!entry->device)
+        if (!entry->device) {
             free_entry = entry;
-        else if (!oldest || entry->expires < oldest->expires)
+        } else if (!oldest || entry->expires < oldest->expires) {
             oldest = entry;
+        }
     }
     ipv4_reassembly_t *entry = free_entry ? free_entry : oldest;
     if (!entry) return NULL;
@@ -315,8 +311,10 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
     entry->data   = malloc(IPV4_MAX_PAYLOAD);
     entry->bitmap = malloc(IPV4_BITMAP_SIZE);
     if (!entry->data || !entry->bitmap) {
-        plogk("ipv4: %s: Reassembly buffer alloc failed (src=%u.%u.%u.%u id=%u)\n", device->name, (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff,
-              (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)ip->identification);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit))
+            plogk("ipv4: %s: Reassembly buffer alloc failed (src=%u.%u.%u.%u id=%u)\n", device->name, (ip->source >> 24) & 0xff, (ip->source >> 16) & 0xff, (ip->source >> 8) & 0xff, ip->source & 0xff,
+                  ip->identification);
         ipv4_reassembly_clear(entry);
         return NULL;
     }
@@ -405,18 +403,19 @@ static int ipv4_dispatch(net_device_t *device, const ipv4_info_t *info, net_pbuf
 {
     int status;
     if (info->protocol == IPV4_PROTO_ICMP) return icmp_input(device, info, packet);
-    if (info->protocol == IPV4_PROTO_UDP)
+    if (info->protocol == IPV4_PROTO_UDP) {
         status = udp_input(device, info, packet);
-    else if (info->protocol == IPV4_PROTO_TCP)
+    } else if (info->protocol == IPV4_PROTO_TCP) {
         status = tcp_input(device, info, packet);
-    else {
+    } else {
         net_pbuf_free(packet);
         status = -EPROTONOSUPPORT;
     }
-    if (may_error && info->protocol == IPV4_PROTO_UDP && status == -ECONNREFUSED)
+    if (may_error && info->protocol == IPV4_PROTO_UDP && status == -ECONNREFUSED) {
         icmp_error(device, info->source, ICMP_DEST_UNREACHABLE, ICMP_PORT_UNREACHABLE, quoted, quoted_length);
-    else if (may_error && status == -EPROTONOSUPPORT)
+    } else if (may_error && status == -EPROTONOSUPPORT) {
         icmp_error(device, info->source, ICMP_DEST_UNREACHABLE, ICMP_PROTOCOL_UNREACHABLE, quoted, quoted_length);
+    }
     return status;
 }
 
@@ -484,35 +483,37 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
     if (!quoted || quoted_length < IPV4_HEADER_MIN) return;
     const uint8_t *bytes         = quoted;
     size_t         header_length = (size_t)(bytes[0] & 0x0fU) * 4U;
-    if ((bytes[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > quoted_length || (net_read_be16(bytes + 6) & IPV4_FRAGMENT_MASK)) return;
+    if ((bytes[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > quoted_length || (load_be16(bytes + 6) & IPV4_FRAGMENT_MASK)) return;
     int error = 0;
     if (type == ICMP_DEST_UNREACHABLE) {
-        if (code == ICMP_FRAGMENTATION_NEEDED)
+        if (code == ICMP_FRAGMENTATION_NEEDED) {
             error = -EMSGSIZE;
-        else if (code == ICMP_PORT_UNREACHABLE)
+        } else if (code == ICMP_PORT_UNREACHABLE) {
             error = -ECONNREFUSED;
-        else if (code == ICMP_NET_UNREACHABLE || code == ICMP_NET_UNKNOWN)
+        } else if (code == ICMP_NET_UNREACHABLE || code == ICMP_NET_UNKNOWN) {
             error = -ENETUNREACH;
-        else if (code == ICMP_HOST_UNREACHABLE || code == ICMP_HOST_UNKNOWN)
+        } else if (code == ICMP_HOST_UNREACHABLE || code == ICMP_HOST_UNKNOWN) {
             error = -EHOSTUNREACH;
-        else if (code == ICMP_PROTOCOL_UNREACHABLE)
+        } else if (code == ICMP_PROTOCOL_UNREACHABLE) {
             error = -EPROTONOSUPPORT;
-        else if (code == ICMP_SOURCE_ROUTE_FAILED)
+        } else if (code == ICMP_SOURCE_ROUTE_FAILED) {
             error = -EOPNOTSUPP;
-        else if (code == ICMP_NET_PROHIBITED || code == ICMP_HOST_PROHIBITED || code == ICMP_ADMIN_PROHIBITED)
+        } else if (code == ICMP_NET_PROHIBITED || code == ICMP_HOST_PROHIBITED || code == ICMP_ADMIN_PROHIBITED) {
             error = -EACCES;
+        }
     } else if (type == ICMP_TIME_EXCEEDED)
         error = -ETIMEDOUT;
     if (!error) return;
     uint8_t     protocol       = bytes[9];
-    uint32_t    source         = net_read_be32(bytes + 12);
-    uint32_t    destination    = net_read_be32(bytes + 16);
+    uint32_t    source         = load_be32(bytes + 12);
+    uint32_t    destination    = load_be32(bytes + 16);
     const void *payload        = bytes + header_length;
     size_t      payload_length = quoted_length - header_length;
-    if (protocol == IPV4_PROTO_UDP)
+    if (protocol == IPV4_PROTO_UDP) {
         udp_control_error(source, destination, payload, payload_length, error, mtu);
-    else if (protocol == IPV4_PROTO_TCP)
+    } else if (protocol == IPV4_PROTO_TCP) {
         tcp_control_error(source, destination, payload, payload_length, error, mtu);
+    }
     spin_lock(&ipv4_hook_lock);
     ipv4_error_hook_t hook = ipv4_error_hook;
     spin_unlock(&ipv4_hook_lock);
@@ -522,7 +523,7 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
 /* Expire stale reassembly entries, reporting reassembly-timeout ICMP errors. */
 void ipv4_timer(uint64_t now_ticks)
 {
-    for (unsigned i = 0; i < IPV4_REASSEMBLY_SLOTS; i++) {
+    for (unsigned i = 0; i < CONFIG_IPV4_REASSEMBLY_SLOTS; i++) {
         uint8_t       quote[IPV4_MAX_HEADER + 8U];
         size_t        quote_length = 0;
         net_device_t *device       = NULL;
@@ -549,7 +550,9 @@ void ipv4_device_removed(net_device_t *device)
 {
     if (!device) return;
     spin_lock(&ipv4_reassembly_lock);
-    for (unsigned i = 0; i < IPV4_REASSEMBLY_SLOTS; i++)
+    for (unsigned i = 0; i < CONFIG_IPV4_REASSEMBLY_SLOTS; i++)
         if (ipv4_reassembly[i].device == device) ipv4_reassembly_clear(&ipv4_reassembly[i]);
     spin_unlock(&ipv4_reassembly_lock);
 }
+
+#endif

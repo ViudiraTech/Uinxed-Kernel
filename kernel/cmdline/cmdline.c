@@ -9,7 +9,6 @@
  */
 
 #include <boot/limine.h>
-#include <kernel/cmdline/cmdline.h>
 #include <kernel/uinxed.h>
 #include <libs/std/string.h>
 
@@ -33,7 +32,7 @@ static int cmdline_next_option(const char **p, const char *key, size_t keylen, c
             while (value[vlen] && value[vlen] != ' ' && value[vlen] != '\t') vlen++;
             *p += keylen + 1 + vlen;
 
-            if (!vlen) continue; /* skip an empty value */
+            if (!vlen) continue; // skip an empty value
 
             copy = vlen;
             if (copy >= buflen) copy = buflen - 1;

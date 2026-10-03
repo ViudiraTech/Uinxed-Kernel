@@ -13,18 +13,9 @@
 
 #include <fs/core/vfs.h>
 #include <kernel/termios.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
-
-#ifndef TTY_CORE_BUFFER_SIZE
-#    define TTY_CORE_BUFFER_SIZE 4096
-#endif
 
 typedef struct tty_core tty_core_t;
-
 typedef int (*tty_core_emit_t)(void *context, const uint8_t *data, size_t size, uint64_t flags);
 typedef void (*tty_core_event_t)(void *context, uint8_t event);
 typedef void (*tty_core_owner_t)(void *context);
@@ -49,8 +40,8 @@ struct tty_core {
         struct winsize    winsize;
         tty_core_ops_t    ops;
         void             *context;
-        uint8_t           input[TTY_CORE_BUFFER_SIZE];
-        uint8_t           input_flags[TTY_CORE_BUFFER_SIZE];
+        uint8_t           input[CONFIG_TTY_CORE_BUFFER_SIZE];
+        uint8_t           input_flags[CONFIG_TTY_CORE_BUFFER_SIZE];
         size_t            input_head;
         size_t            input_tail;
         size_t            input_count;

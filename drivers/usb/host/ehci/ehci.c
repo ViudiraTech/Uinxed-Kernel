@@ -13,26 +13,22 @@
 #include <drivers/firmware/apic.h>
 #include <drivers/usb/host/ehci/ehci.h>
 #include <drivers/usb/host/host.h>
-#include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
+#include <libs/util/byteorder.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
 #include <process/sched.h>
-#include <process/task.h>
 
-#define EHCI_MAX_CONTROLLERS 8
-#define EHCI_MAX_PORTS       15
-#define EHCI_NUM_QH          32
-#define EHCI_NUM_QTD         64
-#define EHCI_MAX_PERIODIC    32
+#if CONFIG_USB_EHCI && CONFIG_USB
+
+#    define EHCI_MAX_CONTROLLERS 8
+#    define EHCI_MAX_PORTS       15
+#    define EHCI_NUM_QH          32
+#    define EHCI_NUM_QTD         64
+#    define EHCI_MAX_PERIODIC    32
 
 typedef struct ehci_periodic_transfer {
         usb_endpoint_t          *endpoint;
@@ -59,15 +55,12 @@ typedef struct ehci_qh_phys {
 } ehci_qh_phys_t;
 
 typedef struct ehci_controller {
-        usb_host_t          hcd;
-        volatile uint8_t   *capability;
-        volatile uint8_t   *operational;
-        pci_device_cache_t *pci;
-        int                 vector;
-        uint8_t             bus_number;
-        uint8_t             irq_slot;
-        uint8_t             num_ports;
-        uint8_t             caplength;
+        usb_host_t        hcd;
+        volatile uint8_t *capability;
+        volatile uint8_t *operational;
+        uint8_t           bus_number;
+        uint8_t           num_ports;
+        uint8_t           caplength;
 
         uint32_t *periodic_list;
         uint64_t  periodic_list_physical;
@@ -78,7 +71,7 @@ typedef struct ehci_controller {
         ehci_periodic_transfer_t *periodic[EHCI_MAX_PERIODIC];
         uint64_t                  pending_ports;
         spinlock_t                lock;
-        volatile bool             io_busy;
+        raw_spinlock_t            io_lock;
         wait_queue_t              worker_wait;
         task_t                   *worker_task;
         bool                      worker_started;
@@ -89,15 +82,15 @@ static ehci_controller_t *ehci_controllers[EHCI_MAX_CONTROLLERS];
 static size_t             ehci_controller_count;
 
 /* Read a 32-bit MMIO register. */
-static inline uint32_t ehci_read32(const volatile uint8_t *base, size_t offset)
+static uint32_t ehci_read32(const volatile uint8_t *base, size_t offset)
 {
-    return *(volatile const uint32_t *)(base + offset);
+    return mmio_read32(base + offset);
 }
 
 /* Write a 32-bit MMIO register. */
-static inline void ehci_write32(volatile uint8_t *base, size_t offset, uint32_t value)
+static void ehci_write32(volatile uint8_t *base, size_t offset, uint32_t value)
 {
-    *(volatile uint32_t *)(base + offset) = value;
+    mmio_write32((base + offset), value);
 }
 
 /* Allocate zeroed DMA memory and return its physical address. */
@@ -122,10 +115,10 @@ static void ehci_dma_free(uint64_t physical, size_t size)
 /* Poll a register until the masked bits match value, with timeout. */
 static int ehci_wait_register(volatile uint8_t *base, size_t offset, uint32_t mask, uint32_t value, uint32_t timeout_ms)
 {
-    uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
+    uint64_t deadline = nano_time() + ((uint64_t)timeout_ms * 1000000ULL);
     while ((ehci_read32(base, offset) & mask) != value) {
         if (nano_time() >= deadline) return -ETIMEDOUT;
-        __asm__ volatile("pause");
+        cpu_relax();
     }
     return EOK;
 }
@@ -139,7 +132,7 @@ static int ehci_find_free_qh(ehci_controller_t *ctrl)
             return i;
         }
     }
-    return -1;
+    return -ENOSPC;
 }
 
 /* Return a queue-head slot to the pool. */
@@ -159,7 +152,7 @@ static int ehci_find_free_qtd(ehci_controller_t *ctrl)
             return i;
         }
     }
-    return -1;
+    return -ENOSPC;
 }
 
 /* Return a qTD slot to the pool. */
@@ -168,18 +161,6 @@ static void ehci_free_qtd(ehci_controller_t *ctrl, int index)
     if (index < 0 || index >= EHCI_NUM_QTD) return;
     ctrl->qtds[index].used = false;
     memset(ctrl->qtds[index].virtual, 0, sizeof(ehci_qtd_t));
-}
-
-/* Spin until the controller's IO is exclusively owned by a transfer. */
-static void ehci_io_lock(ehci_controller_t *ctrl)
-{
-    while (__atomic_test_and_set(&ctrl->io_busy, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
-}
-
-/* Release the exclusive IO lock. */
-static void ehci_io_unlock(ehci_controller_t *ctrl)
-{
-    __atomic_clear(&ctrl->io_busy, __ATOMIC_RELEASE);
 }
 
 /* Translate a qTD token into a completion status. */
@@ -197,7 +178,7 @@ static int ehci_qtd_result(const ehci_qtd_t *qtd)
 /* Wait for every qTD in a chain to complete, in order. */
 static int ehci_wait_chain(ehci_controller_t *ctrl, const int *qtd_indices, size_t count, uint32_t timeout_ms)
 {
-    uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
+    uint64_t deadline = nano_time() + ((uint64_t)timeout_ms * 1000000ULL);
     for (size_t position = 0; position < count; position++) {
         for (;;) {
             if (!ctrl->running) return -ESHUTDOWN;
@@ -207,7 +188,7 @@ static int ehci_wait_chain(ehci_controller_t *ctrl, const int *qtd_indices, size
                 break;
             }
             if (nano_time() >= deadline) return -ETIMEDOUT;
-            __asm__ volatile("pause");
+            cpu_relax();
         }
     }
     return EOK;
@@ -263,12 +244,12 @@ static void ehci_unschedule_async(ehci_controller_t *ctrl, int qh_index)
 static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
 {
     ehci_controller_t *ctrl = device ? device->hc_private : NULL;
-    if (!ctrl || !setup || device->speed != USB_SPEED_HIGH || (length && !buffer) || length > PAGE_4K_SIZE || length != usb_get_le16(&setup->length)) return -EINVAL;
+    if (!ctrl || !setup || device->speed != USB_SPEED_HIGH || (length && !buffer) || length > PAGE_4K_SIZE || length != load_le16(&setup->length)) return -EINVAL;
     uint16_t max_packet = device->descriptor.max_packet_size0 ? device->descriptor.max_packet_size0 : 64;
     if (max_packet != 64) return -EPROTO;
     bool input = (setup->request_type & USB_DIR_IN) != 0;
 
-    ehci_io_lock(ctrl);
+    raw_spin_lock(&ctrl->io_lock);
     int      status         = -ENOMEM;
     int      qh_index       = -1;
     int      qtd_indices[3] = {-1, -1, -1};
@@ -303,9 +284,10 @@ static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     }
     size_t status_position = length ? 2 : 1;
     ehci_fill_qtd(ctrl->qtds[qtd_indices[0]].virtual, EHCI_QTD_PID_SETUP, 0, (uint32_t)setup_physical, sizeof(*setup), (uint32_t)ctrl->qtds[qtd_indices[1]].physical, false);
-    if (length)
+    if (length) {
         ehci_fill_qtd(ctrl->qtds[qtd_indices[1]].virtual, input ? EHCI_QTD_PID_IN : EHCI_QTD_PID_OUT, EHCI_QTD_TOGGLE, (uint32_t)data_physical, length, (uint32_t)ctrl->qtds[qtd_indices[2]].physical,
                       false);
+    }
     if (length) ctrl->qtds[qtd_indices[1]].virtual->alt_next_qtd = (uint32_t)ctrl->qtds[qtd_indices[2]].physical;
     ehci_fill_qtd(ctrl->qtds[qtd_indices[status_position]].virtual, input && length ? EHCI_QTD_PID_OUT : EHCI_QTD_PID_IN, EHCI_QTD_TOGGLE, 0, 0, EHCI_QTD_NEXT_TERMINATE, true);
 
@@ -321,10 +303,11 @@ static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     ehci_unschedule_async(ctrl, qh_index);
     if (status == EOK && input && length) {
         size_t remaining = (ctrl->qtds[qtd_indices[1]].virtual->token & EHCI_QTD_LENGTH_MASK) >> EHCI_QTD_LENGTH_SHIFT;
-        if (remaining > length)
+        if (remaining > length) {
             status = -EPROTO;
-        else
+        } else {
             memcpy(buffer, data_dma, length - remaining);
+        }
     }
 control_cleanup:
     if (qh_index >= 0) ehci_free_qh(ctrl, qh_index);
@@ -332,7 +315,7 @@ control_cleanup:
         if (qtd_indices[i] >= 0) ehci_free_qtd(ctrl, qtd_indices[i]);
     if (setup_dma) ehci_dma_free(setup_physical, sizeof(*setup));
     if (data_dma) ehci_dma_free(data_physical, length);
-    ehci_io_unlock(ctrl);
+    raw_spin_unlock(&ctrl->io_lock);
     return status;
 }
 
@@ -344,12 +327,12 @@ static int ehci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     if (!length) return EOK;
     usb_device_t      *device     = endpoint->interface->device;
     ehci_controller_t *ctrl       = device->hc_private;
-    uint16_t           max_packet = usb_get_le16(&endpoint->descriptor.max_packet_size) & 0x07ff;
+    uint16_t           max_packet = load_le16(&endpoint->descriptor.max_packet_size) & 0x07ff;
     if (!ctrl || device->speed != USB_SPEED_HIGH || !max_packet || max_packet > 1024) return -EINVAL;
     bool    input           = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     uint8_t endpoint_number = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
 
-    ehci_io_lock(ctrl);
+    raw_spin_lock(&ctrl->io_lock);
     int      status   = -ENOMEM;
     int      qh_index = -1, qtd_index = -1;
     uint64_t data_physical = 0;
@@ -388,7 +371,7 @@ transfer_cleanup:
     if (qh_index >= 0) ehci_free_qh(ctrl, qh_index);
     if (qtd_index >= 0) ehci_free_qtd(ctrl, qtd_index);
     if (data_dma) ehci_dma_free(data_physical, length);
-    ehci_io_unlock(ctrl);
+    raw_spin_unlock(&ctrl->io_lock);
     return status;
 }
 
@@ -446,7 +429,7 @@ static void ehci_interrupt_stop(usb_endpoint_t *endpoint)
         if (ctrl->periodic[i] == transfer) ctrl->periodic[i] = NULL;
     endpoint->hc_private = NULL;
     spin_unlock_irqrestore(&ctrl->lock, flags);
-    while (__atomic_load_n(&transfer->in_callback, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
+    spin_until_flag_clear(&transfer->in_callback);
     free(transfer->buffer);
     free(transfer);
 }
@@ -490,7 +473,7 @@ static const usb_hcd_ops_t ehci_hcd_ops = {
 static int ehci_port_reset(ehci_controller_t *ctrl, uint8_t port)
 {
     if (port >= ctrl->num_ports) return -EINVAL;
-    size_t   offset = EHCI_OP_PORTSC + port * EHCI_PORT_STRIDE;
+    size_t   offset = EHCI_OP_PORTSC + (port * EHCI_PORT_STRIDE);
     uint32_t portsc = ehci_read32(ctrl->operational, offset);
     if (!(portsc & EHCI_PORT_CCS)) return -ENODEV;
     if ((portsc & EHCI_PORT_LS_MASK) == EHCI_PORT_LS_KSTATE) {
@@ -539,7 +522,7 @@ static int ehci_get_string(usb_device_t *device, uint8_t index, uint16_t languag
     size_t characters = (descriptor[0] - 2) / 2;
     if (characters >= capacity) characters = capacity - 1;
     for (size_t i = 0; i < characters; i++) {
-        uint16_t character = descriptor[2 + i * 2] | (uint16_t)descriptor[3 + i * 2] << 8;
+        uint16_t character = descriptor[2 + (i * 2)] | (uint16_t)descriptor[3 + (i * 2)] << 8;
         output[i]          = character >= 0x20 && character < 0x7f ? (char)character : '?';
     }
     output[characters] = '\0';
@@ -554,7 +537,7 @@ static int ehci_enumerate_port(ehci_controller_t *ctrl, uint8_t port)
     int result = ehci_port_reset(ctrl, port);
     if (result != EOK) return result;
 
-    size_t      offset = EHCI_OP_PORTSC + port * EHCI_PORT_STRIDE;
+    size_t      offset = EHCI_OP_PORTSC + (port * EHCI_PORT_STRIDE);
     usb_speed_t speed  = ehci_port_speed_type(ehci_read32(ctrl->operational, offset));
 
     usb_device_t *device = calloc(1, sizeof(*device));
@@ -589,8 +572,9 @@ static int ehci_enumerate_port(ehci_controller_t *ctrl, uint8_t port)
     uint16_t language = 0x0409;
     uint8_t  lang_desc[4];
     if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, lang_desc, sizeof(lang_desc), USB_CTRL_TIMEOUT_MS) == EOK
-        && lang_desc[0] >= 4)
-        language = lang_desc[2] | (uint16_t)lang_desc[3] << 8;
+        && lang_desc[0] >= 4) {
+        language = load_le16(&lang_desc[2]);
+    }
     ehci_get_string(device, device->descriptor.manufacturer, language, device->manufacturer, sizeof(device->manufacturer));
     ehci_get_string(device, device->descriptor.product, language, device->product, sizeof(device->product));
     ehci_get_string(device, device->descriptor.serial_number, language, device->serial, sizeof(device->serial));
@@ -598,7 +582,7 @@ static int ehci_enumerate_port(ehci_controller_t *ctrl, uint8_t port)
     usb_config_descriptor_t header;
     result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, &header, sizeof(header), USB_CTRL_TIMEOUT_MS);
     if (result != EOK) goto fail;
-    uint16_t total_length = usb_get_le16(&header.total_length);
+    uint16_t total_length = load_le16(&header.total_length);
     if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header) || total_length > PAGE_4K_SIZE) {
         result = -EPROTO;
         goto fail;
@@ -616,7 +600,7 @@ static int ehci_enumerate_port(ehci_controller_t *ctrl, uint8_t port)
         ctrl->devices[port] = device;
         return EOK;
     }
-fail:
+fail:;
     bool registered = device->registered;
     usb_remove_device(device);
     if (!registered) free(device);
@@ -646,11 +630,14 @@ static void ehci_service_periodic(ehci_controller_t *ctrl)
         }
         transfer->in_callback = true;
         spin_unlock_irqrestore(&ctrl->lock, flags);
-        size_t actual = 0;
+        size_t   actual  = 0;
         uint32_t timeout = transfer->interval_ms ? transfer->interval_ms : 10;
         if (timeout > 100) timeout = 100;
         int status = ehci_transfer(transfer->endpoint, transfer->buffer, transfer->length, &actual, timeout);
-        if (status == -ETIMEDOUT) { status = EOK; actual = 0; }
+        if (status == -ETIMEDOUT) {
+            status = EOK;
+            actual = 0;
+        }
         if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE) && (actual || status != EOK)) transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
         transfer->next_poll = nano_time() + (uint64_t)transfer->interval_ms * 1000000ULL;
         __atomic_store_n(&transfer->in_callback, false, __ATOMIC_RELEASE);
@@ -669,7 +656,7 @@ static int ehci_worker(void *argument)
         spin_unlock_irqrestore(&ctrl->lock, flags);
         for (uint8_t port = 0; port < ctrl->num_ports; port++) {
             if (!(ports & (1ULL << port))) continue;
-            size_t   offset = EHCI_OP_PORTSC + port * EHCI_PORT_STRIDE;
+            size_t   offset = EHCI_OP_PORTSC + (port * EHCI_PORT_STRIDE);
             uint32_t portsc = ehci_read32(ctrl->operational, offset);
             uint32_t change = portsc & EHCI_PORT_CHANGE_BITS;
             if (change) ehci_write32(ctrl->operational, offset, portsc);
@@ -709,11 +696,13 @@ INTERRUPT_BEGIN static void ehci_interrupt_handler(interrupt_frame_t *frame)
         if (sts & EHCI_STS_INT) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_INT);
         if (sts & EHCI_STS_ERR) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_ERR);
-            plogk("usb-ehci: USB error interrupt on bus %u\n", ctrl->bus_number);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("usb-ehci: USB error interrupt on bus %u\n", ctrl->bus_number);
         }
         if (sts & EHCI_STS_HSE) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_HSE);
-            plogk("usb-ehci: Host system error on bus %u\n", ctrl->bus_number);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("usb-ehci: Host system error on bus %u\n", ctrl->bus_number);
         }
         if (sts & EHCI_STS_IAA) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_IAA);
     }
@@ -739,31 +728,22 @@ static usb_host_controller_ops_t ehci_controller_ops = {
 /* Probe an EHCI PCI device: reset, allocate pools, and start. */
 static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 {
-    base_address_register_t bar = get_base_address_register(pci, 0);
-    if (bar.type != mem_mapping || !bar.address) return -ENODEV;
-
-    uint64_t bar_physical = (uint64_t)virt_to_phys((uint64_t)bar.address);
-    uint64_t bar_size     = bar.size & ~BAR_64BIT_FLAG;
-    if (!bar_size) bar_size = PAGE_4K_SIZE;
-    uint64_t map_start  = ALIGN_DOWN(bar_physical, PAGE_4K_SIZE);
-    uint64_t map_length = ALIGN_UP(bar_physical + bar_size, PAGE_4K_SIZE) - map_start;
-    page_map_range_to(get_kernel_pagedir(), map_start, map_length, PTE_MMIO_FLAGS);
+    pci_bar_t bar;
+    if (pci_map_bar(pci, 0, &bar) < 0) return -ENODEV;
 
     ehci_controller_t *ctrl = calloc(1, sizeof(*ctrl));
     if (!ctrl) return -ENOMEM;
 
-    ctrl->capability         = bar.address;
-    ctrl->pci                = pci;
+    ctrl->capability         = bar.virt;
     ctrl->bus_number         = bus_number;
     ctrl->hcd.type           = USB_HOST_EHCI;
     ctrl->hcd.bus_number     = bus_number;
-    ctrl->hcd.pci_dev        = pci;
     ctrl->hcd.hcd_ops        = &ehci_hcd_ops;
     ctrl->hcd.controller_ops = &ehci_controller_ops;
     ctrl->hcd.hc_private     = ctrl;
     (void)snprintf(ctrl->hcd.name, sizeof(ctrl->hcd.name), "ehci-usb%u", bus_number);
 
-    ctrl->caplength = *(volatile uint8_t *)ctrl->capability;
+    ctrl->caplength = *ctrl->capability;
     if (ctrl->caplength < 0x20) ctrl->caplength = 0x20;
     ctrl->operational = ctrl->capability + ctrl->caplength;
 
@@ -772,8 +752,7 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     if (ctrl->num_ports > EHCI_MAX_PORTS) ctrl->num_ports = EHCI_MAX_PORTS;
     ctrl->hcd.max_ports = ctrl->num_ports;
 
-    uint32_t command = pci_read_command_status(pci) & 0xffff;
-    pci_write_command_status(pci, command | 0x06);
+    pci_enable_device(pci, PCI_CMD_MEM | PCI_CMD_BUSMASTER);
 
     ehci_write32(ctrl->operational, EHCI_OP_USBCMD, EHCI_CMD_HCRESET);
     int ret = ehci_wait_register(ctrl->operational, EHCI_OP_USBCMD, EHCI_CMD_HCRESET, 0, 100);
@@ -829,12 +808,12 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     ehci_write32(ctrl->operational, EHCI_OP_USBINTR, EHCI_INTR_PCD | EHCI_INTR_TX | EHCI_INTR_ERR | EHCI_INTR_IAA);
     ehci_write32(ctrl->operational, EHCI_OP_CONFIGFLAG, 1);
 
-    uint32_t irq = pci_get_irq(pci);
-    ctrl->vector = (int)irq;
-    pci_msi_init(pci);
-    int msi_vector = pci_enable_msi(pci);
-    if (msi_vector >= 0) ctrl->vector = msi_vector;
-    if (ctrl->vector > 0) register_interrupt_handler((uint16_t)ctrl->vector, ehci_interrupt_handler, 0, 0x8e);
+    pci_irq_state_t   irq_state;
+    pci_irq_request_t request = {
+        .modes       = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
+        .idt_handler = (void *)ehci_interrupt_handler,
+    };
+    if (pci_request_irq(pci, &request, &irq_state) < 0) return -ENODEV;
 
     wait_queue_init(&ctrl->worker_wait);
     ctrl->running                             = true;
@@ -842,16 +821,13 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     usb_host_register(&ctrl->hcd);
     ctrl->hcd.running = true;
 
-    plogk("usb-ehci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
+    plogk("usb-ehci: Controller at MMIO %p, bus usb%u, %u ports.\n", bar.virt, bus_number, ctrl->num_ports);
     return EOK;
 }
 
 /* Probe every EHCI controller in the PCI device cache. */
 int ehci_init(void)
 {
-#if !CONFIG_USB_EHCI
-    return 0;
-#endif
     size_t               before = ehci_controller_count;
     pci_devices_cache_t *cache  = pci_get_devices_cache();
     if (!cache) return 0;
@@ -864,11 +840,9 @@ int ehci_init(void)
     return (int)(ehci_controller_count - before);
 }
 
+/* Ehci start workers. */
 void ehci_start_workers(void)
 {
-#if !CONFIG_USB_EHCI
-    return;
-#endif
     for (size_t i = 0; i < ehci_controller_count; i++) {
         ehci_controller_t *ctrl = ehci_controllers[i];
         if (!ctrl || ctrl->worker_started) continue;
@@ -879,3 +853,5 @@ void ehci_start_workers(void)
         kernel_worker_register("ehci-hub", ehci_worker, ctrl, &ctrl->worker_task);
     }
 }
+
+#endif

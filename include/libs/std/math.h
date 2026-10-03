@@ -11,6 +11,7 @@
 #ifndef INCLUDE_MATH_H_
 #define INCLUDE_MATH_H_
 
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 #define PI            (float64_t)3.1415926535
@@ -31,6 +32,13 @@
 #define LONG_MAX      (0x7FFFFFFFFFFFFFFFL)
 #define LONG_MIN      (-0x7FFFFFFFFFFFFFFFL - 1)
 
+/* Categories returned by fpclassify(). */
+#define FP_NAN       0
+#define FP_INFINITE  1
+#define FP_ZERO      2
+#define FP_SUBNORMAL 3
+#define FP_NORMAL    4
+
 #define FORCE_EVAL(x)                                         \
     do {                                                      \
         if (sizeof(x) == sizeof(float)) {                     \
@@ -44,20 +52,6 @@
             __x = (x);                                        \
         }                                                     \
     } while (0)
-
-static const double rounders[10 + 1] = {
-    0.5,          // 01 decimal place
-    0.05,         // 02 decimal place
-    0.005,        // 03 decimal place
-    0.0005,       // 04 decimal place
-    0.00005,      // 05 decimal place
-    0.000005,     // 06 decimal place
-    0.0000005,    // 07 decimal place
-    0.00000005,   // 08 decimal place
-    0.000000005,  // 09 decimal place
-    0.0000000005, // 10 decimal place
-    0.0000000000  // 11 decimal place
-};
 
 /* Round a floating-point number to the nearest integer */
 int round(float64_t x);
@@ -103,5 +97,27 @@ double ldexp(double x, int exp);
 
 /* Return the absolute value of an integer */
 int abs(int x);
+
+/* True when x is a NaN */
+int isnan(double x);
+
+/* True when x is an infinity */
+int isinf(double x);
+
+/* True when x is neither a NaN nor an infinity */
+int isfinite(double x);
+
+/* True when x is a normal value (not zero, subnormal, infinite or NaN) */
+int isnormal(double x);
+
+/* True when the sign bit of x is set */
+int signbit(double x);
+
+/* Classify x into one of the FP_* categories */
+int fpclassify(double x);
+
+/* Return a quiet NaN */
+float  nanf(const char *tagp);
+double nan(const char *tagp);
 
 #endif // INCLUDE_MATH_H_

@@ -9,19 +9,12 @@
  */
 
 #include <fs/core/vfs.h>
+#include <fs/core/vfs_stub.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
-#include <process/sched.h>
-#include <process/task.h>
-#include <process/uaccess.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
 #include <syscall/poll.h>
 #include <syscall/syscall.h>
@@ -30,25 +23,6 @@
 #define EVENTFD_UINT64_MAX (0xffffffffffffffffULL)
 
 static int eventfd_fsid = -1;
-
-/* Check whether an interrupting signal is pending for the current process */
-static bool eventfd_signal_pending(void)
-{
-    process_t *proc = process_current();
-    if (!proc) return false;
-    spin_lock(&proc->signal.lock);
-    bool pending = signal_has_interrupting_pending(&proc->signal);
-    spin_unlock(&proc->signal.lock);
-    return pending;
-}
-
-/* VFS open callback (no-op) */
-static void eventfd_vfs_open(void *parent, const char *name, vfs_node_t node)
-{
-    (void)parent;
-    (void)name;
-    (void)node;
-}
 
 /* VFS close callback: reset the counter and wake all waiters */
 static void eventfd_vfs_close(void *current)
@@ -73,13 +47,13 @@ static int64_t eventfd_read_common(eventfd_ctx_t *ctx, void *addr, size_t size, 
             spin_unlock(&ctx->lock);
             return -EAGAIN;
         }
-        if (eventfd_signal_pending()) {
+        if (signal_has_interrupting_pending_current()) {
             spin_unlock(&ctx->lock);
             return -ERESTARTSYS;
         }
         wait_queue_prepare(&ctx->wq);
         spin_unlock(&ctx->lock);
-        if (eventfd_signal_pending()) {
+        if (signal_has_interrupting_pending_current()) {
             wait_queue_cancel(&ctx->wq);
             return -ERESTARTSYS;
         }
@@ -121,13 +95,13 @@ static int64_t eventfd_write_common(eventfd_ctx_t *ctx, const void *addr, size_t
                 spin_unlock(&ctx->lock);
                 return -EAGAIN;
             }
-            if (eventfd_signal_pending()) {
+            if (signal_has_interrupting_pending_current()) {
                 spin_unlock(&ctx->lock);
                 return -ERESTARTSYS;
             }
             wait_queue_prepare(&ctx->wq);
             spin_unlock(&ctx->lock);
-            if (eventfd_signal_pending()) {
+            if (signal_has_interrupting_pending_current()) {
                 wait_queue_cancel(&ctx->wq);
                 return -ERESTARTSYS;
             }
@@ -153,6 +127,7 @@ static size_t eventfd_vfs_read(void *file, void *addr, size_t offset, size_t siz
     return ret < 0 ? (size_t)-1 : (size_t)ret;
 }
 
+/* Eventfd vfs write. */
 static size_t eventfd_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     (void)offset;
@@ -203,80 +178,6 @@ static int eventfd_vfs_free(void *handle)
     if (!ctx) return -EINVAL;
     free(ctx);
     return EOK;
-}
-
-/* Generic stubs for unused VFS callbacks */
-
-/* Unsupported unmount callback */
-static void eventfd_stub_unmount(void *root)
-{
-    (void)root;
-}
-
-/* Unsupported stat callback */
-static int eventfd_stub_stat(void *f, vfs_node_t n)
-{
-    (void)f;
-    (void)n;
-    return EOK;
-}
-
-/* Unsupported mkdir/mkfile/link/symlink callback */
-static int eventfd_stub_mk(void *p, const char *nm, vfs_node_t n)
-{
-    (void)p;
-    (void)nm;
-    (void)n;
-    return -ENOSYS;
-}
-
-/* Unsupported readlink callback */
-static size_t eventfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
-{
-    (void)n;
-    (void)a;
-    (void)o;
-    (void)s;
-    return (size_t)-1;
-}
-
-/* Unsupported ioctl callback */
-static int eventfd_stub_ioctl(void *f, size_t o, void *a)
-{
-    (void)f;
-    (void)o;
-    (void)a;
-    return -ENOSYS;
-}
-
-/* Unsupported dup callback */
-static vfs_node_t eventfd_stub_dup(vfs_node_t n)
-{
-    (void)n;
-    return NULL;
-}
-
-/* Unsupported delete callback */
-static int eventfd_stub_del(void *p, vfs_node_t n)
-{
-    (void)p;
-    (void)n;
-    return -ENOSYS;
-}
-
-/* Unsupported rename callback */
-static int eventfd_stub_rename(const vfs_rename_context_t *context)
-{
-    (void)context;
-    return -ENOSYS;
-}
-
-/* Unsupported mount callback */
-static int eventfd_stub_mount(const char *s, vfs_node_t n)
-{
-    (void)s;
-    (void)n;
-    return -ENOSYS;
 }
 
 /* Allocate and initialize an eventfd VFS node */
@@ -341,28 +242,27 @@ void eventfd_init(void)
         plogk("eventfd: Failed to allocate callback.\n");
         return;
     }
-    cb->mount      = eventfd_stub_mount;
-    cb->unmount    = eventfd_stub_unmount;
-    cb->open       = eventfd_vfs_open;
+    cb->unmount    = vfs_stub_unmount;
+    cb->open       = vfs_stub_open;
     cb->close      = eventfd_vfs_close;
     cb->read       = eventfd_vfs_read;
     cb->write      = eventfd_vfs_write;
-    cb->readlink   = eventfd_stub_readlink;
-    cb->mkdir      = eventfd_stub_mk;
-    cb->mkfile     = eventfd_stub_mk;
-    cb->link       = eventfd_stub_mk;
-    cb->symlink    = eventfd_stub_mk;
-    cb->stat       = eventfd_stub_stat;
-    cb->ioctl      = eventfd_stub_ioctl;
-    cb->dup        = eventfd_stub_dup;
+    cb->readlink   = vfs_stub_readlink;
+    cb->mkdir      = vfs_stub_mk;
+    cb->mkfile     = vfs_stub_mk;
+    cb->link       = vfs_stub_mk;
+    cb->symlink    = vfs_stub_mk;
+    cb->stat       = vfs_stub_stat;
+    cb->ioctl      = vfs_stub_ioctl;
+    cb->dup        = vfs_stub_dup;
     cb->poll       = eventfd_vfs_poll;
     cb->file_read  = eventfd_vfs_file_read;
     cb->file_write = eventfd_vfs_file_write;
     cb->free       = eventfd_vfs_free;
-    cb->delete     = eventfd_stub_del;
-    cb->rename     = eventfd_stub_rename;
+    cb->delete     = vfs_stub_del;
+    cb->rename     = vfs_stub_rename;
 
-    eventfd_fsid = vfs_regist(cb);
+    eventfd_fsid = vfs_regist_fs("eventfd", cb);
     if (eventfd_fsid < 0) {
         plogk("eventfd: Failed to register VFS callback.\n");
         free(cb);

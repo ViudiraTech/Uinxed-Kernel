@@ -12,8 +12,6 @@
 #define INCLUDE_PS2_H_
 
 #include <drivers/input/evdev/evdev.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
 
 #define PS2_DATA_PORT   0x60
 #define PS2_STATUS_PORT 0x64
@@ -56,6 +54,9 @@
 #define PS2_DEV_GET_ID          0xf2
 #define PS2_DEV_SET_LEDS        0xed
 
+extern evdev_t *ps2_keyboard_evdev;
+extern evdev_t *ps2_mouse_evdev;
+
 /* Poll the data port; returns EOK when data is ready or -ETIMEDOUT. */
 int wait_ps2_read(void);
 
@@ -93,7 +94,11 @@ int ps2_send_device_data(bool second_port, uint8_t data);
 bool ps2_port_available(bool second_port);
 
 /* Probe and initialize the i8042 controller and attached devices. */
+#if CONFIG_PS2_KEYBOARD_MOUSE
 void init_ps2(void);
+#else
+static inline void init_ps2(void) {}
+#endif
 
 /* Initialize the PS/2 keyboard and register its evdev device. */
 void ps2_keyboard_init(void);
@@ -105,8 +110,7 @@ void ps2_keyboard_handle_byte(uint8_t scancode);
 void ps2_keyboard_reset_stream(void);
 
 /* Block until keyboard events are ready. */
-int             ps2kbd_wait_events(void);
-extern evdev_t *ps2_keyboard_evdev;
+int ps2kbd_wait_events(void);
 
 /* Initialize the PS/2 mouse and register its evdev device. */
 void ps2_mouse_init(void);
@@ -118,7 +122,6 @@ void ps2_mouse_handle_byte(uint8_t byte);
 void ps2_mouse_reset_stream(void);
 
 /* True if a PS/2 mouse was detected on the aux port. */
-bool            ps2_mouse_available(void);
-extern evdev_t *ps2_mouse_evdev;
+bool ps2_mouse_available(void);
 
 #endif // INCLUDE_PS2_H_

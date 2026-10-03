@@ -19,7 +19,7 @@
     {                                                                        \
         irq_enter_gs(frame);                                                 \
         disable_intr();                                                      \
-        plogk("Interrupt empty %u\n", id);                                   \
+        plogk("isr: Interrupt empty %u\n", id);                              \
         send_eoi();                                                          \
         /* IRETQ restores IF; do not permit nested IRQs on this frame. */    \
         irq_leave_gs(frame);                                                 \

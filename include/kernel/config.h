@@ -12,14 +12,17 @@
 #define INCLUDE_CONFIG_H_
 
 /*
- * Build-time configuration defaults for every Kconfig option the Makefile can
- * emit.  The Makefile passes the final values with -D...; these #ifndef
- * fallbacks keep every translation unit self-contained when a define is
- * missing, matching the Kconfig default.
+ * Build-time configuration fallbacks for Kconfig options that scripts/
+ * kconfig.mk emits.  The Makefile is authoritative: it passes the final
+ * values with -D... and a command-line -D always wins over these #ifndef
+ * fallbacks.  This header only matters for translation units compiled
+ * outside the Makefile build (or when a .config key is absent); most TUs
+ * get their values purely from -D and never include this file.  Values
+ * here must match the Kconfig defaults.
  */
 
-#ifndef BOOT_LOGO
-#    define BOOT_LOGO 1
+#ifndef CONFIG_BOOT_LOGO
+#    define CONFIG_BOOT_LOGO 1
 #endif
 
 #ifndef CONFIG_ATA
@@ -86,6 +89,14 @@
 #    define CONFIG_MODULE_MAX_SIZE 64
 #endif
 
+#ifndef CONFIG_MODULE_NAME_LEN
+#    define CONFIG_MODULE_NAME_LEN 64
+#endif
+
+#ifndef CONFIG_MODULE_PARAM_MAX
+#    define CONFIG_MODULE_PARAM_MAX 4096
+#endif
+
 #ifndef CONFIG_MODULE_SIG_FORCE
 #    define CONFIG_MODULE_SIG_FORCE 0
 #endif
@@ -114,8 +125,8 @@
 #    define CONFIG_PARPORT 1
 #endif
 
-#ifndef CONFIG_PCSPKR
-#    define CONFIG_PCSPKR 0
+#ifndef CONFIG_AUDIO_PCSPKR
+#    define CONFIG_AUDIO_PCSPKR 0
 #endif
 
 #ifndef CONFIG_POSIX_MQ
@@ -138,16 +149,24 @@
 #    define CONFIG_SERIAL 1
 #endif
 
-#ifndef CONFIG_SOUND_HDA
-#    define CONFIG_SOUND_HDA 1
+#ifndef CONFIG_AUDIO
+#    define CONFIG_AUDIO 1
 #endif
 
-#ifndef CONFIG_SOUND_SB16
-#    define CONFIG_SOUND_SB16 0
+#ifndef CONFIG_AUDIO_HDA
+#    define CONFIG_AUDIO_HDA 1
+#endif
+
+#ifndef CONFIG_AUDIO_SB16
+#    define CONFIG_AUDIO_SB16 0
 #endif
 
 #ifndef CONFIG_SWAP
 #    define CONFIG_SWAP 1
+#endif
+
+#ifndef CONFIG_SWAP_MAX_AREAS
+#    define CONFIG_SWAP_MAX_AREAS 32
 #endif
 
 #ifndef CONFIG_SYSFS
@@ -162,12 +181,16 @@
 #    define CONFIG_TPM 1
 #endif
 
-#ifndef CONFIG_UEVENT_HELPER
-#    define CONFIG_UEVENT_HELPER 1
-#endif
-
 #ifndef CONFIG_UNIX98_PTY_MAX
 #    define CONFIG_UNIX98_PTY_MAX 4096
+#endif
+
+#ifndef CONFIG_UART_RX_BUF_SIZE
+#    define CONFIG_UART_RX_BUF_SIZE 256
+#endif
+
+#ifndef CONFIG_UART_TX_BUF_SIZE
+#    define CONFIG_UART_TX_BUF_SIZE 8192
 #endif
 
 #ifndef CONFIG_UNIX98_PTYS
@@ -210,12 +233,16 @@
 #    define CONFIG_VIRTIO 0
 #endif
 
+#ifndef CONFIG_VIRTIO_PCI
+#    define CONFIG_VIRTIO_PCI 0
+#endif
+
 #ifndef CONFIG_VIRTIO_GPU
 #    define CONFIG_VIRTIO_GPU 0
 #endif
 
 #ifndef CONFIG_SIMPLEDRM
-#    define CONFIG_SIMPLEDRM 0
+#    define CONFIG_SIMPLEDRM 1
 #endif
 
 #ifndef CONFIG_DRM_DEFAULT_WIDTH
@@ -234,132 +261,540 @@
 #    define CONFIG_VT_COUNT 8
 #endif
 
-#ifndef CPU_FEATURE_AVX
-#    define CPU_FEATURE_AVX 1
+#ifndef CONFIG_CPU_FEATURE_AVX
+#    define CONFIG_CPU_FEATURE_AVX 1
 #endif
 
-#ifndef CPU_FEATURE_AVX512
-#    define CPU_FEATURE_AVX512 0
+#ifndef CONFIG_CPU_FEATURE_AVX512
+#    define CONFIG_CPU_FEATURE_AVX512 0
 #endif
 
-#ifndef CPU_FEATURE_FPU
-#    define CPU_FEATURE_FPU 1
+#ifndef CONFIG_CPU_FEATURE_FPU
+#    define CONFIG_CPU_FEATURE_FPU 1
 #endif
 
-#ifndef CPU_FEATURE_SSE
-#    define CPU_FEATURE_SSE 1
+#ifndef CONFIG_CPU_FEATURE_SSE
+#    define CONFIG_CPU_FEATURE_SSE 1
 #endif
 
-#ifndef CPU_MAX_COUNT
-#    define CPU_MAX_COUNT 0
+#ifndef CONFIG_CPU_MAX_COUNT
+#    define CONFIG_CPU_MAX_COUNT 0
 #endif
 
-#ifndef EPOLL_MAX_FDS
-#    define EPOLL_MAX_FDS 1024
+#ifndef CONFIG_EPOLL_MAX_FDS
+#    define CONFIG_EPOLL_MAX_FDS 1024
 #endif
 
-#ifndef FUTEX_HASH_BITS
-#    define FUTEX_HASH_BITS 8
+#ifndef CONFIG_FUTEX_HASH_BITS
+#    define CONFIG_FUTEX_HASH_BITS 8
 #endif
 
-#ifndef INOTIFY_MAX_QUEUED_EVENTS
-#    define INOTIFY_MAX_QUEUED_EVENTS 16384
+#ifndef CONFIG_INOTIFY_MAX_QUEUED_EVENTS
+#    define CONFIG_INOTIFY_MAX_QUEUED_EVENTS 16384
 #endif
 
-#ifndef INOTIFY_MAX_USER_INSTANCES
-#    define INOTIFY_MAX_USER_INSTANCES 128
+#ifndef CONFIG_INOTIFY_MAX_USER_INSTANCES
+#    define CONFIG_INOTIFY_MAX_USER_INSTANCES 128
 #endif
 
-#ifndef INOTIFY_MAX_USER_WATCHES
-#    define INOTIFY_MAX_USER_WATCHES 8192
+#ifndef CONFIG_INOTIFY_MAX_USER_WATCHES
+#    define CONFIG_INOTIFY_MAX_USER_WATCHES 8192
 #endif
 
-#ifndef INPUT_EVDEV_BUFSIZE
-#    define INPUT_EVDEV_BUFSIZE 256
+#ifndef CONFIG_INPUT_EVDEV_BUFSIZE
+#    define CONFIG_INPUT_EVDEV_BUFSIZE 256
 #endif
 
-#ifndef KERNEL_HEAP_MAX_MIB
-#    define KERNEL_HEAP_MAX_MIB 512
+#ifndef CONFIG_KERNEL_HEAP_MAX_MIB
+#    define CONFIG_KERNEL_HEAP_MAX_MIB 512
 #endif
 
-#ifndef KERNEL_LOG
-#    define KERNEL_LOG 1
+#ifndef CONFIG_KERNEL_LOG
+#    define CONFIG_KERNEL_LOG 1
 #endif
 
-#ifndef PIPE_BUF_SIZE
-#    define PIPE_BUF_SIZE 65536
+#ifndef CONFIG_PIPE_ADAPTIVE_SPIN_ITERS
+#    define CONFIG_PIPE_ADAPTIVE_SPIN_ITERS 192
 #endif
 
-#ifndef PROCESS_KERNEL_STACK
-#    define PROCESS_KERNEL_STACK 65536
+#ifndef CONFIG_PIPE_BUF_SIZE
+#    define CONFIG_PIPE_BUF_SIZE 65536
 #endif
 
-#ifndef PROCESS_MAX_FD
-#    define PROCESS_MAX_FD 1024
+#ifndef CONFIG_PROCESS_KERNEL_STACK
+#    define CONFIG_PROCESS_KERNEL_STACK 65536
 #endif
 
-#ifndef PROCESS_STACK_SIZE
-#    define PROCESS_STACK_SIZE 8388608
+#ifndef CONFIG_PROCESS_MAX_FD
+#    define CONFIG_PROCESS_MAX_FD 1024
 #endif
 
-#ifndef PROCESS_TABLE_SIZE
-#    define PROCESS_TABLE_SIZE 4096
+#ifndef CONFIG_PROCESS_STACK_SIZE
+#    define CONFIG_PROCESS_STACK_SIZE 8388608
 #endif
 
-#ifndef SCHED_BASE_SLICE
-#    define SCHED_BASE_SLICE 2
+#ifndef CONFIG_PROCESS_TABLE_SIZE
+#    define CONFIG_PROCESS_TABLE_SIZE 4096
 #endif
 
-#ifndef SCHED_LATENCY
-#    define SCHED_LATENCY 8
+#ifndef CONFIG_SCHED_BALANCE_BATCH
+#    define CONFIG_SCHED_BALANCE_BATCH 4
 #endif
 
-#ifndef SCHED_LOAD_BALANCE_INTERVAL
-#    define SCHED_LOAD_BALANCE_INTERVAL 8
+#ifndef CONFIG_SCHED_BASE_SLICE
+#    define CONFIG_SCHED_BASE_SLICE 2
 #endif
 
-#ifndef SCHED_MIN_GRANULARITY
-#    define SCHED_MIN_GRANULARITY 1
+#ifndef CONFIG_SCHED_LATENCY
+#    define CONFIG_SCHED_LATENCY 8
 #endif
 
-#ifndef SCHED_WAKEUP_GRANULARITY
-#    define SCHED_WAKEUP_GRANULARITY 0
+#ifndef CONFIG_SCHED_MIGRATION_COOLDOWN
+#    define CONFIG_SCHED_MIGRATION_COOLDOWN 4
 #endif
 
-#ifndef SERIAL_BAUD_RATE
-#    define SERIAL_BAUD_RATE 115200
+#ifndef CONFIG_SCHED_LOAD_BALANCE_INTERVAL
+#    define CONFIG_SCHED_LOAD_BALANCE_INTERVAL 8
 #endif
 
-#ifndef SERIAL_DATA_BITS
-#    define SERIAL_DATA_BITS 8
+#ifndef CONFIG_SCHED_MIN_GRANULARITY
+#    define CONFIG_SCHED_MIN_GRANULARITY 1
 #endif
 
-#ifndef SERIAL_STOP_BITS
-#    define SERIAL_STOP_BITS 1
+#ifndef CONFIG_SCHED_WAKEUP_GRANULARITY
+#    define CONFIG_SCHED_WAKEUP_GRANULARITY 0
 #endif
 
-#ifndef SOCK_ACCEPT_QUEUE_MAX
-#    define SOCK_ACCEPT_QUEUE_MAX 4096
+#ifndef CONFIG_SERIAL_BAUD_RATE
+#    define CONFIG_SERIAL_BAUD_RATE 115200
 #endif
 
-#ifndef SOCK_BUF_SIZE
-#    define SOCK_BUF_SIZE 65536
+#ifndef CONFIG_SERIAL_DATA_BITS
+#    define CONFIG_SERIAL_DATA_BITS 8
 #endif
 
-#ifndef TIMER_HZ
-#    define TIMER_HZ 1000
+#ifndef CONFIG_SERIAL_STOP_BITS
+#    define CONFIG_SERIAL_STOP_BITS 1
 #endif
 
-#ifndef TTY_BUF_SIZE
-#    define TTY_BUF_SIZE 4096
+#ifndef CONFIG_SERIAL_PARITY
+#    define CONFIG_SERIAL_PARITY 0
 #endif
 
-#ifndef TTY_CORE_BUFFER_SIZE
-#    define TTY_CORE_BUFFER_SIZE 4096
+#ifndef CONFIG_SOCK_ACCEPT_QUEUE_MAX
+#    define CONFIG_SOCK_ACCEPT_QUEUE_MAX 4096
 #endif
 
-#ifndef TTY_DEFAULT_DEV
-#    define TTY_DEFAULT_DEV "tty0"
+#ifndef CONFIG_SOCK_BUF_SIZE
+#    define CONFIG_SOCK_BUF_SIZE 65536
+#endif
+
+#ifndef CONFIG_TIMER_HZ
+#    define CONFIG_TIMER_HZ 1000
+#endif
+
+#ifndef CONFIG_TTY_BUF_SIZE
+#    define CONFIG_TTY_BUF_SIZE 4096
+#endif
+
+#ifndef CONFIG_TTY_CORE_BUFFER_SIZE
+#    define CONFIG_TTY_CORE_BUFFER_SIZE 4096
+#endif
+
+#ifndef CONFIG_TTY_DEFAULT_DEV
+#    define CONFIG_TTY_DEFAULT_DEV "tty0"
+#endif
+
+#ifndef CONFIG_EPOLL_MAX_EVENTS
+#    define CONFIG_EPOLL_MAX_EVENTS 256
+#endif
+
+#ifndef CONFIG_EPOLL_MAX_NESTS
+#    define CONFIG_EPOLL_MAX_NESTS 4
+#endif
+
+#ifndef CONFIG_FUTEX_WAITV_MAX
+#    define CONFIG_FUTEX_WAITV_MAX 128
+#endif
+
+#ifndef CONFIG_PIPE_ATOMIC_SIZE
+#    define CONFIG_PIPE_ATOMIC_SIZE 4096
+#endif
+
+#ifndef CONFIG_MQ_MAXMSG_DEFAULT
+#    define CONFIG_MQ_MAXMSG_DEFAULT 10
+#endif
+
+#ifndef CONFIG_MQ_MAXMSG_MAX
+#    define CONFIG_MQ_MAXMSG_MAX 256
+#endif
+
+#ifndef CONFIG_MQ_MSGSIZE_DEFAULT
+#    define CONFIG_MQ_MSGSIZE_DEFAULT 8192
+#endif
+
+#ifndef CONFIG_MQ_MSGSIZE_MAX
+#    define CONFIG_MQ_MSGSIZE_MAX 65536
+#endif
+
+#ifndef CONFIG_MQ_MAX_QUEUES
+#    define CONFIG_MQ_MAX_QUEUES 64
+#endif
+
+#ifndef CONFIG_MQ_NAME_MAX
+#    define CONFIG_MQ_NAME_MAX 256
+#endif
+
+#ifndef CONFIG_MQ_PRIO_MAX
+#    define CONFIG_MQ_PRIO_MAX 32768
+#endif
+
+#ifndef CONFIG_MSGMAX
+#    define CONFIG_MSGMAX 8192
+#endif
+
+#ifndef CONFIG_MSG_MAX_QUEUES
+#    define CONFIG_MSG_MAX_QUEUES 128
+#endif
+
+#ifndef CONFIG_SEM_MAX_NSEMS
+#    define CONFIG_SEM_MAX_NSEMS 250
+#endif
+
+#ifndef CONFIG_SEM_MAX_SETS
+#    define CONFIG_SEM_MAX_SETS 128
+#endif
+
+#ifndef CONFIG_SHM_MAX_SEGS
+#    define CONFIG_SHM_MAX_SEGS 128
+#endif
+
+#ifndef CONFIG_PROCESS_MAX_ARGV
+#    define CONFIG_PROCESS_MAX_ARGV 4096
+#endif
+
+#ifndef CONFIG_PROCESS_MAX_ENVP
+#    define CONFIG_PROCESS_MAX_ENVP 4096
+#endif
+
+#ifndef CONFIG_PROCESS_MAX_GROUPS
+#    define CONFIG_PROCESS_MAX_GROUPS 64
+#endif
+
+#ifndef CONFIG_PROCESS_HEAP_START
+#    define CONFIG_PROCESS_HEAP_START 1048576
+#endif
+
+#ifndef CONFIG_PROCESS_HEAP_MAX
+#    define CONFIG_PROCESS_HEAP_MAX 2146435072
+#endif
+
+#ifndef CONFIG_TASK_DEFAULT_SLICE
+#    define CONFIG_TASK_DEFAULT_SLICE 5
+#endif
+
+#ifndef CONFIG_SCHED_DOMAIN_MAX_LEVELS
+#    define CONFIG_SCHED_DOMAIN_MAX_LEVELS 3
+#endif
+
+#ifndef CONFIG_BUDDY_MAX_ORDER
+#    define CONFIG_BUDDY_MAX_ORDER 30
+#endif
+
+#ifndef CONFIG_FRAME_PCP_BATCH
+#    define CONFIG_FRAME_PCP_BATCH 16
+#endif
+
+#ifndef CONFIG_FRAME_RECLAIM_BATCH
+#    define CONFIG_FRAME_RECLAIM_BATCH 16
+#endif
+
+#ifndef CONFIG_FRAME_PCP_MAX_CPUS
+#    define CONFIG_FRAME_PCP_MAX_CPUS 256
+#endif
+
+#ifndef CONFIG_SLAB_MAX_ORDER
+#    define CONFIG_SLAB_MAX_ORDER 8
+#endif
+
+#ifndef CONFIG_HEAP_MIN_ALIGNMENT
+#    define CONFIG_HEAP_MIN_ALIGNMENT 16
+#endif
+
+#ifndef CONFIG_NETDEV_MAX
+#    define CONFIG_NETDEV_MAX 16
+#endif
+
+#ifndef CONFIG_NETDEV_MTU_MAX
+#    define CONFIG_NETDEV_MTU_MAX 9000
+#endif
+
+#ifndef CONFIG_NETDEV_NAME_MAX
+#    define CONFIG_NETDEV_NAME_MAX 16
+#endif
+
+#ifndef CONFIG_NETDEV_DNS_MAX
+#    define CONFIG_NETDEV_DNS_MAX 2
+#endif
+
+#ifndef CONFIG_SOCK_BUF_MAX
+#    define CONFIG_SOCK_BUF_MAX 262144
+#endif
+
+#ifndef CONFIG_SOCK_RIGHTS_MAX
+#    define CONFIG_SOCK_RIGHTS_MAX 64
+#endif
+
+#ifndef CONFIG_SOCK_BOUND_MAX
+#    define CONFIG_SOCK_BOUND_MAX 256
+#endif
+
+#ifndef CONFIG_LOOPBACK_QUEUE_MAX
+#    define CONFIG_LOOPBACK_QUEUE_MAX 256
+#endif
+
+#ifndef CONFIG_LOOPBACK_BYTES_MAX
+#    define CONFIG_LOOPBACK_BYTES_MAX 2097152
+#endif
+
+#ifndef CONFIG_ARP_CACHE_CAPACITY
+#    define CONFIG_ARP_CACHE_CAPACITY 64
+#endif
+
+#ifndef CONFIG_ARP_MAX_RETRIES
+#    define CONFIG_ARP_MAX_RETRIES 3
+#endif
+
+#ifndef CONFIG_NDP_CACHE_CAPACITY
+#    define CONFIG_NDP_CACHE_CAPACITY 64
+#endif
+
+#ifndef CONFIG_NDP_MAX_RETRIES
+#    define CONFIG_NDP_MAX_RETRIES 3
+#endif
+
+#ifndef CONFIG_TCP_DATA_RETRIES_DEFAULT
+#    define CONFIG_TCP_DATA_RETRIES_DEFAULT 15
+#endif
+
+#ifndef CONFIG_TCP_SYN_RETRIES_DEFAULT
+#    define CONFIG_TCP_SYN_RETRIES_DEFAULT 6
+#endif
+
+#ifndef CONFIG_TCP_ENDPOINT_MAX
+#    define CONFIG_TCP_ENDPOINT_MAX 128
+#endif
+
+#ifndef CONFIG_TCP_ACCEPT_MAX
+#    define CONFIG_TCP_ACCEPT_MAX 16
+#endif
+
+#ifndef CONFIG_TCP_RX_BUFFER_MAX
+#    define CONFIG_TCP_RX_BUFFER_MAX 65535
+#endif
+
+#ifndef CONFIG_TCP_OOO_SEGMENT_MAX
+#    define CONFIG_TCP_OOO_SEGMENT_MAX 16
+#endif
+
+#ifndef CONFIG_TCP_TX_SEGMENT_MAX
+#    define CONFIG_TCP_TX_SEGMENT_MAX 32
+#endif
+
+#ifndef CONFIG_UDP_ENDPOINT_MAX
+#    define CONFIG_UDP_ENDPOINT_MAX 128
+#endif
+
+#ifndef CONFIG_UDP_RX_QUEUE_MAX
+#    define CONFIG_UDP_RX_QUEUE_MAX 64
+#endif
+
+#ifndef CONFIG_UDP_RX_BYTES_MAX
+#    define CONFIG_UDP_RX_BYTES_MAX 131072
+#endif
+
+#ifndef CONFIG_ICMP_ENDPOINT_MAX
+#    define CONFIG_ICMP_ENDPOINT_MAX 16
+#endif
+
+#ifndef CONFIG_ICMP_RX_QUEUE_MAX
+#    define CONFIG_ICMP_RX_QUEUE_MAX 64
+#endif
+
+#ifndef CONFIG_ICMP_RX_BYTES_MAX
+#    define CONFIG_ICMP_RX_BYTES_MAX 131072
+#endif
+
+#ifndef CONFIG_IPV4_REASSEMBLY_SLOTS
+#    define CONFIG_IPV4_REASSEMBLY_SLOTS 4
+#endif
+
+#ifndef CONFIG_IPV6_REASSEMBLY_SLOTS
+#    define CONFIG_IPV6_REASSEMBLY_SLOTS 4
+#endif
+
+#ifndef CONFIG_NETLINK_MAX
+#    define CONFIG_NETLINK_MAX 24
+#endif
+
+#ifndef CONFIG_NL_RECV_QUEUE_MAX
+#    define CONFIG_NL_RECV_QUEUE_MAX 1024
+#endif
+
+#ifndef CONFIG_VFS_PATH_MAX
+#    define CONFIG_VFS_PATH_MAX 4096
+#endif
+
+#ifndef CONFIG_DEVTMPFS_MAX_DEVICES
+#    define CONFIG_DEVTMPFS_MAX_DEVICES 512
+#endif
+
+#ifndef CONFIG_VFS_DCACHE_BUCKETS
+#    define CONFIG_VFS_DCACHE_BUCKETS 1024
+#endif
+
+#ifndef CONFIG_VFS_DCACHE_MAX_NEGATIVE
+#    define CONFIG_VFS_DCACHE_MAX_NEGATIVE 4096
+#endif
+
+#ifndef CONFIG_VFS_ICACHE_BUCKETS
+#    define CONFIG_VFS_ICACHE_BUCKETS 512
+#endif
+
+#ifndef CONFIG_VFS_ICACHE_MAX_UNUSED
+#    define CONFIG_VFS_ICACHE_MAX_UNUSED 4096
+#endif
+
+#ifndef CONFIG_POLL_NFDS_MAX
+#    define CONFIG_POLL_NFDS_MAX 65536
+#endif
+
+#ifndef CONFIG_SELECT_NFDS_MAX
+#    define CONFIG_SELECT_NFDS_MAX 1024
+#endif
+
+#ifndef CONFIG_SIGQUEUE_MAX
+#    define CONFIG_SIGQUEUE_MAX 32
+#endif
+
+#ifndef CONFIG_SECCOMP_MAX_INSNS_PER_FILTER
+#    define CONFIG_SECCOMP_MAX_INSNS_PER_FILTER 4096
+#endif
+
+#ifndef CONFIG_FRAME_PCP_HIGH
+#    define CONFIG_FRAME_PCP_HIGH 64
+#endif
+
+#ifndef CONFIG_NMI_LOG_MAX_CPUS
+#    define CONFIG_NMI_LOG_MAX_CPUS 256
+#endif
+
+#ifndef CONFIG_LOG_MAX_LENGTH
+#    define CONFIG_LOG_MAX_LENGTH 1024
+#endif
+
+#ifndef CONFIG_LOG_BUFFER_SIZE
+#    define CONFIG_LOG_BUFFER_SIZE 32
+#endif
+
+#ifndef CONFIG_UEVENT_BUFFER_SIZE
+#    define CONFIG_UEVENT_BUFFER_SIZE 2048
+#endif
+
+#ifndef CONFIG_UEVENT_NUM_ENVP
+#    define CONFIG_UEVENT_NUM_ENVP 64
+#endif
+
+#ifndef CONFIG_ACPI_MAX_GPE_HANDLERS
+#    define CONFIG_ACPI_MAX_GPE_HANDLERS 32
+#endif
+
+#ifndef CONFIG_KERNEL_WORKER_MAX
+#    define CONFIG_KERNEL_WORKER_MAX 64
+#endif
+
+#ifndef CONFIG_ARP_PENDING_TOTAL
+#    define CONFIG_ARP_PENDING_TOTAL 256
+#endif
+
+#ifndef CONFIG_NDP_PENDING_TOTAL
+#    define CONFIG_NDP_PENDING_TOTAL 128
+#endif
+
+#ifndef CONFIG_RTMSG_BUF_SIZE
+#    define CONFIG_RTMSG_BUF_SIZE 256
+#endif
+
+#ifndef CONFIG_NL_BROADCAST_MAX
+#    define CONFIG_NL_BROADCAST_MAX 256
+#endif
+
+#ifndef CONFIG_NVME_MAX_CONTROLLERS
+#    define CONFIG_NVME_MAX_CONTROLLERS 8
+#endif
+
+#ifndef CONFIG_NVME_MAX_NAMESPACES
+#    define CONFIG_NVME_MAX_NAMESPACES 16
+#endif
+
+#ifndef CONFIG_BLOCKDEV_MAX_TYPES
+#    define CONFIG_BLOCKDEV_MAX_TYPES 16
+#endif
+
+#ifndef CONFIG_PARTITION_MAX_COUNT
+#    define CONFIG_PARTITION_MAX_COUNT 255
+#endif
+
+#ifndef CONFIG_PARPORT_MAX_PORTS
+#    define CONFIG_PARPORT_MAX_PORTS 4
+#endif
+
+#ifndef CONFIG_EVDEV_MAX_DEVICES
+#    define CONFIG_EVDEV_MAX_DEVICES 32
+#endif
+
+#ifndef CONFIG_USB_HUB_MAX_HUBS
+#    define CONFIG_USB_HUB_MAX_HUBS 16
+#endif
+
+#ifndef CONFIG_USB_MSC_MAX_DISKS
+#    define CONFIG_USB_MSC_MAX_DISKS 256
+#endif
+
+#ifndef CONFIG_DRM_MAX_DEVICES
+#    define CONFIG_DRM_MAX_DEVICES 16
+#endif
+
+#ifndef CONFIG_GEM_MAX_NAMES
+#    define CONFIG_GEM_MAX_NAMES 1024
+#endif
+
+#ifndef CONFIG_PRIME_FD_MAX
+#    define CONFIG_PRIME_FD_MAX 1024
+#endif
+
+#ifndef CONFIG_GPU_MAX_GPU_DRIVERS
+#    define CONFIG_GPU_MAX_GPU_DRIVERS 16
+#endif
+
+#ifndef CONFIG_AUDIO_MAX_CARDS
+#    define CONFIG_AUDIO_MAX_CARDS 4
+#endif
+
+#ifndef CONFIG_I2C_MAX_ADAPTERS
+#    define CONFIG_I2C_MAX_ADAPTERS 16
+#endif
+
+#ifndef CONFIG_PAGECACHE_HASH_MAX_BITS
+#    define CONFIG_PAGECACHE_HASH_MAX_BITS 12
+#endif
+
+#ifndef CONFIG_PAGECACHE_READAHEAD_MAX
+#    define CONFIG_PAGECACHE_READAHEAD_MAX 16
+#endif
+
+#ifndef CONFIG_PAGECACHE_RECLAIM_MAX_WRITEBACK
+#    define CONFIG_PAGECACHE_RECLAIM_MAX_WRITEBACK 4
 #endif
 
 #endif // INCLUDE_CONFIG_H_

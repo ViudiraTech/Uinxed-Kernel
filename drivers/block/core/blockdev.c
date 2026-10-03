@@ -10,20 +10,18 @@
 
 #include <drivers/block/ata/pata/atapi.h>
 #include <drivers/block/ata/pata/ide.h>
-#include <drivers/block/ata/sata/ahci.h>
 #include <drivers/block/ata/sata/satapi.h>
 #include <drivers/block/core/blockdev.h>
 #include <drivers/block/core/partition.h>
 #include <drivers/block/nvme/nvme.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
+#include <libs/util/overflow.h>
 #include <mem/heap.h>
 
 /* Global ops table */
-
-static blockdev_ops_t _blk_ops_table[BLOCKDEV_MAX_TYPES];
+static blockdev_ops_t _blk_ops_table[CONFIG_BLOCKDEV_MAX_TYPES];
 blockdev_ops_t       *blk_ops_table = _blk_ops_table;
 static int            blk_next_id   = 0;
 
@@ -35,25 +33,27 @@ static int            blk_next_id   = 0;
  * on top of them.
  */
 
-/* Default (empty) ops - returns -ENOSYS for everything */
+/* Default (empty) ops - returns -EOPNOTSUPP for everything */
 static int blk_empty_read(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buf)
 {
     (void)dev;
     (void)lba;
     (void)count;
     (void)buf;
-    return -ENOSYS;
+    return -EOPNOTSUPP;
 }
 
+/* Block I/O empty write. */
 static int blk_empty_write(const struct blockdev_device *dev, uint64_t lba, uint32_t count, const void *buf)
 {
     (void)dev;
     (void)lba;
     (void)count;
     (void)buf;
-    return -ENOSYS;
+    return -EOPNOTSUPP;
 }
 
+/* Block I/O empty flush. */
 static int blk_empty_flush(const struct blockdev_device *dev)
 {
     (void)dev;
@@ -62,6 +62,7 @@ static int blk_empty_flush(const struct blockdev_device *dev)
     return -EOPNOTSUPP;
 }
 
+/* Block I/O empty reference. */
 static void blk_empty_reference(const struct blockdev_device *dev)
 {
     (void)dev;
@@ -75,12 +76,25 @@ static struct blockdev_ops blk_empty_ops = {
     .release       = blk_empty_reference,
 };
 
+/* NVMe backend ops (forwarders to nvme.c) */
+
+#if CONFIG_NVME
+static struct blockdev_ops blk_nvme_ops = {
+    .read_sectors  = nvme_read_sectors,
+    .write_sectors = nvme_write_sectors,
+    .flush         = nvme_flush,
+};
+
+static int blk_nvme_type_id = -1;
+#endif
+
 /* Register a block backend ops table, returning its type id. */
 int blockdev_register_type(blockdev_ops_t ops)
 {
     if (!ops) return -EINVAL;
+
     int id = blk_next_id++;
-    if (id >= BLOCKDEV_MAX_TYPES) {
+    if (id >= CONFIG_BLOCKDEV_MAX_TYPES) {
         blk_next_id--;
         return -ENOSPC;
     }
@@ -120,6 +134,7 @@ static int blk_ide_read_sectors(const blockdev_device_t *dev, uint64_t lba, uint
     return EOK;
 }
 
+/* Block I/O ide write sectors. */
 static int blk_ide_write_sectors(const blockdev_device_t *dev, uint64_t lba, uint32_t count, const void *buffer)
 {
     const uint8_t *ptr = buffer;
@@ -134,6 +149,7 @@ static int blk_ide_write_sectors(const blockdev_device_t *dev, uint64_t lba, uin
     return EOK;
 }
 
+/* Block I/O ide flush. */
 static int blk_ide_flush(const blockdev_device_t *dev)
 {
     if (!dev) return -EINVAL;
@@ -148,21 +164,7 @@ static struct blockdev_ops blk_ide_ops = {
 
 static int blk_ide_type_id = -1;
 
-#endif /* CONFIG_ATA */
-
-/* NVMe backend ops (forwarders to nvme.c) */
-
-#if CONFIG_NVME
-
-static struct blockdev_ops blk_nvme_ops = {
-    .read_sectors  = nvme_read_sectors,
-    .write_sectors = nvme_write_sectors,
-    .flush         = nvme_flush,
-};
-
-static int blk_nvme_type_id = -1;
-
-#endif /* CONFIG_NVME */
+#endif
 
 /* AHCI backend ops */
 
@@ -175,7 +177,7 @@ static int blk_ahci_read_sectors(const blockdev_device_t *dev, uint64_t lba, uin
     while (count) {
         uint8_t chunk = (count > 255) ? 255 : (uint8_t)count;
         int     ret   = ahci_read_sectors(dev->drive, chunk, dev->base_lba + lba, ptr);
-        if (ret != 0) return -EIO;
+        if (ret != 0) return ret;
         ptr += (size_t)chunk * dev->sector_size;
         lba += chunk;
         count -= chunk;
@@ -183,6 +185,7 @@ static int blk_ahci_read_sectors(const blockdev_device_t *dev, uint64_t lba, uin
     return EOK;
 }
 
+/* Block I/O ahci write sectors. */
 static int blk_ahci_write_sectors(const blockdev_device_t *dev, uint64_t lba, uint32_t count, const void *buffer)
 {
     const uint8_t *ptr = buffer;
@@ -190,7 +193,7 @@ static int blk_ahci_write_sectors(const blockdev_device_t *dev, uint64_t lba, ui
     while (count) {
         uint8_t chunk = (count > 255) ? 255 : (uint8_t)count;
         int     ret   = ahci_write_sectors(dev->drive, chunk, dev->base_lba + lba, ptr);
-        if (ret != 0) return -EIO;
+        if (ret != 0) return ret;
         ptr += (size_t)chunk * dev->sector_size;
         lba += chunk;
         count -= chunk;
@@ -198,6 +201,7 @@ static int blk_ahci_write_sectors(const blockdev_device_t *dev, uint64_t lba, ui
     return EOK;
 }
 
+/* Block I/O ahci flush. */
 static int blk_ahci_flush(const blockdev_device_t *dev)
 {
     if (!dev) return -EINVAL;
@@ -212,9 +216,11 @@ static struct blockdev_ops blk_ahci_ops = {
 
 static int blk_ahci_type_id = -1;
 
+/* Block I/O ahci atapi read sectors. */
 static int blk_ahci_atapi_read_sectors(const blockdev_device_t *dev, uint64_t lba, uint32_t count, void *buffer)
 {
     uint8_t *ptr = buffer;
+
     if (dev->base_lba > UINT32_MAX || lba > UINT32_MAX - dev->base_lba) return -EOVERFLOW;
     while (count) {
         uint8_t chunk = count > 255 ? 255 : (uint8_t)count;
@@ -233,7 +239,7 @@ static struct blockdev_ops blk_ahci_atapi_ops = {
 
 static int blk_ahci_atapi_type_id = -1;
 
-#endif /* CONFIG_ATA */
+#endif
 
 /* Internal: lazy registration */
 
@@ -245,6 +251,7 @@ static int blk_ide_type(void)
 }
 #endif
 
+/* Return the NVMe backend type id, registering it lazily on first use. */
 #if CONFIG_NVME
 static int blk_nvme_type(void)
 {
@@ -254,17 +261,21 @@ static int blk_nvme_type(void)
 #endif
 
 #if CONFIG_ATA
+
+/* Return the AHCI backend type id, registering it lazily on first use. */
 static int blk_ahci_type(void)
 {
     if (blk_ahci_type_id < 0) blk_ahci_type_id = blockdev_register_type(&blk_ahci_ops);
     return blk_ahci_type_id;
 }
 
+/* Block I/O ahci atapi type. */
 static int blk_ahci_atapi_type(void)
 {
     if (blk_ahci_atapi_type_id < 0) blk_ahci_atapi_type_id = blockdev_register_type(&blk_ahci_atapi_ops);
     return blk_ahci_atapi_type_id;
 }
+
 #endif
 
 /* Open an IDE ATA drive and fill in a blockdev handle. */
@@ -273,7 +284,7 @@ int blockdev_open_ide(uint8_t drive, blockdev_device_t *device)
 #if CONFIG_ATA
     if (!device) return -EINVAL;
     if (drive > 3 || !ide_devices[drive].reserved) return -ENODEV;
-    if (ide_devices[drive].type != IDE_ATA) return -ENOSYS;
+    if (ide_devices[drive].type != IDE_ATA) return -EINVAL;
 
     device->ops_id       = (uint8_t)blk_ide_type();
     device->backend_data = NULL;
@@ -296,7 +307,6 @@ int blockdev_open_nvme(void *ns, blockdev_device_t *device)
 {
 #if CONFIG_NVME
     nvme_namespace_t *nvme_ns;
-
     if (!ns || !device) return -EINVAL;
 
     nvme_ns = (nvme_namespace_t *)ns;
@@ -324,7 +334,7 @@ int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device)
 #if CONFIG_ATA
     if (!device) return -EINVAL;
     if (drive > 3 || !atapi_devices[drive].reserved) return -ENODEV;
-    if (atapi_devices[drive].type != IDE_ATAPI) return -ENOSYS;
+    if (atapi_devices[drive].type != IDE_ATAPI) return -EINVAL;
 
     device->ops_id       = (uint8_t)blk_ide_type();
     device->backend_data = NULL;
@@ -348,7 +358,7 @@ int blockdev_open_ahci(uint8_t drive, blockdev_device_t *device)
 #if CONFIG_ATA
     if (!device) return -EINVAL;
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
-    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -ENOSYS;
+    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -EINVAL;
 
     device->ops_id       = (uint8_t)blk_ahci_type();
     device->backend_data = NULL;
@@ -372,7 +382,7 @@ int blockdev_open_ahci_atapi(uint8_t drive, blockdev_device_t *device)
 #if CONFIG_ATA
     if (!device) return -EINVAL;
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
-    if (ahci_devices[drive].type != AHCI_DEV_SATAPI) return -ENOSYS;
+    if (ahci_devices[drive].type != AHCI_DEV_SATAPI) return -EINVAL;
 
     device->ops_id       = (uint8_t)blk_ahci_atapi_type();
     device->backend_data = NULL;
@@ -393,8 +403,8 @@ int blockdev_open_ahci_atapi(uint8_t drive, blockdev_device_t *device)
 /* Open a drive by its flat numeric identifier (see BLKDEV_*_FLAG). */
 int blockdev_open_drive(uint8_t drive, blockdev_device_t *device)
 {
+    (void)drive;
     if (!device) return -EINVAL;
-
 #if CONFIG_NVME
     if (drive & BLKDEV_NVME_FLAG) {
         int                ctrl_idx = drive & BLKDEV_DRIVE_MASK;
@@ -429,8 +439,10 @@ static int parse_uint(const char **cursor, uint32_t *value)
         result = result * 10 + digit;
         position++;
     } while (*position >= '0' && *position <= '9');
+
     *cursor = position;
     *value  = result;
+
     return EOK;
 }
 
@@ -443,12 +455,14 @@ static int parse_device_name(const char *name, uint8_t *drive, uint32_t *partiti
 
     if (!name || !drive || !partition) return -EINVAL;
     if (!strncmp(name, "/dev/", 5)) name += 5;
-    *partition = 0;
-    if (nvme_nsid) *nvme_nsid = 0;
 
+    *partition = 0;
+
+    if (nvme_nsid) *nvme_nsid = 0;
     if (!strncmp(name, "sd", 2)) {
         uint32_t encoded_index = 0;
         cursor                 = name + 2;
+
         if (*cursor < 'a' || *cursor > 'z') return -EINVAL;
         while (*cursor >= 'a' && *cursor <= 'z') {
             uint32_t digit = (uint32_t)(*cursor - 'a' + 1);
@@ -457,66 +471,78 @@ static int parse_device_name(const char *name, uint8_t *drive, uint32_t *partiti
             cursor++;
         }
         encoded_index--;
+
         if (encoded_index > BLKDEV_DRIVE_MASK) return -EINVAL;
         *drive = BLKDEV_AHCI_FLAG | (uint8_t)encoded_index;
+
         if (!*cursor) return EOK;
         status = parse_uint(&cursor, &value);
+
         if (status != EOK || *cursor || !value) return -EINVAL;
         *partition = value;
+
         return EOK;
     }
-
     if (!strncmp(name, "hd", 2)) {
         int idx = name[2] - 'a';
+
         if (idx < 0 || idx > 3) return -EINVAL;
         *drive = (uint8_t)idx;
         cursor = name + 3;
+
         if (!*cursor) return EOK;
         status = parse_uint(&cursor, &value);
+
         if (status != EOK || *cursor || !value) return -EINVAL;
         *partition = value;
+
         return EOK;
     }
-
     if (!strncmp(name, "sr", 2)) {
         cursor = name + 2;
         status = parse_uint(&cursor, &value);
+
         if (status != EOK || *cursor) return -EINVAL;
         if (value >= 4 + AHCI_MAX_DEVICES) return -EINVAL;
-        if (value < 4)
+        if (value < 4) {
             *drive = BLKDEV_ATAPI_FLAG | (uint8_t)value;
-        else
+        } else {
             *drive = BLKDEV_AHCI_FLAG | BLKDEV_ATAPI_FLAG | (uint8_t)(value - 4);
+        }
         return EOK;
     }
-
     if (!strncmp(name, "nvme", 4)) {
         uint32_t controller;
         uint32_t namespace_id;
 
         cursor = name + 4;
         status = parse_uint(&cursor, &controller);
+
         if (status != EOK || controller > BLKDEV_DRIVE_MASK || *cursor != 'n') return -EINVAL;
         cursor++;
         status = parse_uint(&cursor, &namespace_id);
+
         if (status != EOK || !namespace_id) return -EINVAL;
         if (*cursor == 'p') {
             cursor++;
             status = parse_uint(&cursor, &value);
+
             if (status != EOK || !value) return -EINVAL;
             *partition = value;
         }
         if (*cursor) return -EINVAL;
         *drive = BLKDEV_NVME_FLAG | (uint8_t)controller;
+
         if (nvme_nsid) *nvme_nsid = namespace_id;
         return EOK;
     }
-
     if (!strncmp(name, "ide", 3)) {
         cursor = name + 3;
         status = parse_uint(&cursor, &value);
+
         if (status != EOK || *cursor || value > 3) return -EINVAL;
         *drive = (uint8_t)value;
+
         return EOK;
     }
 
@@ -539,15 +565,18 @@ int blockdev_format_disk_name(char *buffer, size_t size, uint32_t index)
     if (!buffer || size < 4) return -EINVAL;
     while (1) {
         if (length >= sizeof(suffix) - 1) return -EOVERFLOW;
-        suffix[length++] = (char)('a' + value % 26);
+        suffix[length++] = (char)('a' + (value % 26));
         if (value < 26) break;
         value = value / 26 - 1;
     }
     if (size < length + 3) return -ENOSPC;
+
     buffer[0] = 's';
     buffer[1] = 'd';
+
     for (size_t i = 0; i < length; i++) buffer[2 + i] = suffix[length - i - 1];
     buffer[2 + length] = '\0';
+
     return EOK;
 }
 
@@ -574,8 +603,8 @@ int blockdev_open_name(const char *name, blockdev_device_t *device)
 
     if (!device) return -EINVAL;
     status = parse_device_name(name, &drive, &partition, &namespace_id);
-    if (status != EOK) return status;
 
+    if (status != EOK) return status;
     if (drive & BLKDEV_ATAPI_FLAG) {
 #if CONFIG_ATA
         const char *cursor = name;
@@ -585,8 +614,10 @@ int blockdev_open_name(const char *name, blockdev_device_t *device)
         if (!strncmp(cursor, "/dev/", 5)) cursor += 5;
         cursor += 2;
         status = parse_uint(&cursor, &optical_index);
+
         if (status != EOK) return status;
         status = -ENODEV;
+
         for (uint8_t i = 0; i < 4; i++) {
             if (!atapi_devices[i].reserved || atapi_devices[i].type != IDE_ATAPI) continue;
             if (current++ == optical_index) {
@@ -610,6 +641,7 @@ int blockdev_open_name(const char *name, blockdev_device_t *device)
 #if CONFIG_NVME
         nvme_controller_t *controller = nvme_get_controller(drive & BLKDEV_DRIVE_MASK);
         nvme_namespace_t *namespace   = NULL;
+
         if (!controller) return -ENODEV;
         for (uint32_t i = 0; i < controller->num_namespaces; i++)
             if (controller->namespaces[i].ready && controller->namespaces[i].nsid == namespace_id) namespace = &controller->namespaces[i];
@@ -628,13 +660,16 @@ int blockdev_open_name(const char *name, blockdev_device_t *device)
 
     status = partition_scan(&parent, &table);
     if (status != EOK) return status;
+
     partition_info = partition_find(&table, partition);
     if (!partition_info) {
         partition_table_destroy(&table);
         return -ENOENT;
     }
+
     status = blockdev_open_partition(&parent, partition_info->start_lba, partition_info->sector_count, device);
     if (status == EOK && partition_info->read_only) device->read_only = true;
+
     partition_table_destroy(&table);
     return status;
 }
@@ -650,6 +685,7 @@ int blockdev_open_partition(const blockdev_device_t *parent, uint64_t first_lba,
     *device              = *parent;
     device->base_lba     = parent->base_lba + first_lba;
     device->sector_count = sector_count;
+
     return EOK;
 }
 
@@ -683,6 +719,12 @@ int blockdev_flush(const blockdev_device_t *device)
     return blk_ops(device, flush)(device);
 }
 
+/* True when the descriptor's sector geometry can address storage. */
+bool blockdev_geometry_valid(const blockdev_device_t *device)
+{
+    return device && device->sector_size && device->sector_count <= UINT64_MAX / device->sector_size;
+}
+
 /* Hold a backend reference for a copied blockdev descriptor */
 void blockdev_retain(const blockdev_device_t *device)
 {
@@ -706,29 +748,31 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
 
     if (!device) return -EINVAL;
     if (!size) return EOK;
-    if (!buffer || !device->sector_size || device->sector_count > UINT64_MAX / device->sector_size) return -EINVAL;
+    if (!buffer || !blockdev_geometry_valid(device)) return -EINVAL;
     if (size > (size_t)128 * 1024 * 1024) return -EINVAL;
     device_bytes = device->sector_count * device->sector_size;
-    if (offset > device_bytes || size > device_bytes - offset) return -EINVAL;
 
+    if (offset > device_bytes || size > device_bytes - offset) return -EINVAL;
     start_sector  = offset / device->sector_size;
     sector_offset = (size_t)(offset % device->sector_size);
+
     {
         size_t tmp;
-        if (__builtin_add_overflow(sector_offset, size, &tmp) || __builtin_add_overflow(tmp, device->sector_size - 1, &tmp)) return -EOVERFLOW;
+        if (add_overflow(sector_offset, size, &tmp) || add_overflow(tmp, device->sector_size - 1, &tmp)) return -EOVERFLOW;
         sector_count = (uint32_t)(tmp / device->sector_size);
     }
     {
         size_t bytes;
-        if (__builtin_mul_overflow((size_t)sector_count, device->sector_size, &bytes)) return -EOVERFLOW;
+        if (mul_overflow((size_t)sector_count, device->sector_size, &bytes)) return -EOVERFLOW;
         scratch = malloc(bytes);
     }
-    if (!scratch) return -ENOMEM;
 
+    if (!scratch) return -ENOMEM;
     int status = blockdev_read_sectors(device, start_sector, sector_count, scratch);
+
     if (status != EOK) {
-        plogk("blockdev: Read failed at LBA %llu count %u (offset %llu size %lu): %d\n", (unsigned long long)start_sector, (unsigned)sector_count, (unsigned long long)offset, (unsigned long)size,
-              status);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("blockdev: Read failed at LBA %llu count %u (offset %llu size %zu): %d\n", start_sector, sector_count, offset, size, status);
         free(scratch);
         return -EIO;
     }
@@ -750,36 +794,38 @@ int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const
     if (!device) return -EINVAL;
     if (!size) return EOK;
     if (device->read_only) return -EROFS;
-    if (!buffer || !device->sector_size || device->sector_count > UINT64_MAX / device->sector_size) return -EINVAL;
+    if (!buffer || !blockdev_geometry_valid(device)) return -EINVAL;
     if (size > (size_t)128 * 1024 * 1024) return -EINVAL;
     device_bytes = device->sector_count * device->sector_size;
-    if (offset > device_bytes || size > device_bytes - offset) return -EINVAL;
 
+    if (offset > device_bytes || size > device_bytes - offset) return -EINVAL;
     start_sector  = offset / device->sector_size;
     sector_offset = (size_t)(offset % device->sector_size);
+
     {
         size_t tmp;
-        if (__builtin_add_overflow(sector_offset, size, &tmp) || __builtin_add_overflow(tmp, device->sector_size - 1, &tmp)) return -EOVERFLOW;
+        if (add_overflow(sector_offset, size, &tmp) || add_overflow(tmp, device->sector_size - 1, &tmp)) return -EOVERFLOW;
         sector_count = (uint32_t)(tmp / device->sector_size);
     }
     {
         size_t bytes;
-        if (__builtin_mul_overflow((size_t)sector_count, device->sector_size, &bytes)) return -EOVERFLOW;
+        if (mul_overflow((size_t)sector_count, device->sector_size, &bytes)) return -EOVERFLOW;
         scratch = malloc(bytes);
     }
-    if (!scratch) return -ENOMEM;
 
+    if (!scratch) return -ENOMEM;
     int status = blockdev_read_sectors(device, start_sector, sector_count, scratch);
+
     if (status != EOK) {
-        plogk("blockdev: Read-modify-write read failed at LBA %llu count %u (offset %llu size %lu): %d\n", (unsigned long long)start_sector, (unsigned)sector_count, (unsigned long long)offset,
-              (unsigned long)size, status);
+        plogk("blockdev: Read-modify-write read failed at LBA %llu count %u (offset %llu size %zu): %d\n", start_sector, sector_count, offset, size, status);
         free(scratch);
         return -EIO;
     }
 
     memcpy(scratch + sector_offset, buffer, size);
+
     if (blockdev_write_sectors(device, start_sector, sector_count, scratch) != EOK) {
-        plogk("blockdev: Write failed at LBA %llu count %u (offset %llu size %lu)\n", (unsigned long long)start_sector, (unsigned)sector_count, (unsigned long long)offset, (unsigned long)size);
+        plogk("blockdev: Write failed at LBA %llu count %u (offset %llu size %zu)\n", start_sector, sector_count, offset, size);
         free(scratch);
         return -EIO;
     }

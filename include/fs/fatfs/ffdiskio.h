@@ -17,6 +17,8 @@
 #ifndef _DISKIO_DEFINED
 #define _DISKIO_DEFINED
 
+#include <fs/fatfs/ff.h>
+
 /* Status of Disk Functions */
 typedef BYTE DSTATUS;
 

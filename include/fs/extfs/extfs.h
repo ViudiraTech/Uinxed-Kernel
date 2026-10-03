@@ -4,20 +4,14 @@
  *      ext2/ext3/ext4 filesystem driver
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
 #ifndef INCLUDE_EXTFS_H_
 #define INCLUDE_EXTFS_H_
 
-#include <drivers/block/core/blockdev.h>
 #include <fs/core/fs_txn.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <sync/spin_lock.h>
-
-typedef struct extfs_journal extfs_journal_t;
 
 /* Special inode numbers */
 #define EXT2_BAD_INO            1
@@ -134,6 +128,8 @@ typedef struct extfs_journal extfs_journal_t;
 #define EXT4_BG_BLOCK_UNINIT 0x0002U
 #define EXT4_BG_INODE_ZEROED 0x0004U
 
+typedef struct extfs_journal extfs_journal_t;
+
 /* Super block - 1024 bytes at byte offset 1024 */
 typedef struct ext2_super_block {
         uint32_t s_inodes_count;
@@ -161,6 +157,7 @@ typedef struct ext2_super_block {
         uint32_t s_rev_level;
         uint16_t s_def_resuid;
         uint16_t s_def_resgid;
+
         /* Dynamic rev fields */
         uint32_t s_first_ino;
         uint16_t s_inode_size;
@@ -187,6 +184,8 @@ typedef struct ext2_super_block {
         uint32_t s_first_meta_bg;
         uint32_t s_reserved[190];
 } __attribute__((packed)) ext2_super_block_t;
+
+_Static_assert(sizeof(ext2_super_block_t) == 1024, "ext2 superblock on-disk size");
 
 /* Normalized ext4 block group descriptor (the ext2 disk form is its first 32 bytes). */
 typedef struct ext2_group_desc {
@@ -215,6 +214,8 @@ typedef struct ext2_group_desc {
         uint32_t bg_reserved;
 } __attribute__((packed)) ext2_group_desc_t;
 
+_Static_assert(sizeof(ext2_group_desc_t) == 64, "ext4 group descriptor on-disk size");
+
 /* Inode - 128 bytes (minimum) */
 typedef struct ext2_inode {
         uint16_t i_mode;
@@ -242,6 +243,8 @@ typedef struct ext2_inode {
         uint16_t l_i_reserved;
 } __attribute__((packed)) ext2_inode_t;
 
+_Static_assert(sizeof(ext2_inode_t) == 128, "ext2 inode on-disk size");
+
 /* Directory entry (new format with file_type) */
 typedef struct ext2_dir_entry {
         uint32_t inode;
@@ -250,6 +253,48 @@ typedef struct ext2_dir_entry {
         uint8_t  file_type;
         char     name[EXT2_NAME_LEN];
 } __attribute__((packed)) ext2_dir_entry_t;
+
+_Static_assert(sizeof(ext2_dir_entry_t) == 263, "ext2 directory entry size (8 fixed bytes plus a 255-byte name)");
+
+/* Directory block tail carrying the ext4 metadata checksum */
+typedef struct ext4_dir_entry_tail {
+        uint32_t reserved_zero1;
+        uint16_t rec_len;
+        uint8_t  reserved_zero2;
+        uint8_t  reserved_ft;
+        uint32_t checksum;
+} __attribute__((packed)) ext4_dir_entry_tail_t;
+
+_Static_assert(sizeof(ext4_dir_entry_tail_t) == 12, "ext4 dir entry tail on-disk size");
+
+/* Extent tree nodes: header, leaf extent, and index entry */
+typedef struct ext4_extent_header {
+        uint16_t magic;
+        uint16_t entries;
+        uint16_t max;
+        uint16_t depth;
+        uint32_t generation;
+} __attribute__((packed)) ext4_extent_header_t;
+
+_Static_assert(sizeof(ext4_extent_header_t) == 12, "ext4 extent header on-disk size");
+
+typedef struct ext4_extent {
+        uint32_t logical;
+        uint16_t length;
+        uint16_t start_hi;
+        uint32_t start_lo;
+} __attribute__((packed)) ext4_extent_t;
+
+_Static_assert(sizeof(ext4_extent_t) == 12, "ext4 extent on-disk size");
+
+typedef struct ext4_extent_index {
+        uint32_t logical;
+        uint32_t leaf_lo;
+        uint16_t leaf_hi;
+        uint16_t unused;
+} __attribute__((packed)) ext4_extent_index_t;
+
+_Static_assert(sizeof(ext4_extent_index_t) == 12, "ext4 extent index on-disk size");
 
 /* Per-filesystem superblock info */
 typedef struct extfs_sb_info {
@@ -348,8 +393,13 @@ int extfs_make_empty_dir(extfs_handle_t *dir_h, uint32_t self_ino, uint32_t pare
 int extfs_dir_set_parent(extfs_handle_t *dir_h, uint32_t parent_ino);
 int extfs_dir_empty(extfs_handle_t *dir_h);
 int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *block);
+int extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset);
 
 /* extfs.c - registration */
+#if CONFIG_EXTFS
 void extfs_regist(void);
+#else
+static inline void extfs_regist(void) {}
+#endif
 
 #endif // INCLUDE_EXTFS_H_

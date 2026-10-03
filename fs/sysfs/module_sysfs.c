@@ -9,15 +9,11 @@
  */
 
 #include <fs/sysfs/module_sysfs.h>
-#include <fs/sysfs/sysfs.h>
-#include <kernel/errno.h>
 #include <kernel/module/module.h>
-#include <libs/kobject/kobject.h>
-#include <libs/list/circular_list.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+
+#if CONFIG_MODULES
 
 typedef struct module_group {
         struct kobject     kobj;
@@ -26,15 +22,9 @@ typedef struct module_group {
         size_t             attr_count;
 } module_group_t;
 
-typedef struct module_sysfs {
-        struct kobject  kobj;
-        struct module  *module;
-        module_group_t *sections;
-        module_group_t *parameters;
-        struct kobject *holders;
-} module_sysfs_t;
-
+#    if CONFIG_SYSFS
 static struct kobject *module_kobj;
+#    endif
 
 /* Module attributes */
 
@@ -46,14 +36,16 @@ static struct attribute module_coresize_attr   = {.name = "coresize", .mode = 04
 static struct attribute module_initsize_attr   = {.name = "initsize", .mode = 0444};
 static struct attribute module_srcversion_attr = {.name = "srcversion", .mode = 0444};
 
+#    if CONFIG_SYSFS
 static struct attribute *module_attrs[] = {
     &module_state_attr, &module_refcnt_attr, &module_taint_attr, &module_version_attr, &module_coresize_attr, &module_initsize_attr, &module_srcversion_attr, NULL,
 };
+#    endif
 
 /* Show one module attribute. */
 static ssize_t module_attr_show(struct kobject *kobj, struct attribute *attribute, char *buffer)
 {
-    module_sysfs_t *entry  = (module_sysfs_t *)((char *)kobj - offsetof(module_sysfs_t, kobj));
+    module_sysfs_t *entry  = container_of(kobj, module_sysfs_t, kobj);
     struct module  *module = __atomic_load_n(&entry->module, __ATOMIC_ACQUIRE);
     if (!module || !try_module_get(module)) return -ENODEV;
     ssize_t result;
@@ -86,37 +78,39 @@ static ssize_t module_attr_show(struct kobject *kobj, struct attribute *attribut
     return result;
 }
 
+#    if CONFIG_SYSFS
 static const struct sysfs_ops module_sysfs_ops = {
     .show  = module_attr_show,
     .store = NULL,
 };
+#    endif
 
 /* Free a module sysfs entry. */
 static void module_kobject_release(struct kobject *kobj)
 {
-    module_sysfs_t *entry = (module_sysfs_t *)((char *)kobj - offsetof(module_sysfs_t, kobj));
+    module_sysfs_t *entry = container_of(kobj, module_sysfs_t, kobj);
     free(entry);
 }
 
+#    if CONFIG_SYSFS
 static struct kobj_type module_ktype = {
     .release       = module_kobject_release,
     .sysfs_ops     = &module_sysfs_ops,
     .default_attrs = module_attrs,
 };
-
-/* Section sub-directory (/sys/module/<name>/sections/) */
+#    endif
 
 /* Show one section's load address. */
 static ssize_t module_section_show(struct kobject *kobj, struct attribute *attribute, char *buffer)
 {
-    module_group_t *group  = (module_group_t *)((char *)kobj - offsetof(module_group_t, kobj));
+    module_group_t *group  = container_of(kobj, module_group_t, kobj);
     struct module  *module = __atomic_load_n(&group->module, __ATOMIC_ACQUIRE);
     if (!module || !try_module_get(module)) return -ENODEV;
     ssize_t result = -ENOENT;
     for (size_t i = 0; i < module_section_count(module); i++) {
         const char *name = module_section_name(module, i);
         if (name && streq(attribute->name, name)) {
-            result = (ssize_t)sysfs_emit(buffer, "0x%lx\n", (unsigned long)module_section_address(module, i));
+            result = (ssize_t)sysfs_emit(buffer, "0x%lx\n", module_section_address(module, i));
             break;
         }
     }
@@ -124,17 +118,17 @@ static ssize_t module_section_show(struct kobject *kobj, struct attribute *attri
     return result;
 }
 
+#    if CONFIG_SYSFS
 static const struct sysfs_ops module_sections_ops = {
     .show  = module_section_show,
     .store = NULL,
 };
-
-/* Parameter sub-directory (/sys/module/<name>/parameters/) */
+#    endif
 
 /* Show one parameter's current value. */
 static ssize_t module_param_show(struct kobject *kobj, struct attribute *attribute, char *buffer)
 {
-    module_group_t *group  = (module_group_t *)((char *)kobj - offsetof(module_group_t, kobj));
+    module_group_t *group  = container_of(kobj, module_group_t, kobj);
     struct module  *module = __atomic_load_n(&group->module, __ATOMIC_ACQUIRE);
     if (!module || !try_module_get(module)) return -ENODEV;
     ssize_t result = -ENOENT;
@@ -150,17 +144,17 @@ static ssize_t module_param_show(struct kobject *kobj, struct attribute *attribu
     return result;
 }
 
+#    if CONFIG_SYSFS
 static const struct sysfs_ops module_params_ops = {
     .show  = module_param_show,
     .store = NULL,
 };
-
-/* Shared group (sections/parameters) lifecycle */
+#    endif
 
 /* Free a group and its attributes. */
 static void module_group_release(struct kobject *kobj)
 {
-    module_group_t *group = (module_group_t *)((char *)kobj - offsetof(module_group_t, kobj));
+    module_group_t *group = container_of(kobj, module_group_t, kobj);
     for (size_t i = 0; i < group->attr_count; i++) {
         free((void *)group->attrs[i]->name);
         free(group->attrs[i]);
@@ -169,6 +163,7 @@ static void module_group_release(struct kobject *kobj)
     free(group);
 }
 
+#    if CONFIG_SYSFS
 static struct kobj_type module_sections_ktype = {
     .release   = module_group_release,
     .sysfs_ops = &module_sections_ops,
@@ -178,6 +173,7 @@ static struct kobj_type module_params_ktype = {
     .release   = module_group_release,
     .sysfs_ops = &module_params_ops,
 };
+#    endif
 
 /* Create a sub-directory of attribute files. */
 static module_group_t *module_group_create(module_sysfs_t *entry, struct module *module, const char *subdir, struct kobj_type *ktype, size_t (*count_fn)(const struct module *),
@@ -265,7 +261,7 @@ static void module_holders_destroy(module_sysfs_t *entry)
 /* Locate the /sys/module/ kobject created by sysfs_kobject_init(). */
 void module_sysfs_init(void)
 {
-#if CONFIG_SYSFS
+#    if CONFIG_SYSFS
     if (!sysfs_root_kobj) return;
     for (clist_t node = sysfs_root_kobj->children; node; node = node->next) {
         struct kobject *child = node->data;
@@ -274,17 +270,18 @@ void module_sysfs_init(void)
             break;
         }
     }
-    if (!module_kobj)
+    if (!module_kobj) {
         plogk("module_sysfs: /sys/module/ not found.\n");
-    else
+    } else {
         plogk("module_sysfs: registered /sys/module/\n");
-#endif
+    }
+#    endif
 }
 
 /* Publish a module under /sys/module/<name>/. */
 int module_sysfs_create(struct module *module, module_sysfs_t **handle)
 {
-#if CONFIG_SYSFS
+#    if CONFIG_SYSFS
     if (!module || !handle || !module_kobj) return -ENODEV;
     *handle               = NULL;
     module_sysfs_t *entry = calloc(1, sizeof(*entry));
@@ -301,10 +298,10 @@ int module_sysfs_create(struct module *module, module_sysfs_t **handle)
     entry->parameters = module_group_create(entry, module, "parameters", &module_params_ktype, module_param_count, module_param_name);
     module_holders_create(entry, module);
     (void)kobject_uevent(&entry->kobj, KOBJ_ADD);
-#else
+#    else
     (void)module;
     (void)handle;
-#endif
+#    endif
     return EOK;
 }
 
@@ -319,3 +316,5 @@ void module_sysfs_destroy(module_sysfs_t *entry)
     kobject_del(&entry->kobj);
     kobject_put(&entry->kobj);
 }
+
+#endif

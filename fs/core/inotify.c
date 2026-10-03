@@ -1,7 +1,7 @@
 /*
  *
  *      inotify.c
- *      Linux-compatible filesystem event notification
+ *      Filesystem event notification
  *
  *      2026/7/28 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -16,7 +16,6 @@
 #include <mem/heap.h>
 #include <process/process.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
 #include <syscall/fcntl.h>
 
 #define INOTIFY_EVENT_MASK  (IN_ALL_EVENTS | IN_UNMOUNT | IN_Q_OVERFLOW | IN_IGNORED)
@@ -41,9 +40,7 @@ typedef struct inotify_watch {
 static spinlock_t         inotify_global_lock;
 static inotify_context_t *inotify_contexts;
 static uint32_t           inotify_cookie;
-#ifndef INOTIFY_HOST_TEST
-static int inotify_fsid = -1;
-#endif
+static int                inotify_fsid = -1;
 
 /* A direct node count lets hot I/O avoid scanning unrelated watches. */
 static bool inotify_node_watched(vfs_node_t node)
@@ -51,11 +48,13 @@ static bool inotify_node_watched(vfs_node_t node)
     return node && __atomic_load_n(&node->inotify_watch_count, __ATOMIC_ACQUIRE) != 0;
 }
 
+/* Inotify watch get. */
 static void inotify_watch_get(vfs_node_t node)
 {
     if (node) __atomic_add_fetch(&node->inotify_watch_count, 1, __ATOMIC_RELEASE);
 }
 
+/* Inotify watch put. */
 static void inotify_watch_put(vfs_node_t node)
 {
     if (node) __atomic_sub_fetch(&node->inotify_watch_count, 1, __ATOMIC_RELEASE);
@@ -93,7 +92,7 @@ static int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t 
         spin_unlock(&context->lock);
         return EOK;
     }
-    if (context->queued_events >= INOTIFY_MAX_QUEUED_EVENTS) {
+    if (context->queued_events >= CONFIG_INOTIFY_MAX_QUEUED_EVENTS) {
         if (context->overflow_queued) {
             spin_unlock(&context->lock);
             return EOK;
@@ -108,7 +107,8 @@ static int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t 
 
     inotify_queue_event_t *queued = calloc(1, sizeof(*queued) + name_size);
     if (!queued) {
-        plogk("inotify: Event queue allocation failed, dropping event.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("inotify: Event queue allocation failed, dropping event.\n");
         spin_unlock(&context->lock);
         return -ENOMEM;
     }
@@ -119,10 +119,11 @@ static int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t 
     queued->event.len    = (uint32_t)name_size;
     if (name_size) memcpy(queued->event.name, name, strlen(name) + 1U);
 
-    if (context->tail)
+    if (context->tail) {
         context->tail->next = queued;
-    else
+    } else {
         context->head = queued;
+    }
     context->tail = queued;
     context->queued_events++;
     context->queued_bytes += event_size;
@@ -132,17 +133,6 @@ static int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t 
     wait_queue_wake_all(&context->wait_queue);
     vfs_poll_notify(context->node, 0x001U);
     return EOK;
-}
-
-/* Check whether the current process has a pending signal. */
-static bool inotify_signal_pending(void)
-{
-#ifdef INOTIFY_HOST_TEST
-    return false;
-#else
-    process_t *process = process_current();
-    return process && signal_has_pending(&process->signal);
-#endif
 }
 
 /* Drain queued events into the caller's buffer, blocking when empty. */
@@ -161,7 +151,7 @@ static int64_t inotify_read_events(inotify_context_t *context, uint64_t flags, v
             spin_unlock(&context->lock);
             return -EAGAIN;
         }
-        if (inotify_signal_pending()) {
+        if (signal_has_pending_current()) {
             spin_unlock(&context->lock);
             return -ERESTARTSYS;
         }
@@ -347,8 +337,6 @@ void inotify_notify_unmount(vfs_node_t mount_root)
     inotify_release_watches(release);
 }
 
-#ifndef INOTIFY_HOST_TEST
-
 /* VFS read callback for the inotify file descriptor. */
 static int64_t inotify_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *address, size_t offset, size_t size)
 {
@@ -449,7 +437,7 @@ static vfs_node_t inotify_node_create(int *error)
     uint32_t instances = 0;
     for (inotify_context_t *current = inotify_contexts; current; current = current->next)
         if (current->owner_uid == context->owner_uid) instances++;
-    if (instances >= INOTIFY_MAX_USER_INSTANCES) {
+    if (instances >= CONFIG_INOTIFY_MAX_USER_INSTANCES) {
         spin_unlock(&inotify_global_lock);
         node->handle = NULL;
         vfs_free(node);
@@ -517,7 +505,7 @@ static int32_t inotify_allocate_wd(inotify_context_t *context)
         }
         candidate = candidate == 0x7fffffff ? 1 : candidate + 1;
     }
-    return -1;
+    return -ENOSPC;
 }
 
 /* inotify_add_watch(2): add or modify a watch on a path. */
@@ -527,7 +515,7 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
     if (!(mask & (INOTIFY_EVENT_MASK | INOTIFY_WATCH_FLAGS)) || (mask & ~(INOTIFY_EVENT_MASK | INOTIFY_WATCH_FLAGS))) return -EINVAL;
     if ((mask & (IN_MASK_ADD | IN_MASK_CREATE)) == (IN_MASK_ADD | IN_MASK_CREATE)) return -EINVAL;
 
-    char path[VFS_PATH_MAX];
+    char path[CONFIG_VFS_PATH_MAX];
     int  copied = strncpy_from_user(path, pathname, sizeof(path));
     if (copied < 0) return copied;
     path[sizeof(path) - 1] = '\0';
@@ -539,7 +527,7 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
     inotify_context_t *context = inotify_context_get(fd, &file);
     if (!context) return -EBADF;
 
-    char resolved[VFS_PATH_MAX];
+    char resolved[CONFIG_VFS_PATH_MAX];
     int  result = process_resolve_path_at(process, PROCESS_AT_FDCWD, path, resolved, sizeof(resolved));
     if (result) {
         process_file_put(file);
@@ -582,8 +570,9 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
         if (current->owner_uid != context->owner_uid) continue;
         for (inotify_watch_t *entry = current->watches; entry; entry = entry->next) watches++;
     }
-    if (watches >= INOTIFY_MAX_USER_WATCHES) {
-        plogk("inotify: Watch limit reached (%u)\n", INOTIFY_MAX_USER_WATCHES);
+    if (watches >= CONFIG_INOTIFY_MAX_USER_WATCHES) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("inotify: Watch limit reached (%u)\n", CONFIG_INOTIFY_MAX_USER_WATCHES);
         spin_unlock(&inotify_global_lock);
         process_file_put(file);
         vfs_close(node);
@@ -592,7 +581,8 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
 
     inotify_watch_t *watch = calloc(1, sizeof(*watch));
     if (!watch) {
-        plogk("inotify: Watch allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("inotify: Watch allocation failed.\n");
         spin_unlock(&inotify_global_lock);
         process_file_put(file);
         vfs_close(node);
@@ -647,17 +637,21 @@ int sys_inotify_rm_watch(int fd, int wd)
 void inotify_init(void)
 {
     vfs_callback_t callback = calloc(1, sizeof(*callback));
-    if (!callback) return;
+    if (!callback) {
+        plogk("inotify: VFS callback allocation failed.\n");
+        return;
+    }
     callback->close      = inotify_close;
     callback->free       = inotify_free;
     callback->file_read  = inotify_file_read;
     callback->file_ioctl = inotify_file_ioctl;
     callback->file_poll  = inotify_file_poll;
-    inotify_fsid         = vfs_regist(callback);
+
+    inotify_fsid = vfs_regist_fs("inotify", callback);
     free(callback);
-    if (inotify_fsid < 0)
+    if (inotify_fsid < 0) {
         plogk("inotify: Failed to register VFS callbacks (%d)\n", inotify_fsid);
-    else
+    } else {
         plogk("inotify: Filesystem registered (fsid=%d)\n", inotify_fsid);
+    }
 }
-#endif

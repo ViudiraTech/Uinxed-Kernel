@@ -10,11 +10,6 @@
 
 #include <drivers/gpu/drm/simpledrm/simpledrm.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
-#include <drivers/gpu/gpu_drivers.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <sync/spin_lock.h>
 
 /*
  * The bus owns driver discovery, keeping the DRM core free of any knowledge
@@ -22,15 +17,16 @@
  * through its own public header and attaches via the DRM device API.
  */
 
-#define GPU_MAX_GPU_DRIVERS 16
-
 static struct gpu_driver {
         const char *name;
         int (*probe)(void);
         bool fallback;
-} gpu_drivers[GPU_MAX_GPU_DRIVERS];
+} gpu_drivers[CONFIG_GPU_MAX_GPU_DRIVERS];
 
-static int        gpu_driver_count;
+static int gpu_driver_count;
+
+#if CONFIG_DRM && (CONFIG_VIRTIO_GPU || CONFIG_SIMPLEDRM)
+
 static spinlock_t gpu_driver_lock = {.lock = 0, .rflags = 0};
 
 /* Register a built-in GPU driver probe callback with the bus. */
@@ -39,7 +35,7 @@ static void gpu_driver_register(const char *name, int (*probe)(void), bool fallb
     if (!name || !probe) return;
 
     spin_lock(&gpu_driver_lock);
-    if (gpu_driver_count >= GPU_MAX_GPU_DRIVERS) {
+    if (gpu_driver_count >= CONFIG_GPU_MAX_GPU_DRIVERS) {
         spin_unlock(&gpu_driver_lock);
         plogk("gpu: Driver registry full, ignoring \"%s\"\n", name);
         return;
@@ -50,6 +46,8 @@ static void gpu_driver_register(const char *name, int (*probe)(void), bool fallb
     gpu_driver_count++;
     spin_unlock(&gpu_driver_lock);
 }
+
+#endif
 
 /* Probe every registered GPU driver, hardware first and framebuffers last. */
 int gpu_drivers_probe(void)
@@ -83,10 +81,10 @@ int gpu_drivers_probe(void)
 /* Register every built-in GPU driver with the bus. */
 void gpu_drivers_init(void)
 {
-#if CONFIG_VIRTIO_GPU
+#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
     gpu_driver_register("virtio_gpu", virtio_gpu_probe, false);
 #endif
-#if CONFIG_SIMPLEDRM
+#if CONFIG_SIMPLEDRM && CONFIG_DRM
     gpu_driver_register("simpledrm", simpledrm_probe, true);
 #endif
 }

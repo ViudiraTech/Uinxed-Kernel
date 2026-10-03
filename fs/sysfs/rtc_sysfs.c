@@ -10,11 +10,9 @@
 
 #include <drivers/base/device.h>
 #include <drivers/time/rtc.h>
-#include <fs/sysfs/rtc_sysfs.h>
-#include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/string.h>
+
+#if CONFIG_SYSFS
 
 /* Show the current RTC date as YYYY-MM-DD. */
 static ssize_t rtc_date_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -41,7 +39,7 @@ static ssize_t rtc_since_epoch_show(struct device *dev, struct device_attribute 
 {
     (void)dev;
     (void)attr;
-    return sysfs_emit(buf, "%llu\n", (unsigned long long)rtc_since_epoch());
+    return sysfs_emit(buf, "%llu\n", rtc_since_epoch());
 }
 
 /* Show the fixed rtc0 device name. */
@@ -75,12 +73,12 @@ static struct class rtc_class = {.name = "rtc", .dev_groups = rtc_groups};
 /* Register the RTC class and its rtc0 device. */
 void rtc_sysfs_init(void)
 {
-#if CONFIG_SYSFS
     if (class_register(&rtc_class) != EOK) {
         plogk("rtc_sysfs: Class_register(rtc) failed.\n");
         return;
     }
     (void)device_create(&rtc_class, NULL, MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), NULL, "rtc0");
     plogk("rtc_sysfs: registered /sys/class/rtc/rtc0\n");
-#endif
 }
+
+#endif

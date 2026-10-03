@@ -8,18 +8,16 @@
  *
  */
 
-#include <drivers/block/ata/pata/ide.h>
-#include <drivers/block/core/blockdev.h>
-#include <fs/core/vfs.h>
+#include <fs/core/vfs_stub.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/extfs/extfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/heap.h>
+
+#if CONFIG_EXTFS
 
 static int extfs_id = 0;
 
@@ -109,25 +107,6 @@ static int extfs_touch_inode(extfs_sb_info_t *sb, uint32_t ino, int modify)
     return extfs_write_inode_raw(sb, ino, &raw);
 }
 
-/* Validate a directory entry's length and inode reference. */
-static int extfs_valid_dirent(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset)
-{
-    uint32_t remaining = sb->block_size - offset;
-    if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) {
-        plogk("extfs: Drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode, de->rec_len);
-        return 0;
-    }
-    if (de->name_len > de->rec_len - 8) {
-        plogk("extfs: Drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode, de->name_len);
-        return 0;
-    }
-    if (de->inode > sb->es->s_inodes_count) {
-        plogk("extfs: Drive %u: directory entry %u references out-of-range inode %u\n", sb->device.drive, offset, de->inode);
-        return 0;
-    }
-    return 1;
-}
-
 /* Materialize the children of a directory into the VFS node tree. */
 static int extfs_load_directory(vfs_node_t node)
 {
@@ -158,7 +137,7 @@ static int extfs_load_directory(vfs_node_t node)
         }
 
         ext2_dir_entry_t *de = (ext2_dir_entry_t *)(block + boff);
-        if (!extfs_valid_dirent(sb, de, boff)) {
+        if (!extfs_dirent_valid(sb, de, boff)) {
             free(block);
             return -EIO;
         }
@@ -170,7 +149,7 @@ static int extfs_load_directory(vfs_node_t node)
                 extfs_handle_t *child_h = extfs_alloc_handle(sb, de->inode);
                 if (!child_h) {
                     free(block);
-                    return -EIO;
+                    return -ENOMEM;
                 }
                 vfs_node_t child = vfs_node_alloc(node, name);
                 if (!child) {
@@ -230,7 +209,7 @@ static int extfs_mount(const char *src, vfs_node_t node)
     if (!h) {
         extfs_free_super(sb);
         free(sb);
-        return -EIO;
+        return -ENOMEM;
     }
 
     h->owns_sb   = 1;
@@ -279,7 +258,6 @@ static void extfs_unmount(void *root)
     extfs_handle_t *h;
 
     if (!node) return;
-
     h = extfs_get_handle(node);
 
     if (!h) return;
@@ -307,7 +285,6 @@ static void extfs_open(void *parent, const char *name, vfs_node_t node)
 
     parent_h = extfs_get_handle(node->parent);
     if (!parent_h) return;
-
     if (extfs_dir_lookup(parent_h, name, &child_ino) != EOK) return;
 
     child_h = extfs_alloc_handle(parent_h->sb, child_ino);
@@ -316,12 +293,6 @@ static void extfs_open(void *parent, const char *name, vfs_node_t node)
     node->handle = child_h;
     extfs_fill_node(node, child_h);
     if (node->type & file_dir) (void)extfs_load_directory(node);
-}
-
-/* Release a file handle (no-op for extfs). */
-static void extfs_close(void *current)
-{
-    (void)current;
 }
 
 /* Read file data through the inode block mapper. */
@@ -398,7 +369,6 @@ static size_t extfs_readlink_file(vfs_node_t node, void *addr, size_t offset, si
     sb = h->sb;
 
     if (extfs_read_inode_raw(sb, h->inode_no, &raw) != EOK) return 0;
-
     uint32_t symlink_len = raw.i_size;
 
     if (offset >= symlink_len) return 0;
@@ -465,7 +435,7 @@ static int extfs_mkdir_impl(void *parent, const char *name, vfs_node_t node)
     new_h = extfs_alloc_handle(sb, new_ino);
     if (!new_h) {
         extfs_free_inode(sb, new_ino);
-        return -EIO;
+        return -ENOMEM;
     }
 
     status = extfs_make_empty_dir(new_h, new_ino, dir_h->inode_no);
@@ -554,7 +524,7 @@ static int extfs_mkfile_impl(void *parent, const char *name, vfs_node_t node)
     if (status != EOK) return status;
 
     new_h = extfs_alloc_handle(sb, new_ino);
-    if (!new_h) return -EIO;
+    if (!new_h) return -ENOMEM;
 
     node->handle = new_h;
     extfs_fill_node(node, new_h);
@@ -613,10 +583,11 @@ static int extfs_link_impl(void *parent, const char *target_name, vfs_node_t nod
         status = -EMLINK;
         goto out;
     }
-    if ((raw.i_mode & 0xF000) == EXT2_S_IFLNK)
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFLNK) {
         file_type = EXT2_FT_SYMLINK;
-    else
+    } else {
         file_type = EXT2_FT_REG_FILE;
+    }
 
     status = extfs_dir_add_entry(dir_h, node->name, target_h->inode_no, file_type);
     if (status != EOK) goto out;
@@ -702,7 +673,7 @@ static int extfs_symlink_impl(void *parent, const char *name, vfs_node_t node)
     new_h = extfs_alloc_handle(sb, new_ino);
     if (!new_h) {
         extfs_free_inode(sb, new_ino);
-        return -EIO;
+        return -ENOMEM;
     }
     if (target_len > sizeof(new_raw.i_block)) {
         status = extfs_write_data(new_h, node->linkname, 0, target_len);
@@ -759,7 +730,7 @@ static int extfs_delete_impl(void *parent, vfs_node_t node)
     if (status != EOK) return status;
 
     if (!raw.i_links_count) {
-        plogk("extfs: Inode %llu has zero link count during unlink (corrupt on-disk state)\n", (unsigned long long)file_h->inode_no);
+        plogk("extfs: Inode %u has zero link count during unlink (corrupt on-disk state)\n", file_h->inode_no);
         return -EIO;
     }
     raw.i_links_count--;
@@ -808,11 +779,10 @@ static int extfs_rmdir_impl(void *parent, const char *name)
 
     status = extfs_read_inode_raw(sb, child_ino, &raw);
     if (status != EOK) return status;
-
     if ((raw.i_mode & 0xF000) != EXT2_S_IFDIR) return -ENOTDIR;
 
     child_h = extfs_alloc_handle(sb, child_ino);
-    if (!child_h) return -EIO;
+    if (!child_h) return -ENOMEM;
 
     status = extfs_dir_empty(child_h);
     if (status <= 0) {
@@ -907,12 +877,13 @@ static int extfs_rename_impl(const vfs_rename_context_t *context)
     status = extfs_read_inode_raw(sb, source_h->inode_no, &raw);
     if (status != EOK) return status;
 
-    if ((raw.i_mode & 0xF000) == EXT2_S_IFDIR)
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFDIR) {
         file_type = EXT2_FT_DIR;
-    else if ((raw.i_mode & 0xF000) == EXT2_S_IFLNK)
+    } else if ((raw.i_mode & 0xF000) == EXT2_S_IFLNK) {
         file_type = EXT2_FT_SYMLINK;
-    else
+    } else {
         file_type = EXT2_FT_REG_FILE;
+    }
 
     status = extfs_dir_lookup(new_parent_h, context->new_name, &existing);
     if (context->target) {
@@ -1064,15 +1035,6 @@ static int extfs_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
-/* Reject ioctl requests (extfs supports none). */
-static int extfs_ioctl_cb(void *file, size_t req, void *arg)
-{
-    (void)file;
-    (void)req;
-    (void)arg;
-    return -ENOTTY;
-}
-
 /* Duplicate a VFS node with a fresh handle to the same inode. */
 static vfs_node_t extfs_dup(vfs_node_t node)
 {
@@ -1083,10 +1045,9 @@ static vfs_node_t extfs_dup(vfs_node_t node)
     if (!node) return 0;
 
     src_h = extfs_get_handle(node);
+    copy  = vfs_node_alloc(node->parent, node->name);
 
-    copy = vfs_node_alloc(node->parent, node->name);
     if (!copy) return 0;
-
     if (src_h) {
         copy_h = extfs_alloc_handle(src_h->sb, src_h->inode_no);
         if (!copy_h) {
@@ -1109,17 +1070,10 @@ static vfs_node_t extfs_dup(vfs_node_t node)
     copy->writetime   = node->writetime;
     if (node->linkname) {
         copy->linkname = strdup(node->linkname);
-        if (!copy->linkname) { plogk("extfs: linkname strdup failed for inode %llu\n", (unsigned long long)node->inode); }
+        if (!copy->linkname) plogk("extfs: linkname strdup failed for inode %llu\n", node->inode);
     } else
         copy->linkname = 0;
     return copy;
-}
-
-/* Report the requested events as ready. */
-static int extfs_poll(void *file, size_t events)
-{
-    (void)file;
-    return (int)events;
 }
 
 /* Free a handle allocated by extfs_alloc_handle. */
@@ -1135,7 +1089,7 @@ static struct vfs_callback extfs_callbacks = {
     .mount    = extfs_mount,
     .unmount  = extfs_unmount,
     .open     = extfs_open,
-    .close    = extfs_close,
+    .close    = vfs_stub_close,
     .read     = extfs_read_file,
     .write    = extfs_write_file,
     .readlink = extfs_readlink_file,
@@ -1144,9 +1098,9 @@ static struct vfs_callback extfs_callbacks = {
     .link     = extfs_link_cb,
     .symlink  = extfs_symlink_cb,
     .stat     = extfs_stat,
-    .ioctl    = extfs_ioctl_cb,
+    .ioctl    = vfs_stub_ioctl_notty,
     .dup      = extfs_dup,
-    .poll     = extfs_poll,
+    .poll     = vfs_poll_all,
     .free     = extfs_free,
     .delete   = extfs_delete,
     .rename   = extfs_rename_cb,
@@ -1154,27 +1108,15 @@ static struct vfs_callback extfs_callbacks = {
     .sync     = extfs_sync,
 };
 
-/* Register the extfs filesystem and probe IDE disks for volumes. */
+/* Register the extfs filesystem. */
 void extfs_regist(void)
 {
-#if CONFIG_EXTFS
     extfs_id = vfs_regist_fs("extfs", &extfs_callbacks);
     if (extfs_id & ERRNO_MASK) {
-        plogk("extfs: Register error.\n");
+        plogk("extfs: Register error (%d)\n", extfs_id);
         return;
     }
     plogk("extfs: Filesystem registered (fsid=%d)\n", extfs_id);
-
-#    if CONFIG_ATA
-    for (uint8_t drive = 0; drive < 4; drive++) {
-        extfs_sb_info_t   sb;
-        blockdev_device_t device;
-        if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
-        if (blockdev_open_drive(drive, &device) == EOK && extfs_read_super(&sb, &device) == EOK) {
-            plogk("extfs: Detected ext2 on ide%u, volume '%.16s'\n", drive, sb.es->s_volume_name);
-            extfs_free_super(&sb);
-        }
-    }
-#    endif
-#endif
 }
+
+#endif

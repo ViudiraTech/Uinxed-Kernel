@@ -15,7 +15,11 @@ struct drm_device;
 struct drm_connector;
 
 /* Register /sys/class/drm/ with the device model. */
+#if CONFIG_DRM
 void drm_sysfs_init(void);
+#else
+static inline void drm_sysfs_init(void) {}
+#endif
 
 /* Publish a DRM device under /sys/class/drm/ (card%d). */
 void drm_sysfs_register_device(struct drm_device *dev);

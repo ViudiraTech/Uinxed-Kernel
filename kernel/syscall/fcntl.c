@@ -10,13 +10,9 @@
 
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <process/file_status.h>
 #include <process/process.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
@@ -106,13 +102,12 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             result = newfd;
             break;
         }
-        case F_GETFD : {
+        case F_GETFD :
             spin_lock(&proc->fd_lock);
             result = proc->fds[fd] ? proc->fd_flags[fd] : -EBADF;
             spin_unlock(&proc->fd_lock);
             break;
-        }
-        case F_SETFD : {
+        case F_SETFD :
             if (arg & ~(uint64_t)FD_CLOEXEC) {
                 result = -EINVAL;
                 break;
@@ -126,14 +121,12 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             }
             spin_unlock(&proc->fd_lock);
             break;
-        }
-        case F_GETFL : {
+        case F_GETFL :
             /* Return file access mode and status flags */
             spin_lock(&file->lock);
             result = (int64_t)(file->flags & (O_ACCMODE | O_NONBLOCK | O_APPEND | O_PATH));
             spin_unlock(&file->lock);
             break;
-        }
         case F_SETFL : {
             /* Only O_NONBLOCK and O_APPEND can be changed */
             uint64_t settable = O_NONBLOCK | O_APPEND;

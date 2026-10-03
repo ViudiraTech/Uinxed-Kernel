@@ -13,7 +13,6 @@
 
 #include <drivers/block/core/blockdev.h>
 #include <fs/fatfs/ff.h>
-#include <libs/std/stdint.h>
 
 /* Bind a block device to a FatFs physical drive. */
 int fatfs_bind_device(uint8_t drive, const blockdev_device_t *device);

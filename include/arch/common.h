@@ -56,17 +56,29 @@ uint64_t get_rsp(void);
 /* Get the current value of the status flag register */
 uint64_t get_rflags(void);
 
+/* Write an 8-bit data to the specified memory address */
+void mmio_write8(volatile void *addr, uint8_t data);
+
+/* Write a 16-bit data to the specified memory address */
+void mmio_write16(volatile void *addr, uint16_t data);
+
 /* Write a 32-bit data to the specified memory address */
-void mmio_write32(uint32_t *addr, uint32_t data);
+void mmio_write32(volatile void *addr, uint32_t data);
 
 /* Write a 64-bit data to the specified memory address */
-void mmio_write64(void *addr, uint64_t data);
+void mmio_write64(volatile void *addr, uint64_t data);
+
+/* Read an 8-bit data from the specified memory address */
+uint8_t mmio_read8(const volatile void *addr);
+
+/* Read a 16-bit data from the specified memory address */
+uint16_t mmio_read16(const volatile void *addr);
 
 /* Read a 32-bit data from the specified memory address */
-uint32_t mmio_read32(void *addr);
+uint32_t mmio_read32(const volatile void *addr);
 
 /* Read a 64-bit data from the specified memory address */
-uint64_t mmio_read64(void *addr);
+uint64_t mmio_read64(const volatile void *addr);
 
 /* Read msr register */
 uint64_t rdmsr(uint32_t msr);
@@ -103,6 +115,9 @@ __attribute__((noreturn)) void krn_halt(void);
 
 /* Compiler barrier */
 void compiler_barrier(void);
+
+/* Hint the CPU that this is a spin-wait loop. */
+void cpu_relax(void);
 
 /* Order DMA reads before subsequent memory accesses. */
 void dma_read_barrier(void);

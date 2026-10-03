@@ -11,12 +11,9 @@
 #ifndef INCLUDE_CGROUP_H_
 #define INCLUDE_CGROUP_H_
 
-#include <libs/list/intrusive_list.h>
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-
-struct task;
-typedef struct cgroup cgroup_t;
 
 #define CGROUP_CONTROLLER_PIDS   (1ULL << 0)
 #define CGROUP_CONTROLLER_MEMORY (1ULL << 1)
@@ -24,8 +21,13 @@ typedef struct cgroup cgroup_t;
 #define CGROUP_CONTROLLER_IO     (1ULL << 3)
 #define CGROUP_CONTROLLER_CPUSET (1ULL << 4)
 
-#define CGROUP_PIDS_MAX        UINT64_MAX
-#define CGROUP_MEMORY_MAX      UINT64_MAX
+#define CGROUP_PIDS_MAX   UINT64_MAX
+#define CGROUP_MEMORY_MAX UINT64_MAX
+
+struct task;
+typedef struct cgroup cgroup_t;
+
+#if CONFIG_CGROUP
 
 /* Initialize the cgroup unified hierarchy (root cgroup + controllers) */
 void cgroup_init(void);
@@ -47,6 +49,28 @@ int cgroup_task_fork(struct task *task, struct task *parent);
 
 /* Detach a task from its cgroup as it exits */
 void cgroup_task_exit(struct task *task);
+
+#else
+static inline void      cgroup_init(void) {}
+static inline cgroup_t *cgroup_root(void)
+{
+    return NULL;
+}
+static inline cgroup_t *cgroup_get(cgroup_t *)
+{
+    return NULL;
+}
+static inline void cgroup_put(cgroup_t *) {}
+static inline int  cgroup_register_controller(const char *, uint64_t)
+{
+    return -ENOSYS;
+}
+static inline int cgroup_task_fork(struct task *, struct task *)
+{
+    return 0;
+}
+static inline void cgroup_task_exit(struct task *) {}
+#endif
 
 /* Move an existing task into the given cgroup */
 int cgroup_attach_task(cgroup_t *cgroup, struct task *task);
@@ -92,6 +116,8 @@ uint64_t cgroup_subtree_control(cgroup_t *cgroup);
 
 /* Whether a controller is usable on this cgroup */
 int cgroup_controller_available(cgroup_t *cgroup, uint64_t controller_flag);
+
+/* Whether the pids controller is usable on this cgroup */
 int cgroup_pids_available(cgroup_t *cgroup);
 
 /* Whether the cgroup is the root cgroup */
@@ -104,37 +130,48 @@ int cgroup_show_procs(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_threads(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_events(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_stat(cgroup_t *cgroup, char *buf, size_t size);
-int cgroup_show_max_descendants(cgroup_t *cgroup, char *buf, size_t size);
-int cgroup_show_max_depth(cgroup_t *cgroup, char *buf, size_t size);
+int cgroup_show_max(cgroup_t *cgroup, char *buf, size_t size);
 
 int cgroup_show_pids_current(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_pids_max(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_pids_events(cgroup_t *cgroup, char *buf, size_t size);
 
-int cgroup_show_memory_current(cgroup_t *cgroup, char *buf, size_t size);
+int cgroup_show_memory_zero(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_memory_max(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_memory_high(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_memory_low(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_memory_stat(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_memory_events(cgroup_t *cgroup, char *buf, size_t size);
-int cgroup_show_memory_swap_current(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_memory_swap_max(cgroup_t *cgroup, char *buf, size_t size);
 
 int cgroup_show_cpu_max(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_cpu_weight(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_cpu_stat(cgroup_t *cgroup, char *buf, size_t size);
 
-int cgroup_show_io_max(cgroup_t *cgroup, char *buf, size_t size);
+int cgroup_show_io_empty(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_io_weight(cgroup_t *cgroup, char *buf, size_t size);
-int cgroup_show_io_stat(cgroup_t *cgroup, char *buf, size_t size);
 
 int cgroup_show_cpuset_cpus(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_cpuset_mems(cgroup_t *cgroup, char *buf, size_t size);
 
 /* Format the full path of a cgroup, relative to the root hierarchy */
+#if CONFIG_CGROUP
 int cgroup_format_path(cgroup_t *cgroup, char *buf, size_t size);
+#else
+static inline int cgroup_format_path(cgroup_t *, char *, size_t)
+{
+    return 0;
+}
+#endif
 
 /* Format the /proc/cgroups file for the unified hierarchy */
+#if CONFIG_CGROUP
 int cgroup_format_proc_cgroups(char *buf, size_t size);
+#else
+static inline int cgroup_format_proc_cgroups(char *, size_t)
+{
+    return 0;
+}
+#endif
 
 #endif // INCLUDE_CGROUP_H_

@@ -13,7 +13,6 @@
 #include <drivers/firmware/apic.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
-#include <libs/std/stdint.h>
 #include <mem/hhdm.h>
 
 xsdt_t *xsdt = 0;
@@ -42,7 +41,7 @@ void *find_table(const char *name)
     for (uint32_t i = 0; i < entry_count; i++) {
         uint64_t           phys_addr = (entry_size == 8) ? ((const uint64_t *)entry_base)[i] : ((const uint32_t *)entry_base)[i];
         acpi_sdt_header_t *header    = (acpi_sdt_header_t *)phys_to_virt(phys_addr);
-        if (*(const uint32_t *)header->signature == target_sig) { return header; }
+        if (*(const uint32_t *)header->signature == target_sig) return header;
     }
     return 0;
 }

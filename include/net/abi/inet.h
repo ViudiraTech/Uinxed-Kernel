@@ -1,7 +1,7 @@
 /*
  *
  *      inet.h
- *      Linux x86_64 Internet socket ABI and kernel backend adapter.
+ *      x86_64 Internet socket ABI and kernel backend adapter.
  *
  *      2026/7/28 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -11,18 +11,15 @@
 #ifndef INCLUDE_INET_H_
 #define INCLUDE_INET_H_
 
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <syscall/abi.h>
 
-#ifndef AF_UNSPEC
-#    define AF_UNSPEC 0
-#endif
-#ifndef AF_INET
-#    define AF_INET 2
-#endif
-#ifndef AF_INET6
-#    define AF_INET6 10
-#endif
+/* INET address families */
+#define AF_UNSPEC 0
+#define AF_INET   2
+#define AF_INET6  10
 
 #define IPPROTO_IP   0
 #define IPPROTO_ICMP 1
@@ -89,38 +86,6 @@
 #define TCP_QUICKACK     12
 #define TCP_CONGESTION   13
 
-typedef struct socket_timeval {
-        int64_t tv_sec;
-        int64_t tv_usec;
-} socket_timeval_t;
-
-typedef uint16_t sa_family_t;
-typedef uint32_t in_addr_t;
-
-typedef struct sockaddr {
-        sa_family_t sa_family;
-        char        sa_data[14];
-} sockaddr_t;
-
-typedef struct in_addr {
-        in_addr_t s_addr;
-} in_addr_t_struct;
-
-typedef struct sockaddr_in {
-        sa_family_t    sin_family;
-        uint16_t       sin_port;
-        struct in_addr sin_addr;
-        uint8_t        sin_zero[8];
-} sockaddr_in_t;
-
-typedef struct in6_addr {
-        union {
-                uint8_t  u6_addr8[16];
-                uint16_t u6_addr16[8];
-                uint32_t u6_addr32[4];
-        } in6_u;
-} in6_addr_t;
-
 #define IN6ADDR_ANY_INIT                                       \
     {                                                          \
         {                                                      \
@@ -142,56 +107,10 @@ typedef struct in6_addr {
 #define s6_addr16 in6_u.u6_addr16
 #define s6_addr32 in6_u.u6_addr32
 
-typedef struct sockaddr_in6 {
-        sa_family_t     sin6_family;
-        uint16_t        sin6_port;
-        uint32_t        sin6_flowinfo;
-        struct in6_addr sin6_addr;
-        uint32_t        sin6_scope_id;
-} sockaddr_in6_t;
-
-typedef struct ipv6_mreq {
-        struct in6_addr ipv6mr_multiaddr;
-        uint32_t        ipv6mr_interface;
-} ipv6_mreq_t;
-
 #define IPV6_JOIN_GROUP  IPV6_ADD_MEMBERSHIP
 #define IPV6_LEAVE_GROUP IPV6_DROP_MEMBERSHIP
 
-typedef struct sockaddr_storage {
-        sa_family_t ss_family;
-        uint8_t     __data[118];
-        uint64_t    __align;
-} sockaddr_storage_t;
-
 #define IFNAMSIZ 16
-
-typedef struct ifmap {
-        uint64_t mem_start;
-        uint64_t mem_end;
-        uint16_t base_addr;
-        uint8_t  irq;
-        uint8_t  dma;
-        uint8_t  port;
-} ifmap_t;
-
-typedef struct ifreq {
-        char ifr_name[IFNAMSIZ];
-        union {
-                struct sockaddr ifru_addr;
-                struct sockaddr ifru_dstaddr;
-                struct sockaddr ifru_broadaddr;
-                struct sockaddr ifru_netmask;
-                struct sockaddr ifru_hwaddr;
-                int16_t         ifru_flags;
-                int32_t         ifru_ivalue;
-                int32_t         ifru_mtu;
-                struct ifmap    ifru_map;
-                char            ifru_slave[IFNAMSIZ];
-                char            ifru_newname[IFNAMSIZ];
-                void           *ifru_data;
-        } ifr_ifru;
-} ifreq_t;
 
 #define ifr_addr      ifr_ifru.ifru_addr
 #define ifr_dstaddr   ifr_ifru.ifru_dstaddr
@@ -228,6 +147,79 @@ typedef struct ifreq {
 #define IFF_RUNNING   0x0040
 #define IFF_MULTICAST 0x1000
 
+typedef uint16_t sa_family_t;
+typedef uint32_t in_addr_t;
+
+typedef struct sockaddr {
+        sa_family_t sa_family;
+        char        sa_data[14];
+} sockaddr_t;
+
+typedef struct in_addr {
+        in_addr_t s_addr;
+} in_addr_t_struct;
+
+typedef struct sockaddr_in {
+        sa_family_t    sin_family;
+        uint16_t       sin_port;
+        struct in_addr sin_addr;
+        uint8_t        sin_zero[8];
+} sockaddr_in_t;
+
+typedef struct in6_addr {
+        union {
+                uint8_t  u6_addr8[16];
+                uint16_t u6_addr16[8];
+                uint32_t u6_addr32[4];
+        } in6_u;
+} in6_addr_t;
+
+typedef struct sockaddr_in6 {
+        sa_family_t     sin6_family;
+        uint16_t        sin6_port;
+        uint32_t        sin6_flowinfo;
+        struct in6_addr sin6_addr;
+        uint32_t        sin6_scope_id;
+} sockaddr_in6_t;
+
+typedef struct ipv6_mreq {
+        struct in6_addr ipv6mr_multiaddr;
+        uint32_t        ipv6mr_interface;
+} ipv6_mreq_t;
+
+typedef struct sockaddr_storage {
+        sa_family_t ss_family;
+        uint8_t     __data[118];
+        uint64_t    __align;
+} sockaddr_storage_t;
+
+typedef struct ifmap {
+        uint64_t mem_start;
+        uint64_t mem_end;
+        uint16_t base_addr;
+        uint8_t  irq;
+        uint8_t  dma;
+        uint8_t  port;
+} ifmap_t;
+
+typedef struct ifreq {
+        char ifr_name[IFNAMSIZ];
+        union {
+                struct sockaddr ifru_addr;
+                struct sockaddr ifru_dstaddr;
+                struct sockaddr ifru_broadaddr;
+                struct sockaddr ifru_netmask;
+                struct sockaddr ifru_hwaddr;
+                int16_t         ifru_flags;
+                int32_t         ifru_ivalue;
+                int32_t         ifru_mtu;
+                struct ifmap    ifru_map;
+                char            ifru_slave[IFNAMSIZ];
+                char            ifru_newname[IFNAMSIZ];
+                void           *ifru_data;
+        } ifr_ifru;
+} ifreq_t;
+
 enum inet_proc_file {
     INET_PROC_DEV,
     INET_PROC_ARP,
@@ -263,13 +255,34 @@ struct inet_backend_ops {
  * free the wrapper (which the callback reads) while the callback runs.
  */
 void inet_sock_ref(void *sock);
+
+/* Inet sock unref. */
 void inet_sock_unref(void *sock);
 
 /* Backend registry: install and query the active inet protocol implementation. */
+#if CONFIG_INET && CONFIG_NET
 int                            inet_backend_register(const struct inet_backend_ops *ops);
 const struct inet_backend_ops *inet_backend_get(void);
 size_t                         inet_backend_proc_read(enum inet_proc_file file, char *buf, size_t capacity);
 int                            inet_builtin_backend_register(void);
+#else
+static inline int inet_backend_register(const struct inet_backend_ops *)
+{
+    return -EOPNOTSUPP;
+}
+static inline const struct inet_backend_ops *inet_backend_get(void)
+{
+    return NULL;
+}
+static inline size_t inet_backend_proc_read(enum inet_proc_file, char *, size_t)
+{
+    return 0;
+}
+static inline int inet_builtin_backend_register(void)
+{
+    return -EOPNOTSUPP;
+}
+#endif
 
 _Static_assert(sizeof(struct sockaddr_in) == 16, "Linux sockaddr_in ABI");
 _Static_assert(sizeof(struct in6_addr) == 16, "Linux in6_addr ABI");

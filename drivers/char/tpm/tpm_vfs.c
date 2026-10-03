@@ -12,11 +12,10 @@
 #include <drivers/char/tpm/tpm.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+
+#if CONFIG_TPM
 
 typedef struct {
         uint8_t command[TPM_BUFSIZE];
@@ -33,7 +32,8 @@ static int tpm_chardev_open(vfs_node_t node, uint64_t flags, void **private_data
     (void)flags;
     tpm_chardev_state_t *state = calloc(1, sizeof(*state));
     if (!state) {
-        plogk("tpm: Failed to allocate TPM device state.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("tpm: Failed to allocate TPM device state.\n");
         return -ENOMEM;
     }
     *private_data = state;
@@ -57,13 +57,11 @@ static int64_t tpm_chardev_write(void *ctx, void *private_data, uint64_t flags, 
     (void)ctx;
     (void)flags;
     (void)offset;
-    if (!state || !tpm || !addr || !size || size > TPM_BUFSIZE) return -EINVAL;
 
+    if (!state || !tpm || !addr || !size || size > TPM_BUFSIZE) return -EINVAL;
     memcpy(state->command, addr, size);
-    /*
-     * tpm_transmit() sends the command buffer and returns the response
-     * length in the same buffer (in-place).
-     */
+
+    /* tpm_transmit() sends the command buffer and returns the response length in the same buffer (in-place). */
     rc = tpm_transmit(tpm, state->command, TPM_BUFSIZE, size);
     if (rc < 0) return (int64_t)rc;
 
@@ -83,8 +81,10 @@ static int64_t tpm_chardev_read(void *ctx, void *private_data, uint64_t flags, v
     (void)ctx;
     (void)flags;
     (void)offset;
+
     if (!state || !addr) return -EINVAL;
     if (!state->has_response || state->read_offset >= state->response_len) return 0;
+
     actual = size < state->response_len - state->read_offset ? size : state->response_len - state->read_offset;
     memcpy(addr, state->response + state->read_offset, actual);
     state->read_offset += actual;
@@ -114,7 +114,6 @@ void tpm_vfs_init(void)
     };
 
     if (!tpm_get_device()) return;
-
     if (devtmpfs_register_char_device("/dev/tpm0", MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), file_stream, &tpm_ops) == 0) {
         vfs_node_t node = vfs_open("/dev/tpm0");
         if (node) {
@@ -130,3 +129,5 @@ void tpm_vfs_init(void)
         }
     }
 }
+
+#endif

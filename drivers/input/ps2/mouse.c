@@ -11,9 +11,11 @@
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/input/ps2/ps2.h>
 #include <drivers/input/ps2/ps2_mouse.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
+#include <libs/util/bitops.h>
+
+#if CONFIG_PS2_KEYBOARD_MOUSE
 
 static input_dev_t             ps2_mouse_dev;
 static enum ps2_mouse_protocol ps2_mouse_protocol;
@@ -21,12 +23,6 @@ static struct ps2_mouse_stream ps2_mouse_stream;
 static struct ps2_mouse_packet ps2_mouse_previous;
 static bool                    ps2_mouse_ready;
 evdev_t                       *ps2_mouse_evdev;
-
-/* Set one bit in a bitmap word array. */
-static void set_bit(unsigned int bit, uint32_t *bits)
-{
-    bits[bit / 32] |= 1U << (bit % 32);
-}
 
 /* Ask the device for its protocol ID byte. */
 static int ps2_mouse_read_id(uint8_t *id)
@@ -92,10 +88,11 @@ void ps2_mouse_handle_byte(uint8_t byte)
 
     if (!ps2_mouse_ready) return;
     result = ps2_mouse_stream_byte(&ps2_mouse_stream, byte, &packet);
-    if (result == 1)
+    if (result == 1) {
         ps2_mouse_report(&packet);
-    else if (result < 0)
+    } else if (result < 0) {
         plogk("ps2: Mouse packet decode error: %d\n", result);
+    }
 }
 
 /* Drop a partial packet after a parity/timeout error. */
@@ -196,3 +193,5 @@ void ps2_mouse_init(void)
     ps2_mouse_ready = true;
     plogk("ps2: PS/2 mouse protocol %d registered as event%d\n", ps2_mouse_protocol, ps2_mouse_evdev->minor);
 }
+
+#endif

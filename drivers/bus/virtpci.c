@@ -9,66 +9,35 @@
  */
 
 #include <arch/common.h>
-#include <drivers/bus/pci.h>
 #include <drivers/bus/virtpci.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/frame.h>
+#include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
 
-/* Capability parsing - walk the PCI vendor-defined capability list */
+#if CONFIG_VIRTIO_PCI
 
-/*
- * Return the MMIO virtual address for a given PCI capability.
- * Maps the BAR fully (if not yet mapped) and returns bar_base + cap->offset.
- */
+/* Return the MMIO virtual address for a given PCI capability. Maps the BAR fully (if not yet mapped) and returns bar_base + cap->offset. */
 static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
 {
-    pci_device_reg_t reg = {dev->pci_dev, 0};
-    uint32_t         bar_raw;
-    uint64_t         bar_phys;
-    uint64_t         map_start, map_len;
+    pci_bar_t bar;
 
-    /* Read BAR physical address directly from PCI config space */
-    reg.offset = 0x10 + 4 * cap->bar;
-    bar_raw    = read_pci(reg);
-    bar_phys   = bar_raw & ~0xfULL;
-
-    /* Handle 64-bit BAR: lower 32 bits may be 0 if mapped above 4GB */
-    if ((bar_raw & 0x6) == 0x4) {
-        reg.offset = 0x10 + 4 * (cap->bar + 1);
-        bar_phys |= (uint64_t)read_pci(reg) << 32;
-    }
-
-    if (!bar_phys) {
-        plogk("virtpci: BAR %u for device %04x:%04x has null address.\n", cap->bar, dev->vendor_id, dev->device_id);
+    if (pci_map_bar(dev->pci_dev, cap->bar, &bar) < 0) {
+        plogk("virtpci: BAR %u for device %04x:%04x is not a usable memory BAR.\n", cap->bar, dev->vendor_id, dev->device_id);
         return NULL;
     }
 
     /*
-     * Map the needed pages into the HHDM window.
-     * phys_to_virt provides the virtual address (HHDM offset),
-     * but the page-table entries may be absent for MMIO regions.
-     * page_map_range_to maps phys -> virt for contiguously addressed pages.
-     *
-     * CRITICAL: MMIO BARs must be mapped uncacheable (PTE_PCD).
+     * pci_map_bar maps the BAR uncacheable (PTE_PCD) into the HHDM window.
      * Without PCD, the CPU caches all MMIO accesses (Write-Back),
      * so writes to device registers never reach the PCI bus and
      * the device never sees status updates, queue configs, or
      * notify doorbell kicks.
      */
-    map_start = bar_phys & ~(uint64_t)0xfff;
-    map_len   = ((bar_phys + cap->offset + cap->length + 0xfff) & ~(uint64_t)0xfff) - map_start;
-
-    page_map_range_to(get_kernel_pagedir(), map_start, map_len, PTE_MMIO_FLAGS);
-
-    return (volatile void *)((uintptr_t)phys_to_virt(bar_phys) + cap->offset);
+    return (volatile void *)((uintptr_t)bar.virt + cap->offset);
 }
 
 /* Scan the vendor-defined PCI capability list. */
@@ -86,7 +55,6 @@ static int vp_scan_caps(struct vp_device *dev)
         plogk("virtpci: No PCI capabilities found (not a modern virtio device)\n");
         return -ENODEV;
     }
-
     while (cap_off) {
         struct vp_cap cap;
         uint32_t      cap_data[4];
@@ -115,27 +83,21 @@ static int vp_scan_caps(struct vp_device *dev)
             cap_off = cap.cap_next;
             continue;
         }
-
         switch (cap.cfg_type) {
             case VIRTIO_PCI_CAP_COMMON_CFG :
-                dev->common_cap = cap;
-                dev->common     = vp_map_cap_bar(dev, &cap);
+                dev->common = vp_map_cap_bar(dev, &cap);
                 if (dev->common) {
                     found_common = 1;
                     plogk("virtpci: Common cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length);
                 }
                 break;
-
             case VIRTIO_PCI_CAP_NOTIFY_CFG : {
-                struct vp_notify_cap ncap;
-                uint32_t             ndata;
+                uint32_t ndata;
+
                 /* notify_off_multiplier is at cap_off + 16 */
                 reg.offset = cap_off + 16;
                 ndata      = read_pci(reg);
 
-                ncap.cap                   = cap;
-                ncap.notify_off_multiplier = ndata;
-                dev->notify_cap            = ncap;
                 dev->notify_base           = vp_map_cap_bar(dev, &cap);
                 dev->notify_off_multiplier = ndata;
                 found_notify               = 1;
@@ -143,25 +105,21 @@ static int vp_scan_caps(struct vp_device *dev)
                 break;
             }
             case VIRTIO_PCI_CAP_ISR_CFG :
-                dev->isr_cap = cap;
-                dev->isr     = vp_map_cap_bar(dev, &cap);
+                dev->isr = vp_map_cap_bar(dev, &cap);
                 if (dev->isr) {
                     found_isr = 1;
                     plogk("virtpci: Isr cfg at BAR%u+0x%x\n", cap.bar, cap.offset);
                 }
                 break;
             case VIRTIO_PCI_CAP_DEVICE_CFG :
-                dev->device_cap = cap;
                 dev->device_cfg = vp_map_cap_bar(dev, &cap);
                 if (dev->device_cfg) plogk("virtpci: Device cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length);
                 break;
             default :
                 break;
         }
-
         cap_off = cap.cap_next;
     }
-
     if (!found_common || !found_notify || !found_isr) {
         plogk("virtpci: Missing required capabilities (common=%d notify=%d isr=%d)\n", found_common, found_notify, found_isr);
         return -ENODEV;
@@ -187,6 +145,7 @@ uint8_t vp_get_status(struct vp_device *dev)
 void vp_reset_device(struct vp_device *dev)
 {
     vp_set_status(dev, VIRTIO_STATUS_RESET);
+
     /* Read back to flush the write */
     vp_get_status(dev);
 }
@@ -195,7 +154,6 @@ void vp_reset_device(struct vp_device *dev)
 int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64_t *negotiated)
 {
     uint32_t lo, hi;
-
     if (!dev->common) return -ENODEV;
 
     /* Device features (must be read in two phases) */
@@ -204,7 +162,7 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
     dev->common->device_feature_select = 1;
     hi                                 = dev->common->device_feature;
 
-    plogk("virtpci: Device features: 0x%016llx\n", ((uint64_t)hi << 32) | lo);
+    plogk("virtpci: Device features: 0x%016llx\n", (((uint64_t)hi << 32) | lo));
 
     /* Mask with guest-requested features */
     lo &= (uint32_t)(guest_features);
@@ -215,15 +173,13 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
     dev->common->driver_feature        = lo;
     dev->common->driver_feature_select = 1;
     dev->common->driver_feature        = hi;
+    dev->features                      = ((uint64_t)hi << 32) | lo;
 
-    dev->features = ((uint64_t)hi << 32) | lo;
     if (negotiated) *negotiated = dev->features;
 
     plogk("virtpci: Negotiated features: 0x%016llx\n", dev->features);
     return 0;
 }
-
-/* Device configuration space accessors */
 
 /* Read len bytes from the device configuration space. */
 void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len)
@@ -247,10 +203,7 @@ void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, 
     for (i = 0; i < len; i++) cfg[offset + i] = src[i];
 }
 
-/*
- * Allocate and initialise a single virtqueue.
- * num must be a power of two.
- */
+/* Allocate and initialise a single virtqueue. num must be a power of two. */
 int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *vq)
 {
     int                            alloc_size;
@@ -261,11 +214,11 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
 
     /* Select the queue */
     common->queue_select = index;
+
     if (!common->queue_size) {
         plogk("virtpci: Queue %d size is 0\n", index);
         return -ENODEV;
     }
-
     if (num > common->queue_size) num = common->queue_size;
     if (num & (num - 1)) {
         /* round down to power of two */
@@ -294,6 +247,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
 
     /* Allocate descriptor table, available ring, used ring as one block */
     alloc_size = num * sizeof(struct vring_desc) + sizeof(struct vring_avail) + num * sizeof(uint16_t) + sizeof(struct vring_used) + num * sizeof(struct vring_used_elem);
+
     /* Align to page */
     alloc_size = (alloc_size + 4095) & ~4095;
 
@@ -313,6 +267,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     /* Initialize free descriptor list */
     vq->free_descs = malloc(num * sizeof(uint16_t));
     vq->desc_data  = malloc(num * sizeof(void *));
+
     if (!vq->free_descs || !vq->desc_data) {
         plogk("virtpci: Failed to allocate descriptor lists for queue %d\n", index);
         free(vq->free_descs);
@@ -332,6 +287,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
      * Initial chain: free_head -> 0 -> 1 -> 2 -> ... -> num-1
      */
     for (i = 0; i < num; i++) vq->free_descs[i] = (uint16_t)(i + 1);
+
     /*
      * The last descriptor has no next - its free_descs entry is never
      * read until it has first been pushed back (which overwrites it).
@@ -357,9 +313,9 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
 void vp_del_vq(struct vp_virtqueue *vq)
 {
     if (!vq) return;
-
     free(vq->free_descs);
     free(vq->desc_data);
+
     if (vq->queue_phys && vq->queue_page_count) free_frames(vq->queue_phys, vq->queue_page_count);
     memset(vq, 0, sizeof(*vq));
 }
@@ -368,7 +324,6 @@ void vp_del_vq(struct vp_virtqueue *vq)
 int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
 {
     uint16_t head;
-
     if (!vq || !data || len <= 0) return -EINVAL;
 
     spin_lock(&vq->lock);
@@ -389,8 +344,7 @@ int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
     vq->desc[head].len   = len;
     vq->desc[head].flags = write ? VRING_DESC_F_WRITE : 0;
     vq->desc[head].next  = 0;
-
-    vq->desc_data[head] = data;
+    vq->desc_data[head]  = data;
 
     /* Update avail ring */
     vq->avail->ring[vq->avail_idx_shadow & (vq->num_max - 1)] = head;
@@ -407,7 +361,6 @@ int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
 int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len)
 {
     uint16_t head, out_desc, in_desc;
-
     if (!vq || !out_data || !in_data || out_len <= 0 || in_len <= 0) return -EINVAL;
 
     spin_lock(&vq->lock);
@@ -438,7 +391,6 @@ int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, v
     vq->desc[in_desc].len   = in_len;
     vq->desc[in_desc].flags = VRING_DESC_F_WRITE;
     vq->desc[in_desc].next  = 0;
-
     vq->desc_data[out_desc] = out_data;
     vq->desc_data[in_desc]  = in_data;
 
@@ -474,11 +426,11 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
 
     if (used_head >= (uint32_t)vq->num_max) {
         spin_unlock(&vq->lock);
-        plogk("virtpci: Queue %d returned invalid descriptor id %u\n", vq->index, used_head);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("virtpci: Queue %d returned invalid descriptor id %u\n", vq->index, used_head);
         return NULL;
     }
     head = (uint16_t)used_head;
-
     data = vq->desc_data[head];
 
     /* Put descriptors back on free list */
@@ -492,7 +444,8 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
         vq->desc_data[current] = NULL;
         if ((flags & VRING_DESC_F_INDIRECT) || !(flags & VRING_DESC_F_NEXT)) break;
         if (next >= (uint16_t)vq->num_max) {
-            plogk("virtpci: Queue %d descriptor %u has invalid next id %u\n", vq->index, current, next);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("virtpci: Queue %d descriptor %u has invalid next id %u\n", vq->index, current, next);
             break;
         }
         current = next;
@@ -503,9 +456,9 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
 }
 
 /* Write barrier for virtio MMIO doorbell writes. */
-static inline void virtio_wmb(void)
+static void virtio_wmb(void)
 {
-    __asm__ volatile("sfence" ::: "memory");
+    dma_write_barrier();
 }
 
 /* Ring the notification doorbell so the device processes the queue. */
@@ -515,7 +468,6 @@ void virtqueue_kick(struct vp_virtqueue *vq)
     uint32_t          off;
 
     if (!vp || !vp->notify_base) return;
-
     off = vq->notify_off * vp->notify_off_multiplier;
 
     /*
@@ -525,7 +477,7 @@ void virtqueue_kick(struct vp_virtqueue *vq)
      * before the driver starts polling the used ring.
      */
     virtio_wmb();
-    *(volatile uint16_t *)((uintptr_t)vp->notify_base + off) = (uint16_t)vq->index;
+    mmio_write16((volatile void *)((uintptr_t)vp->notify_base + off), (uint16_t)vq->index);
     virtio_wmb();
 }
 
@@ -550,13 +502,13 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
     req.device_id = device_id;
 
     /*
-     * PCI discovery is completed by pci_init() before any VirtIO driver is
-     * probed.  A miss therefore means that this device is not present.
+     * PCI discovery is completed by pci_init() before any VirtIO driver is probed.
+     * A miss therefore means that this device is not present.
      *
-     * Do not rescan here: pci_flush_devices_cache() used to free and replace
-     * the cache behind every pointer already retained by PCI sysfs and other
-     * drivers.  VMware normally has no VirtIO GPU, so its ordinary probe miss
-     * turned every /sys/bus/pci uevent into a use-after-free.
+     * Do not rescan here: pci_flush_devices_cache() frees and replaces the cache
+     * behind every pointer already retained by PCI sysfs and other drivers, so an
+     * ordinary probe miss would turn every /sys/bus/pci uevent into a
+     * use-after-free.
      */
     cache = pci_found_device_cache(NULL, req);
     if (!cache) return -ENODEV;
@@ -597,3 +549,5 @@ void vp_release_device(struct vp_device *dev)
     dev->notify_base = NULL;
     dev->pci_dev     = NULL;
 }
+
+#endif

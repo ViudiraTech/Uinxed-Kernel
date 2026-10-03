@@ -8,13 +8,7 @@
 #
 # =====================================================
 
-ifneq ($(wildcard .config),)
-  include .config
-else ifneq ($(wildcard .config-default),)
-  include .config-default
-else
-  $(error No configuration file (.config or .config-default) found)
-endif
+include scripts/kconfig.mk
 
 ifeq ($(VERBOSE), 1)
   Q=
@@ -22,27 +16,39 @@ else
   Q=@
 endif
 
-include scripts/kconfig.mk
-
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "tests/*" -not -path "assets/*")
-C_HEADERS      := $(shell find * -name "*.h" -not -path "tests/*")
+# Source discovery
+C_SOURCES      := $(shell find * -name "*.c" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*")
+C_HEADERS      := $(shell find * -name "*.h" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
 ELFS           := $(shell find * -name "*.elf")
 LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
 
+# Host toolchain
 HOST_CC        := $(CC)
 HOST_CFLAGS    := -Wall -Wextra -O2
-
-QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio -m 1G
-
 TOOL_C_SOURCES := $(wildcard tools/*.c)
 TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%.elf)
 
-CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -mno-sse -mno-sse2 -mno-mmx -mno-80387 -I include -include kernel/config.h -MMD
-LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
+# Compiler and linker flags
+CC_OPT         := -O3 -g3
+CC_TARGET      := -ffreestanding -fpie -mno-red-zone -mno-sse -mno-mmx -mno-80387
+CC_CODEGEN     := -fno-stack-protector -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-math-errno
+CC_WARN        := -Wall -Wextra -Werror -Wno-unused-function
+CC_SECTIONS    := -flto=auto -ffunction-sections -fdata-sections
+CC_INCLUDES    := -Iinclude -include include/kernel/config.h -MMD
+CC_INLINE       = -fno-inline-functions $(if $(findstring clang,$(CC)),-finline-hint-functions,-fno-inline-small-functions -fno-inline-functions-called-once)
+
+CC_FLAGS        = $(CC_OPT) $(CC_TARGET) $(CC_CODEGEN) $(CC_WARN) $(CC_SECTIONS) $(CC_INLINE) $(CC_INCLUDES)
+LD_FLAGS       := $(CC_OPT) $(CC_SECTIONS) $(CC_INLINE) -nostdlib -pie -T assets/linker.ld -Wl,--gc-sections -Wl,--build-id=none
+CLANGD_DROP    := $(CC_SECTIONS) $(CC_INLINE) -MMD
+
+# Runtime / image tooling
+QEMU           := qemu-system-x86_64
+QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio -m 1G
+ISO_DIR        := iso
+ISO_BOOT_DIR   := $(ISO_DIR)/EFI/Boot
 
 all: Uinxed-x64.iso
 
@@ -57,9 +63,10 @@ info:
 	$(Q)printf "  FORMAT  $<\n"
 	$(Q)clang-format -i $<
 
+%.tidy: CC = clang
 %.tidy: %
 	$(Q)printf "  TIDY    $<\n"
-	$(Q)clang-tidy --quiet $< -- $(CC_FLAGS) $(C_CONFIG)
+	$(Q)tmp=$$(mktemp); clang-tidy $< -- $(CC_FLAGS) $(C_CONFIG) > $$tmp 2>&1; status=$$?; grep -vE '[0-9]+ warnings? generated\.|Suppressed [0-9]+ warnings? \(' $$tmp; if [ $$status -ne 0 ] || grep -qE ':[0-9]+:[0-9]+: (warning|error):' $$tmp; then rm -f $$tmp; exit 1; fi; rm -f $$tmp
 
 tools/%.elf: tools/%.c
 	$(Q)printf "  HOSTCC  $@\n"
@@ -67,20 +74,30 @@ tools/%.elf: tools/%.c
 
 UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
-	$(Q)$(LD) $(LD_FLAGS) -o $@ $(filter-out $(TOOL_TARGETS),$^)
+	$(Q)$(CC) $(LD_FLAGS) -o $@ $(filter-out $(TOOL_TARGETS),$^)
+	$(Q)printf "  NM      System.map\n"
+	$(Q)nm -n $@ > System.map
 
 Uinxed-x64.iso: info UxImage
 	$(Q)printf "  XORRISO $@\n\n"
-	$(Q)cp -a assets/Limine iso
-	$(Q)cp $(word 2,$^) iso/EFI/Boot
-	$(Q)if [ -f initramfs.cpio ]; then cp initramfs.cpio iso/; echo "  INITRD  initramfs.cpio"; fi
-	$(Q)xorriso -as mkisofs -R -r -J -b Limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
-                -hfsplus -apm-block-size 2048 -efi-boot-part --efi-boot-image --protective-msdos-label \
-                --efi-boot Limine/limine-uefi-cd.bin -o $@ iso
-	$(Q)$(RM) -rf iso
-	$(Q)printf "Kernel: $(word 2,$^) is ready.\n"
-	$(Q)printf "Image: $@ is ready.\n"
-	$(Q)printf "Compilation complete.\n"
+
+	$(Q)mkdir -p $(ISO_DIR) $(ISO_BOOT_DIR)
+	$(Q)cp -a assets/Limine/* $(ISO_DIR)/
+	$(Q)cp $(word 2,$^) $(ISO_BOOT_DIR)/
+
+	$(Q)trap '$(RM) -rf $(ISO_DIR); exit 1' INT TERM HUP; \
+		xorriso -as mkisofs -R -r -J -b Limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
+			-hfsplus -apm-block-size 2048 -efi-boot-part --efi-boot-image --protective-msdos-label \
+			--efi-boot Limine/limine-uefi-cd.bin -o $@ $(ISO_DIR); \
+		status=$$?; \
+		$(RM) -rf $(ISO_DIR); \
+		if [ $$status -eq 0 ]; then \
+			printf "Kernel: $(word 2,$^) is ready.\n"; \
+			printf "Image: $@ is ready.\n"; \
+			printf "Symbols: System.map is ready.\n"; \
+			printf "Compilation complete.\n"; \
+		fi; \
+		exit $$status
 
 .PHONY: all info help run clean format check gen.clangd menuconfig
 
@@ -99,21 +116,25 @@ run: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(word 2,$^)
 
 clean: info
-	$(Q)$(RM) $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso
+	$(Q)out=0; for f in $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso System.map; do if [ -e "$$f" ]; then printf "  RM      $$f\n"; out=1; fi; done; [ "$$out" = 1 ] && printf "\n"; true
+	$(Q)$(RM) $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso System.map
 	$(Q)printf "Clean completed.\n"
 
 format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
-	$(Q)find . -type f ! -path './.git/*' -exec dos2unix -q {} +
+	$(Q)find . -type f ! -path './.git/*' -print0 | xargs -0 grep -IlZ '' | xargs -0 -r dos2unix -q
 	$(Q)for f in $(C_SOURCES) $(C_HEADERS); do if [ -s "$$f" ] && [ -n "$$(tail -c1 "$$f")" ]; then echo >> "$$f"; fi; done
 	$(Q)printf "\nCode Format complete.\n"
 
-check: info $(C_SOURCES:%=%.tidy)
+check: info
+	$(Q)$(MAKE) --no-print-directory -k $(C_SOURCES:%=%.tidy) || exit 1
 	$(Q)printf "\nCode Checks complete.\n"
 
 gen.clangd: info
+	$(Q)printf "  GEN     .clangd\n\n"
 	$(Q)$(RM) -f .clangd
-	$(Q)echo "# Generated by Makefile" >> .clangd
-	$(Q)sed "s/\$${workspaceFolder}/$(subst /,\/,${PWD})/g" .clangd_template >> .clangd
+	$(Q)printf -- '---\nCompileFlags:\n  Add:\n' > .clangd
+	$(Q)for f in $(filter-out $(CLANGD_DROP),$(CC_FLAGS)); do printf '    - "%s"\n' "$$f" >> .clangd; done
+	$(Q)printf 'Diagnostics:\n  ClangTidy:\n    FastCheckFilter: Strict\n...\n' >> .clangd
 	$(Q)printf ".clangd configuration generated.\n"
 
 menuconfig: info

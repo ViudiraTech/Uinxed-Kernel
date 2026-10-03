@@ -12,15 +12,11 @@
 #include <fs/core/superblock.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <mem/heap.h>
 
 /* Validate the on-disk superblock fields. */
 int superblock_valid(const superblock_disk_t *sb)
 {
-    if (!sb) {
-        plogk("superblock: Valid with NULL superblock.\n");
-        return -EINVAL;
-    }
+    if (!sb) return -EINVAL;
     if (sb->magic != SUPERBLOCK_MAGIC) {
         plogk("superblock: Invalid magic %#x (expected %#x)\n", sb->magic, SUPERBLOCK_MAGIC);
         return -EINVAL;
@@ -78,10 +74,8 @@ int superblock_read(uint8_t drive, superblock_disk_t *sb)
     blockdev_device_t device;
     int               status;
 
-    if (!sb) {
-        plogk("superblock: Read with NULL output buffer.\n");
-        return -EINVAL;
-    }
+    if (!sb) return -EINVAL;
+
     status = blockdev_open_drive(drive, &device);
     if (status != EOK) {
         plogk("superblock: Open drive %u failed (status %d)\n", drive, status);
@@ -102,10 +96,7 @@ int superblock_write(uint8_t drive, const superblock_disk_t *sb)
     blockdev_device_t device;
     int               status;
 
-    if (!sb) {
-        plogk("superblock: Write with NULL superblock.\n");
-        return -EINVAL;
-    }
+    if (!sb) return -EINVAL;
     if (superblock_valid(sb) != EOK) return -EINVAL;
     status = blockdev_open_drive(drive, &device);
     if (status != EOK) {

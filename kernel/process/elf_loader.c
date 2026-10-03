@@ -15,15 +15,12 @@
 #include <kernel/timer/timer.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
 #include <process/elf_loader.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/uaccess.h>
 #include <syscall/syscall.h>
 
 #define INTERP_LOAD_BASE 0x7f0000000000ULL
@@ -236,7 +233,7 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
         int       range = elf_segment_range(&phdr[i], load_bias, NULL, &seg_start, &seg_end);
         if (range < 0) return -ENOEXEC;
         if (range == 0) continue;
-        if (seg_start < PROCESS_HEAP_START || seg_end > PROCESS_USER_STACK_TOP) return -ENOEXEC;
+        if (seg_start < CONFIG_PROCESS_HEAP_START || seg_end > PROCESS_USER_STACK_TOP) return -ENOEXEC;
         if (seg_start < lowest_start) lowest_start = seg_start;
         if (seg_end > highest_end) highest_end = seg_end;
     }
@@ -313,7 +310,7 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
     }
     if (run_start && insert_elf_vma(proc, run_start, run_end, run_flags)) return -ENOMEM;
 
-    if (set_brk && highest_end > PROCESS_HEAP_START) proc->start_brk = proc->heap_brk = highest_end;
+    if (set_brk && highest_end > CONFIG_PROCESS_HEAP_START) proc->start_brk = proc->heap_brk = highest_end;
     return 0;
 }
 
@@ -400,7 +397,7 @@ static uintptr_t compute_load_bias(const Elf64_Ehdr *ehdr, const Elf64_Phdr *phd
 /* Load a dynamic linker and return its relocated base and entry point */
 int elf_loader_load_interpreter(struct process *proc, const char *interp_path, Elf64_Addr *base_out, Elf64_Addr *entry_out)
 {
-    char resolved_path[VFS_PATH_MAX];
+    char resolved_path[CONFIG_VFS_PATH_MAX];
     int  resolve_status = process_resolve_path_at(proc, PROCESS_AT_FDCWD, interp_path, resolved_path, sizeof(resolved_path));
     if (resolve_status != EOK) return resolve_status;
 
@@ -517,12 +514,12 @@ static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum
     const char *execfn    = argc > 0 ? argv[0] : proc->name;
 
     const size_t aux_pairs    = 19;
-    size_t       vector_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + aux_pairs * 2;
+    size_t       vector_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + (aux_pairs * 2);
     size_t       strings_size = argv_strs + envp_strs + strlen(execfn) + 1 + sizeof("x86_64") + 16;
     size_t       total_needed = ALIGN_UP(vector_words * sizeof(uint64_t) + strings_size + 16, 16);
-    if (total_needed > (size_t)PROCESS_STACK_SIZE) return -ENOMEM;
+    if (total_needed > (size_t)CONFIG_PROCESS_STACK_SIZE) return -ENOMEM;
     uintptr_t base_rsp    = ALIGN_DOWN(PROCESS_USER_STACK_TOP - total_needed, 16);
-    uintptr_t string_area = base_rsp + vector_words * sizeof(uint64_t);
+    uintptr_t string_area = base_rsp + (vector_words * sizeof(uint64_t));
     uint64_t *vectors     = calloc(vector_words, sizeof(uint64_t));
     uint8_t  *strings     = calloc(1, strings_size);
     if (!vectors || !strings) {
@@ -546,6 +543,9 @@ static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum
         sp += len;
     }
     vectors[n++] = 0;
+
+    proc->arg_start = execfn_addr + name_len;
+    proc->arg_end   = proc->arg_start + argv_strs;
 
     for (int i = 0; i < envc; i++) {
         size_t len = strlen(envp[i]) + 1;
@@ -683,8 +683,7 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
 
     int load_ret = load_elf_segments(proc, ehdr, elf_data, elf_size, load_bias, 1);
     if (load_ret) return load_ret;
-
-    if (process_mmap(proc, proc->stack_brk, (size_t)PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) return -ENOMEM;
+    if (process_mmap(proc, proc->stack_brk, (size_t)CONFIG_PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) return -ENOMEM;
 
     proc->task->thread.fs_base = 0;
     proc->task->thread.gs_base = 0;
@@ -725,7 +724,7 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     proc->task->context.rdi    = 0;
 
     if (!entry_out && !rsp_out) {
-        uint64_t  kstack_top = (uint64_t)(proc->kernel_stack + PROCESS_KERNEL_STACK);
+        uint64_t  kstack_top = (uint64_t)(proc->kernel_stack + CONFIG_PROCESS_KERNEL_STACK);
         uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
 
         *(--kstack) = 0x23;
@@ -824,7 +823,7 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
         free(phdrs);
         return seg_ret;
     }
-    if (process_mmap(proc, proc->stack_brk, (size_t)PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) {
+    if (process_mmap(proc, proc->stack_brk, (size_t)CONFIG_PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) {
         free(source.window);
         free(phdrs);
         return -ENOMEM;

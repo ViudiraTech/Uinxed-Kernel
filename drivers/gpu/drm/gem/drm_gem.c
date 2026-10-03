@@ -9,32 +9,12 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <mem/page.h>
-#include <sync/spin_lock.h>
 
-/* Global GEM name table (simple counter-based) */
-
-#define GEM_MAX_NAMES 1024
-
-static struct gem_name_entry {
-        uint32_t               name;
-        struct drm_gem_object *obj;
-} gem_name_table[GEM_MAX_NAMES];
-
-static uint32_t   gem_name_counter = 1;
-static spinlock_t gem_name_lock    = {.lock = 0, .rflags = 0};
-
-/* Dumb buffer mmap offset allocator (free-list with bitmap) */
+#if CONFIG_DRM
 
 /*
  * The mmap offset space is divided into slots of DUMB_OFFSET slot size.
@@ -43,12 +23,15 @@ static spinlock_t gem_name_lock    = {.lock = 0, .rflags = 0};
  * ranges that were previously released, allowing offset recycling.
  */
 
-#define DUMB_OFFSET_SHIFT     12
-#define DUMB_OFFSET_SIZE      (1ULL << DUMB_OFFSET_SHIFT) // 4096
-#define DUMB_OFFSET_BASE      0x100000000ULL              // 4 GB
-#define DUMB_OFFSET_SPACE     0x100000000ULL              // 4 GB space = 1M slots
-#define DUMB_OFFSET_MAX_SLOTS (DUMB_OFFSET_SPACE >> DUMB_OFFSET_SHIFT)
-#define DUMB_BITMAP_SIZE      (DUMB_OFFSET_MAX_SLOTS / 8) // 128 KB bitmap
+#    define DUMB_OFFSET_SHIFT     12
+#    define DUMB_OFFSET_SIZE      (1ULL << DUMB_OFFSET_SHIFT) // 4096
+#    define DUMB_OFFSET_BASE      0x100000000ULL              // 4 GB
+#    define DUMB_OFFSET_SPACE     0x100000000ULL              // 4 GB space = 1M slots
+#    define DUMB_OFFSET_MAX_SLOTS (DUMB_OFFSET_SPACE >> DUMB_OFFSET_SHIFT)
+#    define DUMB_BITMAP_SIZE      (DUMB_OFFSET_MAX_SLOTS / 8) // 128 KB bitmap
+
+/* Small pool for slot-range nodes (avoids malloc churn) */
+#    define DUMB_RANGE_POOL_SIZE 256
 
 /* Slot range in the free list */
 typedef struct dumb_slot_range {
@@ -57,24 +40,36 @@ typedef struct dumb_slot_range {
         struct dumb_slot_range *next;
 } dumb_slot_range_t;
 
+static struct gem_name_entry {
+        uint32_t               name;
+        struct drm_gem_object *obj;
+} gem_name_table[CONFIG_GEM_MAX_NAMES];
+
+static uint32_t           gem_name_counter = 1;
+static spinlock_t         gem_name_lock    = {.lock = 0, .rflags = 0};
 static uint8_t            dumb_bitmap[DUMB_BITMAP_SIZE];
 static dumb_slot_range_t *dumb_free_list;
 static uint32_t           dumb_next_slot; // high watermark for fresh allocations
 static spinlock_t         dumb_alloc_lock = {.lock = 0, .rflags = 0};
+static dumb_slot_range_t  dumb_range_pool[DUMB_RANGE_POOL_SIZE];
+static uint32_t           dumb_range_pool_used = 0;
+static bool               dumb_offset_inited   = false;
 
-/* Small pool for slot-range nodes (avoids malloc churn) */
-#define DUMB_RANGE_POOL_SIZE 256
-static dumb_slot_range_t dumb_range_pool[DUMB_RANGE_POOL_SIZE];
-static uint32_t          dumb_range_pool_used = 0;
+static struct {
+        struct drm_gem_object *obj;
+        int                    in_use;
+} prime_fd_table[CONFIG_PRIME_FD_MAX];
+
+static spinlock_t prime_fd_lock = {.lock = 0, .rflags = 0};
 
 /* Mark a dumb-buffer offset slot as used. */
-static inline void dumb_bitmap_set(uint32_t slot)
+static void dumb_bitmap_set(uint32_t slot)
 {
     if (slot < DUMB_OFFSET_MAX_SLOTS) dumb_bitmap[slot / 8] |= (uint8_t)(1U << (slot % 8));
 }
 
 /* Mark a dumb-buffer offset slot as free. */
-static inline void dumb_bitmap_clear(uint32_t slot)
+static void dumb_bitmap_clear(uint32_t slot)
 {
     if (slot < DUMB_OFFSET_MAX_SLOTS) dumb_bitmap[slot / 8] &= (uint8_t) ~(1U << (slot % 8));
 }
@@ -98,14 +93,9 @@ static dumb_slot_range_t *dumb_range_alloc_node(void)
 /* Free a dumb-buffer range node. */
 static void dumb_range_free_node(dumb_slot_range_t *r)
 {
-    /*
-     * Pool-allocated nodes cannot be freed individually.
-     * Only malloc'd nodes are returned to the heap.
-     */
+    /* Pool-allocated nodes cannot be freed individually. Only malloc'd nodes are returned to the heap. */
     if (r < dumb_range_pool || r >= dumb_range_pool + DUMB_RANGE_POOL_SIZE) free(r);
 }
-
-static bool dumb_offset_inited = false;
 
 /* Initialize the dumb-buffer offset allocator. */
 static void dumb_offset_init(void)
@@ -118,7 +108,7 @@ static void dumb_offset_init(void)
 }
 
 /* Round up to the next slot boundary */
-static inline uint32_t dumb_slots_needed(size_t size)
+static uint32_t dumb_slots_needed(size_t size)
 {
     return (uint32_t)(((size + DUMB_OFFSET_SIZE - 1) >> DUMB_OFFSET_SHIFT));
 }
@@ -134,7 +124,6 @@ static uint64_t dumb_offset_alloc(size_t size)
     uint64_t offset;
 
     if (need == 0) need = 1;
-
     if (!dumb_offset_inited) dumb_offset_init();
 
     spin_lock(&dumb_alloc_lock);
@@ -226,6 +215,7 @@ static void dumb_offset_free(uint64_t offset, size_t size)
         /* Try to merge with previous range */
         if (*prev && (*prev)->start + (*prev)->count == start) {
             (*prev)->count += count;
+
             /* Try to merge with next range too */
             if (cur && (*prev)->start + (*prev)->count == cur->start) {
                 (*prev)->count += cur->count;
@@ -233,6 +223,7 @@ static void dumb_offset_free(uint64_t offset, size_t size)
                 dumb_range_free_node(cur);
             }
         }
+
         /* Try to merge with next range only */
         else if (cur && start + count == cur->start) {
             cur->start = start;
@@ -257,7 +248,7 @@ static struct drm_gem_object *gem_find_by_name(uint32_t name)
 {
     int i;
 
-    for (i = 0; i < GEM_MAX_NAMES; i++)
+    for (i = 0; i < CONFIG_GEM_MAX_NAMES; i++)
         if (gem_name_table[i].name == name && gem_name_table[i].obj) return gem_name_table[i].obj;
     return NULL;
 }
@@ -269,18 +260,26 @@ static int gem_alloc_name(struct drm_gem_object *obj, uint32_t *name_out)
 
     spin_lock(&gem_name_lock);
 
+    /* Reuse the existing name if the object is already flinked */
+    if (obj->flink_name) {
+        *name_out = obj->flink_name;
+        spin_unlock(&gem_name_lock);
+        return 0;
+    }
+
     /* Find free slot */
-    for (i = 0; i < GEM_MAX_NAMES; i++)
+    for (i = 0; i < CONFIG_GEM_MAX_NAMES; i++)
         if (gem_name_table[i].obj == NULL) break;
 
-    if (i >= GEM_MAX_NAMES) {
+    if (i >= CONFIG_GEM_MAX_NAMES) {
         spin_unlock(&gem_name_lock);
-        DRM_ERROR("Gem_alloc_name: global name table full (%d entries).\n", GEM_MAX_NAMES);
+        DRM_ERROR("Gem_alloc_name: global name table full (%d entries)\n", CONFIG_GEM_MAX_NAMES);
         return -ENOMEM;
     }
 
     gem_name_table[i].name = gem_name_counter;
     gem_name_table[i].obj  = obj;
+    obj->flink_name        = gem_name_counter;
     *name_out              = gem_name_counter;
     gem_name_counter++;
 
@@ -289,13 +288,13 @@ static int gem_alloc_name(struct drm_gem_object *obj, uint32_t *name_out)
 }
 
 /* Free a global flink name entry */
-static void __attribute__((unused)) gem_free_name(uint32_t name)
+static void gem_free_name(uint32_t name)
 {
     int i;
 
     spin_lock(&gem_name_lock);
 
-    for (i = 0; i < GEM_MAX_NAMES; i++) {
+    for (i = 0; i < CONFIG_GEM_MAX_NAMES; i++) {
         if (gem_name_table[i].name == name) {
             gem_name_table[i].name = 0;
             gem_name_table[i].obj  = NULL;
@@ -317,6 +316,7 @@ int drm_gem_object_init(struct drm_device *dev, struct drm_gem_object *obj, size
     obj->ref_lock.lock   = 0;
     obj->ref_lock.rflags = 0;
     obj->handle_count    = 0;
+    obj->flink_name      = 0;
 
     return 0;
 }
@@ -344,6 +344,12 @@ void drm_gem_object_put(struct drm_gem_object *obj)
 
     if (refcount == 0) {
         struct drm_device *dev = obj->dev;
+
+        /* Release the global flink name, if any */
+        if (obj->flink_name) {
+            gem_free_name(obj->flink_name);
+            obj->flink_name = 0;
+        }
 
         /* Free PRIME fd if assigned */
         if (obj->prime_fd > 0) {
@@ -389,6 +395,7 @@ int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj
     }
     entry->handle = *handle_out;
     entry->obj    = obj;
+
     /* A GEM handle owns an object reference independently of its caller. */
     drm_gem_object_get(obj);
     ilist_insert_after(&file_priv->object_list, &entry->head);
@@ -404,7 +411,6 @@ int drm_gem_handle_delete(struct drm_file *file_priv, uint32_t handle)
     struct drm_gem_object *obj;
 
     if (!file_priv) return -EINVAL;
-
     spin_lock(&file_priv->table_lock);
 
     obj = drm_idr_remove(&file_priv->object_idr, handle);
@@ -434,7 +440,6 @@ struct drm_gem_object *drm_gem_object_lookup(struct drm_file *file_priv, uint32_
     struct drm_gem_object *obj;
 
     if (!file_priv) return NULL;
-
     spin_lock(&file_priv->table_lock);
 
     obj = drm_idr_find(&file_priv->object_idr, handle);
@@ -451,7 +456,6 @@ struct drm_gem_object *drm_gem_object_lookup_by_offset(struct drm_file *file_pri
     struct drm_gem_object *obj;
 
     if (!file_priv) return NULL;
-
     spin_lock(&file_priv->table_lock);
 
     /* Walk the file's object list and find the one with matching offset */
@@ -499,6 +503,7 @@ int drm_gem_open_ioctl(struct drm_device *dev, void *data, struct drm_file *file
 
     args->handle = handle;
     args->size   = obj->size;
+
     /* Drop the temporary name lookup reference; the handle keeps its own. */
     drm_gem_object_put(obj);
     return 0;
@@ -646,17 +651,6 @@ int drm_gem_dumb_destroy(struct drm_file *file_priv, struct drm_device *dev, uin
     return drm_gem_handle_delete(file_priv, handle);
 }
 
-/* PRIME fd table: maps integer PRIME fds to GEM objects */
-
-#define PRIME_FD_MAX 1024
-
-static struct {
-        struct drm_gem_object *obj;
-        int                    in_use;
-} prime_fd_table[PRIME_FD_MAX];
-
-static spinlock_t prime_fd_lock = {.lock = 0, .rflags = 0};
-
 /* Allocate a PRIME fd slot for the object and take a reference. */
 static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
 {
@@ -664,7 +658,7 @@ static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
 
     spin_lock(&prime_fd_lock);
 
-    for (i = 0; i < PRIME_FD_MAX; i++) {
+    for (i = 0; i < CONFIG_PRIME_FD_MAX; i++) {
         if (!prime_fd_table[i].in_use) {
             prime_fd_table[i].obj    = obj;
             prime_fd_table[i].in_use = 1;
@@ -677,7 +671,7 @@ static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
     }
 
     spin_unlock(&prime_fd_lock);
-    DRM_ERROR("Prime_fd_alloc: PRIME fd table full (%d entries).\n", PRIME_FD_MAX);
+    DRM_ERROR("Prime_fd_alloc: PRIME fd table full (%d entries)\n", CONFIG_PRIME_FD_MAX);
     return -ENOMEM;
 }
 
@@ -687,7 +681,7 @@ static struct drm_gem_object *prime_fd_lookup(int fd)
     struct drm_gem_object *obj = NULL;
     int                    idx = fd - 1;
 
-    if (idx < 0 || idx >= PRIME_FD_MAX) return NULL;
+    if (idx < 0 || idx >= CONFIG_PRIME_FD_MAX) return NULL;
 
     spin_lock(&prime_fd_lock);
     if (prime_fd_table[idx].in_use) {
@@ -704,7 +698,7 @@ void drm_gem_prime_fd_free(int fd)
 {
     int idx = fd - 1;
 
-    if (idx < 0 || idx >= PRIME_FD_MAX) return;
+    if (idx < 0 || idx >= CONFIG_PRIME_FD_MAX) return;
 
     spin_lock(&prime_fd_lock);
     if (prime_fd_table[idx].in_use) {
@@ -776,3 +770,5 @@ int drm_gem_create_mmap_offset(struct drm_gem_object *obj)
     obj->mmap_offset = dumb_offset_alloc(obj->size);
     return obj->mmap_offset ? 0 : -ENOSPC;
 }
+
+#endif

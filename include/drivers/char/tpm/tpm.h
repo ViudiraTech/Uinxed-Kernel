@@ -12,8 +12,6 @@
 #define INCLUDE_TPM_H_
 
 #include <drivers/firmware/acpi.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
 /* TPM hardware addresses and sizes */
@@ -37,20 +35,6 @@
 #define ACPI_TPM2_COMMAND_BUFFER_WITH_ARM_SMC      11
 #define ACPI_TPM2_COMMAND_BUFFER_WITH_PLUTON       12
 #define ACPI_TPM2_CRB_WITH_ARM_FFA                 13
-
-/* TPM version and interface type */
-
-typedef enum {
-    TPM_VERSION_NONE = 0,
-    TPM_VERSION_12   = 1,
-    TPM_VERSION_20   = 2,
-} tpm_version_t;
-
-typedef enum {
-    TPM_IFACE_NONE = 0,
-    TPM_IFACE_TIS  = 1,
-    TPM_IFACE_CRB  = 2,
-} tpm_interface_t;
 
 /* TPM flags */
 
@@ -201,10 +185,23 @@ typedef enum {
 #define TPM2_PT_MAX_COMMAND_SIZE   0x0000011E
 #define TPM2_PT_MAX_RESPONSE_SIZE  0x0000011F
 #define TPM2_PT_PCR_COUNT          0x00000112
-#define TPM2_PT_MANUFACTURER_2     TPM2_PT_MANUFACTURER
 
 /* TPM 2.0 capability types */
 #define TPM2_CAP_TPM_PROPERTIES 0x00000006
+
+/* TPM version and interface type */
+
+typedef enum {
+    TPM_VERSION_NONE = 0,
+    TPM_VERSION_12   = 1,
+    TPM_VERSION_20   = 2,
+} tpm_version_t;
+
+typedef enum {
+    TPM_IFACE_NONE = 0,
+    TPM_IFACE_TIS  = 1,
+    TPM_IFACE_CRB  = 2,
+} tpm_interface_t;
 
 /* TPM 2.0 ACPI table structure */
 
@@ -271,6 +268,8 @@ struct tpm_device {
         spinlock_t lock;
 };
 
+#if CONFIG_TPM
+
 /* Initialize TPM subsystem (auto-detection, interface init, startup) */
 int tpm_init(void);
 
@@ -280,6 +279,14 @@ int tpm_init(void);
  * Must be called after devtmpfs is ready.
  */
 void tpm_vfs_init(void);
+
+#else
+static inline int tpm_init(void)
+{
+    return 0;
+}
+static inline void tpm_vfs_init(void) {}
+#endif
 
 /* Get the global TPM device (NULL if none found) */
 tpm_device_t *tpm_get_device(void);
@@ -297,16 +304,11 @@ int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value);
 /* Get random bytes from TPM. Returns number of bytes read, negative on error. */
 int tpm_get_random(tpm_device_t *dev, uint8_t *out, size_t max);
 
-/*
- * Read a PCR value. digest must be at least 32 bytes for SHA-256.
- * Returns digest size on success, negative on error.
- */
+/* Read a PCR value. digest must be at least 32 bytes for SHA-256. Returns digest size on success, negative on error. */
 int tpm2_pcr_read(tpm_device_t *dev, uint32_t pcr_idx, uint8_t *digest);
 
 /* TPM 1.2 - get random bytes */
 int tpm1_get_random(tpm_device_t *dev, uint8_t *out, size_t max);
-
-/* Internal helper utilities shared between TIS/CRB modules */
 
 /* Busy-wait delay in microseconds (crude, for TPM init timeouts) */
 void tpm_udelay(uint32_t us);

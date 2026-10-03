@@ -11,28 +11,26 @@
 #include <drivers/gpu/drm/drm_idr.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_DRM
 
 /* Multiplicative hash constant for power-of-two table sizes (Knuth). */
-#define IDR_HASH_MULT 2654435761U
+#    define IDR_HASH_MULT 2654435761U
 
 /* Initial table capacity (must be power of two). */
-#define IDR_INIT_CAPACITY 64U
+#    define IDR_INIT_CAPACITY 64U
 
 /* Sentinel: id == 0 && ptr == NULL marks an empty slot. */
-#define IDR_SLOT_EMPTY(e) ((e).id == 0U && (e).ptr == NULL)
+#    define IDR_SLOT_EMPTY(e) ((e).id == 0U && (e).ptr == NULL)
 
 /* Load factor threshold numerator / denominator; grow when count > capacity * 3 / 4. */
-#define IDR_LOAD_NUM 3U
-#define IDR_LOAD_DEN 4U
+#    define IDR_LOAD_NUM 3U
+#    define IDR_LOAD_DEN 4U
 
 /* Compute the hash bucket index for a given id. */
-static inline uint32_t idr_hash(uint32_t id, uint32_t capacity)
+static uint32_t idr_hash(uint32_t id, uint32_t capacity)
 {
     return (id * IDR_HASH_MULT) & (capacity - 1U);
 }
@@ -53,6 +51,7 @@ static struct drm_idr_entry *idr_probe(struct drm_idr *idr, uint32_t id)
 
         if (e->id == id) return e;
         if (IDR_SLOT_EMPTY(*e)) return e;
+
         /* Wrapped around - table is full and id not present. */
         if (idx == ((start + idr->capacity - 1U) & (idr->capacity - 1U))) break;
     }
@@ -75,11 +74,13 @@ static int idr_grow(struct drm_idr *idr)
         DRM_ERROR("Grow: capacity overflow (capacity=%u)\n", idr->capacity);
         return -ENOMEM;
     }
+
     new_table = (struct drm_idr_entry *)malloc(new_cap * sizeof(struct drm_idr_entry));
     if (new_table == NULL) {
         DRM_ERROR("Grow: out of memory for %u entries.\n", new_cap);
         return -ENOMEM;
     }
+
     memset(new_table, 0, new_cap * sizeof(struct drm_idr_entry));
 
     /* Rehash all live entries into the new table. */
@@ -194,7 +195,6 @@ int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, 
     }
 
     spin_unlock(&idr->lock);
-    DRM_ERROR("Alloc: no free id in range [%u, %u)\n", start, effective_end);
     return -ENOSPC;
 }
 
@@ -204,10 +204,7 @@ int drm_idr_alloc_exact(struct drm_idr *idr, void *ptr, uint32_t id)
     struct drm_idr_entry *e;
     int                   ret = 0;
 
-    if (id == DRM_IDR_INVALID) {
-        DRM_ERROR("Alloc_exact: invalid id.\n");
-        return -EINVAL;
-    }
+    if (id == DRM_IDR_INVALID) return -EINVAL;
 
     spin_lock(&idr->lock);
 
@@ -224,14 +221,12 @@ int drm_idr_alloc_exact(struct drm_idr *idr, void *ptr, uint32_t id)
     if (e == NULL) {
         /* Table is full and id not present. */
         spin_unlock(&idr->lock);
-        DRM_ERROR("Alloc_exact: table full, id %u not present.\n", id);
         return -ENOSPC;
     }
 
     if (e->id == id) {
         /* Already occupied. */
         spin_unlock(&idr->lock);
-        DRM_ERROR("Alloc_exact: id %u already in use.\n", id);
         return -EEXIST;
     }
 
@@ -299,3 +294,5 @@ int drm_idr_for_each(struct drm_idr *idr, int (*fn)(uint32_t id, void *ptr, void
     spin_unlock(&idr->lock);
     return ret;
 }
+
+#endif

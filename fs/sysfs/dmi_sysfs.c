@@ -10,14 +10,11 @@
 
 #include <arch/smbios.h>
 #include <drivers/base/device.h>
-#include <fs/sysfs/dmi_sysfs.h>
-#include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/hhdm.h>
+
+#if CONFIG_SYSFS
 
 static bool dmi_sysfs_ready;
 
@@ -37,49 +34,6 @@ static DEVICE_ATTR(product_serial, 0444, str_show, NULL);
 static DEVICE_ATTR(board_serial, 0444, str_show, NULL);
 static DEVICE_ATTR(product_uuid, 0444, product_uuid_show, NULL);
 static DEVICE_ATTR(modalias, 0444, modalias_show, NULL);
-
-/* Show a string-valued DMI attribute. */
-static ssize_t str_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    const char *(*getter)(void) = NULL;
-    (void)dev;
-    if (attr == &dev_attr_bios_vendor)
-        getter = smbios_bios_vendor;
-    else if (attr == &dev_attr_bios_version)
-        getter = smbios_bios_version;
-    else if (attr == &dev_attr_bios_date)
-        getter = smbios_bios_release_date;
-    else if (attr == &dev_attr_sys_vendor)
-        getter = smbios_sys_manufacturer;
-    else if (attr == &dev_attr_product_name)
-        getter = smbios_sys_product_name;
-    else if (attr == &dev_attr_product_version)
-        getter = smbios_sys_version;
-    else if (attr == &dev_attr_product_serial || attr == &dev_attr_board_serial)
-        getter = smbios_sys_serial_number;
-    if (!getter) return -EIO;
-    return sysfs_emit(buf, "%s\n", getter() ? getter() : "");
-}
-
-/* Show the product UUID in canonical form. */
-static ssize_t product_uuid_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    uint8_t uuid[16];
-    (void)dev;
-    (void)attr;
-    smbios_sys_uuid(uuid);
-    return sysfs_emit(buf, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n", uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7], uuid[8], uuid[9], uuid[10],
-                      uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
-}
-
-/* Show the DMI modalias string. */
-static ssize_t modalias_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    (void)dev;
-    (void)attr;
-    return sysfs_emit(buf, "dmi:bvn%s:bvr%s:bd%s:svn%s:pn%s:pvr%s\n", smbios_bios_vendor(), smbios_bios_version(), smbios_bios_release_date(), smbios_sys_manufacturer(), smbios_sys_product_name(),
-                      smbios_sys_version());
-}
 
 static struct attribute *dmi_attributes[] = {
     &dev_attr_bios_vendor.attr,
@@ -106,7 +60,49 @@ static const struct attribute_group *dmi_groups[] = {
 
 static struct class dmi_class = {.name = "dmi", .dev_groups = dmi_groups};
 
-/* /sys/firmware/dmi/tables/DMI binary dump */
+/* Show a string-valued DMI attribute. */
+static ssize_t str_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    const char *(*getter)(void) = NULL;
+    (void)dev;
+    if (attr == &dev_attr_bios_vendor) {
+        getter = smbios_bios_vendor;
+    } else if (attr == &dev_attr_bios_version) {
+        getter = smbios_bios_version;
+    } else if (attr == &dev_attr_bios_date) {
+        getter = smbios_bios_release_date;
+    } else if (attr == &dev_attr_sys_vendor) {
+        getter = smbios_sys_manufacturer;
+    } else if (attr == &dev_attr_product_name) {
+        getter = smbios_sys_product_name;
+    } else if (attr == &dev_attr_product_version) {
+        getter = smbios_sys_version;
+    } else if (attr == &dev_attr_product_serial || attr == &dev_attr_board_serial) {
+        getter = smbios_sys_serial_number;
+    }
+    if (!getter) return -EIO;
+    return sysfs_emit(buf, "%s\n", getter() ? getter() : "");
+}
+
+/* Show the product UUID in canonical form. */
+static ssize_t product_uuid_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    uint8_t uuid[16];
+    (void)dev;
+    (void)attr;
+    smbios_sys_uuid(uuid);
+    return sysfs_emit(buf, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n", uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7], uuid[8], uuid[9], uuid[10],
+                      uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
+}
+
+/* Show the DMI modalias string. */
+static ssize_t modalias_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)dev;
+    (void)attr;
+    return sysfs_emit(buf, "dmi:bvn%s:bvr%s:bd%s:svn%s:pn%s:pvr%s\n", smbios_bios_vendor(), smbios_bios_version(), smbios_bios_release_date(), smbios_sys_manufacturer(), smbios_sys_product_name(),
+                      smbios_sys_version());
+}
 
 /* Return the SMBIOS structure table base and capacity. */
 static const uint8_t *dmi_table_base(size_t *capacity)
@@ -195,7 +191,6 @@ static struct bin_attribute smbios_entry_point_attr = {
 /* Register the DMI class and firmware tables in sysfs. */
 void dmi_sysfs_init(void)
 {
-#if CONFIG_SYSFS
     struct kobject *firmware_kobj;
     struct kobject *dmi_kobj;
     struct kobject *tables_kobj;
@@ -242,9 +237,11 @@ void dmi_sysfs_init(void)
     }
 
     dmi_sysfs_ready = true;
-    if (tables_registered)
+    if (tables_registered) {
         plogk("dmi_sysfs: registered /sys/class/dmi/id and /sys/firmware/dmi/tables\n");
-    else
+    } else {
         plogk("dmi_sysfs: Failed to register /sys/firmware/dmi/tables\n");
-#endif
+    }
 }
+
+#endif

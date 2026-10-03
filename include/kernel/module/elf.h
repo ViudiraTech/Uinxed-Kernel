@@ -275,6 +275,11 @@
 #define AT_EXECFN        31
 #define AT_SYSINFO_EHDR  33
 
+/* Extract symbol index and relocation type from r_info. */
+#define ELF64_R_SYM(i)     ((i) >> 32)
+#define ELF64_R_TYPE(i)    ((i) & 0xffffffffL)
+#define ELF64_R_INFO(s, t) (((s) << 32) + (t))
+
 /* Type for a 16-bit quantity. */
 typedef uint16_t Elf32_Half;
 typedef uint16_t Elf64_Half;
@@ -325,6 +330,8 @@ typedef struct {
         Elf64_Half    e_shstrndx;
 } Elf64_Ehdr;
 
+_Static_assert(sizeof(Elf64_Ehdr) == 64, "ELF64 file header size");
+
 /* Program header. */
 typedef struct {
         uint32_t type;
@@ -336,6 +343,8 @@ typedef struct {
         uint64_t memsz;
         uint64_t align;
 } Elf64_Phdr;
+
+_Static_assert(sizeof(Elf64_Phdr) == 56, "ELF64 program header size");
 
 /* Section header. */
 typedef struct {
@@ -351,6 +360,8 @@ typedef struct {
         Elf64_Xword sh_entsize;
 } Elf64_Shdr;
 
+_Static_assert(sizeof(Elf64_Shdr) == 64, "ELF64 section header size");
+
 /* Symbol table entry. */
 typedef struct {
         Elf64_Word    st_name;
@@ -361,6 +372,8 @@ typedef struct {
         Elf64_Xword   st_size;
 } Elf64_Sym;
 
+_Static_assert(sizeof(Elf64_Sym) == 24, "ELF64 symbol table entry size");
+
 /* Dynamic section entry. */
 typedef struct {
         Elf64_Xword d_tag;
@@ -370,6 +383,8 @@ typedef struct {
         } d_un;
 } Elf64_Dyn;
 
+_Static_assert(sizeof(Elf64_Dyn) == 16, "ELF64 dynamic entry size");
+
 /* Relocation entry (explicit addend). */
 typedef struct {
         Elf64_Addr   r_offset;
@@ -377,15 +392,14 @@ typedef struct {
         Elf64_Sxword r_addend;
 } Elf64_Rela;
 
+_Static_assert(sizeof(Elf64_Rela) == 24, "ELF64 RELA entry size");
+
 /* Relocation entry (implicit addend). */
 typedef struct {
         Elf64_Addr  r_offset;
         Elf64_Xword r_info;
 } Elf64_Rel;
 
-/* Extract symbol index and relocation type from r_info. */
-#define ELF64_R_SYM(i)     ((i) >> 32)
-#define ELF64_R_TYPE(i)    ((i) & 0xffffffffL)
-#define ELF64_R_INFO(s, t) (((s) << 32) + (t))
+_Static_assert(sizeof(Elf64_Rel) == 16, "ELF64 REL entry size");
 
 #endif // INCLUDE_ELF_H_

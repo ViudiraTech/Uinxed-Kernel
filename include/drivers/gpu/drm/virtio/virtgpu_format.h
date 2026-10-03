@@ -20,11 +20,6 @@
  * the meaning of the high byte differs.  A final scanout is opaque, so a 2D
  * XRGB resource can safely back an ARGB framebuffer view (and vice versa).
  */
-static inline bool virtgpu_2d_formats_compatible(uint32_t resource_format, uint32_t framebuffer_format)
-{
-    if (resource_format == framebuffer_format) return true;
-
-    return (resource_format == DRM_FORMAT_XRGB8888 && framebuffer_format == DRM_FORMAT_ARGB8888) || (resource_format == DRM_FORMAT_ARGB8888 && framebuffer_format == DRM_FORMAT_XRGB8888);
-}
+bool virtgpu_2d_formats_compatible(uint32_t resource_format, uint32_t framebuffer_format);
 
 #endif // INCLUDE_VIRTGPU_FORMAT_H_

@@ -10,50 +10,44 @@
 
 #include <arch/common.h>
 #include <arch/smp.h>
-#include <boot/limine.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdbool.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/buddy.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
 #include <mem/pagecache.h>
 #include <mem/swap.h>
 #include <process/sched.h>
-
-log_buffer_t             frame_log;
-frame_allocator_t        frame_allocator;
-uint64_t                 memory_size = 0;
-static volatile int      frame_reclaim_active;
-static volatile uint32_t frame_reclaim_backoff;
+#include <sync/spin_lock.h>
 
 /*
- * Linux serves order-0 allocations from per-CPU pagesets before touching the
+ * Order-0 allocations come from per-CPU pagesets before touching the
  * zone buddy.  Keep the same shape here: a modest cache absorbs page faults,
  * page-cache churn and GEM allocations without bouncing one global lock.
  */
-#define FRAME_PCP_MAX_CPUS  256U
-#define FRAME_PCP_HIGH      64U
-#define FRAME_PCP_BATCH     16U
-#define FRAME_RECLAIM_BATCH 16U
 
 typedef struct {
         spinlock_t lock;
         uint32_t   count;
-        size_t     frames[FRAME_PCP_HIGH];
+        size_t     frames[CONFIG_FRAME_PCP_HIGH];
 } frame_pcp_t;
 
-static frame_pcp_t frame_pcp[FRAME_PCP_MAX_CPUS];
+log_buffer_t      frame_log;
+frame_allocator_t frame_allocator;
+uint64_t          memory_size = 0;
+
+static raw_spinlock_t    frame_reclaim_lock;
+static volatile uint32_t frame_reclaim_backoff;
+static frame_pcp_t       frame_pcp[CONFIG_FRAME_PCP_MAX_CPUS];
 
 /* Early boot allocations all belong to CPU 0; topology is not safe yet. */
 static uint32_t frame_pcp_cpu(void)
 {
     if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) return 0;
     uint32_t cpu = get_current_cpu_id();
-    return cpu < FRAME_PCP_MAX_CPUS ? cpu : FRAME_PCP_MAX_CPUS;
+    return cpu < CONFIG_FRAME_PCP_MAX_CPUS ? cpu : CONFIG_FRAME_PCP_MAX_CPUS;
 }
 
 /* Return cached order-0 pages to the buddy without changing logical free RAM. */
@@ -62,7 +56,7 @@ static void frame_pcp_return_to_buddy(const size_t *frames, size_t count)
     if (!count) return;
     spin_lock(&frame_allocator.lock);
     for (size_t i = 0; i < count; i++) {
-        if (buddy_free(&frame_allocator.buddy, frames[i], 0)) plogk("frame: PCP drain failed for 0x%016llx\n", (uint64_t)frames[i] * PAGE_4K_SIZE);
+        if (buddy_free(&frame_allocator.buddy, frames[i], 0)) plogk("frame: PCP drain failed for 0x%016llx\n", frames[i] * PAGE_4K_SIZE);
     }
     spin_unlock(&frame_allocator.lock);
 }
@@ -70,12 +64,12 @@ static void frame_pcp_return_to_buddy(const size_t *frames, size_t count)
 /* Drain one CPU cache, used to satisfy fragmented contiguous allocations. */
 static void frame_pcp_drain_cpu(uint32_t cpu)
 {
-    size_t frames[FRAME_PCP_HIGH];
+    size_t frames[CONFIG_FRAME_PCP_HIGH];
     size_t count;
 
     uint64_t rflags = spin_lock_irqsave(&frame_pcp[cpu].lock);
     count           = frame_pcp[cpu].count;
-    for (size_t i = 0; i < count; i++) frames[i] = frame_pcp[cpu].frames[i];
+    memcpy(frames, frame_pcp[cpu].frames, count * sizeof(frames[0]));
     frame_pcp[cpu].count = 0;
     spin_unlock_irqrestore(&frame_pcp[cpu].lock, rflags);
     frame_pcp_return_to_buddy(frames, count);
@@ -84,23 +78,23 @@ static void frame_pcp_drain_cpu(uint32_t cpu)
 /* Drain the per-CPU frame caches for all supported CPUs. */
 static void frame_pcp_drain_all(void)
 {
-    for (uint32_t cpu = 0; cpu < FRAME_PCP_MAX_CPUS; cpu++) frame_pcp_drain_cpu(cpu);
+    for (uint32_t cpu = 0; cpu < CONFIG_FRAME_PCP_MAX_CPUS; cpu++) frame_pcp_drain_cpu(cpu);
 }
 
 /* Put one logically-free order-0 page into the local cache. */
 static void frame_pcp_put(size_t frame)
 {
     uint32_t cpu = frame_pcp_cpu();
-    if (cpu >= FRAME_PCP_MAX_CPUS) {
+    if (cpu >= CONFIG_FRAME_PCP_MAX_CPUS) {
         frame_pcp_return_to_buddy(&frame, 1);
         return;
     }
 
-    size_t   drain[FRAME_PCP_BATCH];
+    size_t   drain[CONFIG_FRAME_PCP_BATCH];
     size_t   drain_count = 0;
     uint64_t rflags      = spin_lock_irqsave(&frame_pcp[cpu].lock);
-    if (frame_pcp[cpu].count == FRAME_PCP_HIGH) {
-        drain_count = FRAME_PCP_BATCH;
+    if (frame_pcp[cpu].count == CONFIG_FRAME_PCP_HIGH) {
+        drain_count = CONFIG_FRAME_PCP_BATCH;
         for (size_t i = 0; i < drain_count; i++) drain[i] = frame_pcp[cpu].frames[--frame_pcp[cpu].count];
     }
     frame_pcp[cpu].frames[frame_pcp[cpu].count++] = frame;
@@ -112,7 +106,7 @@ static void frame_pcp_put(size_t frame)
 static size_t frame_pcp_pop(void)
 {
     uint32_t cpu = frame_pcp_cpu();
-    if (cpu >= FRAME_PCP_MAX_CPUS) return SIZE_MAX;
+    if (cpu >= CONFIG_FRAME_PCP_MAX_CPUS) return SIZE_MAX;
 
     uint64_t rflags = spin_lock_irqsave(&frame_pcp[cpu].lock);
     if (!frame_pcp[cpu].count) {
@@ -131,7 +125,7 @@ static size_t frame_pcp_refill(void)
 {
     size_t   first = SIZE_MAX;
     size_t   units = 0;
-    unsigned order = 4; // 16 pages, matching FRAME_PCP_BATCH.
+    unsigned order = 4; // 16 pages, matching CONFIG_FRAME_PCP_BATCH.
 
     spin_lock(&frame_allocator.lock);
     while (1) {
@@ -161,10 +155,9 @@ static size_t frame_pcp_refill(void)
 /* Serialize reclaim so swap I/O cannot recursively enter reclaim allocation. */
 static int frame_try_reclaim(size_t target)
 {
-    int expected = 0;
-    if (!__atomic_compare_exchange_n(&frame_reclaim_active, &expected, 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return 0;
+    if (!raw_spin_trylock(&frame_reclaim_lock)) return 0;
     int reclaimed = swap_reclaim(target);
-    __atomic_store_n(&frame_reclaim_active, 0, __ATOMIC_RELEASE);
+    raw_spin_unlock(&frame_reclaim_lock);
     return reclaimed;
 }
 
@@ -193,7 +186,7 @@ void frame_reclaim_if_needed(size_t requested)
      */
     size_t cache_target = high > free ? high - free : requested;
     if (cache_target < requested) cache_target = requested;
-    if (cache_target > FRAME_RECLAIM_BATCH) cache_target = FRAME_RECLAIM_BATCH;
+    if (cache_target > CONFIG_FRAME_RECLAIM_BATCH) cache_target = CONFIG_FRAME_RECLAIM_BATCH;
     (void)pagecache_reclaim(cache_target);
 
     free = __atomic_load_n(&frame_allocator.usable_frames, __ATOMIC_RELAXED);
@@ -208,11 +201,12 @@ void frame_reclaim_if_needed(size_t requested)
 
     size_t target = high > free ? high - free : requested;
     if (target < requested) target = requested;
-    if (target > FRAME_RECLAIM_BATCH) target = FRAME_RECLAIM_BATCH;
-    if (frame_try_reclaim(target) == 0)
+    if (target > CONFIG_FRAME_RECLAIM_BATCH) target = CONFIG_FRAME_RECLAIM_BATCH;
+    if (frame_try_reclaim(target) == 0) {
         __atomic_store_n(&frame_reclaim_backoff, 64, __ATOMIC_RELAXED);
-    else
+    } else {
         __atomic_store_n(&frame_reclaim_backoff, 0, __ATOMIC_RELAXED);
+    }
 }
 
 /* Initialize memory frame */
@@ -231,7 +225,7 @@ void init_frame(void)
             if (region_end > memory_size) memory_size = region_end;
         }
     }
-    log_buffer_write(&frame_log, "frame: Highest usable address is %p\n", memory_size);
+    log_buffer_write(&frame_log, "frame: Highest usable address is %p\n", (void *)memory_size);
     size_t   frame_count      = ALIGN_UP(memory_size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
     size_t   metadata_size    = ALIGN_UP(frame_count * sizeof(buddy_page_t), PAGE_4K_SIZE);
     uint64_t metadata_address = 0;
@@ -248,13 +242,13 @@ void init_frame(void)
         break;
     }
     if (metadata_address) {
-        log_buffer_write(&frame_log, "frame: Ownership metadata allocated at %p (size: %llu KiB)\n", metadata_address, metadata_size / 1024);
+        log_buffer_write(&frame_log, "frame: Ownership metadata allocated at %p (size: %zu KiB)\n", (void *)metadata_address, metadata_size / 1024);
     } else {
         log_buffer_write(&frame_log, "frame: Failed to allocate ownership metadata.\n");
         return;
     }
     unsigned max_order = buddy_order_for_units(frame_count);
-    if (max_order > BUDDY_MAX_ORDER || ((size_t)1 << max_order) > frame_count) max_order--;
+    if (max_order > CONFIG_BUDDY_MAX_ORDER || ((size_t)1 << max_order) > frame_count) max_order--;
     if (buddy_init(&frame_allocator.buddy, phys_to_virt(metadata_address), frame_count, max_order)) {
         log_buffer_write(&frame_log, "frame: Failed to initialise buddy metadata.\n");
         return;
@@ -289,19 +283,19 @@ void init_frame(void)
                 size_t after_metadata = metadata_start + metadata_count;
                 if (after_metadata < range_end) (void)buddy_add_range(&frame_allocator.buddy, after_metadata, range_end - after_metadata);
             }
-            log_buffer_write(&frame_log, "frame: Added    0x%08x frames from %p to buddy.\n", count, start);
+            log_buffer_write(&frame_log, "frame: Added    0x%08zx frames from %p to buddy.\n", count, (void *)start);
         }
     }
     size_t metadata_frame_count = metadata_size / PAGE_4K_SIZE;
 
-    log_buffer_write(&frame_log, "frame: Reserved 0x%08x frames for ownership metadata at %p\n", metadata_frame_count, metadata_address);
+    log_buffer_write(&frame_log, "frame: Reserved 0x%08zx frames for ownership metadata at %p\n", metadata_frame_count, (void *)metadata_address);
 
     frame_allocator.origin_frames   = origin_frames;
     frame_allocator.usable_frames   = frame_allocator.buddy.free_pages;
     frame_allocator.metadata_frames = metadata_frame_count;
 
-    log_buffer_write(&frame_log, "frame: Total physical frames = 0x%08x (%d KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
-    log_buffer_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08x (%d KiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
+    log_buffer_write(&frame_log, "frame: Total physical frames = 0x%08zx (%zu KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
+    log_buffer_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08zx (%zu KiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
 }
 
 /* Allocate count frames aligned to 2^alignment_order pages. */
@@ -309,7 +303,7 @@ static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
 {
     if (!count) return 0;
     unsigned order = buddy_order_for_units(count);
-    if (order > BUDDY_MAX_ORDER) return 0;
+    if (order > CONFIG_BUDDY_MAX_ORDER) return 0;
     if (alignment_order > order) order = alignment_order;
 
     if (count == 1 && alignment_order == 0) {
@@ -335,7 +329,7 @@ static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
         }
     }
     if (buddy_trim_allocation(&frame_allocator.buddy, frame_index, order, count)) {
-        plogk("frame: Trim failed for order %u block at 0x%016llx (keep %llu frames)\n", order, frame_index * PAGE_4K_SIZE, (uint64_t)count);
+        plogk("frame: Trim failed for order %u block at 0x%016llx (keep %llu frames)\n", order, frame_index * PAGE_4K_SIZE, ((uint64_t)count));
         (void)buddy_free(&frame_allocator.buddy, frame_index, order);
         spin_unlock(&frame_allocator.lock);
         return 0;
@@ -348,12 +342,6 @@ static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
 
 /* Allocate memory frames; reclaim I/O is initiated only at explicit safe points. */
 uint64_t alloc_frames(size_t count)
-{
-    return alloc_frames_aligned(count, 0);
-}
-
-/* Compatibility spelling for lock-held callers; allocation itself never reclaims. */
-uint64_t alloc_frames_noreclaim(size_t count)
 {
     return alloc_frames_aligned(count, 0);
 }
@@ -375,9 +363,9 @@ uint64_t alloc_frames_1G(size_t count)
 /* Bump the reference count of an allocated frame range. */
 int frame_retain_range(uint64_t addr, size_t count)
 {
-    if (!addr || !count || (addr & (PAGE_4K_SIZE - 1))) return -1;
+    if (!addr || !count || (addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
     size_t frame_index = addr / PAGE_4K_SIZE;
-    if (frame_index >= frame_allocator.frame_count || count > frame_allocator.frame_count - frame_index) return -1;
+    if (frame_index >= frame_allocator.frame_count || count > frame_allocator.frame_count - frame_index) return -EINVAL;
 
     spin_lock(&frame_allocator.lock);
     for (size_t i = 0; i < count; i++) {
@@ -385,11 +373,11 @@ int frame_retain_range(uint64_t addr, size_t count)
         uint32_t      refs = page->tag;
         if (page->state != BUDDY_PAGE_ALLOC_HEAD || page->order != 0) {
             spin_unlock(&frame_allocator.lock);
-            return -1;
+            return -EFAULT;
         }
         if (!refs || refs == UINT32_MAX) {
             spin_unlock(&frame_allocator.lock);
-            return -1;
+            return -EOVERFLOW;
         }
     }
     for (size_t i = 0; i < count; i++) frame_allocator.buddy.pages[frame_index + i].tag++;
@@ -400,17 +388,17 @@ int frame_retain_range(uint64_t addr, size_t count)
 /* Drop a reference from a frame range, freeing frames at zero. */
 int frame_release_range(uint64_t addr, size_t count)
 {
-    if (!addr || !count || (addr & (PAGE_4K_SIZE - 1))) return -1;
+    if (!addr || !count || (addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
     size_t frame_index = addr / PAGE_4K_SIZE;
-    if (frame_index >= frame_allocator.frame_count || count > frame_allocator.frame_count - frame_index) return -1;
+    if (frame_index >= frame_allocator.frame_count || count > frame_allocator.frame_count - frame_index) return -EINVAL;
 
     spin_lock(&frame_allocator.lock);
     for (size_t i = 0; i < count; i++) {
         buddy_page_t *page = &frame_allocator.buddy.pages[frame_index + i];
         if (page->state != BUDDY_PAGE_ALLOC_HEAD || page->order != 0 || !page->tag) {
-            plogk("frame: Invalid release at 0x%016llx (state %u, order %u, refs %u)\n", addr + i * PAGE_4K_SIZE, page->state, page->order, page->tag);
+            plogk_once("frame: Invalid release at 0x%016llx (state %u, order %u, refs %u)\n", addr + (i * PAGE_4K_SIZE), page->state, page->order, page->tag);
             spin_unlock(&frame_allocator.lock);
-            return -1;
+            return -EFAULT;
         }
     }
     size_t released = 0;
@@ -453,7 +441,7 @@ void frame_get_stats(frame_stats_t *stats)
     stats->free_frames     = __atomic_load_n(&frame_allocator.usable_frames, __ATOMIC_RELAXED);
     stats->metadata_frames = frame_allocator.metadata_frames;
     stats->max_order       = frame_allocator.buddy.max_order;
-    for (unsigned order = 0; order <= BUDDY_MAX_ORDER; order++) stats->free_blocks[order] = frame_allocator.buddy.free_count[order];
+    for (unsigned order = 0; order <= CONFIG_BUDDY_MAX_ORDER; order++) stats->free_blocks[order] = frame_allocator.buddy.free_count[order];
     spin_unlock_irqrestore(&frame_allocator.lock, rflags);
 }
 
@@ -463,7 +451,7 @@ int frame_validate(void)
     frame_pcp_drain_all();
     uint64_t rflags = spin_lock_irqsave(&frame_allocator.lock);
     int      result = buddy_validate(&frame_allocator.buddy);
-    if (!result && frame_allocator.usable_frames != frame_allocator.buddy.free_pages) result = -1;
+    if (!result && frame_allocator.usable_frames != frame_allocator.buddy.free_pages) result = -EFAULT;
     spin_unlock_irqrestore(&frame_allocator.lock, rflags);
     return result;
 }
@@ -535,7 +523,7 @@ void print_memory_map(void)
                 type_str = "unknown";
                 break;
         }
-        plogk("  [mem %p-%p] (%*llu KiB) %s\n", base, end, 9, length / 1024, type_str);
+        plogk("  [mem %p-%p] (%*llu KiB) %s\n", (void *)base, (void *)end, 9, (length / 1024), type_str);
     }
     plogk(" </MEMMAP>\n");
 }

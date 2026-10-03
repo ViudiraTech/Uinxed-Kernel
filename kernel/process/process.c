@@ -9,47 +9,32 @@
  */
 
 #include <arch/common.h>
-#include <process/namespace.h>
 #include <arch/fpu.h>
 #include <arch/smp.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/tty/tty_core.h>
 #include <fs/core/inotify.h>
-#include <fs/core/vfs.h>
-#include <ipc/epoll.h>
 #include <ipc/futex.h>
-#include <ipc/pipe.h>
-#include <ipc/posix_mq.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/debug/debug.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/termios.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
+#include <mem/swap.h>
 #include <net/socket.h>
-#include <process/file_status.h>
+#include <process/namespace.h>
 #include <process/process.h>
-#include <process/ptrace.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <security/seccomp.h>
-#include <sync/spin_lock.h>
+#include <sync/mutex.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
 
-#ifndef PROCESS_TABLE_SIZE
-#    define PROCESS_TABLE_SIZE TASK_PID_MAX
-#endif
-
-static process_t *process_table[PROCESS_TABLE_SIZE];
+static process_t *process_table[CONFIG_PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
 static uint64_t   process_table_generation = 1;
 process_t        *init_process;
@@ -58,16 +43,17 @@ process_t        *kthreadd_process;
 /* Look up a process by PID with the table lock held */
 static process_t *pid_to_process_locked(pid_t pid)
 {
-    if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return NULL;
+    if (pid <= 0 || pid >= CONFIG_PROCESS_TABLE_SIZE) return NULL;
     return process_table[pid];
 }
 
+/* Pid set locked. */
 static void pid_set_locked(pid_t pid, process_t *proc);
 
 /* Publish a process in the PID table */
 static void pid_set(pid_t pid, process_t *proc)
 {
-    if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return;
+    if (pid <= 0 || pid >= CONFIG_PROCESS_TABLE_SIZE) return;
     spin_lock(&process_table_lock);
     pid_set_locked(pid, proc);
     spin_unlock(&process_table_lock);
@@ -76,12 +62,13 @@ static void pid_set(pid_t pid, process_t *proc)
 /* Publish a process in the PID table with the lock held */
 static void pid_set_locked(pid_t pid, process_t *proc)
 {
-    if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return;
+    if (pid <= 0 || pid >= CONFIG_PROCESS_TABLE_SIZE) return;
     if (process_table[pid] == proc) return;
     process_table[pid] = proc;
     (void)__atomic_add_fetch(&process_table_generation, 1, __ATOMIC_RELEASE);
 }
 
+/* Process free. */
 static void process_free(process_t *proc);
 
 /* Take a reference on a process with the lock held */
@@ -97,7 +84,10 @@ void process_put(process_t *proc)
 
     bool destroy = false;
     spin_lock(&process_table_lock);
-    if (proc->refcount && --proc->refcount == 0) destroy = true;
+    if (proc->refcount) {
+        --proc->refcount;
+        if (proc->refcount == 0) destroy = true;
+    }
     spin_unlock(&process_table_lock);
     if (destroy) process_free(proc);
 }
@@ -118,7 +108,7 @@ process_t *process_iterate_get(size_t *pos)
     if (!pos) return NULL;
 
     spin_lock(&process_table_lock);
-    for (; *pos < PROCESS_TABLE_SIZE; (*pos)++) {
+    for (; *pos < CONFIG_PROCESS_TABLE_SIZE; (*pos)++) {
         process_t *proc = process_table[*pos];
         if (proc) {
             (*pos)++;
@@ -144,7 +134,7 @@ size_t process_snapshot_pids(pid_t *pids, size_t capacity, uint64_t *generation)
 
     size_t count = 0;
     spin_lock(&process_table_lock);
-    for (size_t i = 0; i < PROCESS_TABLE_SIZE && count < capacity; i++) {
+    for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE && count < capacity; i++) {
         process_t *proc = process_table[i];
         if (!proc || !proc->task || proc->task->tgid == 0) continue;
         pids[count++] = (pid_t)proc->task->tgid;
@@ -186,7 +176,7 @@ size_t process_snapshot_fds(pid_t pid, int *fds, size_t capacity)
     process_t *proc = pid_to_process_locked(pid);
     if (proc) {
         spin_lock(&proc->fd_lock);
-        for (int fd = 0; fd < PROCESS_MAX_FD && count < capacity; fd++)
+        for (int fd = 0; fd < CONFIG_PROCESS_MAX_FD && count < capacity; fd++)
             if (proc->fds[fd]) fds[count++] = fd;
         spin_unlock(&proc->fd_lock);
     }
@@ -194,9 +184,10 @@ size_t process_snapshot_fds(pid_t pid, int *fds, size_t capacity)
     return count;
 }
 
+/* Process fd exists. */
 bool process_fd_exists(pid_t pid, int fd)
 {
-    if (fd < 0 || fd >= PROCESS_MAX_FD) return false;
+    if (fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return false;
     bool exists = false;
     spin_lock(&process_table_lock);
     process_t *proc = pid_to_process_locked(pid);
@@ -228,7 +219,14 @@ int process_path_snapshot(pid_t pid, int which, char *path, size_t capacity)
     spin_lock(&process_table_lock);
     process_t *proc = pid_to_process_locked(pid);
     if (proc) {
-        const char *source   = which == 0 ? proc->exe_path : which == 1 ? proc->cwd : proc->root;
+        const char *source;
+        if (which == 0) {
+            source = proc->exe_path;
+        } else if (which == 1) {
+            source = proc->cwd;
+        } else {
+            source = proc->root;
+        }
         const char *fallback = which == 0 ? "/unknown" : "/";
         (void)snprintf(path, capacity, "%s", source[0] ? source : fallback);
         result = EOK;
@@ -240,9 +238,9 @@ int process_path_snapshot(pid_t pid, int which, char *path, size_t capacity)
 /* Snapshot an fd symlink target without a transient file/process reference. */
 int process_fd_path_snapshot(pid_t pid, int fd, char *path, size_t capacity)
 {
-    if (!path || capacity < 2 || fd < 0 || fd >= PROCESS_MAX_FD) return -EINVAL;
+    if (!path || capacity < 2 || fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return -EINVAL;
     int result = -ENOENT;
-    path[0] = '\0';
+    path[0]    = '\0';
     spin_lock(&process_table_lock);
     process_t *proc = pid_to_process_locked(pid);
     if (proc) {
@@ -250,10 +248,11 @@ int process_fd_path_snapshot(pid_t pid, int fd, char *path, size_t capacity)
         process_file_t *file = proc->fds[fd];
         if (file && file->node) {
             if (!file->node->parent) {
-                if (file->node->name && file->node->name[0])
+                if (file->node->name && file->node->name[0]) {
                     (void)snprintf(path, capacity, "anon_inode:%s", file->node->name);
-                else
-                    (void)snprintf(path, capacity, "anon_inode:[%llu]", (unsigned long long)file->node->inode);
+                } else {
+                    (void)snprintf(path, capacity, "anon_inode:[%llu]", file->node->inode);
+                }
                 result = EOK;
             } else {
                 result = vfs_node_path(file->node, path, capacity);
@@ -271,7 +270,7 @@ process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid)
     if (!pos || pgid <= 0) return NULL;
 
     spin_lock(&process_table_lock);
-    for (; *pos < PROCESS_TABLE_SIZE; (*pos)++) {
+    for (; *pos < CONFIG_PROCESS_TABLE_SIZE; (*pos)++) {
         process_t *proc = process_table[*pos];
         if (proc && proc->pgid == pgid && (sid <= 0 || proc->sid == sid)) {
             (*pos)++;
@@ -334,7 +333,7 @@ static void process_ctty_clear_matching(tty_core_t *tty, pid_t sid, bool match_s
     for (;;) {
         tty_core_t *release = NULL;
         spin_lock(&process_table_lock);
-        for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
+        for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
             process_t *proc = process_table[i];
             if (proc && proc->controlling_tty == tty && (!match_session || proc->sid == sid)) {
                 proc->controlling_tty = NULL;
@@ -385,7 +384,7 @@ bool process_pgrp_in_session(pid_t pgid, pid_t sid)
     bool found = false;
 
     spin_lock(&process_table_lock);
-    for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
+    for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
         process_t *proc = process_table[i];
         if (proc && proc->pgid == pgid && proc->sid == sid) {
             found = true;
@@ -409,7 +408,7 @@ int process_ctty_set_foreground(tty_core_t *tty, pid_t sid, pid_t pgid)
         return -ENOTTY;
     }
     bool found = false;
-    for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
+    for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
         process_t *proc = process_table[i];
         if (proc && proc->pgid == pgid && proc->sid == sid) {
             found = true;
@@ -439,7 +438,7 @@ int process_ctty_acquire(process_t *proc, tty_core_t *tty, bool force, pid_t *ol
     pid_t previous_sid  = tty->session;
     pid_t previous_pgid = tty->foreground_pgid;
     if (previous_sid && previous_sid != proc->sid) {
-        for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
+        for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
             process_t *member = process_table[i];
             if (member && member->sid == previous_sid && member->controlling_tty == tty) {
                 member->controlling_tty = NULL;
@@ -465,7 +464,7 @@ int process_ctty_acquire(process_t *proc, tty_core_t *tty, bool force, pid_t *ol
 /* Detach a session from its controlling TTY */
 pid_t process_ctty_disassociate(tty_core_t *tty, pid_t sid)
 {
-    if (!tty || sid <= 0) return -1;
+    if (!tty || sid <= 0) return -EINVAL;
 
     size_t releases = 0;
     pid_t  old_pgid = -1;
@@ -475,7 +474,7 @@ pid_t process_ctty_disassociate(tty_core_t *tty, pid_t sid)
         old_pgid             = tty->foreground_pgid;
         tty->session         = 0;
         tty->foreground_pgid = 0;
-        for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
+        for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
             process_t *member = process_table[i];
             if (member && member->sid == sid && member->controlling_tty == tty) {
                 member->controlling_tty = NULL;
@@ -512,7 +511,7 @@ int process_setpgid(process_t *caller, pid_t pid, pid_t pgid)
     if (!pgid) pgid = target_pid;
     if (pgid != target_pid) {
         bool valid_group = false;
-        for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
+        for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
             process_t *member = process_table[i];
             if (member && member->pgid == pgid && member->sid == caller->sid) {
                 valid_group = true;
@@ -536,7 +535,7 @@ int process_setsid(process_t *proc, pid_t *sid)
 
     pid_t pid = (pid_t)proc->task->tgid;
     spin_lock(&process_table_lock);
-    for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
+    for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
         process_t *member = process_table[i];
         if (member && member->pgid == pid) {
             spin_unlock(&process_table_lock);
@@ -556,7 +555,7 @@ bool process_pgrp_is_orphaned(pid_t pgid, pid_t sid)
     bool found = false;
 
     spin_lock(&process_table_lock);
-    for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
+    for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
         process_t *proc = process_table[i];
         if (!proc || proc->pgid != pgid || proc->sid != sid) continue;
         found             = true;
@@ -576,14 +575,14 @@ int setup_process_page_dir(process_t *proc)
     page_directory_t *new_dir = malloc(sizeof(page_directory_t));
     if (!new_dir) {
         plogk("process: %s: page directory struct allocation failed.\n", proc ? proc->name : "?");
-        return 1;
+        return -ENOMEM;
     }
 
     uint64_t pml4_frame = alloc_frames(1);
     if (!pml4_frame) {
         plogk("process: %s: page directory frame allocation failed.\n", proc ? proc->name : "?");
         free(new_dir);
-        return 1;
+        return -ENOMEM;
     }
 
     page_table_t *pml4 = (page_table_t *)phys_to_virt(pml4_frame);
@@ -609,7 +608,8 @@ vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
 {
     vm_area_t *vma = calloc(1, sizeof(vm_area_t));
     if (!vma) {
-        plogk("process: VMA allocation failed (start=%#lx end=%#lx)\n", (unsigned long)start, (unsigned long)end);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: VMA allocation failed (start=%#lx end=%#lx)\n", start, end);
         return NULL;
     }
     vma->start = start;
@@ -744,12 +744,12 @@ static void process_rlimit_init(process_t *proc)
      * advertising infinity makes libc and applications derive invalid ABI
      * values (notably sysconf(_SC_OPEN_MAX)).
      */
-    proc->rlimits[PROCESS_RLIMIT_NOFILE].current     = PROCESS_MAX_FD;
-    proc->rlimits[PROCESS_RLIMIT_NOFILE].maximum     = PROCESS_MAX_FD;
+    proc->rlimits[PROCESS_RLIMIT_NOFILE].current     = CONFIG_PROCESS_MAX_FD;
+    proc->rlimits[PROCESS_RLIMIT_NOFILE].maximum     = CONFIG_PROCESS_MAX_FD;
     proc->rlimits[PROCESS_RLIMIT_NPROC].current      = 4096;
     proc->rlimits[PROCESS_RLIMIT_NPROC].maximum      = 4096;
-    proc->rlimits[PROCESS_RLIMIT_STACK].current      = (uint64_t)PROCESS_STACK_SIZE;
-    proc->rlimits[PROCESS_RLIMIT_STACK].maximum      = (uint64_t)PROCESS_STACK_SIZE;
+    proc->rlimits[PROCESS_RLIMIT_STACK].current      = (uint64_t)CONFIG_PROCESS_STACK_SIZE;
+    proc->rlimits[PROCESS_RLIMIT_STACK].maximum      = (uint64_t)CONFIG_PROCESS_STACK_SIZE;
     proc->rlimits[PROCESS_RLIMIT_MEMLOCK].current    = (uint64_t)64 * 1024;
     proc->rlimits[PROCESS_RLIMIT_MEMLOCK].maximum    = (uint64_t)64 * 1024;
     proc->rlimits[PROCESS_RLIMIT_SIGPENDING].current = 4096;
@@ -769,8 +769,14 @@ uint32_t process_fd_limit(process_t *proc)
     spin_lock(&proc->rlimit_lock);
     uint64_t limit = proc->rlimits[PROCESS_RLIMIT_NOFILE].current;
     spin_unlock(&proc->rlimit_lock);
-    if (limit > PROCESS_MAX_FD) limit = PROCESS_MAX_FD;
+    if (limit > CONFIG_PROCESS_MAX_FD) limit = CONFIG_PROCESS_MAX_FD;
     return (uint32_t)limit;
+}
+
+/* Replace only caller-selected status bits, preserving access and driver flags. */
+uint64_t process_file_status_flags_merge(uint64_t current, uint64_t mask, uint64_t requested)
+{
+    return (current & ~mask) | (requested & mask);
 }
 
 /* Take an atomic reference on an open file */
@@ -779,7 +785,7 @@ void process_file_get(process_file_t *file)
     if (!file) return;
 
     /*
-     * Match Linux's file reference model: transient fd users take an atomic
+     * Match the file reference model: transient fd users take an atomic
      * reference while the descriptor-table lock guarantees that the file is
      * still published.  Serialising every read/write against file->lock made
      * tiny stream I/O pay for a lock unrelated to its actual data path.
@@ -816,32 +822,6 @@ static void process_file_fd_put(process_file_t *file)
     process_file_put(file);
 }
 
-/* Serialize I/O on a positioned open file */
-static void process_file_io_lock(process_file_t *file)
-{
-    for (;;) {
-        spin_lock(&file->lock);
-        if (!file->io_busy) {
-            file->io_busy = true;
-            spin_unlock(&file->lock);
-            return;
-        }
-
-        wait_queue_prepare(&file->io_wait);
-        spin_unlock(&file->lock);
-        wait_queue_sleep();
-    }
-}
-
-/* Release the I/O lock on an open file */
-static void process_file_io_unlock(process_file_t *file)
-{
-    spin_lock(&file->lock);
-    file->io_busy = false;
-    spin_unlock(&file->lock);
-    wait_queue_wake_one(&file->io_wait);
-}
-
 /* Release an open-file reference, closing it at zero */
 void process_file_put(process_file_t *file)
 {
@@ -870,27 +850,26 @@ static void process_fd_table_close(process_t *proc)
 
     /*
      * Detach the descriptor table atomically, but never run final-release
-     * callbacks while holding proc->fd_lock.  Dropping the last descriptor
-     * can notify poll/epoll subscribers and close sockets or pipes; those
-     * callbacks are allowed to inspect descriptor state and may take locks
-     * below the fd-table layer.  Running them under fd_lock turns an ordinary
-     * process exit into a self-deadlock (notably when an OpenRC service runner
-     * exits with inherited CLOEXEC/poll descriptors).
+     * callbacks while holding proc->fd_lock.  Dropping the last descriptor can
+     * notify poll/epoll subscribers and close sockets or pipes; those callbacks
+     * may inspect descriptor state and take locks below the fd-table layer, so
+     * running them under fd_lock turns an ordinary process exit into a
+     * self-deadlock.
      *
      * This is the last thread when called from process_exit(), and callers of
-     * process_free() no longer publish the process, so no new descriptors can
-     * be installed after the table has been detached.
+     * process_free() no longer publish the process, so no new descriptors can be
+     * installed after the table has been detached.
      */
-    process_file_t *files[PROCESS_MAX_FD];
+    process_file_t *files[CONFIG_PROCESS_MAX_FD];
     spin_lock(&proc->fd_lock);
-    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+    for (int i = 0; i < CONFIG_PROCESS_MAX_FD; i++) {
         files[i]          = proc->fds[i];
         proc->fds[i]      = NULL;
         proc->fd_flags[i] = 0;
     }
     spin_unlock(&proc->fd_lock);
 
-    for (int i = 0; i < PROCESS_MAX_FD; i++) process_file_fd_put(files[i]);
+    for (int i = 0; i < CONFIG_PROCESS_MAX_FD; i++) process_file_fd_put(files[i]);
 }
 
 /* Copy the descriptor table from parent to child */
@@ -899,7 +878,7 @@ static void process_fd_table_copy(process_t *child, process_t *parent)
     process_fd_table_init(child);
 
     spin_lock(&parent->fd_lock);
-    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+    for (int i = 0; i < CONFIG_PROCESS_MAX_FD; i++) {
         child->fds[i]      = parent->fds[i];
         child->fd_flags[i] = parent->fd_flags[i];
         process_file_fd_get(child->fds[i]);
@@ -910,7 +889,7 @@ static void process_fd_table_copy(process_t *child, process_t *parent)
 /* Look up a descriptor, taking an open-file reference */
 process_file_t *process_fd_get(process_t *proc, int fd)
 {
-    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
+    if (!proc || fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return NULL;
 
     spin_lock(&proc->fd_lock);
     process_file_t *file = proc->fds[fd];
@@ -920,7 +899,7 @@ process_file_t *process_fd_get(process_t *proc, int fd)
 }
 
 /*
- * Linux's fget_light borrows the descriptor-table reference when the table is
+ * fget_light borrows the descriptor-table reference when the table is
  * private to the current thread.  In that case no other execution context can
  * remove this process's slot before the syscall returns, so neither the fd
  * table spinlock nor a transient file reference is needed.
@@ -928,7 +907,7 @@ process_file_t *process_fd_get(process_t *proc, int fd)
 static process_file_t *process_fd_get_light(process_t *proc, int fd, bool *borrowed)
 {
     *borrowed = false;
-    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
+    if (!proc || fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return NULL;
 
     if (proc == process_current() && __atomic_load_n(&proc->thread_count, __ATOMIC_ACQUIRE) == 1) {
         process_file_t *file = __atomic_load_n(&proc->fds[fd], __ATOMIC_ACQUIRE);
@@ -946,7 +925,7 @@ static process_file_t *process_fd_get_light(process_t *proc, int fd, bool *borro
 static process_file_t *process_fd_get_light_current(process_t *proc, int fd, bool *borrowed)
 {
     *borrowed = false;
-    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
+    if (!proc || fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return NULL;
 
     if (__atomic_load_n(&proc->thread_count, __ATOMIC_ACQUIRE) == 1) {
         process_file_t *file = __atomic_load_n(&proc->fds[fd], __ATOMIC_ACQUIRE);
@@ -965,7 +944,7 @@ static void process_file_put_light(process_file_t *file, bool borrowed)
 /* Pin a descriptor for transfer via SCM_RIGHTS */
 process_file_t *process_fd_get_for_transfer(process_t *proc, int fd)
 {
-    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
+    if (!proc || fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return NULL;
 
     /*
      * Keep fd_refcount non-zero while SCM_RIGHTS is in flight.  Otherwise the
@@ -994,6 +973,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     if (!file) return -ENOMEM;
 
     file->node = node;
+
     /*
      * O_CLOEXEC is a descriptor creation flag.  It must not be shared by
      * dup(2) or forked open-file descriptions through file->flags.
@@ -1001,9 +981,10 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     file->flags       = flags & ~(uint64_t)O_CLOEXEC;
     file->refcount    = 1;
     file->fd_refcount = 1;
+    file->wb_err      = vfs_wb_err_sample(node);
     file->lock.lock   = 0;
     file->lock.rflags = 0;
-    wait_queue_init(&file->io_wait);
+    mutex_init(&file->io_lock);
     vfs_poll_source_init(&file->close_source);
     if (flags & O_APPEND) file->offset = node->size;
 
@@ -1011,7 +992,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
      * O_PATH descriptors name a VFS object but do not open the object for
      * I/O.  In particular, do not call a filesystem's file_open callback:
      * sysfs/procfs quite correctly reject ordinary opens of directories,
-     * while Linux permits an O_PATH descriptor for those same directories.
+     * while an O_PATH descriptor is permitted for those same directories.
      * fstat(2), *at(2), fchdir(2), dup(2) and close(2) operate on the retained
      * vnode directly.
      */
@@ -1100,7 +1081,7 @@ int process_fd_install_file_at(process_t *proc, process_file_t *file, int newfd,
 /* Close a single descriptor */
 int process_fd_close(process_t *proc, int fd)
 {
-    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return -EBADF;
+    if (!proc || fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return -EBADF;
 
     spin_lock(&proc->fd_lock);
     process_file_t *file = proc->fds[fd];
@@ -1119,7 +1100,7 @@ int process_fd_close(process_t *proc, int fd)
 /* Duplicate a descriptor into the lowest free slot */
 int process_fd_dup(process_t *proc, int oldfd)
 {
-    if (!proc || oldfd < 0 || oldfd >= PROCESS_MAX_FD) return -EBADF;
+    if (!proc || oldfd < 0 || oldfd >= CONFIG_PROCESS_MAX_FD) return -EBADF;
 
     spin_lock(&proc->fd_lock);
     process_file_t *file = proc->fds[oldfd];
@@ -1133,6 +1114,7 @@ int process_fd_dup(process_t *proc, int oldfd)
         if (!proc->fds[i]) {
             process_file_fd_get(file);
             proc->fds[i] = file;
+
             /* dup(2) always clears close-on-exec on the new descriptor. */
             proc->fd_flags[i] = 0;
             spin_unlock(&proc->fd_lock);
@@ -1146,7 +1128,7 @@ int process_fd_dup(process_t *proc, int oldfd)
 /* Duplicate a descriptor onto a specific slot */
 int process_fd_dup2(process_t *proc, int oldfd, int newfd)
 {
-    if (!proc || oldfd < 0 || oldfd >= PROCESS_MAX_FD || newfd < 0 || newfd >= PROCESS_MAX_FD) return -EBADF;
+    if (!proc || oldfd < 0 || oldfd >= CONFIG_PROCESS_MAX_FD || newfd < 0 || newfd >= CONFIG_PROCESS_MAX_FD) return -EBADF;
     if ((uint32_t)newfd >= process_fd_limit(proc)) return -EBADF;
     if (oldfd == newfd) {
         /* Even when oldfd == newfd, POSIX requires EBADF if oldfd is not open */
@@ -1166,6 +1148,7 @@ int process_fd_dup2(process_t *proc, int oldfd, int newfd)
     process_file_t *old = proc->fds[newfd];
     process_file_fd_get(file);
     proc->fds[newfd] = file;
+
     /* dup2(2) always clears close-on-exec on the replacement descriptor. */
     proc->fd_flags[newfd] = 0;
     spin_unlock(&proc->fd_lock);
@@ -1192,13 +1175,13 @@ int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
     if (!file) return -EBADF;
 
     /*
-     * Pipes, like Linux FMODE_STREAM files, have no shared file position.
+     * Pipes, like FMODE_STREAM files, have no shared file position.
      * Their ring lock provides the required serialization, so taking the
      * open-file f_pos lock on every small transfer is both redundant and
      * expensive.
      */
     bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
-    if (!positionless) process_file_io_lock(file);
+    if (!positionless) mutex_lock(&file->io_lock);
 
     uint64_t flags;
     size_t   offset;
@@ -1213,13 +1196,13 @@ int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
     }
 
     if (flags & O_PATH) {
-        if (!positionless) process_file_io_unlock(file);
+        if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
 
     if ((flags & O_ACCMODE) == O_WRONLY) {
-        if (!positionless) process_file_io_unlock(file);
+        if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
@@ -1231,22 +1214,45 @@ int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
             file->offset = offset + (size_t)ret;
             spin_unlock(&file->lock);
         }
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
     }
 
     process_file_put_light(file, borrowed);
     return ret;
 }
 
+/* O_SYNC and O_DSYNC: put the written bytes on stable storage before the write returns, and hand the caller the errors the file owes. */
+static int64_t process_file_write_sync(process_file_t *file, uint64_t flags, int64_t written)
+{
+    if (written <= 0 || !(flags & (O_SYNC | O_DSYNC))) return written;
+    if (file->node->type & (file_stream | file_pipe)) return written;
+
+    int status = vfs_fsync(file->node, &file->wb_err, (flags & O_SYNC) != O_SYNC);
+    return status ? status : written;
+}
+
+/* Flush a descriptor's O_SYNC/O_DSYNC writes once, for a system call that wrote through it in a loop. */
+int64_t process_fd_write_flush(process_t *proc, int fd, int64_t written)
+{
+    if (written <= 0) return written;
+    process_file_t *file = process_fd_get(proc, fd);
+    if (!file) return written;
+
+    uint64_t flags = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
+    int64_t  ret   = process_file_write_sync(file, flags, written);
+    process_file_put(file);
+    return ret;
+}
+
 /* Write a kernel buffer to a descriptor */
-int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
+static int64_t process_fd_write_impl(process_t *proc, int fd, const void *buf, size_t size, bool sync)
 {
     bool            borrowed;
     process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
     if (!file) return -EBADF;
 
     bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
-    if (!positionless) process_file_io_lock(file);
+    if (!positionless) mutex_lock(&file->io_lock);
 
     uint64_t flags;
     size_t   offset;
@@ -1262,13 +1268,13 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
     }
 
     if (flags & O_PATH) {
-        if (!positionless) process_file_io_unlock(file);
+        if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
 
     if ((flags & O_ACCMODE) == O_RDONLY) {
-        if (!positionless) process_file_io_unlock(file);
+        if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
@@ -1279,7 +1285,7 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
      * path; the device callback owns the write policy for these nodes.
      */
     if (!positionless && vfs_mount_is_readonly(file->node)) {
-        if (!positionless) process_file_io_unlock(file);
+        if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EROFS;
     }
@@ -1291,11 +1297,24 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
             file->offset = offset + (size_t)ret;
             spin_unlock(&file->lock);
         }
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
     }
 
+    if (sync) ret = process_file_write_sync(file, flags, ret);
     process_file_put_light(file, borrowed);
     return ret;
+}
+
+/* Write a kernel buffer to a descriptor */
+int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
+{
+    return process_fd_write_impl(proc, fd, buf, size, true);
+}
+
+/* Write a kernel buffer to a descriptor, leaving the O_SYNC/O_DSYNC flush to the caller */
+int64_t process_fd_write_deferred(process_t *proc, int fd, const void *buf, size_t size)
+{
+    return process_fd_write_impl(proc, fd, buf, size, false);
 }
 
 /* Read from a descriptor into a user buffer */
@@ -1306,7 +1325,7 @@ int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
     if (!file) return -EBADF;
 
     bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
-    if (!positionless) process_file_io_lock(file);
+    if (!positionless) mutex_lock(&file->io_lock);
 
     uint64_t flags;
     size_t   offset;
@@ -1321,7 +1340,7 @@ int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
     }
 
     if ((flags & O_PATH) || (flags & O_ACCMODE) == O_WRONLY) {
-        if (!positionless) process_file_io_unlock(file);
+        if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
@@ -1333,7 +1352,7 @@ int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
             file->offset = offset + (size_t)ret;
             spin_unlock(&file->lock);
         }
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
     }
 
     process_file_put_light(file, borrowed);
@@ -1341,14 +1360,14 @@ int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
 }
 
 /* Write a user buffer to a descriptor */
-int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t size)
+static int64_t process_fd_write_user_impl(process_t *proc, int fd, const void *buf, size_t size, bool sync)
 {
     bool            borrowed;
     process_file_t *file = process_fd_get_light_current(proc, fd, &borrowed);
     if (!file) return -EBADF;
 
     bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
-    if (!positionless) process_file_io_lock(file);
+    if (!positionless) mutex_lock(&file->io_lock);
 
     uint64_t flags;
     size_t   offset;
@@ -1363,12 +1382,12 @@ int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t s
     }
 
     if ((flags & O_PATH) || (flags & O_ACCMODE) == O_RDONLY) {
-        if (!positionless) process_file_io_unlock(file);
+        if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
     if (!positionless && vfs_mount_is_readonly(file->node)) {
-        if (!positionless) process_file_io_unlock(file);
+        if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EROFS;
     }
@@ -1380,11 +1399,24 @@ int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t s
             file->offset = offset + (size_t)ret;
             spin_unlock(&file->lock);
         }
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
     }
 
+    if (sync) ret = process_file_write_sync(file, flags, ret);
     process_file_put_light(file, borrowed);
     return ret;
+}
+
+/* Write a user buffer to a descriptor */
+int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t size)
+{
+    return process_fd_write_user_impl(proc, fd, buf, size, true);
+}
+
+/* Write a user buffer to a descriptor, leaving the O_SYNC/O_DSYNC flush to the caller */
+int64_t process_fd_write_user_deferred(process_t *proc, int fd, const void *buf, size_t size)
+{
+    return process_fd_write_user_impl(proc, fd, buf, size, false);
 }
 
 /* Read from a descriptor at a fixed offset into user memory */
@@ -1398,21 +1430,21 @@ int64_t process_fd_pread_user(process_t *proc, int fd, void *buf, size_t size, u
         return -ESPIPE;
     }
 
-    process_file_io_lock(file);
+    mutex_lock(&file->io_lock);
     uint64_t flags = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
     if ((flags & O_PATH) || (flags & O_ACCMODE) == O_WRONLY) {
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
     int64_t ret = vfs_file_read_user_granted(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
-    process_file_io_unlock(file);
+    mutex_unlock(&file->io_lock);
     process_file_put_light(file, borrowed);
     return ret;
 }
 
 /* Write a user buffer to a descriptor at a fixed offset */
-int64_t process_fd_pwrite_user(process_t *proc, int fd, const void *buf, size_t size, uint64_t offset)
+static int64_t process_fd_pwrite_user_impl(process_t *proc, int fd, const void *buf, size_t size, uint64_t offset, bool sync)
 {
     bool            borrowed;
     process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
@@ -1422,22 +1454,36 @@ int64_t process_fd_pwrite_user(process_t *proc, int fd, const void *buf, size_t 
         return -ESPIPE;
     }
 
-    process_file_io_lock(file);
+    mutex_lock(&file->io_lock);
     uint64_t flags = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
     if ((flags & O_PATH) || (flags & O_ACCMODE) == O_RDONLY) {
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
     if (vfs_mount_is_readonly(file->node)) {
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EROFS;
     }
     int64_t ret = vfs_file_write_user_granted(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
-    process_file_io_unlock(file);
+    mutex_unlock(&file->io_lock);
+
+    if (sync) ret = process_file_write_sync(file, flags, ret);
     process_file_put_light(file, borrowed);
     return ret;
+}
+
+/* Write a user buffer to a descriptor at a fixed offset */
+int64_t process_fd_pwrite_user(process_t *proc, int fd, const void *buf, size_t size, uint64_t offset)
+{
+    return process_fd_pwrite_user_impl(proc, fd, buf, size, offset, true);
+}
+
+/* Write a user buffer to a descriptor at a fixed offset, leaving the O_SYNC/O_DSYNC flush to the caller */
+int64_t process_fd_pwrite_user_deferred(process_t *proc, int fd, const void *buf, size_t size, uint64_t offset)
+{
+    return process_fd_pwrite_user_impl(proc, fd, buf, size, offset, false);
 }
 
 /* Reposition a descriptor's file offset */
@@ -1451,7 +1497,13 @@ int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence)
         return -EBADF;
     }
 
-    process_file_io_lock(file);
+    /* Streams, pipes, sockets, epoll and tty devices carry no file position. */
+    if (file->node->type & (file_stream | file_pipe | file_socket | file_epoll | file_ptmx | file_pts)) {
+        process_file_put(file);
+        return -ESPIPE;
+    }
+
+    mutex_lock(&file->io_lock);
     spin_lock(&file->lock);
     int64_t base;
     if (whence == SEEK_SET) {
@@ -1462,7 +1514,7 @@ int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence)
         base = (int64_t)file->node->size;
     } else {
         spin_unlock(&file->lock);
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
         process_file_put(file);
         return -EINVAL;
     }
@@ -1470,13 +1522,13 @@ int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence)
     int64_t next = base + offset;
     if (next < 0) {
         spin_unlock(&file->lock);
-        process_file_io_unlock(file);
+        mutex_unlock(&file->io_lock);
         process_file_put(file);
         return -EINVAL;
     }
     file->offset = (size_t)next;
     spin_unlock(&file->lock);
-    process_file_io_unlock(file);
+    mutex_unlock(&file->io_lock);
 
     process_file_put(file);
     return next;
@@ -1528,8 +1580,8 @@ int process_fd_poll(process_t *proc, int fd, size_t events)
 /* Resolve a path relative to a process root/cwd/dirfd */
 int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *resolved, size_t size)
 {
-    char        base[VFS_PATH_MAX];
-    char        root[VFS_PATH_MAX];
+    char        base[CONFIG_VFS_PATH_MAX];
+    char        root[CONFIG_VFS_PATH_MAX];
     const char *process_root;
     int         ret;
 
@@ -1542,6 +1594,7 @@ int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *
 
     if (path[0] == '/') {
         while (*path == '/') path++;
+
         /*
          * The original pathname was non-empty and consisted solely of one or
          * more separators.  Preserve the process root instead of turning a
@@ -1645,7 +1698,7 @@ void process_init(void)
 {
     process_table_lock.lock   = 0;
     process_table_lock.rflags = 0;
-    plogk("process: Process table initialized (%u slots)\n", PROCESS_TABLE_SIZE);
+    plogk("process: Process table initialized (%u slots)\n", CONFIG_PROCESS_TABLE_SIZE);
 }
 
 /* Create a new process with its kernel stack and page directory */
@@ -1653,13 +1706,15 @@ process_t *process_create(const char *name)
 {
     process_t *proc = calloc(1, sizeof(process_t));
     if (!proc) {
-        plogk("process: Process '%s' creation failed (control block OOM)\n", name ? name : "?");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: Process '%s' creation failed (control block OOM)\n", name ? name : "?");
         return NULL;
     }
 
     task_t *task = task_alloc(name);
     if (!task) {
-        plogk("process: '%s' task allocation failed.\n", name ? name : "?");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: '%s' task allocation failed.\n", name ? name : "?");
         free(proc);
         return NULL;
     }
@@ -1673,16 +1728,18 @@ process_t *process_create(const char *name)
     ilist_init(&proc->threads);
     ilist_insert_before(&proc->threads, &task->thread_node);
     proc->kernel_page_dir = get_kernel_pagedir();
-    proc->kernel_stack    = malloc(PROCESS_KERNEL_STACK);
+    proc->kernel_stack    = malloc(CONFIG_PROCESS_KERNEL_STACK);
     if (!proc->kernel_stack) {
-        plogk("process: '%s' kernel stack allocation failed (%d bytes)\n", name ? name : "?", PROCESS_KERNEL_STACK);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: '%s' kernel stack allocation failed (%d bytes)\n", name ? name : "?", CONFIG_PROCESS_KERNEL_STACK);
         task_free(task);
         free(proc);
         return NULL;
     }
 
     if (setup_process_page_dir(proc)) {
-        plogk("process: '%s' page directory setup failed.\n", name ? name : "?");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: '%s' page directory setup failed.\n", name ? name : "?");
         free(proc->kernel_stack);
         task_free(task);
         free(proc);
@@ -1697,9 +1754,9 @@ process_t *process_create(const char *name)
     proc->umask       = 022;
     proc->pgid        = 0;
     proc->sid         = 0;
-    proc->start_brk   = PROCESS_HEAP_START;
-    proc->heap_brk    = PROCESS_HEAP_START;
-    proc->stack_brk   = PROCESS_STACK_BASE - (long)PROCESS_STACK_SIZE;
+    proc->start_brk   = CONFIG_PROCESS_HEAP_START;
+    proc->heap_brk    = CONFIG_PROCESS_HEAP_START;
+    proc->stack_brk   = PROCESS_USER_STACK_TOP - (long)CONFIG_PROCESS_STACK_SIZE;
     proc->parent      = init_process;
     proc->exit_code   = 0;
     slist_init(&proc->children);
@@ -1754,7 +1811,7 @@ process_t *process_create_kthread(task_t *task, const char *name)
     proc->gid       = 0;
     proc->fsuid     = 0;
     proc->fsgid     = 0;
-    proc->nsproxy = nsproxy_get(&init_nsproxy);
+    proc->nsproxy   = nsproxy_get(&init_nsproxy);
     proc->umask     = 022;
     proc->pgid      = 0;
     proc->sid       = 0;
@@ -1777,9 +1834,9 @@ process_t *process_create_kthread(task_t *task, const char *name)
     signal_state_init(&proc->signal);
 
     /*
-     * Linux: kthreadd calls ignore_signals() and kernel threads inherit that
-     * disposition.  Each kthread here owns a fresh signal state, so we apply
-     * the same policy directly: ignore every signal, SIGKILL and SIGSTOP
+     * kthreadd calls signal_ignore_all() and kernel threads inherit that
+     * disposition.  Each kthread here owns a fresh signal state, so the same
+     * policy is applied directly: ignore every signal, SIGKILL and SIGSTOP
      * included.  A kernel thread is stopped only by kthread_stop().
      */
     signal_ignore_all(&proc->signal);
@@ -1825,12 +1882,13 @@ void process_wake_threads(process_t *proc, bool resume_stopped)
             continue;
         }
         if (__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
-            if (task->cpu_id == local_cpu)
+            if (task->cpu_id == local_cpu) {
                 kick_self = true;
-            else if (task->cpu_id < 64)
+            } else if (task->cpu_id < 64) {
                 running_cpus |= 1ULL << task->cpu_id;
-            else
+            } else {
                 broadcast = true;
+            }
         }
         if (resume_stopped) (void)task_continue(task);
         (void)task_wakeup(task);
@@ -1910,7 +1968,7 @@ void process_count_task_states(uint64_t *running, uint64_t *blocked)
     uint64_t nr_running = 0;
     uint64_t nr_blocked = 0;
     spin_lock(&process_table_lock);
-    for (size_t index = 1; index < PROCESS_TABLE_SIZE; index++) {
+    for (size_t index = 1; index < CONFIG_PROCESS_TABLE_SIZE; index++) {
         process_t *proc = process_table[index];
         if (!proc) continue;
         for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
@@ -1925,7 +1983,7 @@ void process_count_task_states(uint64_t *running, uint64_t *blocked)
 }
 
 /* Publish a group-exit decision before waking siblings out of kernel waits. */
-void process_exit_group(int exit_code)
+__attribute__((noreturn)) void process_exit_group(int exit_code)
 {
     process_t *proc = process_current();
     if (!proc) process_exit(exit_code);
@@ -1943,7 +2001,7 @@ void process_exit_group(int exit_code)
 }
 
 /* Terminate the current process, reparenting its children */
-void process_exit(int exit_code)
+__attribute__((noreturn)) void process_exit(int exit_code)
 {
     task_t *current = current_task();
     if (!current || !current->process) {
@@ -1962,10 +2020,9 @@ void process_exit(int exit_code)
     signal_flush_task(current);
 
     /*
-     * If this task still owns PI futexes, release them (owner-died handoff)
-     * before the task is reaped: each held mutex pins a task_ref on us that
-     * would otherwise leak our task_t + kernel stack forever and wedge the
-     * mutex.
+     * If this task still owns PI futexes, release them (owner-died handoff) before
+     * the task is reaped: each held mutex pins a task_ref that would otherwise
+     * leak the task_t + kernel stack forever and wedge the mutex.
      */
     futex_pi_owner_exit(current);
 
@@ -1973,6 +2030,7 @@ void process_exit(int exit_code)
     bool sibling_exit = proc->thread_count > 1;
     if (sibling_exit) {
         proc->thread_count--;
+
         /*
          * Do not publish TASK_ZOMBIE until task_exit() has disabled local
          * interrupts and committed the scheduler transition.  A timer tick
@@ -1997,7 +2055,8 @@ void process_exit(int exit_code)
         if (current->clear_child_tid) {
             uint32_t zero = 0;
             if (copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero))) {
-                plogk("process: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("process: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
             } else {
                 sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
             }
@@ -2019,8 +2078,8 @@ void process_exit(int exit_code)
             pid_t pgid = sid == (pid_t)current->tgid ? process_ctty_disassociate(tty, sid) : -1;
             if (pgid < 0) process_ctty_clear(proc);
             if (pgid > 0) {
-                signal_send_pgrp_session(pgid, sid, SIGHUP);
-                signal_send_pgrp_session(pgid, sid, SIGCONT);
+                (void)signal_send_pgrp_session(pgid, sid, SIGHUP);
+                (void)signal_send_pgrp_session(pgid, sid, SIGCONT);
             }
             tty_core_release(tty);
         }
@@ -2028,16 +2087,12 @@ void process_exit(int exit_code)
 
     /*
      * Record the exit relationship now, but keep the final task RUNNING until
-     * every teardown operation that may sleep has completed below.
-     *
-     * Publishing TASK_ZOMBIE here used to let wait4() consume and reap this
-     * process before process_fd_table_close() finished.  If a file-release
-     * callback slept, context_switch() cleared on_cpu and the parent freed the
-     * task and its kernel stack while the exit path still needed both.  A
-     * parent that observed the later BLOCKED state instead slept forever,
-     * because the one and only child-exit notification had already happened.
-     * The race is rare on one CPU and immediate under OpenRC fork/exit load on
-     * larger SMP systems.
+     * every teardown operation that may sleep has completed below.  Publishing
+     * TASK_ZOMBIE here would let wait4() consume and reap the process while
+     * process_fd_table_close() is still running: a sleeping file-release callback
+     * would leave the parent freeing the task and its kernel stack underneath the
+     * exit path, and a parent observing the later BLOCKED state would sleep
+     * forever because the one and only child-exit notification was already spent.
      */
     spin_lock(&process_table_lock);
 
@@ -2065,7 +2120,8 @@ void process_exit(int exit_code)
     if (current->clear_child_tid) {
         uint32_t zero = 0;
         if (copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero))) {
-            plogk("process_exit: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("process_exit: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
         } else {
             sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
         }
@@ -2247,10 +2303,7 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
         if (event) {
             pid_t event_pid = (pid_t)event->task->tgid;
 
-            /*
-             * WNOWAIT: leave the stop/continue event pending so a later
-             * wait can still consume it.
-             */
+            /* WNOWAIT: leave the stop/continue event pending so a later wait can still consume it. */
             if (options & PROCESS_WAIT_KEEPEVENT) {
                 spin_unlock(&process_table_lock);
                 spin_unlock(&parent->child_wait.lock);
@@ -2339,12 +2392,13 @@ int process_wait(pid_t pid, int *exit_code)
     pid_t waited_pid = 0;
     int   status     = 0;
     int   result     = process_wait_select(pid, &status, 0, &waited_pid);
-    if (result != EOK || !waited_pid) return 1;
+    if (result != EOK || !waited_pid) return result;
     if (exit_code) {
-        if ((status & 0x7f) != 0)
+        if ((status & 0x7f) != 0) {
             *exit_code = -(status & 0x7f);
-        else
+        } else {
             *exit_code = (status >> 8) & 0xff;
+        }
     }
     return 0;
 }
@@ -2354,6 +2408,34 @@ process_t *process_current(void)
 {
     task_t *task = current_task();
     return task ? task->process : NULL;
+}
+
+/* True when the current process has a signal pending. */
+bool signal_has_pending_current(void)
+{
+    process_t *proc = process_current();
+    if (!proc) return false;
+    spin_lock(&proc->signal.lock);
+    bool pending = signal_has_pending(&proc->signal);
+    spin_unlock(&proc->signal.lock);
+    return pending;
+}
+
+/* True when the current process has an unblocked pending signal able to interrupt a blocking syscall. */
+bool signal_has_interrupting_pending_current(void)
+{
+    process_t *proc = process_current();
+    if (!proc) return false;
+    spin_lock(&proc->signal.lock);
+    bool pending = signal_has_interrupting_pending(&proc->signal);
+    spin_unlock(&proc->signal.lock);
+    return pending;
+}
+
+/* is_global_init(): the global init is the thread-group leader whose PID is 1.  It carries SIGNAL_UNKILLABLE semantics and is never reparented. */
+bool is_global_init(const process_t *proc)
+{
+    return proc && proc->task && proc->task->pid == 1;
 }
 
 /* Fork the current process, returning the unqueued child */
@@ -2376,7 +2458,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
 
     process_t *child = calloc(1, sizeof(process_t));
     if (!child) {
-        plogk("process: Fork of '%s' failed (control block OOM)\n", parent->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (control block OOM)\n", parent->name);
         if (error) *error = -ENOMEM;
         spin_unlock(&parent->mmap_lock);
         spin_unlock(&scheduler.lock);
@@ -2386,7 +2469,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     int     task_error = EOK;
     task_t *child_task = task_alloc_status(parent->task->name, &task_error);
     if (!child_task) {
-        plogk("process: Fork of '%s' failed (task allocation, errno %d)\n", parent->name, task_error);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (task allocation, errno %d)\n", parent->name, task_error);
         if (error) *error = task_error;
         free(child);
         spin_unlock(&parent->mmap_lock);
@@ -2419,12 +2503,15 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->start_brk                     = parent->start_brk;
     child->heap_brk                      = parent->heap_brk;
     child->stack_brk                     = parent->stack_brk;
+    child->arg_start                     = parent->arg_start;
+    child->arg_end                       = parent->arg_end;
     memcpy(child->root, parent->root, sizeof(child->root));
     memcpy(child->cwd, parent->cwd, sizeof(child->cwd));
     memcpy(child->exe_path, parent->exe_path, sizeof(child->exe_path));
-    child->kernel_stack = malloc(PROCESS_KERNEL_STACK);
+    child->kernel_stack = malloc(CONFIG_PROCESS_KERNEL_STACK);
     if (!child->kernel_stack) {
-        plogk("process: Fork of '%s' failed (kernel stack OOM)\n", parent->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (kernel stack OOM)\n", parent->name);
         if (error) *error = -ENOMEM;
         task_free(child_task);
         free(child);
@@ -2461,7 +2548,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->vfork_done = !vfork;
 
     if (setup_process_page_dir(child)) {
-        plogk("process: Fork of '%s' failed (page directory setup)\n", parent->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (page directory setup)\n", parent->name);
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
@@ -2470,7 +2558,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     }
 
     if (page_clone_user_cow(child->user_page_dir, parent->user_page_dir)) {
-        plogk("process: Fork of '%s' failed (user pages COW clone)\n", parent->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (user pages COW clone)\n", parent->name);
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
@@ -2482,10 +2571,11 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
      * VMA file processing below (vfs_node_retain / vfs_cache_mapping_pin /
      * memfd_vma_retain) can sleep on the VFS namespace lock.  It must NOT run
      * while holding scheduler.lock with IRQs masked: a contended
-     * vfs_ns_lock() calls wait_queue_prepare()/wait_queue_sleep(), which
-     * re-acquire scheduler.lock and self-deadlock the fork (recursive spin).
-     * The parent's mmap_lock still guards mmap_list, so drop scheduler.lock
-     * and unmask IRQs for the duration of the copy, then restore both.
+     * mutex_lock(&vfs_namespace_lock) calls wait_queue_prepare()/
+     * wait_queue_sleep(), which re-acquire scheduler.lock and self-deadlock
+     * the fork (recursive spin).  The parent's mmap_lock still guards
+     * mmap_list, so drop scheduler.lock and unmask IRQs for the duration of
+     * the copy, then restore both.
      */
     spin_unlock(&scheduler.lock);
     enable_intr();
@@ -2493,7 +2583,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     for (vm_area_t *vma = parent->mmap_list; vma; vma = vma->next) {
         vm_area_t *copy = vm_area_alloc(vma->start, vma->end, vma->flags);
         if (!copy) {
-            plogk("process: Fork of '%s' failed (VMA copy OOM)\n", parent->name);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (VMA copy OOM)\n", parent->name);
             if (error) *error = -ENOMEM;
             process_free(child);
             spin_unlock(&parent->mmap_lock);
@@ -2508,7 +2599,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         copy->vm_pagecache    = vma->vm_pagecache;
 
         if (vma->vm_file && !copy->vm_file) {
-            plogk("fork-dbg: '%s' vm_file retain failed at %#lx-%#lx (node FINALIZING)\n", parent->name, (unsigned long)vma->start, (unsigned long)vma->end);
             free(copy);
             if (error) *error = -ENOENT;
             process_free(child);
@@ -2518,7 +2608,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (copy->vm_file && copy->vm_pagecache) (void)vfs_cache_mapping_pin(copy->vm_file);
         if (copy->vm_file) memfd_vma_retain(copy->vm_file, copy->flags);
         if (copy->type == VM_REGION_SHM && sysv_shm_vma_get(copy->vm_private_data, (uint32_t)child->task->pid)) {
-            plogk("process: Fork of '%s' failed (SHM VMA lookup)\n", parent->name);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (SHM VMA lookup)\n", parent->name);
             if (copy->vm_file) {
                 if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
                 memfd_vma_release(copy->vm_file, copy->flags);
@@ -2538,7 +2629,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
          */
         if (copy->vm_private_get && copy->vm_private_put && copy->vm_private_data) copy->vm_private_get(copy->vm_private_data);
         if (vm_area_insert(child, copy)) {
-            plogk("process: Fork of '%s' failed (VMA insert)\n", parent->name);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (VMA insert)\n", parent->name);
             if (copy->vm_private_put && copy->vm_private_data) copy->vm_private_put(copy->vm_private_data);
             if (copy->vm_file) {
                 if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
@@ -2553,7 +2645,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         }
     }
 
-    disable_intr();
     spin_lock(&scheduler.lock);
 
     memcpy(&child_task->context, &current->context, sizeof(task_context_t));
@@ -2577,7 +2668,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
      * parent directory lock was still held; nothing here can reintroduce a
      * stale writable translation before the child runs.
      */
-
     return child;
 }
 
@@ -2649,7 +2739,7 @@ task_t *process_task_find_get(pid_t pid, process_t **owner)
     if (pid <= 0) return NULL;
 
     spin_lock(&process_table_lock);
-    for (size_t index = 1; index < PROCESS_TABLE_SIZE; index++) {
+    for (size_t index = 1; index < CONFIG_PROCESS_TABLE_SIZE; index++) {
         process_t *proc = process_table[index];
         if (!proc) continue;
         for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
@@ -2684,13 +2774,15 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     int     task_error = EOK;
     task_t *child      = task_alloc_status(current->name, &task_error);
     if (!child) {
-        plogk("process: Thread clone of '%s' failed (task allocation, errno %d)\n", current->name, task_error);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: Thread clone of '%s' failed (task allocation, errno %d)\n", current->name, task_error);
         if (error) *error = task_error;
         return NULL;
     }
-    child->kernel_stack = malloc(TASK_KERNEL_STACK);
+    child->kernel_stack = malloc(CONFIG_PROCESS_KERNEL_STACK);
     if (!child->kernel_stack) {
-        plogk("process: Thread clone of '%s' failed (kernel stack OOM)\n", current->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("process: Thread clone of '%s' failed (kernel stack OOM)\n", current->name);
         task_free(child);
         if (error) *error = -ENOMEM;
         return NULL;
@@ -2706,7 +2798,7 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     syscall_frame_t child_frame = *frame;
     child_frame.rax             = 0;
     child_frame.rsp             = child_stack;
-    uint64_t *kstack            = (uint64_t *)ALIGN_DOWN((uint64_t)(child->kernel_stack + TASK_KERNEL_STACK), 16ULL);
+    uint64_t *kstack            = (uint64_t *)ALIGN_DOWN((uint64_t)(child->kernel_stack + CONFIG_PROCESS_KERNEL_STACK), 16ULL);
     kstack -= sizeof(child_frame) / sizeof(uint64_t);
     memcpy(kstack, &child_frame, sizeof(child_frame));
     *(--kstack) = (uint64_t)syscall_return;
@@ -2729,7 +2821,6 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     child->cpu_id          = current->cpu_id;
     child->state           = TASK_READY;
 
-    disable_intr();
     spin_lock(&scheduler.lock);
     spin_lock(&proc->seccomp_lock);
     seccomp_task_inherit(child, current);
@@ -2762,16 +2853,16 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
 /* Map anonymous memory into a process address space */
 int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flags)
 {
-    if (!proc || !proc->user_page_dir || !length || (addr & (PAGE_4K_SIZE - 1))) return 1;
-    if (length > UINT64_MAX - (PAGE_4K_SIZE - 1)) return 1;
+    if (!proc || !proc->user_page_dir || !length || (addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
+    if (length > UINT64_MAX - (PAGE_4K_SIZE - 1)) return -EINVAL;
     size_t bytes = ALIGN_UP(length, PAGE_4K_SIZE);
-    if (addr > UINT64_MAX - bytes || addr + bytes > PROCESS_USER_STACK_TOP) return 1;
+    if (addr > UINT64_MAX - bytes || addr + bytes > PROCESS_USER_STACK_TOP) return -EINVAL;
     size_t pages = bytes / PAGE_4K_SIZE;
-    if (pages > SIZE_MAX / sizeof(uint64_t)) return 1;
+    if (pages > SIZE_MAX / sizeof(uint64_t)) return -EINVAL;
 
     flags |= VM_ANON;
     vm_area_t *vma = vm_area_alloc(addr, addr + bytes, flags);
-    if (!vma) return 1;
+    if (!vma) return -ENOMEM;
 
     if (flags & VM_LAZY) {
         spin_lock(&proc->mmap_lock);
@@ -2784,21 +2875,21 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
         if ((previous && addr < previous->end) || (cursor && addr + bytes > cursor->start)) {
             spin_unlock(&proc->mmap_lock);
             free(vma);
-            return 1;
+            return -EEXIST;
         }
         vma->type = VM_REGION_MMAP;
         if (previous && previous->end == addr && previous->flags == flags && !previous->vm_file && !previous->vm_private_data) {
             previous->end = addr + bytes;
             free(vma);
         } else if (cursor && cursor->start == addr + bytes && cursor->flags == flags && !cursor->vm_file && !cursor->vm_private_data) {
-            cursor->start = addr;
+            cursor->start    = addr;
             cursor->vm_pgoff = 0;
             free(vma);
         } else if (previous) {
             vma->next      = previous->next;
             previous->next = vma;
         } else {
-            vma->next      = proc->mmap_list;
+            vma->next       = proc->mmap_list;
             proc->mmap_list = vma;
         }
         spin_unlock(&proc->mmap_lock);
@@ -2807,9 +2898,9 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
     uint64_t *frames = calloc(pages, sizeof(*frames));
     if (!frames) {
-        plogk("process: %s: mmap frame list allocation failed (%lu pages at %#lx)\n", proc->name, (unsigned long)pages, (unsigned long)addr);
+        plogk("process: %s: mmap frame list allocation failed (%zu pages at %#lx)\n", proc->name, pages, addr);
         free(vma);
-        return 1;
+        return -ENOMEM;
     }
 
     frame_reclaim_if_needed(pages < 64 ? pages : 64);
@@ -2822,7 +2913,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
     for (; allocated < pages; allocated++) {
         frames[allocated] = alloc_frames(1);
         if (!frames[allocated]) {
-            plogk("process: %s: mmap frame allocation failed (%lu/%lu pages at %#lx)\n", proc->name, (unsigned long)allocated, (unsigned long)pages, (unsigned long)addr);
+            plogk("process: %s: mmap frame allocation failed (%zu/%zu pages at %#lx)\n", proc->name, allocated, pages, addr);
             goto rollback_frames;
         }
         memset(phys_to_virt(frames[allocated]), 0, PAGE_4K_SIZE);
@@ -2847,12 +2938,13 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
     size_t mapped = 0;
     for (; mapped < pages; mapped++)
-        if (page_map_new_to(proc->user_page_dir, addr + mapped * PAGE_4K_SIZE, frames[mapped], pte_flags) < 0) break;
+        if (page_map_new_to(proc->user_page_dir, addr + (mapped * PAGE_4K_SIZE), frames[mapped], pte_flags) < 0) break;
     if (mapped != pages) {
-        plogk("process: %s: mmap page map failed at %#lx (%lu/%lu pages)\n", proc->name, (unsigned long)addr, (unsigned long)mapped, (unsigned long)pages);
-        for (size_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, addr + i * PAGE_4K_SIZE);
+        plogk("process: %s: mmap page map failed at %#lx (%zu/%zu pages)\n", proc->name, addr, mapped, pages);
+        for (size_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, addr + (i * PAGE_4K_SIZE));
         spin_unlock(&proc->mmap_lock);
         allocated = pages;
+
         /* Mapped frames were released by page_unmap_release(). */
         for (size_t i = 0; i < mapped; i++) frames[i] = 0;
         goto rollback_frames;
@@ -2874,37 +2966,25 @@ rollback_frames:
         if (frames[i]) (void)frame_release_range(frames[i], 1);
     free(frames);
     free(vma);
-    return 1;
+    return -ENOMEM;
 }
 
 /* Satisfy a demand-page fault for a process address */
 int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
 {
-    if (!proc || !proc->user_page_dir || !proc->user_page_dir->table) return -1;
-    uintptr_t page = ALIGN_DOWN(addr, PAGE_4K_SIZE);
+    if (!proc || !proc->user_page_dir || !proc->user_page_dir->table) return -EINVAL;
 
-    /*
-     * pf-dbg: aggregate demand-fault counter.  A boot that pages in a large
-     * image 4 KiB at a time through the VFS shows up as a huge count here
-     * while every individual syscall stays under the slow-probe threshold.
-     */
-    {
-        static uint64_t pf_count;
-        static uint64_t pf_last_log;
-        pf_count++;
-        if (pf_count >= 10000 && sched_ticks() - pf_last_log >= 2 * TIMER_HZ) {
-            plogk("pf-dbg: %llu demand faults so far (last: %s %s%s @%#llx)\n", (unsigned long long)pf_count, proc->name, write ? "w" : "", exec ? "x" : "r",
-                  (unsigned long long)addr);
-            pf_last_log = sched_ticks();
-        }
-    }
+    /* A non-present leaf may hold a swap entry; faulting it in is a swap-in. */
+    if (swap_fault(proc->user_page_dir, addr) == 0) return 0;
+
+    uintptr_t page = ALIGN_DOWN(addr, PAGE_4K_SIZE);
 
     spin_lock(&proc->mmap_lock);
     vm_area_t *vma = proc->mmap_list;
     while (vma && vma->end <= page) vma = vma->next;
     if (!vma || vma->start > page || page >= vma->end) {
         spin_unlock(&proc->mmap_lock);
-        return -1;
+        return -EFAULT;
     }
     vm_flags_t flags     = vma->flags;
     vfs_node_t vm_file   = vma->vm_file;
@@ -2914,9 +2994,9 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     if (vm_file) vm_file = vfs_node_retain(vm_file);
     spin_unlock(&proc->mmap_lock);
 
-    if (exec && !(flags & VM_EXEC)) goto fail;
-    if (write && !(flags & VM_WRITE)) goto fail;
-    if (!(flags & VM_READ)) goto fail;
+    if (exec && !(flags & VM_EXEC)) goto fail_perm;
+    if (write && !(flags & VM_WRITE)) goto fail_perm;
+    if (!(flags & VM_READ)) goto fail_perm;
 
     /* Reclaim before allocating data/page-table frames, with mmap_lock free. */
     frame_reclaim_if_needed(4);
@@ -2929,14 +3009,14 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     if (!vm_file && !pagecache && (flags & VM_ANON)) {
         uintptr_t hbase = ALIGN_DOWN(page, PAGE_2M_SIZE);
         uintptr_t hend  = hbase + PAGE_2M_SIZE;
-        if (hbase >= vma_start && hend <= vma->end
-            && page_count_present_range(proc->user_page_dir, hbase, hend) == 0) {
+        if (hbase >= vma_start && hend <= vma->end && page_count_present_range(proc->user_page_dir, hbase, hend) == 0) {
             uint64_t hframe = alloc_frames_2M(1);
             if (hframe) {
                 memset(phys_to_virt(hframe), 0, PAGE_2M_SIZE);
-                bool   try_shared = (flags & VM_SHARED) != 0;
-                bool   try_exec   = (flags & VM_EXEC)   != 0;
-                uint64_t pte_huge = PTE_USER | PTE_PRESENT | PTE_WRITEABLE | (try_shared ? PTE_SHARED : 0) | (try_exec ? 0 : PTE_NO_EXECUTE) | PTE_COW;
+                bool     try_shared = (flags & VM_SHARED) != 0;
+                bool     try_exec   = (flags & VM_EXEC) != 0;
+                uint64_t pte_huge   = PTE_USER | PTE_PRESENT | PTE_WRITEABLE | (try_shared ? PTE_SHARED : 0) | (try_exec ? 0 : PTE_NO_EXECUTE) | PTE_COW;
+
                 /*
                  * Re-validate under mmap_lock: another thread may have mapped
                  * into the 2 MiB window (fork, madvise, etc.).
@@ -2944,11 +3024,8 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
                 spin_lock(&proc->mmap_lock);
                 vm_area_t *recheck = proc->mmap_list;
                 while (recheck && recheck->end <= hbase) recheck = recheck->next;
-                bool valid = recheck && recheck->start <= hbase && recheck->end >= hend
-                             && recheck->flags == flags && !recheck->vm_file && !recheck->vm_pagecache;
-                if (valid) {
-                    valid = page_count_present_range(proc->user_page_dir, hbase, hend) == 0;
-                }
+                bool valid = recheck && recheck->start <= hbase && recheck->end >= hend && recheck->flags == flags && !recheck->vm_file && !recheck->vm_pagecache;
+                if (valid) valid = page_count_present_range(proc->user_page_dir, hbase, hend) == 0;
                 if (valid) {
                     int rc = page_map_new_to_2M(proc->user_page_dir, hbase, hframe, pte_huge);
                     if (rc == 0) {
@@ -2956,6 +3033,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
                         spin_unlock(&proc->mmap_lock);
                         return 0;
                     }
+
                     /* Atomic fall-back: release the frame and retry 4 KiB path. */
                     (void)frame_release_range(hframe, PAGE_2M_SIZE / PAGE_4K_SIZE);
                 }
@@ -2969,13 +3047,13 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     size_t   index = page - vma_start;
     if (pagecache && vm_file) {
         int dirty = (flags & (VM_SHARED | VM_WRITE)) == (VM_SHARED | VM_WRITE);
-        if (vfs_cache_map_page(vm_file, pgoff + index / PAGE_4K_SIZE, dirty, &frame)) goto fail;
+        if (vfs_cache_map_page(vm_file, pgoff + (index / PAGE_4K_SIZE), dirty, &frame)) goto fail;
     } else if (vm_file) {
         frame = alloc_frames(1);
         if (!frame) goto fail;
         void *virt = phys_to_virt(frame);
         memset(virt, 0, PAGE_4K_SIZE);
-        size_t read_offset = pgoff * PAGE_4K_SIZE + index;
+        size_t read_offset = (pgoff * PAGE_4K_SIZE) + index;
         size_t to_read     = PAGE_4K_SIZE;
         if (read_offset < vm_file->size) {
             if (read_offset + to_read > vm_file->size) to_read = vm_file->size - read_offset;
@@ -2994,7 +3072,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
         || (vm_file && vma->vm_pgoff + (page - vma->start) / PAGE_4K_SIZE != pgoff + index / PAGE_4K_SIZE)) {
         spin_unlock(&proc->mmap_lock);
         (void)frame_release_range(frame, 1);
-        goto fail;
+        goto fail_perm;
     }
     flags = vma->flags;
     if (exec && !(flags & VM_EXEC)) goto fail_frame_locked;
@@ -3009,6 +3087,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
 
     if (page_map_new_to(proc->user_page_dir, page, frame, pte_flags) < 0) {
         (void)frame_release_range(frame, 1);
+
         /*
          * Another thread may have satisfied the same fault while this page
          * was being allocated or read.  Accept its mapping if it permits the
@@ -3016,7 +3095,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
          */
         if (!page_user_accessible(proc->user_page_dir, page, write, exec)) {
             spin_unlock(&proc->mmap_lock);
-            goto fail;
+            goto fail_perm;
         }
     }
     spin_unlock(&proc->mmap_lock);
@@ -3025,9 +3104,12 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
 fail_frame_locked:
     spin_unlock(&proc->mmap_lock);
     (void)frame_release_range(frame, 1);
+fail_perm:
+    if (vm_file) vfs_close(vm_file);
+    return -EFAULT;
 fail:
     if (vm_file) vfs_close(vm_file);
-    return -1;
+    return -ENOMEM;
 }
 
 /* Unmap a VMA starting at the given address */

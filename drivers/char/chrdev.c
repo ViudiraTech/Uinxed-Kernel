@@ -1,7 +1,7 @@
 /*
  *
  *      chrdev.c
- *      Character device registry (Linux fs/char_dev.c analog)
+ *      Character device registry
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -15,7 +15,6 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <sync/spin_lock.h>
 
 static cdev_t    *chrdev_list;
 static spinlock_t chrdev_lock;
@@ -36,6 +35,7 @@ int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, 
         return -ENOMEM;
     }
     if (dir) strncpy(cdev->dir, dir, sizeof(cdev->dir) - 1);
+
     strncpy(cdev->name, name, sizeof(cdev->name) - 1);
     cdev->major      = major;
     cdev->minor_base = minor;
@@ -58,10 +58,7 @@ int cdev_del(const char *path)
     cdev_t **link;
     int      status = -ENOENT;
 
-    if (!path) {
-        plogk("chrdev: cdev_del: NULL path.\n");
-        return -EINVAL;
-    }
+    if (!path) return -EINVAL;
     (void)snprintf(full, sizeof(full), "/dev/%s", path);
 
     spin_lock(&chrdev_lock);
@@ -82,50 +79,74 @@ int cdev_del(const char *path)
     return status;
 }
 
-/* Find the cdev covering a given major/minor pair. */
-cdev_t *chrdev_lookup(uint32_t major, uint32_t minor)
+/* Copy the cdev at a registry index, or return false at the end of the list. */
+static bool chrdev_at(int index, cdev_t *out)
 {
-    cdev_t *cdev;
+    bool found = false;
 
+    if (!out || index < 0) return false;
     spin_lock(&chrdev_lock);
-    for (cdev = chrdev_list; cdev; cdev = cdev->next) {
-        if (cdev->major != major) continue;
-        if (minor >= cdev->minor_base && minor < cdev->minor_base + cdev->count) break;
+    cdev_t *cdev = chrdev_list;
+    for (int i = 0; cdev && i < index; i++) cdev = cdev->next;
+    if (cdev) {
+        *out      = *cdev;
+        out->next = NULL;
+        found     = true;
     }
     spin_unlock(&chrdev_lock);
-    return cdev;
+    return found;
+}
+
+/* Copy the cdev covering a major/minor pair. */
+bool chrdev_lookup(uint32_t major, uint32_t minor, cdev_t *out)
+{
+    bool found = false;
+
+    if (!out) return false;
+    spin_lock(&chrdev_lock);
+    for (cdev_t *cdev = chrdev_list; cdev; cdev = cdev->next) {
+        if (cdev->major != major) continue;
+        if (minor < cdev->minor_base || minor >= cdev->minor_base + cdev->count) continue;
+        *out      = *cdev;
+        out->next = NULL;
+        found     = true;
+        break;
+    }
+    spin_unlock(&chrdev_lock);
+    return found;
 }
 
 /* Create device nodes for every registered character device. */
 int chrdev_populate(void)
 {
-    int     count = 0;
-    cdev_t *cdev;
+    int    count = 0;
+    cdev_t cdev;
 
-    spin_lock(&chrdev_lock);
-    for (cdev = chrdev_list; cdev; cdev = cdev->next) {
-        char     path[96];
-        uint32_t major     = cdev->major;
-        uint32_t first     = cdev->minor_base;
-        uint32_t n         = cdev->count;
-        bool     has_dir   = cdev->dir[0] != '\0';
-        uint16_t mode      = cdev->mode;
-        uint16_t node_type = cdev->node_type;
+    for (int index = 0; chrdev_at(index, &cdev); index++) {
+        uint32_t major     = cdev.major;
+        uint32_t first     = cdev.minor_base;
+        uint32_t n         = cdev.count;
+        bool     has_dir   = cdev.dir[0] != '\0';
+        uint16_t mode      = cdev.mode;
+        uint16_t node_type = cdev.node_type;
 
         for (uint32_t i = 0; i < n; i++) {
             char numbered[32];
 
-            if (n > 1)
-                (void)snprintf(numbered, sizeof(numbered), "%s%u", cdev->name, first + i);
-            else
+            if (n > 1) {
+                (void)snprintf(numbered, sizeof(numbered), "%s%u", cdev.name, first + i);
+            } else {
                 numbered[0] = '\0';
-            const char *leaf = n > 1 ? numbered : cdev->name;
-            if (has_dir)
-                (void)snprintf(path, sizeof(path), "/dev/%s/%s", cdev->dir, leaf);
-            else
-                (void)snprintf(path, sizeof(path), "/dev/%s", leaf);
+            }
 
-            if (devtmpfs_register_char_device(path, MKDEV(major, first + i), MKDEV(major, first + i), node_type, &cdev->ops) != 0) continue;
+            const char *leaf = n > 1 ? numbered : cdev.name;
+            char        path[96];
+            if (has_dir) {
+                (void)snprintf(path, sizeof(path), "/dev/%s/%s", cdev.dir, leaf);
+            } else {
+                (void)snprintf(path, sizeof(path), "/dev/%s", leaf);
+            }
+            if (devtmpfs_register_char_device(path, MKDEV(major, first + i), MKDEV(major, first + i), node_type, &cdev.ops) != 0) continue;
             if (mode) {
                 vfs_node_t node = vfs_open(path);
                 if (node) {
@@ -136,7 +157,6 @@ int chrdev_populate(void)
             count++;
         }
     }
-    spin_unlock(&chrdev_lock);
     return count;
 }
 

@@ -12,19 +12,16 @@
 #include <drivers/firmware/apic.h>
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/input/ps2/ps2.h>
-#include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <sync/spin_lock.h>
 
-static bool ps2_port1_ok;
-static bool ps2_port2_ok;
+#if CONFIG_PS2_KEYBOARD_MOUSE
 
-#define PS2_PORT_KEYBOARD    0U
-#define PS2_PORT_MOUSE       1U
-#define PS2_PORT_COUNT       2U
-#define PS2_IRQ_DRAIN_BUDGET 64U
-#define PS2_INPUT_BATCH_SIZE PS2_IRQ_DRAIN_BUDGET
+#    define PS2_PORT_KEYBOARD    0U
+#    define PS2_PORT_MOUSE       1U
+#    define PS2_PORT_COUNT       2U
+#    define PS2_IRQ_DRAIN_BUDGET 64U
+#    define PS2_INPUT_BATCH_SIZE PS2_IRQ_DRAIN_BUDGET
 
 struct ps2_queued_byte {
         uint8_t status;
@@ -36,6 +33,8 @@ struct ps2_input_batch {
         size_t                 count;
 };
 
+static bool ps2_port1_ok;
+static bool ps2_port2_ok;
 static bool ps2_resync_pending[PS2_PORT_COUNT];
 
 /* Serializes the shared status/data registers across IRQ1, IRQ12 and commands. */
@@ -53,23 +52,25 @@ static void ps2_batch_input_locked(struct ps2_input_batch *batch, uint8_t status
     batch->events[batch->count++] = (struct ps2_queued_byte) {.status = status, .data = data};
 }
 
-/* Decode and inject one byte synchronously, as Linux's serio interrupt path does. */
+/* Decode and inject one byte synchronously from the interrupt path. */
 static void ps2_dispatch_input(uint8_t status, uint8_t data)
 {
     unsigned int port = (status & PS2_STATUS_AUX_DATA) ? PS2_PORT_MOUSE : PS2_PORT_KEYBOARD;
 
     if (ps2_resync_pending[port] || (status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY))) {
         ps2_resync_pending[port] = false;
-        if (port == PS2_PORT_MOUSE)
+        if (port == PS2_PORT_MOUSE) {
             ps2_mouse_reset_stream();
-        else
+        } else {
             ps2_keyboard_reset_stream();
+        }
         if (status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY)) return;
     }
-    if (port == PS2_PORT_MOUSE)
+    if (port == PS2_PORT_MOUSE) {
         ps2_mouse_handle_byte(data);
-    else
+    } else {
         ps2_keyboard_handle_byte(data);
+    }
 }
 
 /* Dispatch all queued PS/2 input events in the batch. */
@@ -78,7 +79,7 @@ static void ps2_dispatch_batch(const struct ps2_input_batch *batch)
     for (size_t i = 0; i < batch->count; i++) ps2_dispatch_input(batch->events[i].status, batch->events[i].data);
 }
 
-/* Poll the status register until the controller has data for us. */
+/* Poll the status register until the controller has data. */
 int wait_ps2_read(void)
 {
     for (size_t i = 0; i < 10000; i++)
@@ -239,9 +240,6 @@ INTERRUPT_END
 /* Probe and initialize the i8042 controller and its ports. */
 void init_ps2(void)
 {
-#if !CONFIG_PS2_KEYBOARD_MOUSE
-    return;
-#endif
     uint8_t config;
     uint8_t result;
     bool    dual_channel;
@@ -305,3 +303,5 @@ void init_ps2(void)
     }
     plogk("ps2: Keyboard=%s mouse-port=%s\n", ps2_port1_ok ? "ready" : "unavailable", ps2_port2_ok ? "ready" : "unavailable");
 }
+
+#endif

@@ -30,13 +30,28 @@
 #define FUTEX_CMP_REQUEUE_PI  12
 #define FUTEX_LOCK_PI2        13
 
+/* FUTEX_WAKE_OP operation codes */
+#define FUTEX_OP_SET  0
+#define FUTEX_OP_ADD  1
+#define FUTEX_OP_OR   2
+#define FUTEX_OP_ANDN 3
+#define FUTEX_OP_XOR  4
+
+/* FUTEX_WAKE_OP comparison codes */
+#define FUTEX_OP_CMP_EQ 0
+#define FUTEX_OP_CMP_NE 1
+#define FUTEX_OP_CMP_LT 2
+#define FUTEX_OP_CMP_LE 3
+#define FUTEX_OP_CMP_GT 4
+#define FUTEX_OP_CMP_GE 5
+
 #define FUTEX_PRIVATE_FLAG   128
 #define FUTEX_CLOCK_REALTIME 256
 
 /* 64-bit mask/bitset support (used by classic bitsets and futex2 masks) */
 #define FUTEX_BITSET_MATCH_ANY 0xffffffffffffffffULL
 
-/* futex2 flags (Linux 6.7+ futex_wake / futex_wait / futex_requeue) */
+/* futex2 flags (futex_wake / futex_wait / futex_requeue) */
 
 #define FUTEX2_SIZE_U8   0x00
 #define FUTEX2_SIZE_U16  0x01
@@ -66,7 +81,7 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
 /* futex_waitv: block until one of a vector of 32-bit futexes is woken. */
 int64_t sys_futex_waitv(uint64_t waiters, uint64_t nr_waiters, uint64_t flags, uint64_t timeout, uint64_t clockid, uint64_t reserved);
 
-/* futex2 syscalls (Linux 6.7+): syscall numbers 454 / 455 / 456 */
+/* futex2 syscalls: syscall numbers 454 / 455 / 456 */
 int64_t sys_futex_wake(uint64_t uaddr, uint64_t mask, uint64_t nr, uint64_t flags, uint64_t a4, uint64_t a5);
 int64_t sys_futex_wait(uint64_t uaddr, uint64_t val, uint64_t mask, uint64_t flags, uint64_t timeout, uint64_t clockid);
 int64_t sys_futex_requeue(uint64_t waiters, uint64_t flags, uint64_t nr_wake, uint64_t nr_requeue, uint64_t a4, uint64_t a5);

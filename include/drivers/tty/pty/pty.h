@@ -16,11 +16,8 @@
 #define PTMX_MAJOR 5
 #define PTMX_MINOR 2
 
+/* ptmx device operations table.  devtmpfs registers /dev/ptmx with this table during boot (see devtmpfs_create_ptmx_node()). */
 #if CONFIG_UNIX98_PTYS
-/*
- * ptmx device operations table.  devtmpfs registers /dev/ptmx with this
- * table during boot (see devtmpfs_create_ptmx_node()).
- */
 extern const tmpfs_device_ops_t pty_ptmx_operations;
 #endif
 

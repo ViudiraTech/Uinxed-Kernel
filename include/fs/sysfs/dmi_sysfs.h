@@ -11,10 +11,11 @@
 #ifndef INCLUDE_DMI_SYSFS_H_
 #define INCLUDE_DMI_SYSFS_H_
 
-/*
- * Register /sys/class/dmi/id (system identity attributes) and
- * /sys/firmware/dmi/tables/DMI (raw SMBIOS structure table).
- */
+/* Register /sys/class/dmi/id (system identity attributes) and /sys/firmware/dmi/tables/DMI (raw SMBIOS structure table). */
+#if CONFIG_SYSFS
 void dmi_sysfs_init(void);
+#else
+static inline void dmi_sysfs_init(void) {}
+#endif
 
 #endif // INCLUDE_DMI_SYSFS_H_

@@ -9,51 +9,25 @@
  */
 
 #define UINXED_MODULE_CORE
+
+#include <arch/common.h>
 #include <arch/smp.h>
-#include <boot/limine.h>
 #include <fs/sysfs/module_sysfs.h>
-#include <kernel/errno.h>
 #include <kernel/module/elf.h>
 #include <kernel/module/module.h>
 #include <kernel/module/module_elf.h>
-#include <kernel/printk.h>
-#include <kernel/uinxed.h>
-#include <libs/kobject/kobject.h>
-#include <libs/list/circular_list.h>
-#include <libs/std/math.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
-#include <mem/page.h>
 #include <mem/page_walker.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
 
-#ifndef CONFIG_MODULES
-#    define CONFIG_MODULES 1
-#endif
-#ifndef CONFIG_MODULE_FORCE_LOAD
-#    define CONFIG_MODULE_FORCE_LOAD 0
-#endif
-#ifndef CONFIG_MODULE_FORCE_UNLOAD
-#    define CONFIG_MODULE_FORCE_UNLOAD 0
-#endif
-#ifndef CONFIG_MODULE_SIG_FORCE
-#    define CONFIG_MODULE_SIG_FORCE 0
-#endif
-#ifndef CONFIG_MODULE_MAX_SIZE
-#    define CONFIG_MODULE_MAX_SIZE 64
-#endif
+#if CONFIG_MODULES
 
-#define MODULE_MAX_SIZE         ((size_t)CONFIG_MODULE_MAX_SIZE * 1024U * 1024U)
-#define MODULE_VADDR_OFFSET     0x20000000ULL
-#define MODULE_VADDR_LIMIT      0x78000000ULL
-#define MODULE_MAX_DEPENDENCIES 256
+#    define MODULE_MAX_SIZE         ((size_t)CONFIG_MODULE_MAX_SIZE * 1024U * 1024U)
+#    define MODULE_VADDR_OFFSET     0x20000000ULL
+#    define MODULE_VADDR_LIMIT      0x78000000ULL
+#    define MODULE_MAX_DEPENDENCIES 256
 
 typedef struct module_dependency {
         struct module            *owner;
@@ -112,10 +86,8 @@ extern const struct kernel_symbol __stop___ksymtab[];
 
 static module_internal_t          *module_list;
 static spinlock_t                  module_lock;
-static volatile uint32_t           module_operation;
+static raw_spinlock_t              module_operation;
 static module_signature_verifier_t signature_verifier;
-
-/* Overflow-checked helpers used throughout module metadata parsing */
 
 /* Add two sizes, checking for overflow */
 static int size_add(size_t left, size_t right, size_t *result)
@@ -133,12 +105,6 @@ static int align_size(size_t value, size_t alignment, size_t *result)
     if (value > SIZE_MAX - (alignment - 1)) return -EOVERFLOW;
     *result = (value + alignment - 1) & ~(alignment - 1);
     return EOK;
-}
-
-/* Whether a range lies within the module image bounds */
-static int image_range_valid(size_t offset, size_t length, size_t total)
-{
-    return offset <= total && length <= total - offset;
 }
 
 /* Whether a string is NUL-terminated within the given length */
@@ -224,7 +190,7 @@ static int module_name_valid(const char *name)
     size_t length = 0;
     for (; name[length]; length++) {
         char c = name[length];
-        if (length >= MODULE_NAME_LEN - 1 || !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) return 0;
+        if (length >= CONFIG_MODULE_NAME_LEN - 1 || !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) return 0;
     }
     return length != 0;
 }
@@ -397,14 +363,13 @@ static module_internal_t *module_find_locked(const char *name)
 /* Acquire the module operation lock for a load/unload */
 static int operation_begin(void)
 {
-    uint32_t expected = 0;
-    return __atomic_compare_exchange_n(&module_operation, &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE) ? EOK : -EBUSY;
+    return raw_spin_trylock(&module_operation) ? EOK : -EBUSY;
 }
 
 /* Release the module operation lock */
 static void operation_end(void)
 {
-    __atomic_store_n(&module_operation, 0, __ATOMIC_RELEASE);
+    raw_spin_unlock(&module_operation);
 }
 
 /*
@@ -620,7 +585,7 @@ static int prepare_metadata(module_internal_t *internal, const module_elf_view_t
         owned_name = duplicate_range(base, length);
         name       = owned_name;
     }
-    if (!name || length >= MODULE_NAME_LEN) {
+    if (!name || length >= CONFIG_MODULE_NAME_LEN) {
         free(owned_name);
         return -ENOEXEC;
     }
@@ -645,7 +610,7 @@ static int prepare_metadata(module_internal_t *internal, const module_elf_view_t
     }
 
     const char *vermagic = modinfo_find(view, "vermagic", 0, NULL);
-    if (!vermagic || !streq(vermagic, KERNEL_VERSION)) {
+    if (!vermagic || !streq(vermagic, VERMAGIC_STRING)) {
         if (!(flags & MODULE_INIT_IGNORE_VERMAGIC)) return -ENOEXEC;
         if (!CONFIG_MODULE_FORCE_LOAD) return -EPERM;
         internal->module->taints |= MODULE_TAINT_FORCED;
@@ -684,10 +649,11 @@ static int load_declared_dependencies(module_internal_t *internal, const module_
         if (*cursor) {
             uint64_t           irq      = spin_lock_irqsave(&module_lock);
             module_internal_t *provider = module_find_locked(cursor);
-            if (!provider)
+            if (!provider) {
                 result = -ENOENT;
-            else
+            } else {
                 result = dependency_add(internal, provider->module);
+            }
             spin_unlock_irqrestore(&module_lock, irq);
             if (result != EOK) break;
         }
@@ -748,10 +714,11 @@ static int layout_sections(module_internal_t *internal, const module_elf_view_t 
         if (!layout->name) return -ENOMEM;
         layout->init          = !strncmp(name, ".init", 5);
         layout->ro_after_init = streq(name, ".data..ro_after_init");
-        if (layout->init)
+        if (layout->init) {
             internal->module->init_size += mapped;
-        else
+        } else {
             internal->module->core_size += mapped;
+        }
     }
     if (!total) return -ENOEXEC;
     internal->mapped_size = total;
@@ -771,11 +738,12 @@ static void unmap_module(module_internal_t *internal)
     bool any_mapped = false;
     for (size_t index = 0; index < internal->page_count; index++) {
         if (!internal->frames[index]) continue;
-        uint64_t frame = page_unmap(get_kernel_pagedir(), internal->base + index * PAGE_4K_SIZE);
-        if (!frame)
+        uint64_t frame = page_unmap(get_kernel_pagedir(), internal->base + (index * PAGE_4K_SIZE));
+        if (!frame) {
             internal->frames[index] = 0;
-        else
+        } else {
             any_mapped = true;
+        }
     }
 
     if (any_mapped) flush_tlb_all();
@@ -816,10 +784,10 @@ static int map_sections(module_internal_t *internal, const module_elf_view_t *vi
         size_t mapped   = ALIGN_UP(section->sh_size, PAGE_4K_SIZE);
 
         for (size_t page = 0; page < mapped / PAGE_4K_SIZE; page++) {
-            size_t   frame_index = offset / PAGE_4K_SIZE + page;
+            size_t   frame_index = (offset / PAGE_4K_SIZE) + page;
             uint64_t frame       = alloc_frames(1);
             if (!frame) return -ENOMEM;
-            if (page_map_new_to(get_kernel_pagedir(), base + frame_index * PAGE_4K_SIZE, frame, PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)) {
+            if (page_map_new_to(get_kernel_pagedir(), base + (frame_index * PAGE_4K_SIZE), frame, PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)) {
                 (void)frame_release_range(frame, 1);
                 return -ENOMEM;
             }
@@ -999,10 +967,11 @@ static int find_lifecycle(module_internal_t *internal, const module_elf_view_t *
         uint64_t value = 0;
         int      ret   = resolve_elf_symbol(internal, view, symbols, &table[index], &value);
         if (ret != EOK || !module_range_mapped(internal, value, 1)) return -ENOEXEC;
-        if (streq(name, "init_module"))
+        if (streq(name, "init_module")) {
             internal->init = (int (*)(void))value;
-        else
+        } else {
             internal->exit = (void (*)(void))value;
+        }
     }
     return EOK;
 }
@@ -1061,14 +1030,15 @@ static int parse_unsigned_value(const char *value, uint64_t *result)
     int      digits = 0;
     for (; value[index]; index++) {
         unsigned int digit;
-        if (value[index] >= '0' && value[index] <= '9')
+        if (value[index] >= '0' && value[index] <= '9') {
             digit = value[index] - '0';
-        else if (value[index] >= 'a' && value[index] <= 'f')
+        } else if (value[index] >= 'a' && value[index] <= 'f') {
             digit = value[index] - 'a' + 10;
-        else if (value[index] >= 'A' && value[index] <= 'F')
+        } else if (value[index] >= 'A' && value[index] <= 'F') {
             digit = value[index] - 'A' + 10;
-        else
+        } else {
             return -EINVAL;
+        }
         if (digit >= base || number > (UINT64_MAX - digit) / base) return -ERANGE;
         number = number * base + digit;
         digits = 1;
@@ -1087,7 +1057,15 @@ static int parse_signed_value(const char *value, int64_t *result)
     int      ret      = parse_unsigned_value(value + negative, &number);
     if (ret != EOK) return ret;
     if ((!negative && number > INT64_MAX) || (negative && number > (uint64_t)INT64_MAX + 1)) return -ERANGE;
-    *result = negative ? (number == (uint64_t)INT64_MAX + 1 ? INT64_MIN : -(int64_t)number) : (int64_t)number;
+    if (negative) {
+        if (number == (uint64_t)INT64_MAX + 1) {
+            *result = INT64_MIN;
+        } else {
+            *result = -(int64_t)number;
+        }
+    } else {
+        *result = (int64_t)number;
+    }
     return EOK;
 }
 
@@ -1133,12 +1111,13 @@ static int set_parameter(module_internal_t *internal, const struct kernel_param 
             if (ret == EOK) *(uint64_t *)parameter->arg = unsigned_value;
             return ret;
         case MODULE_PARAM_BOOL :
-            if (streq(value, "1") || streq(value, "y") || streq(value, "Y") || streq(value, "yes") || streq(value, "true") || streq(value, "on"))
+            if (streq(value, "1") || streq(value, "y") || streq(value, "Y") || streq(value, "yes") || streq(value, "true") || streq(value, "on")) {
                 *(bool *)parameter->arg = true;
-            else if (streq(value, "0") || streq(value, "n") || streq(value, "N") || streq(value, "no") || streq(value, "false") || streq(value, "off"))
+            } else if (streq(value, "0") || streq(value, "n") || streq(value, "N") || streq(value, "no") || streq(value, "false") || streq(value, "off")) {
                 *(bool *)parameter->arg = false;
-            else
+            } else {
                 return -EINVAL;
+            }
             return EOK;
         case MODULE_PARAM_CHARP : {
             char *copy = strdup(value);
@@ -1281,7 +1260,7 @@ static int protect_module(module_internal_t *internal, int after_init)
             page_map_to(get_kernel_pagedir(), layout->address + offset, internal->frames[page_index], flags);
         }
     }
-    __asm__ volatile("mfence" ::: "memory");
+    dma_full_barrier();
     return EOK;
 }
 
@@ -1337,20 +1316,9 @@ static void destroy_internal(module_internal_t *internal)
     free(internal);
 }
 
-/*
- * Load a kernel module: validate, layout, map, relocate, then run init.
- * The pipeline is all-or-nothing: any failure destroys the partial state.
- */
+/* Load a kernel module: validate, layout, map, relocate, then run init. The pipeline is all-or-nothing: any failure destroys the partial state. */
 int module_load(const void *image, size_t size, const char *params, unsigned int flags, const char *name_hint)
 {
-#if !CONFIG_MODULES
-    (void)image;
-    (void)size;
-    (void)params;
-    (void)flags;
-    (void)name_hint;
-    return -ENOSYS;
-#else
     if (!image || !size || size > MODULE_MAX_SIZE) return !image ? -EFAULT : -EFBIG;
     if (flags & ~(MODULE_INIT_IGNORE_MODVERSIONS | MODULE_INIT_IGNORE_VERMAGIC | MODULE_INIT_COMPRESSED_FILE)) return -EINVAL;
     if (flags & MODULE_INIT_COMPRESSED_FILE) return -EOPNOTSUPP;
@@ -1433,22 +1401,17 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
     operation_end();
     return EOK;
 out_destroy:
-    plogk("module: Load of \"%s\" failed: %d\n", internal->module->name[0] ? internal->module->name : "(unnamed)", result);
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    if (ratelimit_allow(&ratelimit)) plogk("module: Load of \"%s\" failed: %d\n", internal->module->name[0] ? internal->module->name : "(unnamed)", result);
     destroy_internal(internal);
 out_operation:
     operation_end();
     return result;
-#endif
 }
 
 /* Unload a module by name after dropping its refcount to zero */
 int module_unload(const char *name, unsigned int flags)
 {
-#if !CONFIG_MODULES
-    (void)name;
-    (void)flags;
-    return -ENOSYS;
-#else
     if (!module_name_valid(name) || (flags & ~(MODULE_DELETE_NONBLOCK | MODULE_DELETE_FORCE))) return -EINVAL;
     if ((flags & MODULE_DELETE_FORCE) && !CONFIG_MODULE_FORCE_UNLOAD) return -EPERM;
     int result = operation_begin();
@@ -1496,7 +1459,6 @@ int module_unload(const char *name, unsigned int flags)
 out:
     operation_end();
     return result;
-#endif
 }
 
 /* Format the /proc/modules listing for all loaded modules */
@@ -1520,8 +1482,8 @@ size_t module_format_proc(char *buffer, size_t size)
             users[0] = '-';
             users[1] = 0;
         }
-        int n = snprintf(buffer + written, size - written, "%s %zu %u %s %s 0x%llx\n", item->module->name, item->module->core_size + item->module->init_size, module_refcount(item->module), users,
-                         item->module->state == MODULE_STATE_LIVE ? "Live" : module_state_name(item->module->state), (unsigned long long)item->base);
+        int n = snprintf(buffer + written, size - written, "%s %zu %u %s %s 0x%lx\n", item->module->name, item->module->core_size + item->module->init_size, module_refcount(item->module), users,
+                         item->module->state == MODULE_STATE_LIVE ? "Live" : module_state_name(item->module->state), item->base);
         if (n < 0) break;
         if ((size_t)n >= size - written) {
             written = size - 1;
@@ -1552,6 +1514,8 @@ int module_set_signature_verifier(module_signature_verifier_t verifier)
 void module_subsystem_init(void)
 {
     memset(&module_lock, 0, sizeof(module_lock));
-    module_list      = NULL;
-    module_operation = 0;
+    module_list           = NULL;
+    module_operation.lock = 0;
 }
+
+#endif

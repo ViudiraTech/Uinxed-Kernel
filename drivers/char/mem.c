@@ -14,7 +14,6 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 
 #define MEM_MAJOR 1
 
@@ -31,6 +30,22 @@ typedef struct {
 
 static spinlock_t mem_random_lock;
 static uint64_t   mem_random_state[4];
+
+static mem_memory_device_t mem_devices[] = {
+    {.kind = MEM_MEM_NULL}, {.kind = MEM_MEM_ZERO}, {.kind = MEM_MEM_FULL}, {.kind = MEM_MEM_RANDOM}, {.kind = MEM_MEM_RANDOM},
+};
+
+static const struct {
+        const char *name;
+        uint8_t     minor;
+        uint16_t    mode;
+} mem_nodes[] = {
+    {.name = "null",    .minor = 3, .mode = 0666},
+    {.name = "zero",    .minor = 5, .mode = 0666},
+    {.name = "full",    .minor = 7, .mode = 0666},
+    {.name = "random",  .minor = 8, .mode = 0666},
+    {.name = "urandom", .minor = 9, .mode = 0666},
+};
 
 /* Return one xoshiro256** word, seeding lazily from rdtsc. */
 static uint64_t mem_random_word(void)
@@ -67,6 +82,7 @@ static int64_t mem_read(void *ctx, void *private_data, uint64_t flags, void *buf
     (void)private_data;
     (void)flags;
     (void)offset;
+
     if (!device || (!buffer && size)) return -EINVAL;
     if (device->kind == MEM_MEM_NULL) return 0;
     if (device->kind == MEM_MEM_ZERO || device->kind == MEM_MEM_FULL) {
@@ -93,6 +109,7 @@ static int64_t mem_write(void *ctx, void *private_data, uint64_t flags, const vo
     (void)flags;
     (void)buffer;
     (void)offset;
+
     if (!device) return -EINVAL;
     return device->kind == MEM_MEM_FULL ? -ENOSPC : (int64_t)size;
 }
@@ -104,10 +121,12 @@ static int64_t mem_read_user(void *ctx, void *private_data, uint64_t flags, void
     (void)private_data;
     (void)flags;
     (void)offset;
+
     if (!device) return -EINVAL;
     if (device->kind == MEM_MEM_NULL) return 0;
-    if (device->kind != MEM_MEM_ZERO && device->kind != MEM_MEM_FULL) return -ENOSYS;
+    if (device->kind != MEM_MEM_ZERO && device->kind != MEM_MEM_FULL) return -EOPNOTSUPP;
     if (clear_user_process(proc, buffer, size)) return -EFAULT;
+
     return (int64_t)size;
 }
 
@@ -117,22 +136,6 @@ static int64_t mem_write_user(void *ctx, void *private_data, uint64_t flags, con
     (void)proc;
     return mem_write(ctx, private_data, flags, buffer, offset, size);
 }
-
-static mem_memory_device_t mem_devices[] = {
-    {.kind = MEM_MEM_NULL}, {.kind = MEM_MEM_ZERO}, {.kind = MEM_MEM_FULL}, {.kind = MEM_MEM_RANDOM}, {.kind = MEM_MEM_RANDOM},
-};
-
-static const struct {
-        const char *name;
-        uint8_t     minor;
-        uint16_t    mode;
-} mem_nodes[] = {
-    {.name = "null",    .minor = 3, .mode = 0666},
-    {.name = "zero",    .minor = 5, .mode = 0666},
-    {.name = "full",    .minor = 7, .mode = 0666},
-    {.name = "random",  .minor = 8, .mode = 0666},
-    {.name = "urandom", .minor = 9, .mode = 0666},
-};
 
 /* Register the standard memory character devices. */
 void memdev_init(void)
@@ -145,6 +148,6 @@ void memdev_init(void)
             .ctx             = &mem_devices[i],
         };
         if (mem_devices[i].kind != MEM_MEM_RANDOM) ops.file_read_user = mem_read_user;
-        (void)cdev_add("", mem_nodes[i].name, MEM_MAJOR, mem_nodes[i].minor, 1, file_stream, mem_nodes[i].mode, &ops);
+        if (cdev_add("", mem_nodes[i].name, MEM_MAJOR, mem_nodes[i].minor, 1, file_stream, mem_nodes[i].mode, &ops) != EOK) plogk("chrdev: Cannot register /dev/%s\n", mem_nodes[i].name);
     }
 }

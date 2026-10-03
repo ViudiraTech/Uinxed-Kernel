@@ -3,7 +3,7 @@
  *      drm_edid.h
  *      DRM EDID (Extended Display Identification Data) parsing
  *
- *      2026/8/10 by MicroFish
+ *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -12,8 +12,6 @@
 #define INCLUDE_DRM_EDID_H_
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 
 #define EDID_LENGTH 128
 #define DDC_ADDR    0x50
@@ -26,12 +24,6 @@
 #define MI_EXT        0x60
 #define DISPLAYID_EXT 0x70
 
-struct est_timings {
-        uint8_t t1;
-        uint8_t t2;
-        uint8_t mfg_rsvd;
-} __attribute__((packed));
-
 /* 00=16:10, 01=4:3, 10=5:4, 11=16:9 */
 #define EDID_TIMING_ASPECT_SHIFT 6
 #define EDID_TIMING_ASPECT_MASK  (0x3 << EDID_TIMING_ASPECT_SHIFT)
@@ -39,16 +31,100 @@ struct est_timings {
 #define EDID_TIMING_VFREQ_SHIFT 0
 #define EDID_TIMING_VFREQ_MASK  (0x3f << EDID_TIMING_VFREQ_SHIFT)
 
-struct std_timing {
-        uint8_t hsize; // need to multiply by 8 then add 248
-        uint8_t vfreq_aspect;
-} __attribute__((packed));
-
 #define DRM_EDID_PT_HSYNC_POSITIVE (1 << 1)
 #define DRM_EDID_PT_VSYNC_POSITIVE (1 << 2)
 #define DRM_EDID_PT_SEPARATE_SYNC  (3 << 3)
 #define DRM_EDID_PT_STEREO         (1 << 5)
 #define DRM_EDID_PT_INTERLACED     (1 << 7)
+
+#define DRM_EDID_RANGE_OFFSET_MIN_VFREQ (1 << 0) // 1.4
+#define DRM_EDID_RANGE_OFFSET_MAX_VFREQ (1 << 1) // 1.4
+#define DRM_EDID_RANGE_OFFSET_MIN_HFREQ (1 << 2) // 1.4
+#define DRM_EDID_RANGE_OFFSET_MAX_HFREQ (1 << 3) // 1.4
+
+#define DRM_EDID_DEFAULT_GTF_SUPPORT_FLAG   0x00 // 1.3
+#define DRM_EDID_RANGE_LIMITS_ONLY_FLAG     0x01 // 1.4
+#define DRM_EDID_SECONDARY_GTF_SUPPORT_FLAG 0x02 // 1.3
+#define DRM_EDID_CVT_SUPPORT_FLAG           0x04 // 1.4
+
+#define DRM_EDID_CVT_FLAGS_STANDARD_BLANKING (1 << 3)
+#define DRM_EDID_CVT_FLAGS_REDUCED_BLANKING  (1 << 4)
+
+#define EDID_DETAIL_EST_TIMINGS     0xf7
+#define EDID_DETAIL_CVT_3BYTE       0xf8
+#define EDID_DETAIL_COLOR_MGMT_DATA 0xf9
+#define EDID_DETAIL_STD_MODES       0xfa
+#define EDID_DETAIL_MONITOR_CPDATA  0xfb
+#define EDID_DETAIL_MONITOR_NAME    0xfc
+#define EDID_DETAIL_MONITOR_RANGE   0xfd
+#define EDID_DETAIL_MONITOR_STRING  0xfe
+#define EDID_DETAIL_MONITOR_SERIAL  0xff
+
+#define DRM_EDID_INPUT_SERRATION_VSYNC (1 << 0)
+#define DRM_EDID_INPUT_SYNC_ON_GREEN   (1 << 1)
+#define DRM_EDID_INPUT_COMPOSITE_SYNC  (1 << 2)
+#define DRM_EDID_INPUT_SEPARATE_SYNCS  (1 << 3)
+#define DRM_EDID_INPUT_BLANK_TO_BLACK  (1 << 4)
+#define DRM_EDID_INPUT_VIDEO_LEVEL     (3 << 5)
+#define DRM_EDID_INPUT_DIGITAL         (1 << 7)
+#define DRM_EDID_DIGITAL_DEPTH_MASK    (7 << 4) // 1.4
+#define DRM_EDID_DIGITAL_DEPTH_UNDEF   (0 << 4) // 1.4
+#define DRM_EDID_DIGITAL_DEPTH_6       (1 << 4) // 1.4
+#define DRM_EDID_DIGITAL_DEPTH_8       (2 << 4) // 1.4
+#define DRM_EDID_DIGITAL_DEPTH_10      (3 << 4) // 1.4
+#define DRM_EDID_DIGITAL_DEPTH_12      (4 << 4) // 1.4
+#define DRM_EDID_DIGITAL_DEPTH_14      (5 << 4) // 1.4
+#define DRM_EDID_DIGITAL_DEPTH_16      (6 << 4) // 1.4
+#define DRM_EDID_DIGITAL_DEPTH_RSVD    (7 << 4) // 1.4
+#define DRM_EDID_DIGITAL_TYPE_MASK     (7 << 0) // 1.4
+#define DRM_EDID_DIGITAL_TYPE_UNDEF    (0 << 0) // 1.4
+#define DRM_EDID_DIGITAL_TYPE_DVI      (1 << 0) // 1.4
+#define DRM_EDID_DIGITAL_TYPE_HDMI_A   (2 << 0) // 1.4
+#define DRM_EDID_DIGITAL_TYPE_HDMI_B   (3 << 0) // 1.4
+#define DRM_EDID_DIGITAL_TYPE_MDDI     (4 << 0) // 1.4
+#define DRM_EDID_DIGITAL_TYPE_DP       (5 << 0) // 1.4
+#define DRM_EDID_DIGITAL_DFP_1_X       (1 << 0) // 1.3
+
+#define DRM_EDID_FEATURE_DEFAULT_GTF      (1 << 0) // 1.2
+#define DRM_EDID_FEATURE_CONTINUOUS_FREQ  (1 << 0) // 1.4
+#define DRM_EDID_FEATURE_PREFERRED_TIMING (1 << 1)
+#define DRM_EDID_FEATURE_STANDARD_COLOR   (1 << 2)
+
+/* If analog */
+#define DRM_EDID_FEATURE_DISPLAY_TYPE (3 << 3) // 00=mono, 01=rgb, 10=non-rgb, 11=unknown
+
+/* If digital */
+#define DRM_EDID_FEATURE_COLOR_MASK   (3 << 3)
+#define DRM_EDID_FEATURE_RGB          (0 << 3)
+#define DRM_EDID_FEATURE_RGB_YCRCB444 (1 << 3)
+#define DRM_EDID_FEATURE_RGB_YCRCB422 (2 << 3)
+#define DRM_EDID_FEATURE_RGB_YCRCB    (3 << 3) // both 4:4:4 and 4:2:2
+
+#define DRM_EDID_FEATURE_PM_ACTIVE_OFF (1 << 5)
+#define DRM_EDID_FEATURE_PM_SUSPEND    (1 << 6)
+#define DRM_EDID_FEATURE_PM_STANDBY    (1 << 7)
+
+#define DRM_EDID_HDMI_DC_48   (1 << 6)
+#define DRM_EDID_HDMI_DC_36   (1 << 5)
+#define DRM_EDID_HDMI_DC_30   (1 << 4)
+#define DRM_EDID_HDMI_DC_Y444 (1 << 3)
+
+#define EDID_PRODUCT_ID(e) ((e)->prod_code[0] | ((e)->prod_code[1] << 8))
+
+/* Encode a panel ID (three vendor chars + product id) as a u32. */
+#define drm_edid_encode_panel_id(vend_chr_0, vend_chr_1, vend_chr_2, product_id) \
+    ((((uint32_t)(vend_chr_0) - '@') & 0x1f) << 26 | (((uint32_t)(vend_chr_1) - '@') & 0x1f) << 21 | (((uint32_t)(vend_chr_2) - '@') & 0x1f) << 16 | ((product_id) & 0xffff))
+
+struct est_timings {
+        uint8_t t1;
+        uint8_t t2;
+        uint8_t mfg_rsvd;
+} __attribute__((packed));
+
+struct std_timing {
+        uint8_t hsize; // need to multiply by 8 then add 248
+        uint8_t vfreq_aspect;
+} __attribute__((packed));
 
 /* If detailed data is pixel timing */
 struct detailed_pixel_timing {
@@ -70,23 +146,10 @@ struct detailed_pixel_timing {
         uint8_t misc;
 } __attribute__((packed));
 
-/* If it's not pixel timing, it'll be one of the below */
+/* Detailed-timing descriptor variants other than pixel timing */
 struct detailed_data_string {
         uint8_t str[13];
 } __attribute__((packed));
-
-#define DRM_EDID_RANGE_OFFSET_MIN_VFREQ (1 << 0) // 1.4
-#define DRM_EDID_RANGE_OFFSET_MAX_VFREQ (1 << 1) // 1.4
-#define DRM_EDID_RANGE_OFFSET_MIN_HFREQ (1 << 2) // 1.4
-#define DRM_EDID_RANGE_OFFSET_MAX_HFREQ (1 << 3) // 1.4
-
-#define DRM_EDID_DEFAULT_GTF_SUPPORT_FLAG   0x00 // 1.3
-#define DRM_EDID_RANGE_LIMITS_ONLY_FLAG     0x01 // 1.4
-#define DRM_EDID_SECONDARY_GTF_SUPPORT_FLAG 0x02 // 1.3
-#define DRM_EDID_CVT_SUPPORT_FLAG           0x04 // 1.4
-
-#define DRM_EDID_CVT_FLAGS_STANDARD_BLANKING (1 << 3)
-#define DRM_EDID_CVT_FLAGS_REDUCED_BLANKING  (1 << 4)
 
 struct detailed_data_monitor_range {
         uint8_t min_vfreq;
@@ -137,8 +200,7 @@ struct cvt_timing {
 struct detailed_non_pixel {
         uint8_t pad1;
         uint8_t type; // ff=serial, fe=string, fd=monitor range, fc=monitor name
-                      /* fb=color point data, fa=standard timing data, */
-                      /* f9=undefined, f8=mfg. reserved */
+                      // fb=color point data, fa=standard timing data, f9=undefined, f8=mfg. reserved
         uint8_t pad2;
         union {
                 struct detailed_data_string        str;
@@ -149,16 +211,6 @@ struct detailed_non_pixel {
         } __attribute__((packed)) data;
 } __attribute__((packed));
 
-#define EDID_DETAIL_EST_TIMINGS     0xf7
-#define EDID_DETAIL_CVT_3BYTE       0xf8
-#define EDID_DETAIL_COLOR_MGMT_DATA 0xf9
-#define EDID_DETAIL_STD_MODES       0xfa
-#define EDID_DETAIL_MONITOR_CPDATA  0xfb
-#define EDID_DETAIL_MONITOR_NAME    0xfc
-#define EDID_DETAIL_MONITOR_RANGE   0xfd
-#define EDID_DETAIL_MONITOR_STRING  0xfe
-#define EDID_DETAIL_MONITOR_SERIAL  0xff
-
 struct detailed_timing {
         uint16_t pixel_clock; // need to multiply by 10 KHz
         union {
@@ -167,70 +219,27 @@ struct detailed_timing {
         } __attribute__((packed)) data;
 } __attribute__((packed));
 
-#define DRM_EDID_INPUT_SERRATION_VSYNC (1 << 0)
-#define DRM_EDID_INPUT_SYNC_ON_GREEN   (1 << 1)
-#define DRM_EDID_INPUT_COMPOSITE_SYNC  (1 << 2)
-#define DRM_EDID_INPUT_SEPARATE_SYNCS  (1 << 3)
-#define DRM_EDID_INPUT_BLANK_TO_BLACK  (1 << 4)
-#define DRM_EDID_INPUT_VIDEO_LEVEL     (3 << 5)
-#define DRM_EDID_INPUT_DIGITAL         (1 << 7)
-#define DRM_EDID_DIGITAL_DEPTH_MASK    (7 << 4) // 1.4
-#define DRM_EDID_DIGITAL_DEPTH_UNDEF   (0 << 4) // 1.4
-#define DRM_EDID_DIGITAL_DEPTH_6       (1 << 4) // 1.4
-#define DRM_EDID_DIGITAL_DEPTH_8       (2 << 4) // 1.4
-#define DRM_EDID_DIGITAL_DEPTH_10      (3 << 4) // 1.4
-#define DRM_EDID_DIGITAL_DEPTH_12      (4 << 4) // 1.4
-#define DRM_EDID_DIGITAL_DEPTH_14      (5 << 4) // 1.4
-#define DRM_EDID_DIGITAL_DEPTH_16      (6 << 4) // 1.4
-#define DRM_EDID_DIGITAL_DEPTH_RSVD    (7 << 4) // 1.4
-#define DRM_EDID_DIGITAL_TYPE_MASK     (7 << 0) // 1.4
-#define DRM_EDID_DIGITAL_TYPE_UNDEF    (0 << 0) // 1.4
-#define DRM_EDID_DIGITAL_TYPE_DVI      (1 << 0) // 1.4
-#define DRM_EDID_DIGITAL_TYPE_HDMI_A   (2 << 0) // 1.4
-#define DRM_EDID_DIGITAL_TYPE_HDMI_B   (3 << 0) // 1.4
-#define DRM_EDID_DIGITAL_TYPE_MDDI     (4 << 0) // 1.4
-#define DRM_EDID_DIGITAL_TYPE_DP       (5 << 0) // 1.4
-#define DRM_EDID_DIGITAL_DFP_1_X       (1 << 0) // 1.3
-
-#define DRM_EDID_FEATURE_DEFAULT_GTF      (1 << 0) // 1.2
-#define DRM_EDID_FEATURE_CONTINUOUS_FREQ  (1 << 0) // 1.4
-#define DRM_EDID_FEATURE_PREFERRED_TIMING (1 << 1)
-#define DRM_EDID_FEATURE_STANDARD_COLOR   (1 << 2)
-/* If analog */
-#define DRM_EDID_FEATURE_DISPLAY_TYPE (3 << 3) // 00=mono, 01=rgb, 10=non-rgb, 11=unknown
-/* If digital */
-#define DRM_EDID_FEATURE_COLOR_MASK   (3 << 3)
-#define DRM_EDID_FEATURE_RGB          (0 << 3)
-#define DRM_EDID_FEATURE_RGB_YCRCB444 (1 << 3)
-#define DRM_EDID_FEATURE_RGB_YCRCB422 (2 << 3)
-#define DRM_EDID_FEATURE_RGB_YCRCB    (3 << 3) // both 4:4:4 and 4:2:2
-
-#define DRM_EDID_FEATURE_PM_ACTIVE_OFF (1 << 5)
-#define DRM_EDID_FEATURE_PM_SUSPEND    (1 << 6)
-#define DRM_EDID_FEATURE_PM_STANDBY    (1 << 7)
-
-#define DRM_EDID_HDMI_DC_48   (1 << 6)
-#define DRM_EDID_HDMI_DC_36   (1 << 5)
-#define DRM_EDID_HDMI_DC_30   (1 << 4)
-#define DRM_EDID_HDMI_DC_Y444 (1 << 3)
-
 struct edid {
         uint8_t header[8];
+
         /* Vendor & product info */
         uint8_t  mfg_id[2];
         uint8_t  prod_code[2];
         uint32_t serial;
         uint8_t  mfg_week;
         uint8_t  mfg_year;
+
         /* EDID version */
         uint8_t version;
         uint8_t revision;
+
         /* Display info: */
         uint8_t input;
         uint8_t width_cm;
         uint8_t height_cm;
         uint8_t gamma;
         uint8_t features;
+
         /* Color characteristics */
         uint8_t red_green_lo;
         uint8_t blue_white_lo;
@@ -242,19 +251,22 @@ struct edid {
         uint8_t blue_y;
         uint8_t white_x;
         uint8_t white_y;
+
         /* Est. timings and mfg rsvd timings */
         struct est_timings established_timings;
+
         /* Standard timings 1-8 */
         struct std_timing standard_timings[8];
+
         /* Detailing timings 1-4 */
         struct detailed_timing detailed_timings[4];
+
         /* Number of 128 byte ext. blocks */
         uint8_t extensions;
+
         /* Checksum */
         uint8_t checksum;
 } __attribute__((packed));
-
-#define EDID_PRODUCT_ID(e) ((e)->prod_code[0] | ((e)->prod_code[1] << 8))
 
 /* Short Audio Descriptor */
 struct cea_sad {
@@ -265,19 +277,7 @@ struct cea_sad {
 };
 
 /* Decode the manufacturer ID. */
-static inline const char *drm_edid_decode_mfg_id(uint16_t mfg_id, char vend[4])
-{
-    vend[0] = '@' + ((mfg_id >> 10) & 0x1f);
-    vend[1] = '@' + ((mfg_id >> 5) & 0x1f);
-    vend[2] = '@' + ((mfg_id >> 0) & 0x1f);
-    vend[3] = '\0';
-
-    return vend;
-}
-
-/* Encode an ID for matching against drm_edid_get_panel_id(). */
-#define drm_edid_encode_panel_id(vend_chr_0, vend_chr_1, vend_chr_2, product_id) \
-    ((((uint32_t)(vend_chr_0) - '@') & 0x1f) << 26 | (((uint32_t)(vend_chr_1) - '@') & 0x1f) << 21 | (((uint32_t)(vend_chr_2) - '@') & 0x1f) << 16 | ((product_id) & 0xffff))
+const char *drm_edid_decode_mfg_id(uint16_t mfg_id, char vend[4]);
 
 /* Look up a DMT timing by resolution and refresh rate, or NULL. */
 struct drm_display_mode *drm_mode_find_dmt(struct drm_device *dev, int hsize, int vsize, int fresh, bool rb);
@@ -290,20 +290,28 @@ uint8_t drm_match_cea_mode(const struct drm_display_mode *to_match);
 
 /* Validate the 8-byte EDID header; 0 when valid. */
 int drm_edid_header_is_valid(const void *edid);
+
 /* Validate a complete 128-byte EDID block. */
 bool drm_edid_is_valid(struct edid *edid);
+
 /* Duplicate an EDID block, or NULL on allocation failure. */
 struct edid *drm_edid_duplicate(const struct edid *edid);
+
 /* Fill @name with the monitor name string from @edid. */
 void drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize);
+
 /* Populate connector display information from @edid. */
 void drm_edid_to_display_info(struct drm_connector *connector, const struct edid *edid);
+
 /* Parse @edid and add its modes to @connector; returns the count added. */
 int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid);
+
 /* True if @edid describes a digital display. */
 bool drm_edid_is_digital(const struct edid *edid);
+
 /* True if @edid carries HDMI sink information. */
 bool drm_detect_hdmi_monitor(const struct edid *edid);
+
 /* True if @edid declares audio support. */
 bool drm_detect_monitor_audio(const struct edid *edid);
 

@@ -11,6 +11,7 @@
 #include <arch/smbios.h>
 #include <boot/limine.h>
 #include <kernel/uinxed.h>
+#include <libs/std/string.h>
 #include <mem/hhdm.h>
 
 /* Query SMBIOS table */
@@ -63,8 +64,8 @@ static const char *smbios_get_string(const header_t *hdr, int index)
 void *smbios_entry(void)
 {
     if (smbios_request.response == 0) return 0;
-    if (smbios_request.response->entry_64) return (void *)smbios_request.response->entry_64;
-    if (smbios_request.response->entry_32) return (void *)smbios_request.response->entry_32;
+    if (smbios_request.response->entry_64) return smbios_request.response->entry_64;
+    if (smbios_request.response->entry_32) return smbios_request.response->entry_32;
     return 0;
 }
 
@@ -212,11 +213,11 @@ void smbios_sys_uuid(uint8_t uuid[16])
 {
     const header_t *hdr = find_smbios_type(1);
     if (!hdr) {
-        for (int i = 0; i < 16; i++) uuid[i] = 0;
+        memset(uuid, 0, 16);
         return;
     }
     const uint8_t *ptr = (const uint8_t *)hdr + 8;
-    for (int i = 0; i < 16; i++) uuid[i] = ptr[i];
+    memcpy(uuid, ptr, 16);
 }
 
 /* Get System Wake-up Type */

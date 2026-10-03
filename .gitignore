@@ -1,76 +1,188 @@
-# Visual Studio Code
-.vscode
+# Uinxed-Kernel .gitignore: source + required build deps only. Libraries
+# (*.a, *.so, ...) stay committable; compiled output, tooling and junk ignored.
+
+# Build output
+*.app
+*.bc
+*.d
+*.elf
+*.exe
+*.gch
+*.iso
+*.ko
+*.ll
+*.lo
+*.map
+*.o
+*.out
+*.pch
+*.slo
+UxImage
+iso/
+.config
+.config.old
+.config.old.*
+
+# C tooling / navigation
+.clangd
+compile_commands.json
+tags
+TAGS
+cscope.out
+cscope.files
+cscope.po.out
+cscope.in.out
+*.smod
+*.mod
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+*.whl
+*.tar.gz
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+.hypothesis/
+.python-version
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+.mxnet/
+.tox/
+.ropeproject/
+*.prof
+*.pstats
+
+# Debug / tracing
+*.su
+*.idb
+*.dbg
+*.gcda
+*.gcno
+*.lto
+/core
+/core.*
+/vgcore.*
+*.gdb
+.gdb_history
+gdb_history.txt
+gdb.ini
+*.i64
+*.gzf
+*.gpr
+*.bndb
+.ghidra/
+.ida/
+
+# IDE / editor
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
-
-# IntelliJ IDEA
 .idea/
+*.iml
+*.ipr
+*.iws
+.cxx/
+out/
+.classpath
+.project
+.settings/
+*.launch
+nbproject/private/
+nbbuild/
+nbdist/
+.nb-gradle/
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+*.swp
+*.swo
+.~lock.*
+*~
+.\#*
+\#*\#
+*.un~
+.*.rej
+.*~
 
-# AI assistant configs
+# OS leftovers
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+Icon?
+*.AppleDouble
+.directory
+.thumbnails/
+.Trash-*
+.fuse_hidden*
+desktop.ini
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+*.lnk
+*.url
+.history
+*.apk
+*.aab
+*.dex
+.gradle/
+local.properties
+captures/
+*.ap_
+*.class
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Logs / caches / temp
+*.log
+*.log.*
+*.bak
+*.tmp
+*.temp
+.tmp/
+.cache/
+.cache
+log/
+logs/
+
+# AI / secrets
 CLAUDE.md
 AGENTS.md
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
 
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-*.elf
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# Project Objectives
-UxImage
-Uinxed-x64.iso
-
-# Clangd
-.clangd
-
-# Kconfig
-.config
-.config.old
-
-# Microsoft
-desktop.ini
-
-# Other
-.cache/
-compile_commands.json
-make.log
-*.bak
-*.img
-*.log
+# Misc
 *.cpio
+*.orig
+*.rej
+*.zip
+*.7z
+*.rar

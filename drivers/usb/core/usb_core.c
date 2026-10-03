@@ -11,24 +11,17 @@
 #include <drivers/usb/core/usb.h>
 #include <drivers/usb/host/host.h>
 #include <fs/sysfs/usb_sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
+#include <libs/util/byteorder.h>
 #include <mem/heap.h>
 
-#define USB_MAX_STRING_DESC_SIZE        256
-#define USB_MAX_ENDPOINTS_PER_INTERFACE 31
+#if CONFIG_USB
+
+#    define USB_MAX_STRING_DESC_SIZE        256
+#    define USB_MAX_ENDPOINTS_PER_INTERFACE 31
 
 static bool usb_core_ready;
-
-/* Read a little-endian 16-bit value from a USB descriptor. */
-uint16_t usb_get_le16(const void *address)
-{
-    const uint8_t *bytes = address;
-    return (uint16_t)bytes[0] | (uint16_t)bytes[1] << 8;
-}
 
 /* Mark the USB core ready for device registration (bus registered by usb_sysfs_init). */
 int usb_core_init(void)
@@ -133,7 +126,7 @@ static int usb_parse_configuration(usb_device_t *device, const uint8_t *buffer, 
     if (!device || !buffer || length < sizeof(usb_config_descriptor_t)) return -EINVAL;
     const usb_config_descriptor_t *configuration = (const usb_config_descriptor_t *)buffer;
     if (configuration->descriptor_type != USB_DT_CONFIG || configuration->length < sizeof(*configuration)) return -EINVAL;
-    uint16_t total_length = usb_get_le16(&configuration->total_length);
+    uint16_t total_length = load_le16(&configuration->total_length);
     if (total_length > length || total_length < configuration->length) return -EINVAL;
     device->configuration = *configuration;
 
@@ -214,8 +207,7 @@ static void usb_cleanup_endpoints(usb_device_t *device, size_t up_to_interface, 
 int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t length)
 {
     if (!usb_core_ready || !device || !device->connected || !device->hcd_ops) return -EINVAL;
-    if (!device->hcd_ops->configure_endpoint) return -ENOSYS;
-
+    if (!device->hcd_ops->configure_endpoint) return -EOPNOTSUPP;
     if (!configuration) return -EINVAL;
     if (length < sizeof(usb_config_descriptor_t)) return -EINVAL;
 
@@ -268,12 +260,13 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
 
     for (size_t i = 0; i < device->interface_count; i++) {
         usb_interface_t *interface = &device->interfaces[i];
-        if (interface->descriptor.interface_class == USB_CLASS_HID)
+        if (interface->descriptor.interface_class == USB_CLASS_HID) {
             (void)usb_hid_probe(interface);
-        else if (interface->descriptor.interface_class == USB_CLASS_MASS_STORAGE)
+        } else if (interface->descriptor.interface_class == USB_CLASS_MASS_STORAGE) {
             (void)usb_storage_probe(interface);
-        else if (interface->descriptor.interface_class == USB_CLASS_HUB)
+        } else if (interface->descriptor.interface_class == USB_CLASS_HUB) {
             (void)usb_hub_probe(interface);
+        }
     }
     return EOK;
 }
@@ -286,12 +279,13 @@ void usb_disconnect_device(usb_device_t *device)
     device->connected = false;
     for (size_t i = 0; i < device->interface_count; i++) {
         usb_interface_t *interface = &device->interfaces[i];
-        if (interface->descriptor.interface_class == USB_CLASS_HID)
+        if (interface->descriptor.interface_class == USB_CLASS_HID) {
             usb_hid_disconnect(interface);
-        else if (interface->descriptor.interface_class == USB_CLASS_MASS_STORAGE)
+        } else if (interface->descriptor.interface_class == USB_CLASS_MASS_STORAGE) {
             usb_storage_disconnect(interface);
-        else if (interface->descriptor.interface_class == USB_CLASS_HUB)
+        } else if (interface->descriptor.interface_class == USB_CLASS_HUB) {
             usb_hub_disconnect(interface);
+        }
     }
     if (device->hcd_ops && device->hcd_ops->disable_device) device->hcd_ops->disable_device(device);
 }
@@ -307,7 +301,7 @@ int usb_get_string_descriptor(usb_device_t *device, uint8_t index, uint16_t lang
     size_t characters = (descriptor[0] - 2) / 2;
     if (characters >= capacity) characters = capacity - 1;
     for (size_t i = 0; i < characters; i++) {
-        uint16_t character = descriptor[2 + i * 2] | (uint16_t)descriptor[3 + i * 2] << 8;
+        uint16_t character = descriptor[2 + (i * 2)] | (uint16_t)descriptor[3 + (i * 2)] << 8;
         output[i]          = character >= 0x20 && character < 0x7f ? (char)character : '?';
     }
     output[characters] = '\0';
@@ -322,7 +316,7 @@ int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint1
     usb_config_descriptor_t header;
     int result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, &header, sizeof(header), USB_CTRL_TIMEOUT_MS);
     if (result != EOK) return result;
-    uint16_t total_length = usb_get_le16(&header.total_length);
+    uint16_t total_length = load_le16(&header.total_length);
     if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header)) return -EINVAL;
     uint8_t *config = malloc(total_length);
     if (!config) return -ENOMEM;
@@ -336,19 +330,19 @@ int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint1
     return EOK;
 }
 
-/* Device-address helpers — per-bus 1..127 allocator in host.c. */
-
-/* Enumerate a device on a hub downstream port using the hub's HCD.
+/*
+ * Enumerate a device on a hub downstream port using the hub's HCD.
  * The hub port has already been reset and is enabled at address 0.
  * This helper handles SET_ADDRESS (address 0 → new) + GET_DESCRIPTOR + config.
- * For xHCI the HCD's enumerate hook is used instead (slot-based). */
+ * For xHCI the HCD's enumerate hook is used instead (slot-based).
+ */
 int usb_enumerate_device(usb_device_t *hub, uint8_t port, usb_speed_t speed, usb_device_t **out)
 {
     if (!hub || !hub->connected || !hub->hcd_ops || !out) return -EINVAL;
     if (hub->hcd_ops->enumerate) return hub->hcd_ops->enumerate(hub, port, out);
 
     uint8_t addr;
-    int ret = usb_host_allocate_address(hub->bus_number, &addr);
+    int     ret = usb_host_allocate_address(hub->bus_number, &addr);
     if (ret != EOK) return ret;
 
     usb_device_t *dev = calloc(1, sizeof(*dev));
@@ -356,40 +350,46 @@ int usb_enumerate_device(usb_device_t *hub, uint8_t port, usb_speed_t speed, usb
         usb_host_release_address(hub->bus_number, addr);
         return -ENOMEM;
     }
-    dev->connected  = true;
-    dev->speed      = speed;
-    dev->bus_number = hub->bus_number;
+    dev->connected   = true;
+    dev->speed       = speed;
+    dev->bus_number  = hub->bus_number;
     dev->port_number = port;
-    dev->depth      = hub->depth + 1;
-    dev->hcd_ops    = hub->hcd_ops;
-    dev->hc_private = hub->hc_private;
-    // Path: parent path + "." + port, or "bus-port" if parent is root hub (depth 0).
-    if (hub->depth == 0) snprintf(dev->path, sizeof(dev->path), "%u-%u", hub->bus_number, port);
-    else snprintf(dev->path, sizeof(dev->path), "%s.%u", hub->path, port);
+    dev->depth       = hub->depth + 1;
+    dev->hcd_ops     = hub->hcd_ops;
+    dev->hc_private  = hub->hc_private;
 
-    // SET_ADDRESS at address 0 → new addr. Hub routes address-0 to the reset port.
+    /* Path: parent path + "." + port, or "bus-port" if parent is root hub (depth 0). */
+    if (hub->depth == 0) {
+        (void)snprintf(dev->path, sizeof(dev->path), "%u-%u", hub->bus_number, port);
+    } else {
+        (void)snprintf(dev->path, sizeof(dev->path), "%s.%u", hub->path, port);
+    }
+
+    /* SET_ADDRESS at address 0 → new addr. Hub routes address-0 to the reset port. */
     ret = usb_control_msg(dev, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, addr, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
     if (ret != EOK) goto fail;
     dev->address = addr;
     msleep(2); // TRSTRCY + recovery per USB 2.0 §9.2.6.3
 
-    // GET_DESCRIPTOR device (18) at new address.
+    /* GET_DESCRIPTOR device (18) at new address. */
     ret = usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &dev->descriptor, sizeof(dev->descriptor), USB_CTRL_TIMEOUT_MS);
     if (ret != EOK || dev->descriptor.length < sizeof(dev->descriptor)) {
         if (ret == EOK) ret = -EPROTO;
         goto fail;
     }
     uint16_t lang = 0x0409;
-    uint8_t lang_desc[4];
-    if (usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, lang_desc, sizeof(lang_desc), USB_CTRL_TIMEOUT_MS)==EOK && lang_desc[0]>=4)
-        lang = lang_desc[2] | (uint16_t)lang_desc[3]<<8;
+    uint8_t  lang_desc[4];
+    if (usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0, lang_desc, sizeof(lang_desc), USB_CTRL_TIMEOUT_MS) == EOK
+        && lang_desc[0] >= 4) {
+        lang = load_le16(&lang_desc[2]);
+    }
     usb_get_string_descriptor(dev, dev->descriptor.manufacturer, lang, dev->manufacturer, sizeof(dev->manufacturer));
     usb_get_string_descriptor(dev, dev->descriptor.product, lang, dev->product, sizeof(dev->product));
     usb_get_string_descriptor(dev, dev->descriptor.serial_number, lang, dev->serial, sizeof(dev->serial));
 
-    uint8_t *config = NULL;
+    uint8_t *config     = NULL;
     uint16_t config_len = 0;
-    ret = usb_read_config_descriptor(dev, &config, &config_len);
+    ret                 = usb_read_config_descriptor(dev, &config, &config_len);
     if (ret != EOK) goto fail;
     ret = usb_add_device(dev, config, config_len);
     free(config);
@@ -397,7 +397,6 @@ int usb_enumerate_device(usb_device_t *hub, uint8_t port, usb_speed_t speed, usb
 
     *out = dev;
     return EOK;
-
 fail:
     usb_host_release_address(hub->bus_number, addr);
     free(dev);
@@ -426,3 +425,5 @@ void usb_remove_device(usb_device_t *device)
         device->address = 0;
     }
 }
+
+#endif

@@ -8,23 +8,16 @@
  *
  */
 
-#include <drivers/gpu/drm/drm.h>
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <sync/spin_lock.h>
 
-/* drm_master type is defined in <drivers/gpu/drm/drm_device.h> */
+#if CONFIG_DRM
 
 /* Static counter for magic number generation. */
-
 static drm_magic_t magic_counter = 1;
 
 /* drm_getmagic - handle DRM_IOCTL_GET_MAGIC */
@@ -32,17 +25,12 @@ int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_auth      *auth;
     struct drm_hash_item *item;
-
     (void)dev;
 
-    if (!data || !file_priv) {
-        DRM_ERROR("Getmagic with invalid args.\n");
-        return -EINVAL;
-    }
-
+    if (!data || !file_priv) return -EINVAL;
     auth = (struct drm_auth *)data;
-
     item = malloc(sizeof(*item));
+
     if (!item) {
         DRM_ERROR("Failed to allocate magic item.\n");
         return -ENOMEM;
@@ -69,19 +57,13 @@ int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv
 {
     struct drm_auth      *auth;
     struct drm_hash_item *item;
-
     (void)dev;
 
-    if (!data || !file_priv) {
-        DRM_ERROR("Authmagic with invalid args.\n");
-        return -EINVAL;
-    }
-
+    if (!data || !file_priv) return -EINVAL;
     auth = (struct drm_auth *)data;
 
     spin_lock(&file_priv->magic_lock);
     if (drm_ht_find_item(&file_priv->magiclist, (unsigned long)auth->magic, &item)) {
-        DRM_ERROR("Magic %u not found.\n", auth->magic);
         spin_unlock(&file_priv->magic_lock);
         return -EINVAL;
     }
@@ -97,18 +79,10 @@ int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv
 int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     drm_master_t *master;
-
     (void)data;
 
-    if (!dev || !file_priv) {
-        DRM_ERROR("Setmaster with invalid args.\n");
-        return -EINVAL;
-    }
-
-    if (file_priv->master) {
-        DRM_ERROR("File already has a master.\n");
-        return -EINVAL;
-    }
+    if (!dev || !file_priv) return -EINVAL;
+    if (file_priv->master) return -EINVAL;
 
     master = malloc(sizeof(*master));
     if (!master) {
@@ -121,7 +95,6 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
     master->refcount = 1;
 
     /* Spinlock zero-initialized by memset above. */
-
     if (drm_ht_create(&master->magiclist, 4)) {
         DRM_ERROR("Failed to create master magic table.\n");
         free(master);
@@ -129,7 +102,6 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
     }
 
     ilist_init(&master->magicfree);
-
     file_priv->master = master;
 
     /*
@@ -145,20 +117,13 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     drm_master_t *master;
-
     (void)dev;
     (void)data;
 
-    if (!file_priv) {
-        DRM_ERROR("Dropmaster with invalid args.\n");
-        return -EINVAL;
-    }
+    if (!file_priv) return -EINVAL;
 
     master = file_priv->master;
-    if (!master) {
-        DRM_ERROR("No master to drop.\n");
-        return -EINVAL;
-    }
+    if (!master) return -EINVAL;
 
     drm_ht_destroy(&master->magiclist);
     free(master);
@@ -169,3 +134,5 @@ int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_pri
 
     return 0;
 }
+
+#endif
