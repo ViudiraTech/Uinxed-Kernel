@@ -13,7 +13,9 @@
 </div>
 
 <div align="center">
+
   **English (current)** | [中文](docs/README_zh.md) | [日本語](docs/README_ja.md) | [한국어](docs/README_ko.md) | [Русский](docs/README_ru.md) | [Français](docs/README_fr.md)
+
 </div>
 
 ---
