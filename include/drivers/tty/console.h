@@ -1,7 +1,7 @@
 /*
  *
  *      console.h
- *      Console driver table (Linux kernel/printk/console_cmdline + console_drivers analog)
+ *      Console driver table
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -13,13 +13,14 @@
 
 #include <drivers/tty/tty.h>
 #include <drivers/tty/tty_core.h>
-#include <libs/std/stdint.h>
 
 #define CON_ENABLED (1U << 0) // receives console output
 #define CON_CONSDEV (1U << 1) // backs /dev/console
 
-typedef struct console console_t;
+/* Parsed `console=` command-line entries. */
+#define NR_CONSOLES 4
 
+typedef struct console console_t;
 typedef void (*console_write_t)(console_t *c, const uint8_t *buf, size_t len);
 typedef tty_core_t *(*console_get_tty_t)(console_t *c);
 
@@ -32,9 +33,6 @@ struct console {
         console_get_tty_t get_tty; // line discipline for /dev/console
         console_t        *next;
 };
-
-/* Parsed `console=` command-line entries. */
-#define NR_CONSOLES 4
 
 typedef struct console_cmdline {
         char name[16];

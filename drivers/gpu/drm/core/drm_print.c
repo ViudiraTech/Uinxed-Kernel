@@ -9,16 +9,13 @@
  */
 
 #include <drivers/gpu/drm/drm_print.h>
-#include <kernel/printk.h>
-#include <libs/std/stdarg.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 
-/*
- * Printer callback for drm_printk_printer: renders the formatted message into a
- * stack buffer with the configured prefix prepended, then emits it via plogk.
- */
-static void __drm_printk_printer(void *arg, const char *fmt, va_list args)
+#if CONFIG_DRM
+
+/* Printer callback for drm_printk_printer: renders the formatted message into a stack buffer with the configured prefix prepended, then emits it via plogk. */
+__attribute__((format(printf, 2, 0))) static void __drm_printk_printer(void *arg, const char *fmt, va_list args)
 {
     const char *prefix = (const char *)arg;
     char        buf[512];
@@ -60,13 +57,13 @@ struct drm_printer drm_printk_printer(const char *prefix)
 }
 
 /* Forward a va_list message to the printer's printfn callback, if installed. */
-void drm_vprintf(struct drm_printer *p, const char *fmt, va_list args)
+__attribute__((format(printf, 2, 0))) void drm_vprintf(struct drm_printer *p, const char *fmt, va_list args)
 {
     if (p && p->printfn) p->printfn(p->arg, fmt, args);
 }
 
 /* Variadic printf through a printer. */
-void drm_printf(struct drm_printer *p, const char *fmt, ...)
+__attribute__((format(printf, 2, 3))) void drm_printf(struct drm_printer *p, const char *fmt, ...)
 {
     va_list args;
 
@@ -80,16 +77,17 @@ void drm_printf(struct drm_printer *p, const char *fmt, ...)
  * (annotated with the device pointer when @dev is non-NULL) and forwards the
  * formatted message to the kernel log via plogk.
  */
-void drm_dev_printk(const struct drm_device *dev, const char *level, const char *fmt, ...)
+__attribute__((format(printf, 3, 4))) void drm_dev_printk(const struct drm_device *dev, const char *level, const char *fmt, ...)
 {
     char    prefix[256];
     char    msg[512];
     va_list args;
 
-    if (dev)
-        (void)snprintf(prefix, sizeof(prefix), "drm: [%s] %p ", level, (const void *)dev);
-    else
+    if (dev) {
+        (void)snprintf(prefix, sizeof(prefix), "drm: [%s] %p ", level, dev);
+    } else {
         (void)snprintf(prefix, sizeof(prefix), "drm: [%s] ", level);
+    }
 
     va_start(args, fmt);
     (void)vsnprintf(msg, sizeof(msg), fmt, args);
@@ -97,3 +95,5 @@ void drm_dev_printk(const struct drm_device *dev, const char *level, const char 
 
     plogk("%s%s", prefix, msg);
 }
+
+#endif

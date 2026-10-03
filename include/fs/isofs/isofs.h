@@ -12,14 +12,12 @@
 #define INCLUDE_ISOFS_H_
 
 #include <drivers/block/core/blockdev.h>
-#include <libs/std/stdint.h>
+#include <libs/std/stddef.h>
 
 #define ISOFS_BLOCK_SIZE   2048
 #define ISOFS_MAX_PATH     256
 #define ISOFS_RR_MAX_CE    32
 #define ISOFS_MAX_SECTIONS 100
-
-#define ISOFS_SUPER_MAGIC 0x9660
 
 #define ISO_STANDARD_ID "CD001"
 #define HS_STANDARD_ID  "CDROM"
@@ -29,6 +27,11 @@
 #define ISO_VD_END           255
 
 #define ISOFS_INVALID_MODE ((uint16_t) - 1)
+
+/* ISO date conversion */
+
+#define ISO_DATE_HIGH_SIERRA (1 << 0)
+#define ISO_DATE_LONG_FORM   (1 << 1)
 
 /* ISO 9660 on-disk structures */
 
@@ -46,12 +49,16 @@ typedef struct iso_directory_record {
         char    name[];
 } __attribute__((packed)) iso_directory_record_t;
 
+_Static_assert(sizeof(iso_directory_record_t) == 33, "ISO9660 directory record fixed size");
+
 typedef struct iso_volume_descriptor {
         uint8_t type;
         char    id[5];
         uint8_t version;
         uint8_t data[2041];
 } __attribute__((packed)) iso_volume_descriptor_t;
+
+_Static_assert(sizeof(iso_volume_descriptor_t) == 2048, "ISO9660 volume descriptor occupies one sector");
 
 typedef struct iso_primary_descriptor {
         uint8_t type;
@@ -75,6 +82,16 @@ typedef struct iso_primary_descriptor {
         uint8_t reserved[1856];
 } __attribute__((packed)) iso_primary_descriptor_t;
 
+/*
+ * ECMA-119 byte positions. The struct is 2046 (reserved[] is two bytes short of the
+ * 2048-byte sector), so only the field offsets are assertable.
+ */
+_Static_assert(offsetof(iso_primary_descriptor_t, system_id) == 8, "ISO9660 PVD system identifier offset");
+_Static_assert(offsetof(iso_primary_descriptor_t, volume_id) == 40, "ISO9660 PVD volume identifier offset");
+_Static_assert(offsetof(iso_primary_descriptor_t, volume_space_size) == 80, "ISO9660 PVD volume space size offset");
+_Static_assert(offsetof(iso_primary_descriptor_t, logical_block_size) == 128, "ISO9660 PVD logical block size offset");
+_Static_assert(offsetof(iso_primary_descriptor_t, root_directory_record) == 156, "ISO9660 PVD root directory record offset");
+
 typedef struct iso_supplementary_descriptor {
         uint8_t type;
         char    id[5];
@@ -97,53 +114,7 @@ typedef struct iso_supplementary_descriptor {
         uint8_t reserved[1856];
 } __attribute__((packed)) iso_supplementary_descriptor_t;
 
-/* ISO 9660 byte-order read helpers */
-static inline uint8_t isonum_711(const uint8_t *p)
-{
-    return *p;
-}
-
-static inline int8_t isonum_712(const int8_t *p)
-{
-    return *p;
-}
-
-static inline uint16_t isonum_721(const uint8_t *p)
-{
-    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
-}
-
-static inline uint16_t isonum_722(const uint8_t *p)
-{
-    return ((uint16_t)p[0] << 8) | (uint16_t)p[1];
-}
-
-static inline uint16_t isonum_723(const uint8_t *p)
-{
-    return isonum_721(p);
-}
-
-static inline uint32_t isonum_731(const uint8_t *p)
-{
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
-
-static inline uint32_t isonum_732(const uint8_t *p)
-{
-    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
-
-static inline uint32_t isonum_733(const uint8_t *p)
-{
-    return isonum_731(p);
-}
-
-/* ISO date conversion */
-
-#define ISO_DATE_HIGH_SIERRA (1 << 0)
-#define ISO_DATE_LONG_FORM   (1 << 1)
-
-uint64_t isofs_date_to_unix(const uint8_t *p, int flags);
+_Static_assert(offsetof(iso_supplementary_descriptor_t, root_directory_record) == 156, "ISO9660 SVD root directory record offset");
 
 /* In-memory mount structure */
 
@@ -160,6 +131,7 @@ typedef struct isofs_mount {
         int               showassoc;
         int               cruft;
         int               owns_device;
+
         /* internal: block read helper for Rock Ridge CE handling */
         int (*rr_read_block)(void *ctx, uint32_t block, void *buf, uint32_t size);
         void *rr_read_ctx;
@@ -180,6 +152,33 @@ typedef struct isofs_handle {
         int                     owns_mount;
 } isofs_handle_t;
 
+/* ISO 9660 byte-order read helpers */
+uint8_t isonum_711(const uint8_t *p);
+
+/* Read a signed 8-bit ISO9660 integer. */
+int8_t isonum_712(const int8_t *p);
+
+/* Read a little-endian 16-bit ISO9660 integer. */
+uint16_t isonum_721(const uint8_t *p);
+
+/* Read a big-endian 16-bit ISO9660 integer. */
+uint16_t isonum_722(const uint8_t *p);
+
+/* Read a 16-bit ISO9660 integer (both endiannesses). */
+uint16_t isonum_723(const uint8_t *p);
+
+/* Read a little-endian 32-bit ISO9660 integer. */
+uint32_t isonum_731(const uint8_t *p);
+
+/* Read a big-endian 32-bit ISO9660 integer. */
+uint32_t isonum_732(const uint8_t *p);
+
+/* Read a 32-bit ISO9660 integer (both endiannesses). */
+uint32_t isonum_733(const uint8_t *p);
+
+/* Isofs date to unix. */
+uint64_t isofs_date_to_unix(const uint8_t *p, int flags);
+
 /* Rock Ridge / name translation */
 
 int  isofs_rr_translate_name(void *raw_de, char *out, int bufsize);
@@ -188,6 +187,10 @@ void isofs_rr_parse_inode(void *raw_de, isofs_handle_t *handle, isofs_mount_t *m
 
 /* API */
 
+#if CONFIG_ISO9660_FS
 void isofs_regist(void);
+#else
+static inline void isofs_regist(void) {}
+#endif
 
 #endif // INCLUDE_ISOFS_H_

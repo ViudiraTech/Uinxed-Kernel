@@ -9,9 +9,13 @@ on:
       - 'fs/**'
       - 'include/**'
       - 'init/**'
+      - 'ipc/**'
       - 'kernel/**'
       - 'libs/**'
       - 'mem/**'
+      - 'net/**'
+      - 'security/**'
+
   pull_request:
     paths:
       - 'boot/**'
@@ -19,11 +23,29 @@ on:
       - 'fs/**'
       - 'include/**'
       - 'init/**'
+      - 'ipc/**'
       - 'kernel/**'
       - 'libs/**'
       - 'mem/**'
+      - 'net/**'
+      - 'security/**'
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: make gcc clang-tidy
+          version: 1.0
+
+      - name: Run clang-tidy checks
+        run: make check VERBOSE=1
+
   build:
     runs-on: ubuntu-latest
     steps:

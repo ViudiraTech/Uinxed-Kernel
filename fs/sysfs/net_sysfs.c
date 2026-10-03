@@ -9,26 +9,19 @@
  */
 
 #include <drivers/base/device.h>
-#include <fs/sysfs/net_sysfs.h>
-#include <fs/sysfs/sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/heap.h>
+#include <net/abi/inet.h>
 #include <net/core/netdev.h>
 
-#define IFF_UP        0x0001U
-#define IFF_BROADCAST 0x0002U
-#define IFF_RUNNING   0x0040U
-static int net_class_ready;
+#if CONFIG_SYSFS && CONFIG_NET
+
+static int        net_class_ready;
+static spinlock_t net_devices_lock;
+
 static struct {
         net_device_t  *netdev;
         struct device *device;
-} net_devices[NETDEV_MAX];
-static spinlock_t net_devices_lock;
+} net_devices[CONFIG_NETDEV_MAX];
 
 /* Return the netdev bound to a device-model device. */
 static net_device_t *to_netdev(struct device *device)
@@ -135,23 +128,24 @@ static ssize_t statistic_show(struct device *device, struct device_attribute *at
         return -ENODEV;
     }
     netdev_get_stats(netdev, &stats);
-    if (streq(attr->attr.name, "rx_bytes"))
+    if (streq(attr->attr.name, "rx_bytes")) {
         value = stats.rx_bytes;
-    else if (streq(attr->attr.name, "rx_packets"))
+    } else if (streq(attr->attr.name, "rx_packets")) {
         value = stats.rx_packets;
-    else if (streq(attr->attr.name, "rx_errors"))
+    } else if (streq(attr->attr.name, "rx_errors")) {
         value = stats.rx_errors;
-    else if (streq(attr->attr.name, "rx_dropped"))
+    } else if (streq(attr->attr.name, "rx_dropped")) {
         value = stats.rx_dropped;
-    else if (streq(attr->attr.name, "tx_bytes"))
+    } else if (streq(attr->attr.name, "tx_bytes")) {
         value = stats.tx_bytes;
-    else if (streq(attr->attr.name, "tx_packets"))
+    } else if (streq(attr->attr.name, "tx_packets")) {
         value = stats.tx_packets;
-    else if (streq(attr->attr.name, "tx_errors"))
+    } else if (streq(attr->attr.name, "tx_errors")) {
         value = stats.tx_errors;
-    else
+    } else {
         value = stats.tx_dropped;
-    return sysfs_emit(buf, "%llu\n", (unsigned long long)value);
+    }
+    return sysfs_emit(buf, "%llu\n", value);
 }
 
 static DEVICE_ATTR(address, 0444, address_show, NULL);
@@ -188,6 +182,12 @@ static struct attribute_group net_group = {
     .attrs = net_attributes,
 };
 
+static const struct attribute_group *net_dev_groups[] = {
+    &net_group,
+    &statistics_group,
+    NULL,
+};
+
 /* Emit network uevent environment variables. */
 static int net_device_uevent(struct device *device, struct kobj_uevent_env *env)
 {
@@ -201,12 +201,6 @@ static int net_device_uevent(struct device *device, struct kobj_uevent_env *env)
     return add_uevent_var(env, "IFINDEX=%u", netdev->ifindex);
 }
 
-static const struct attribute_group *net_dev_groups[] = {
-    &net_group,
-    &statistics_group,
-    NULL,
-};
-
 static struct class net_class = {.name = "net", .dev_uevent = net_device_uevent, .dev_groups = net_dev_groups};
 
 /* Publish one network device to /sys/class/net/. */
@@ -217,7 +211,7 @@ static void net_sysfs_publish(net_device_t *netdev, void *context)
     int           *count = (int *)context;
     if (!net_class_ready || !netdev || !netdev->registered) return;
     spin_lock(&net_devices_lock);
-    for (size_t i = 0; i < NETDEV_MAX; i++) {
+    for (size_t i = 0; i < CONFIG_NETDEV_MAX; i++) {
         if (net_devices[i].netdev == netdev) {
             spin_unlock(&net_devices_lock);
             return;
@@ -226,7 +220,7 @@ static void net_sysfs_publish(net_device_t *netdev, void *context)
     }
 
     if (slot < 0) {
-        plogk("net_sysfs: Publish %s failed, slot table full (max %d)\n", netdev->name, NETDEV_MAX);
+        plogk("net_sysfs: Publish %s failed, slot table full (max %d)\n", netdev->name, CONFIG_NETDEV_MAX);
         spin_unlock(&net_devices_lock);
         return;
     }
@@ -261,7 +255,7 @@ static void net_sysfs_unpublish(net_device_t *netdev)
 {
     struct device *device = NULL;
     spin_lock(&net_devices_lock);
-    for (size_t i = 0; i < NETDEV_MAX; i++) {
+    for (size_t i = 0; i < CONFIG_NETDEV_MAX; i++) {
         if (net_devices[i].netdev == netdev) {
             device                = net_devices[i].device;
             net_devices[i].netdev = NULL;
@@ -279,18 +273,16 @@ static void net_sysfs_unpublish(net_device_t *netdev)
 static void net_sysfs_lifecycle(net_device_t *netdev, netdev_lifecycle_event_t event, void *context)
 {
     (void)context;
-    if (event == NETDEV_REGISTERED)
+    if (event == NETDEV_REGISTERED) {
         net_sysfs_publish(netdev, NULL);
-    else
+    } else {
         net_sysfs_unpublish(netdev);
+    }
 }
 
 /* Export every registered network device to /sys/class/net/. */
 void net_sysfs_init(void)
 {
-#if !CONFIG_NET || !CONFIG_SYSFS
-    return;
-#endif
     int devices = 0;
     if (net_class_ready) return;
     if (class_register(&net_class) != EOK) {
@@ -305,3 +297,5 @@ void net_sysfs_init(void)
     netdev_iterate(net_sysfs_publish, &devices);
     plogk("net_sysfs: exported %d network device(s) to /sys/class/net\n", devices);
 }
+
+#endif

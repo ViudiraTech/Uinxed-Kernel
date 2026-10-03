@@ -13,8 +13,6 @@
 
 #include <drivers/bus/pci.h>
 #include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
 /* VirtIO standard PCI vendor / device IDs */
@@ -50,7 +48,6 @@
 #define VRING_DESC_F_INDIRECT 4
 
 /* VirtIO PCI capability header (at BAR + offset, 8 bytes) */
-
 struct vp_cap {
         uint8_t  cap_vndr;
         uint8_t  cap_next;
@@ -58,12 +55,6 @@ struct vp_cap {
         uint8_t  bar;
         uint32_t offset;
         uint32_t length;
-} __attribute__((packed));
-
-/* Notification capability extends vp_cap with a multiplier field. */
-struct vp_notify_cap {
-        struct vp_cap cap;
-        uint32_t      notify_off_multiplier;
 } __attribute__((packed));
 
 /* Common configuration structure (MMIO view, at common->offset) */
@@ -152,12 +143,6 @@ struct vp_device {
         volatile uint8_t              *device_cfg;
         volatile uint32_t             *notify_base;
         uint32_t                       notify_off_multiplier;
-
-        /* Capability cache */
-        struct vp_cap        common_cap;
-        struct vp_cap        isr_cap;
-        struct vp_cap        device_cap;
-        struct vp_notify_cap notify_cap;
 
         /* Negotiated features */
         uint64_t features;

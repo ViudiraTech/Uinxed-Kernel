@@ -10,11 +10,17 @@
 
 #include <arch/common.h>
 #include <drivers/parport/parport.h>
-#include <kernel/debug/ringlog.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 
+/*
+ * Kept outside the CONFIG_PARPORT guard: init/main.c unconditionally dumps
+ * this buffer during boot, so the symbol must always resolve even when the
+ * parallel-port driver is compiled out.  When disabled it simply stays
+ * empty and the dump is a no-op.
+ */
 log_buffer_t parallel_log;
+
+#if CONFIG_PARPORT
 
 /* Read the data register of a PC parallel port. */
 static uint8_t parport_pc_read_data(parport_t *p)
@@ -83,9 +89,17 @@ int parport_pc_init(void)
             port->frob_control  = parport_pc_frob_control;
         }
 
-        log_buffer_write(&parallel_log, "parport: Port %s detected.\n", legacy_bases[i] == 0x378 ? "LPT1" : legacy_bases[i] == 0x278 ? "LPT2" : "LPT3");
+        const char *port_name = "LPT3";
+        if (legacy_bases[i] == 0x378) {
+            port_name = "LPT1";
+        } else if (legacy_bases[i] == 0x278) {
+            port_name = "LPT2";
+        }
+        log_buffer_write(&parallel_log, "parport: Port %s detected.\n", port_name);
         registered++;
     }
     if (registered) log_buffer_write(&parallel_log, "parport: %d port(s) available.\n", registered);
     return registered;
 }
+
+#endif

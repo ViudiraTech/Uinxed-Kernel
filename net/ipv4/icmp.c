@@ -8,7 +8,6 @@
  *
  */
 
-#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
@@ -16,11 +15,10 @@
 #include <net/core/endian.h>
 #include <net/ipv4/icmp.h>
 
-#define ICMP_HEADER_LEN   8U
-#define ICMP_QUOTE_LEN    8U
-#define ICMP_ENDPOINT_MAX 16U
-#define ICMP_RX_QUEUE_MAX 64U
-#define ICMP_RX_BYTES_MAX 131072U
+#if CONFIG_INET && CONFIG_NET
+
+#    define ICMP_HEADER_LEN 8U
+#    define ICMP_QUOTE_LEN  8U
 
 typedef struct icmp_packet {
         struct icmp_packet *next;
@@ -29,19 +27,7 @@ typedef struct icmp_packet {
         uint8_t             data[];
 } icmp_packet_t;
 
-typedef struct icmp_endpoint {
-        uint32_t              local_address;
-        uint32_t              remote_address;
-        uint16_t              queue_length;
-        uint32_t              queue_bytes;
-        icmp_packet_t        *head;
-        icmp_packet_t        *tail;
-        spinlock_t            lock;
-        icmp_event_callback_t event_callback;
-        void                 *event_context;
-} icmp_endpoint_t;
-
-static icmp_endpoint_t *icmp_table[ICMP_ENDPOINT_MAX];
+static icmp_endpoint_t *icmp_table[CONFIG_ICMP_ENDPOINT_MAX];
 static spinlock_t       icmp_table_lock;
 
 /* Allocate an ICMP endpoint and register it in the global table. */
@@ -50,7 +36,7 @@ icmp_endpoint_t *icmp_open(void)
     icmp_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
     if (!endpoint) return NULL;
     spin_lock(&icmp_table_lock);
-    for (unsigned i = 0; i < ICMP_ENDPOINT_MAX; i++) {
+    for (unsigned i = 0; i < CONFIG_ICMP_ENDPOINT_MAX; i++) {
         if (!icmp_table[i]) {
             icmp_table[i] = endpoint;
             spin_unlock(&icmp_table_lock);
@@ -67,7 +53,7 @@ void icmp_close(icmp_endpoint_t *endpoint)
 {
     if (!endpoint) return;
     spin_lock(&icmp_table_lock);
-    for (unsigned i = 0; i < ICMP_ENDPOINT_MAX; i++)
+    for (unsigned i = 0; i < CONFIG_ICMP_ENDPOINT_MAX; i++)
         if (icmp_table[i] == endpoint) icmp_table[i] = NULL;
     spin_unlock(&icmp_table_lock);
     spin_lock(&endpoint->lock);
@@ -125,8 +111,9 @@ int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_from(data, length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("icmp: Send alloc failed (dest=%u.%u.%u.%u len=%lu)\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff,
-              (unsigned)destination & 0xff, (unsigned long)length);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit))
+            plogk("icmp: Send alloc failed (dest=%u.%u.%u.%u len=%lu)\n", (destination >> 24) & 0xff, (destination >> 16) & 0xff, (destination >> 8) & 0xff, destination & 0xff, length);
         netdev_put(device);
         return -ENOMEM;
     }
@@ -134,7 +121,8 @@ int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32
     status          = ipv4_output(device, source, destination, IPV4_PROTO_ICMP, ttl, packet);
     net_pbuf_free(packet);
     netdev_put(device);
-    return status == -EINPROGRESS ? (int)length : (status ? status : (int)length);
+    if (status == -EINPROGRESS || !status) return (int)length;
+    return status;
 }
 
 /* Dequeue (or peek) the next queued ICMP datagram, filling its source. */
@@ -187,19 +175,20 @@ static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
 {
     size_t length = IPV4_HEADER_MIN + packet->length;
     spin_lock(&icmp_table_lock);
-    for (unsigned i = 0; i < ICMP_ENDPOINT_MAX; i++) {
+    for (unsigned i = 0; i < CONFIG_ICMP_ENDPOINT_MAX; i++) {
         icmp_endpoint_t *endpoint = icmp_table[i];
         if (!endpoint) continue;
         spin_lock(&endpoint->lock);
         if ((endpoint->local_address && endpoint->local_address != ip->destination) || (endpoint->remote_address && endpoint->remote_address != ip->source)
-            || endpoint->queue_length >= ICMP_RX_QUEUE_MAX || length > ICMP_RX_BYTES_MAX - endpoint->queue_bytes) {
+            || endpoint->queue_length >= CONFIG_ICMP_RX_QUEUE_MAX || length > CONFIG_ICMP_RX_BYTES_MAX - endpoint->queue_bytes) {
             spin_unlock(&endpoint->lock);
             continue;
         }
         icmp_packet_t *queued = malloc(sizeof(*queued) + length);
         if (!queued) {
-            plogk("icmp: RX queue alloc failed (src=%u.%u.%u.%u len=%lu)\n", (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff,
-                  (unsigned)ip->source & 0xff, (unsigned long)length);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit))
+                plogk("icmp: RX queue alloc failed (src=%u.%u.%u.%u len=%lu)\n", (ip->source >> 24) & 0xff, (ip->source >> 16) & 0xff, (ip->source >> 8) & 0xff, ip->source & 0xff, length);
             spin_unlock(&endpoint->lock);
             continue;
         }
@@ -208,18 +197,19 @@ static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
         queued->length = length;
         memset(queued->data, 0, IPV4_HEADER_MIN);
         queued->data[0] = 0x45;
-        net_write_be16(queued->data + 2, (uint16_t)length);
-        net_write_be16(queued->data + 4, ip->identification);
+        store_be16(queued->data + 2, (uint16_t)length);
+        store_be16(queued->data + 4, ip->identification);
         queued->data[8] = ip->ttl;
         queued->data[9] = IPV4_PROTO_ICMP;
-        net_write_be32(queued->data + 12, ip->source);
-        net_write_be32(queued->data + 16, ip->destination);
-        net_write_be16(queued->data + 10, net_checksum(queued->data, IPV4_HEADER_MIN));
+        store_be32(queued->data + 12, ip->source);
+        store_be32(queued->data + 16, ip->destination);
+        store_be16(queued->data + 10, net_checksum(queued->data, IPV4_HEADER_MIN));
         memcpy(queued->data + IPV4_HEADER_MIN, packet->data, packet->length);
-        if (endpoint->tail)
+        if (endpoint->tail) {
             endpoint->tail->next = queued;
-        else
+        } else {
             endpoint->head = queued;
+        }
         endpoint->tail = queued;
         endpoint->queue_length++;
         endpoint->queue_bytes += (uint32_t)length;
@@ -254,13 +244,13 @@ int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
         if (code || ip->destination == UINT32_MAX || (device->ipv4_netmask && ip->destination == (device->ipv4_address | ~device->ipv4_netmask))) goto ignored;
         packet->data[0] = ICMP_ECHO_REPLY;
         packet->data[2] = packet->data[3] = 0;
-        net_write_be16(packet->data + 2, net_checksum(packet->data, packet->length));
+        store_be16(packet->data + 2, net_checksum(packet->data, packet->length));
         int status = ipv4_output(device, ip->destination, ip->source, IPV4_PROTO_ICMP, 64, packet);
         net_pbuf_free(packet);
         return status;
     }
     if ((type == ICMP_DEST_UNREACHABLE || type == ICMP_TIME_EXCEEDED) && packet->length >= ICMP_HEADER_LEN + IPV4_HEADER_MIN) {
-        uint32_t mtu = type == ICMP_DEST_UNREACHABLE && code == ICMP_FRAGMENTATION_NEEDED ? net_read_be16(packet->data + 6) : 0;
+        uint32_t mtu = type == ICMP_DEST_UNREACHABLE && code == ICMP_FRAGMENTATION_NEEDED ? load_be16(packet->data + 6) : 0;
         ipv4_control_error(type, code, mtu, packet->data + ICMP_HEADER_LEN, packet->length - ICMP_HEADER_LEN);
     }
 ignored:
@@ -277,26 +267,27 @@ int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uin
     if (!device || !destination || !original || original_length < IPV4_HEADER_MIN) return -EINVAL;
     const uint8_t *ip            = original;
     size_t         header_length = (size_t)(ip[0] & 0x0fU) * 4U;
-    if ((ip[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > original_length || (net_read_be16(ip + 6) & IPV4_FRAGMENT_MASK) || destination == UINT32_MAX
-        || (device->ipv4_netmask && destination == (device->ipv4_address | ~device->ipv4_netmask)))
+    if ((ip[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > original_length || (load_be16(ip + 6) & IPV4_FRAGMENT_MASK) || destination == UINT32_MAX
+        || (device->ipv4_netmask && destination == (device->ipv4_address | ~device->ipv4_netmask))) {
         return -EINVAL;
+    }
     if (ip[9] == IPV4_PROTO_ICMP && original_length > header_length && icmp_is_error(ip[header_length])) return -EINVAL;
     size_t quote_length = header_length + ICMP_QUOTE_LEN;
     if (quote_length > original_length) quote_length = original_length;
     net_pbuf_t *packet = net_pbuf_alloc(ICMP_HEADER_LEN + quote_length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("icmp: Error message alloc failed (type=%u code=%u dest=%u.%u.%u.%u)\n", (unsigned)type, (unsigned)code, (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
-              (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff);
+        plogk("icmp: Error message alloc failed (type=%u code=%u dest=%u.%u.%u.%u)\n", type, code, (destination >> 24) & 0xff, (destination >> 16) & 0xff, (destination >> 8) & 0xff,
+              destination & 0xff);
         return -ENOMEM;
     }
     memset(packet->data, 0, ICMP_HEADER_LEN);
     packet->data[0] = type;
     packet->data[1] = code;
-    if (type == ICMP_DEST_UNREACHABLE && code == ICMP_FRAGMENTATION_NEEDED) net_write_be16(packet->data + 6, mtu);
+    if (type == ICMP_DEST_UNREACHABLE && code == ICMP_FRAGMENTATION_NEEDED) store_be16(packet->data + 6, mtu);
     memcpy(packet->data + ICMP_HEADER_LEN, original, quote_length);
-    net_write_be16(packet->data + 2, net_checksum(packet->data, packet->length));
+    store_be16(packet->data + 2, net_checksum(packet->data, packet->length));
     uint32_t source = device->ipv4_address;
-    if ((device->flags & NETDEV_F_LOOPBACK) && (net_read_be32(ip + 16) >> 24) == 127U) source = net_read_be32(ip + 16);
+    if ((device->flags & NETDEV_F_LOOPBACK) && (load_be32(ip + 16) >> 24) == 127U) source = load_be32(ip + 16);
     int status = ipv4_output(device, source, destination, IPV4_PROTO_ICMP, 64, packet);
     net_pbuf_free(packet);
     return status;
@@ -307,3 +298,5 @@ int icmp_error(net_device_t *device, uint32_t destination, uint8_t type, uint8_t
 {
     return icmp_error_mtu(device, destination, type, code, 0, original, original_length);
 }
+
+#endif

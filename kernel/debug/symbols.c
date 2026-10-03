@@ -79,11 +79,9 @@ sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_addr
  * Return the runtime address just past the last kernel function.  Preferred
  * source is the end of the executable PT_LOAD segment from the ELF program
  * headers (survives a stripped symtab and tracks the real code layout); the
- * symbol table's highest STT_FUNC end is the fallback.  Only when no usable
- * ELF metadata exists is the fixed 64 MB window used.  Stack-scan bounds
- * therefore follow the actual code extent instead of a magic number, so valid
- * return addresses past the real text end are not missed and padding between
- * text end and any fallback window is not falsely reported.
+ * symbol table's highest STT_FUNC end is the fallback.  Only when no usable ELF
+ * metadata exists is the fixed 64 MB window used, so stack-scan bounds follow
+ * the actual code extent instead of a magic number.
  */
 uintptr_t kernel_text_end(void)
 {

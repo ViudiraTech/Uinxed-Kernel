@@ -11,27 +11,23 @@
 #ifndef INCLUDE_PAGE_H_
 #define INCLUDE_PAGE_H_
 
-#include <kernel/interrupt/interrupt.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-struct process;
+#define MSR_IA32_PAT 0x277 // IA32_PAT model-specific register
 
-#define MSR_IA32_PAT 0x277
-
-#define PTE_PRESENT      (0x1 << 0)
-#define PTE_WRITEABLE    (0x1 << 1)
-#define PTE_USER         (0x1 << 2)
-#define PTE_PWT          (0x1 << 3) // Page Write-Through
-#define PTE_PCD          (0x1 << 4) // Page Cache Disable
-#define PTE_ACCESSED     (0x1 << 5) // Hardware accessed/young bit
-#define PTE_HUGE         (0x1 << 7)
-#define PTE_GLOBAL       (0x1 << 8)  // Retain kernel leaf across CR3 switches
-#define PTE_COW          (0x1 << 9)  // Software: private copy-on-write leaf
-#define PTE_SHARED       (0x1 << 10) // Software: shared mapping leaf
-#define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
-#define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_GLOBAL | PTE_NO_EXECUTE)
+#define PTE_PRESENT      (0x1 << 0)                                                  // Page present in memory
+#define PTE_WRITEABLE    (0x1 << 1)                                                  // Page writable
+#define PTE_USER         (0x1 << 2)                                                  // Accessible from user mode
+#define PTE_PWT          (0x1 << 3)                                                  // Page Write-Through
+#define PTE_PCD          (0x1 << 4)                                                  // Page Cache Disable
+#define PTE_ACCESSED     (0x1 << 5)                                                  // Hardware accessed/young bit
+#define PTE_HUGE         (0x1 << 7)                                                  // 2 MiB or 1 GiB large page
+#define PTE_GLOBAL       (0x1 << 8)                                                  // Retain kernel leaf across CR3 switches
+#define PTE_COW          (0x1 << 9)                                                  // Software: private copy-on-write leaf
+#define PTE_SHARED       (0x1 << 10)                                                 // Software: shared mapping leaf
+#define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)                                     // Execute-disable (NX) bit
+#define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_GLOBAL | PTE_NO_EXECUTE) // Flags for kernel-mapped pages
 
 /* MMIO flags: uncacheable and no-execute, required for PCI BAR mappings. */
 #define PTE_MMIO_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_PCD | PTE_NO_EXECUTE)
@@ -46,13 +42,19 @@ struct process;
 #define PAGE_2M_MASK 0x000fffffffe00000ULL // (~(PAGE_2M_SIZE - 1) & PAGE_4K_MASK)
 #define PAGE_1G_MASK 0x000fffffc0000000ULL // (~(PAGE_1G_SIZE - 1) & PAGE_4K_MASK)
 
+struct process;
+
 typedef struct {
         uint64_t value;
 } page_table_entry_t;
 
+_Static_assert(sizeof(page_table_entry_t) == 8, "x86-64 page table entry size");
+
 typedef struct {
         page_table_entry_t entries[512];
 } page_table_t;
+
+_Static_assert(sizeof(page_table_t) == 4096, "a page table must occupy exactly one 4 KiB frame");
 
 typedef struct {
         page_table_t *table;
@@ -176,8 +178,5 @@ pat_config_t get_pat_config(void);
 
 /* Initialize memory page table */
 void page_init(void);
-
-/* Page-fault entry stub (invoked directly by the IDT). */
-void page_fault_entry(void);
 
 #endif // INCLUDE_PAGE_H_

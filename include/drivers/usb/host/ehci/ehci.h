@@ -72,10 +72,8 @@
 #define EHCI_PORT_LS_KSTATE (1U << 10)
 #define EHCI_PORT_PTC_SHIFT 3
 #define EHCI_PORT_PTC_MASK  (0x0fU << 3)
-/*
- * Bits 26-27 are controller-specific on some implementations; do not use them
- * to infer speed on a standards-compliant EHCI controller.
- */
+
+/* Bits 26-27 are controller-specific on some implementations; do not use them to infer speed on a standards-compliant EHCI controller. */
 #define EHCI_PORT_CSC         (1U << 17)
 #define EHCI_PORT_PEC         (1U << 18)
 #define EHCI_PORT_CHANGE_BITS (EHCI_PORT_CSC | EHCI_PORT_PEC)
@@ -94,19 +92,6 @@
 #define EHCI_HCC_AC64       (1U << 1)
 #define EHCI_HCC_EECP_SHIFT 8
 #define EHCI_HCC_EECP_MASK  (0xffU << 8)
-
-/* Queue Head (for async list and periodic list) */
-typedef struct __attribute__((packed, aligned(32))) {
-        uint32_t horizontal_link;
-        uint32_t endpoint_chars;
-        uint32_t endpoint_caps;
-        uint32_t current_qtd;
-        uint32_t next_qtd;
-        uint32_t alt_next_qtd;
-        uint32_t token;
-        uint32_t buffer[5];
-        uint32_t extended[5];
-} ehci_qh_t;
 
 /* QH endpoint characteristics bits */
 #define EHCI_QH_FA_SHIFT  0
@@ -139,15 +124,6 @@ typedef struct __attribute__((packed, aligned(32))) {
 #define EHCI_QHL_TYPE_ITD  (0U << 0)
 #define EHCI_QHL_TYPE_SITD (1U << 0)
 
-/* Queue Element Transfer Descriptor (qTD) */
-typedef struct __attribute__((packed, aligned(32))) {
-        uint32_t next_qtd;
-        uint32_t alt_next_qtd;
-        uint32_t token;
-        uint32_t buffer[5];
-        uint32_t extended[5];
-} ehci_qtd_t;
-
 /* qTD token bits */
 #define EHCI_QTD_STATUS_MASK  0x000000ffU
 #define EHCI_QTD_ACTIVE       (1U << 7)
@@ -173,5 +149,27 @@ typedef struct __attribute__((packed, aligned(32))) {
 #define EHCI_QTD_NEXT_TERMINATE (1U << 0)
 
 #define EHCI_FRAME_LIST_SIZE 1024
+
+/* Queue Head (for async list and periodic list) */
+typedef struct __attribute__((packed, aligned(32))) {
+        uint32_t horizontal_link;
+        uint32_t endpoint_chars;
+        uint32_t endpoint_caps;
+        uint32_t current_qtd;
+        uint32_t next_qtd;
+        uint32_t alt_next_qtd;
+        uint32_t token;
+        uint32_t buffer[5];
+        uint32_t extended[5];
+} ehci_qh_t;
+
+/* Queue Element Transfer Descriptor (qTD) */
+typedef struct __attribute__((packed, aligned(32))) {
+        uint32_t next_qtd;
+        uint32_t alt_next_qtd;
+        uint32_t token;
+        uint32_t buffer[5];
+        uint32_t extended[5];
+} ehci_qtd_t;
 
 #endif // INCLUDE_EHCI_H_

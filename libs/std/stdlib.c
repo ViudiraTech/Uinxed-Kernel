@@ -8,7 +8,6 @@
  *
  */
 
-#include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
@@ -18,8 +17,14 @@ char *normalize_path(const char *path)
 {
     if (!path) return 0;
 
-    size_t len    = strlen(path);
-    char  *result = malloc(len + 1);
+    size_t len = strlen(path);
+
+    /*
+     * A relative input gains a leading '/' and one separator per component,
+     * so the result can reach len + 1 characters; the empty string already
+     * needs room for the '/' written below.
+     */
+    char *result = malloc(len + 2);
     if (!result) return 0;
 
     char *dup = strdup(path);
@@ -34,11 +39,18 @@ char *normalize_path(const char *path)
         return result;
     }
 
-    char *start = dup;
-    if (*start == '/') start++;
+    char *cursor = dup;
+    if (*cursor == '/') cursor++;
 
-    char *token = strtok(start, "/");
-    while (token) {
+    while (*cursor) {
+        char *token = cursor;
+        char *slash = strchr(cursor, '/');
+
+        if (slash) *slash = '\0';
+        cursor = slash ? slash + 1 : cursor + strlen(cursor);
+
+        /* Repeated separators yield empty components, which carry no path element. */
+        if (!*token) continue;
         if (strcmp(token, ".") == 0) {
             /* Ignore the current directory */
         } else if (strcmp(token, "..") == 0) {
@@ -52,7 +64,6 @@ char *normalize_path(const char *path)
             if (result[strlen(result) - 1] != '/') strcat(result, "/");
             strcat(result, token);
         }
-        token = strtok(0, "/");
     }
     free(dup);
     return result;
@@ -196,7 +207,13 @@ char *number(char *str, size_t num, size_t base, size_t size, size_t precision, 
         sign = '-';
         num  = -(int64_t)num;
     } else {
-        sign = (type & PLUS) ? '+' : ((type & SPACE) ? ' ' : 0);
+        if (type & PLUS) {
+            sign = '+';
+        } else if (type & SPACE) {
+            sign = ' ';
+        } else {
+            sign = 0;
+        }
     }
     if (sign) size_--;
 
@@ -260,7 +277,7 @@ char *number(char *str, size_t num, size_t base, size_t size, size_t precision, 
 uint64_t number_length(size_t num, size_t base, size_t size, size_t precision, int type)
 {
     /* This function is for malloc a enough space for `number()` */
-    char     sign          = 0; // is there a sign (0: no sign, 1: sign)
+    char     sign          = 0; // sign flag (0: unsigned, 1: signed)
     size_t   number_digits = 0;
     uint64_t res           = 0;
     if ((type & SIGN && (int64_t)num < 0)) {

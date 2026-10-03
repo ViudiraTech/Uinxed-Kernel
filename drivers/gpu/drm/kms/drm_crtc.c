@@ -9,20 +9,13 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 
-/* Internal helper from drm_mode_object.c */
+#if CONFIG_DRM
 
 /* Initialise a new CRTC object with primary and cursor planes. Returns 0 on success or a negative errno on failure. */
 int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, struct drm_plane *primary, struct drm_plane *cursor, void *funcs, const char *name)
@@ -31,11 +24,7 @@ int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, str
 
     (void)name;
 
-    if (!dev || !crtc) {
-        DRM_ERROR("Init_with_planes with NULL dev or crtc.\n");
-        return -EINVAL;
-    }
-
+    if (!dev || !crtc) return -EINVAL;
     ret = drm_mode_object_idr_alloc(dev, &crtc->base, DRM_MODE_OBJECT_CRTC);
     if (ret) {
         DRM_ERROR("Failed to allocate object id (ret=%d)\n", ret);
@@ -86,16 +75,9 @@ int drm_mode_getcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     struct drm_mode_object *obj;
     struct drm_crtc        *crtc;
 
-    if (!dev || !crtc_req) {
-        DRM_ERROR("Getcrtc with invalid args.\n");
-        return -EINVAL;
-    }
-
+    if (!dev || !crtc_req) return -EINVAL;
     obj = drm_mode_object_find(dev, file_priv, crtc_req->crtc_id, DRM_MODE_OBJECT_CRTC);
-    if (!obj) {
-        DRM_ERROR("Crtc %u not found.\n", crtc_req->crtc_id);
-        return -ENOENT;
-    }
+    if (!obj) return -ENOENT;
     crtc = container_of(obj, struct drm_crtc, base);
 
     crtc_req->fb_id      = crtc->primary ? crtc->primary->fb_id : 0;
@@ -140,23 +122,15 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     uint32_t                *connector_ids = NULL;
     int                      ret           = 0;
 
-    if (!dev || !crtc_req) {
-        DRM_ERROR("Setcrtc with invalid args.\n");
-        return -EINVAL;
-    }
-
+    if (!dev || !crtc_req) return -EINVAL;
     obj = drm_mode_object_find(dev, file_priv, crtc_req->crtc_id, DRM_MODE_OBJECT_CRTC);
-    if (!obj) {
-        DRM_ERROR("Crtc %u not found.\n", crtc_req->crtc_id);
-        return -ENOENT;
-    }
+    if (!obj) return -ENOENT;
     crtc = container_of(obj, struct drm_crtc, base);
 
     /* Look up the framebuffer if specified */
     if (crtc_req->fb_id != 0) {
         fb = drm_framebuffer_lookup(dev, file_priv, crtc_req->fb_id);
         if (!fb) {
-            DRM_ERROR("Fb %u not found.\n", crtc_req->fb_id);
             drm_mode_object_put(obj);
             return -ENOENT;
         }
@@ -165,46 +139,39 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     if (crtc_req->mode_valid) {
         /* Validate mode parameters */
         if (!fb || crtc_req->mode.clock == 0 || crtc_req->mode.hdisplay == 0 || crtc_req->mode.vdisplay == 0) {
-            DRM_ERROR("Invalid mode parameters.\n");
             ret = -EINVAL;
             goto out;
         }
 
         /* Validate sync ranges: hsync_start <= hsync_end <= htotal */
         if (crtc_req->mode.hsync_start > crtc_req->mode.hsync_end || crtc_req->mode.hsync_end > crtc_req->mode.htotal) {
-            DRM_ERROR("Invalid hsync range.\n");
             ret = -EINVAL;
             goto out;
         }
 
         /* Validate sync ranges: vsync_start <= vsync_end <= vtotal */
         if (crtc_req->mode.vsync_start > crtc_req->mode.vsync_end || crtc_req->mode.vsync_end > crtc_req->mode.vtotal) {
-            DRM_ERROR("Invalid vsync range.\n");
             ret = -EINVAL;
             goto out;
         }
 
         /* Validate htotal/vtotal are non-zero */
         if (crtc_req->mode.htotal == 0 || crtc_req->mode.vtotal == 0) {
-            DRM_ERROR("Invalid htotal/vtotal.\n");
             ret = -EINVAL;
             goto out;
         }
 
         /* Validate dimensions against mode_config limits */
         if (crtc_req->mode.hdisplay > dev->mode_config.max_width || crtc_req->mode.vdisplay > dev->mode_config.max_height) {
-            DRM_ERROR("Mode exceeds limits (%ux%u)\n", crtc_req->mode.hdisplay, crtc_req->mode.vdisplay);
             ret = -EINVAL;
             goto out;
         }
         if (crtc_req->x > DRM_S32_MAX || crtc_req->y > DRM_S32_MAX || (uint64_t)crtc_req->x + crtc_req->mode.hdisplay > DRM_S32_MAX || (uint64_t)crtc_req->y + crtc_req->mode.vdisplay > DRM_S32_MAX) {
-            DRM_ERROR("Invalid crtc position.\n");
             ret = -EINVAL;
             goto out;
         }
 
         if (crtc_req->count_connectors > (uint32_t)dev->mode_config.num_connector || (crtc_req->count_connectors && !crtc_req->set_connectors_ptr)) {
-            DRM_ERROR("Invalid connector count %u\n", crtc_req->count_connectors);
             ret = -EINVAL;
             goto out;
         }
@@ -216,7 +183,6 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
                 goto out;
             }
             if (copy_from_user(connector_ids, (const void *)(uintptr_t)crtc_req->set_connectors_ptr, (size_t)crtc_req->count_connectors * sizeof(*connector_ids))) {
-                DRM_ERROR("Failed to copy connector ids from user.\n");
                 ret = -EFAULT;
                 goto out;
             }
@@ -241,7 +207,6 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
         mode.status      = MODE_OK;
         strncpy(mode.name, crtc_req->mode.name, DRM_DISPLAY_MODE_LEN - 1);
     } else if (crtc_req->count_connectors) {
-        DRM_ERROR("Connectors specified without mode.\n");
         ret = -EINVAL;
         goto out;
     }
@@ -285,13 +250,11 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
         struct drm_mode_object *conn_obj;
         for (uint32_t j = 0; j < i; j++)
             if (connector_ids[i] == connector_ids[j]) {
-                DRM_ERROR("Duplicate connector id %u\n", connector_ids[i]);
                 ret = -EINVAL;
                 goto out;
             }
         conn_obj = drm_mode_object_find(dev, file_priv, connector_ids[i], DRM_MODE_OBJECT_CONNECTOR);
         if (!conn_obj) {
-            DRM_ERROR("Connector %u not found.\n", connector_ids[i]);
             ret = -ENOENT;
             goto out;
         }
@@ -372,7 +335,7 @@ int drm_mode_gamma_get_ioctl(struct drm_device *dev, void *data, struct drm_file
     entries = (size_t)crtc->gamma_size;
     bytes   = entries * sizeof(uint16_t);
     if (copy_to_user((void *)(uintptr_t)lut_req->red, crtc->gamma_store, bytes) || copy_to_user((void *)(uintptr_t)lut_req->green, crtc->gamma_store + entries, bytes)
-        || copy_to_user((void *)(uintptr_t)lut_req->blue, crtc->gamma_store + 2 * entries, bytes)) {
+        || copy_to_user((void *)(uintptr_t)lut_req->blue, crtc->gamma_store + (2 * entries), bytes)) {
         ret = -EFAULT;
         goto out;
     }
@@ -409,7 +372,7 @@ int drm_mode_gamma_set_ioctl(struct drm_device *dev, void *data, struct drm_file
     entries = (size_t)crtc->gamma_size;
     bytes   = entries * sizeof(uint16_t);
     if (copy_from_user(crtc->gamma_store, (const void *)(uintptr_t)lut_req->red, bytes) || copy_from_user(crtc->gamma_store + entries, (const void *)(uintptr_t)lut_req->green, bytes)
-        || copy_from_user(crtc->gamma_store + 2 * entries, (const void *)(uintptr_t)lut_req->blue, bytes)) {
+        || copy_from_user(crtc->gamma_store + (2 * entries), (const void *)(uintptr_t)lut_req->blue, bytes)) {
         ret = -EFAULT;
         goto out;
     }
@@ -431,9 +394,7 @@ void drm_crtc_cleanup(struct drm_crtc *crtc)
     struct drm_device *dev;
 
     if (!crtc) return;
-
     dev = crtc->dev;
-
     ilist_remove(&crtc->head);
 
     if (dev) {
@@ -460,3 +421,5 @@ void drm_crtc_cleanup(struct drm_crtc *crtc)
         crtc->base.properties = NULL;
     }
 }
+
+#endif

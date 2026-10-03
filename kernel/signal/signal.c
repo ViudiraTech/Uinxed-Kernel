@@ -8,28 +8,20 @@
  *
  */
 
-#include <arch/common.h>
 #include <arch/fpu.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
 #include <process/ptrace.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 
 /* Signal default action table */
-
 static const sig_dfl_action_t sig_default_action_table[NSIG] = {
     [0] = SIG_DFL_TERM,       [SIGHUP] = SIG_DFL_TERM,  [SIGINT] = SIG_DFL_TERM,    [SIGQUIT] = SIG_DFL_CORE, [SIGILL] = SIG_DFL_CORE,  [SIGTRAP] = SIG_DFL_CORE,   [SIGABRT] = SIG_DFL_CORE,
     [SIGBUS] = SIG_DFL_CORE,  [SIGFPE] = SIG_DFL_CORE,  [SIGKILL] = SIG_DFL_TERM,   [SIGUSR1] = SIG_DFL_TERM, [SIGSEGV] = SIG_DFL_CORE, [SIGUSR2] = SIG_DFL_TERM,   [SIGPIPE] = SIG_DFL_TERM,
@@ -37,8 +29,6 @@ static const sig_dfl_action_t sig_default_action_table[NSIG] = {
     [SIGTTIN] = SIG_DFL_STOP, [SIGTTOU] = SIG_DFL_STOP, [SIGURG] = SIG_DFL_IGN,     [SIGXCPU] = SIG_DFL_CORE, [SIGXFSZ] = SIG_DFL_CORE, [SIGVTALRM] = SIG_DFL_TERM, [SIGPROF] = SIG_DFL_TERM,
     [SIGWINCH] = SIG_DFL_IGN, [SIGIO] = SIG_DFL_TERM,   [SIGPWR] = SIG_DFL_TERM,    [SIGSYS] = SIG_DFL_CORE,
 };
-
-static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *sender, int code);
 
 /*
  * ITIMER_REAL timers need to fire even while their owner is asleep.  Keep an
@@ -49,6 +39,71 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
 static spinlock_t itimer_lock;
 static process_t *itimer_real_head;
 static uint64_t   itimer_real_next = UINT64_MAX;
+
+/* Clear every signal in the set. */
+void sigemptyset(sigset_t *set)
+{
+    *set = 0;
+}
+
+/* Set every signal in the set. */
+void sigfillset(sigset_t *set)
+{
+    *set = ~(uint64_t)0;
+}
+
+/* Add a signal to the set. */
+int sigaddset(sigset_t *set, int signo)
+{
+    if (signo <= 0 || signo >= NSIG) return -1;
+    *set |= (1ULL << (signo - 1));
+    return 0;
+}
+
+/* Remove a signal from the set. */
+int sigdelset(sigset_t *set, int signo)
+{
+    if (signo <= 0 || signo >= NSIG) return -1;
+    *set &= ~(1ULL << (signo - 1));
+    return 0;
+}
+
+/* Test whether a signal is present in the set. */
+int sigismember(const sigset_t *set, int signo)
+{
+    if (signo <= 0 || signo >= NSIG) return 0;
+    return !!(*set & (1ULL << (signo - 1)));
+}
+
+/* Test whether the set is empty. */
+int sigisemptyset(const sigset_t *set)
+{
+    return *set == 0;
+}
+
+/* Compute the union of two signal sets. */
+void sigorset(sigset_t *dst, const sigset_t *a, const sigset_t *b)
+{
+    *dst = *a | *b;
+}
+
+/* Compute the intersection of two signal sets. */
+void sigandset(sigset_t *dst, const sigset_t *a, const sigset_t *b)
+{
+    *dst = *a & *b;
+}
+
+/* Test whether a signal set is valid. */
+int sigset_valid(const sigset_t *set)
+{
+    (void)set;
+
+    /* sigset_t is uint64_t, all 64 bits are valid for signals 1-64 */
+    return 1;
+}
+
+/* Signal send group. */
+static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *sender, int code);
 
 /* Recompute the earliest wall-clock interval-timer deadline under itimer_lock. */
 static void itimer_real_recompute_next_locked(void)
@@ -121,7 +176,7 @@ void signal_itimer_set(process_t *proc, unsigned int which, uint64_t value, uint
     spin_unlock(&itimer_lock);
 }
 
-/* IRQ-safe deadline hint used to avoid waking the timer bottom half at 1 kHz. */
+/* IRQ-safe deadline hint that avoids waking the timer bottom half at 1 kHz. */
 uint64_t signal_itimer_real_next_tick(void)
 {
     return __atomic_load_n(&itimer_real_next, __ATOMIC_ACQUIRE);
@@ -147,11 +202,12 @@ void signal_itimer_real_tick(uint64_t now)
             proc->itimer_real_linked = false;
             proc->itimer_value[0]    = 0;
         } else {
-            uint64_t periods = (now - deadline) / interval + 1;
-            if (periods > (UINT64_MAX - deadline) / interval)
+            uint64_t periods = ((now - deadline) / interval) + 1;
+            if (periods > (UINT64_MAX - deadline) / interval) {
                 proc->itimer_value[0] = UINT64_MAX;
-            else
+            } else {
                 proc->itimer_value[0] = deadline + periods * interval;
+            }
             link = &proc->itimer_real_next;
         }
         (void)signal_send(proc, SIGALRM, NULL);
@@ -194,7 +250,29 @@ sig_dfl_action_t signal_default_action(int sig)
     return sig_default_action_table[sig];
 }
 
-/* Signal queue helpers */
+/* Check if a signal is a real-time signal */
+int sig_is_rt(int sig)
+{
+    return sig >= SIGRTMIN && sig <= SIGRTMAX;
+}
+
+/* Check if a signal number is valid */
+int sig_valid(int sig)
+{
+    return sig > 0 && sig < NSIG;
+}
+
+/* Check if a signal is ignorable (cannot be ignored, caught, or blocked) */
+int sig_is_uncatchable(int sig)
+{
+    return sig == SIGKILL || sig == SIGSTOP;
+}
+
+/* Check if a signal is a stop signal */
+int sig_is_stop(int sig)
+{
+    return sig == SIGSTOP || sig == SIGTSTP || sig == SIGTTIN || sig == SIGTTOU;
+}
 
 /* Allocate a signal queue entry */
 static sigqueue_t *sigqueue_alloc(void)
@@ -213,7 +291,8 @@ static int sigqueue_push(signal_state_t *state, const siginfo_t *info, uint64_t 
 {
     sigqueue_t *q = sigqueue_alloc();
     if (!q) {
-        plogk("signal: Sigqueue allocation failed (sig %d)\n", info->si_signo);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("signal: Sigqueue allocation failed (sig %d)\n", info->si_signo);
         return -ENOMEM;
     }
 
@@ -263,10 +342,11 @@ void signal_flush_task(task_t *task)
     while (entry) {
         sigqueue_t *next = entry->next;
         if (entry->target_tid == task->pid) {
-            if (prev)
+            if (prev) {
                 prev->next = next;
-            else
+            } else {
                 state->sigqueue_head = next;
+            }
             if (state->sigqueue_tail == entry) state->sigqueue_tail = prev;
             state->sigqueue_count--;
             sigqueue_free(entry);
@@ -278,8 +358,6 @@ void signal_flush_task(task_t *task)
     sigemptyset(&task->signal_pending);
     spin_unlock(&state->lock);
 }
-
-/* Signal state management */
 
 /* Initialize the signal subsystem */
 void signal_init(void)
@@ -302,7 +380,7 @@ void signal_state_init(signal_state_t *state)
     for (int i = 0; i < SIG_ACTION_NUM; i++) {
         state->sighand[i].sa_handler = SIG_DFL;
         state->sighand[i].sa_flags   = 0;
-        sigemptyset(&state->sighand[i].sa_mask);
+        sigemptyset(&state->sighand[i].sa_mask[0]);
     }
 
     sigemptyset(&state->pending);
@@ -313,9 +391,9 @@ void signal_state_init(signal_state_t *state)
 }
 
 /*
- * Linux ignore_signals(): mark every signal as SIG_IGN.  Kernel threads call
- * this so they ignore every signal, SIGKILL and SIGSTOP included (Linux
- * sig_handler_ignored() treats SIG_IGN as ignored for all signals).  The only
+ * signal_ignore_all(): mark every signal as SIG_IGN.  Kernel threads call
+ * this so they ignore every signal, SIGKILL and SIGSTOP included
+ * (signal_task_ignored() treats SIG_IGN as ignored for all signals).  The only
  * ways to stop one are kthread_stop() or the driver shutting itself down.
  */
 void signal_ignore_all(signal_state_t *state)
@@ -342,6 +420,7 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
     if (dst != src) spin_lock(&dst->lock);
 
     memcpy(dst->sighand, src->sighand, sizeof(dst->sighand));
+
     /*
      * POSIX fork inheritance copies dispositions and the signal mask, but the
      * child starts with no pending signals and no inherited child-status
@@ -405,7 +484,7 @@ void signal_exec_reset(process_t *proc)
             state->sighand[i].sa_handler  = SIG_DFL;
             state->sighand[i].sa_flags    = 0;
             state->sighand[i].sa_restorer = 0;
-            sigemptyset(&state->sighand[i].sa_mask);
+            sigemptyset(&state->sighand[i].sa_mask[0]);
         }
     }
 
@@ -435,10 +514,8 @@ int signal_check_perm(const process_t *from, const process_t *to)
     return -EPERM;
 }
 
-/* Signal sending */
-
 /*
- * Linux sig_ignored()/prepare_signal(): whether a signal should be dropped
+ * signal_task_ignored(): whether a signal should be dropped
  * before it is enqueued.  This is the single choke point that keeps the global
  * init from being terminated by signals and drops every signal that a kernel
  * thread ignores (SIG_IGN, including SIGKILL/SIGSTOP), regardless of the
@@ -449,10 +526,7 @@ int signal_check_perm(const process_t *from, const process_t *to)
  */
 static bool signal_task_ignored(const process_t *proc, const task_t *target, int sig)
 {
-    /*
-     * Linux sig_ignored(): a blocked signal is never ignored, since its
-     * disposition may change before it is unblocked.
-     */
+    /* signal_task_ignored(): a blocked signal is never ignored, since its disposition may change before it is unblocked. */
     const task_t *mask_owner = target ? target : proc->task;
     if (mask_owner && sigismember(&mask_owner->signal_blocked, sig)) return false;
 
@@ -467,20 +541,18 @@ static bool signal_task_ignored(const process_t *proc, const task_t *target, int
 
     /*
      * SIGCONT must never be reported as ignored here: its resume side effect
-     * (task_continue in signal_send/signal_send_thread) runs after this check,
-     * and an ignored result would take the early return in signal_send() and
-     * skip the resume.  Linux orders this the same way - prepare_signal()
-     * resumes the task before sig_ignored() may drop the signal.  The signal
-     * itself is discarded later at delivery (SIG_DFL -> SIG_DFL_CONT, SIG_IGN
-     * -> handled).
+     * (task_continue in signal_send/signal_send_thread) runs after this check, and
+     * an ignored result would take the early return in signal_send() and skip the
+     * resume.  The signal itself is discarded later at delivery (SIG_DFL ->
+     * SIG_DFL_CONT, SIG_IGN -> handled).
      */
     if (sig == SIGCONT) return false;
 
     /*
-     * Linux sig_handler_ignored(): a signal is dropped before enqueue when its
+     * signal_task_ignored(): a signal is dropped before enqueue when its
      * disposition is explicitly SIG_IGN, or implicitly SIG_DFL for a
-     * sig_kernel_ignore() signal (SIGCHLD, SIGWINCH, SIGURG). Kernel threads
-     * set every signal to SIG_IGN via ignore_signals(), so they ignore all
+     * default-ignored signal (SIGCHLD, SIGWINCH, SIGURG). Kernel threads
+     * set every signal to SIG_IGN via signal_ignore_all(), so they ignore all
      * signals — SIGKILL and SIGSTOP included — and are stopped only by
      * kthread_stop().
      */
@@ -501,7 +573,7 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, task_t *ta
     if (newly_pending) *newly_pending = false;
     if (ignored) *ignored = false;
 
-    /* Drop signals ignored for this task before enqueueing (Linux prepare_signal). */
+    /* Drop signals ignored for this task before enqueueing. */
     if (signal_task_ignored(proc, target, sig)) {
         if (ignored) *ignored = true;
         return 0;
@@ -513,13 +585,10 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, task_t *ta
     if (!sig_is_rt(sig))
         if (sigismember(pending, sig)) return 0;
 
-    /* Real-time signals: queue up to SIGQUEUE_MAX */
-    if (sig_is_rt(sig) && state->sigqueue_count >= SIGQUEUE_MAX) {
-        static uint64_t last_log;
-        if (sched_ticks() - last_log >= 1000) {
-            plogk("signal: rt signal %d to pid %llu dropped, queue full.\n", sig, proc && proc->task ? (unsigned long long)proc->task->pid : 0ULL);
-            last_log = sched_ticks();
-        }
+    /* Real-time signals: queue up to CONFIG_SIGQUEUE_MAX */
+    if (sig_is_rt(sig) && state->sigqueue_count >= CONFIG_SIGQUEUE_MAX) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("signal: rt signal %d to pid %llu dropped, queue full.\n", sig, proc && proc->task ? proc->task->pid : 0ULL);
         return -EAGAIN;
     }
 
@@ -530,12 +599,12 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, task_t *ta
         memset(&queue_info, 0, sizeof(siginfo_t));
         queue_info.si_signo = sig;
         queue_info.si_code  = SI_USER;
-        queue_info.si_pid   = (int64_t)(proc->task ? proc->task->pid : 0);
+        queue_info.si_pid   = (int32_t)(proc->task ? proc->task->pid : 0);
         queue_info.si_uid   = proc->uid;
     }
     queue_info.si_signo = sig;
 
-    int queued = state->sigqueue_count < SIGQUEUE_MAX ? sigqueue_push(state, &queue_info, target ? target->pid : 0) : -ENOMEM;
+    int queued = state->sigqueue_count < CONFIG_SIGQUEUE_MAX ? sigqueue_push(state, &queue_info, target ? target->pid : 0) : -ENOMEM;
     if (queued && sig_is_rt(sig)) return -EAGAIN;
     sigaddset(pending, sig);
     if (newly_pending) *newly_pending = true;
@@ -549,7 +618,6 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
     if (!sig_valid(sig)) return -EINVAL;
 
     signal_state_t *state = &proc->signal;
-
     spin_lock(&state->lock);
 
     bool newly_pending;
@@ -559,7 +627,7 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
 
     spin_unlock(&state->lock);
 
-    /* Linux kill()/send_signal() report success when the signal is ignored. */
+    /* kill() reports success when the signal is ignored. */
     if (ignored) return 0;
 
     /*
@@ -608,26 +676,20 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
     return ret;
 }
 
-/* Signal delivery */
-
 /*
- * Prepare a signal frame on the user stack and modify the syscall
- * frame so that the process enters the signal handler when it
- * returns to userspace.
+ * Prepare a signal frame on the user stack and modify the syscall frame so the
+ * process enters the signal handler on return to userspace.
  *
- * We save the full register context + old signal mask in a Linux-compatible
- * ucontext_t inside signal_user_frame_t, then redirect the syscall frame's
- * rip/rsp/rdi/rsi/rdx so the handler runs.
+ * The full register context + old signal mask is saved in a Linux-compatible
+ * ucontext_t inside signal_user_frame_t, then the syscall frame's
+ * rip/rsp/rdi/rsi/rdx are redirected so the handler runs.
  *
  * The saved context is restored by sys_rt_sigreturn().
  *
- * NOTE: The interrupt-delivery path (user_exception, page_fault_handle)
- * creates a minimal syscall_frame_t with only rip/cs/rflags/rsp/ss.
- * For those paths, the general registers not present in the interrupt frame
- * are 0 in the ucontext;
- * the important thing is that rip/rflags/rsp are saved and restored
- * correctly. The signal handler will get its signal number in rdi
- * from the caller (which propagates sigframe.rdi back).
+ * Every entry stub pushes the full register block, so the frame handed to
+ * signal delivery carries all fifteen GPRs plus the iret tail and the
+ * handler's ucontext is complete.  interrupt_frame_t in arch/idt.h holds only
+ * that iret tail and must never be read as a syscall_frame_t.
  */
 static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t *sa, const siginfo_t *info, sigset_t old_mask)
 {
@@ -642,7 +704,7 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
 
     /*
      * A pthread stack is an ordinary writable mmap and is not bounded by the
-     * main thread's proc->stack_brk.  Linux x86 derives the frame from the
+     * main thread's proc->stack_brk.  The x86 frame is derived from the
      * interrupted RSP and lets the user-copy/VMA checks validate it; applying
      * the main-stack lower bound here rejected every signal delivered to a
      * worker thread.  Alternate stacks retain their explicit overflow check.
@@ -744,10 +806,7 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
     return 0;
 }
 
-/*
- * Handle the default action for a signal.
- * Returns 1 if the process should be terminated, 0 otherwise.
- */
+/* Handle the default action for a signal. Returns 1 if the process should be terminated, 0 otherwise. */
 static int signal_handle_default(process_t *proc, int sig)
 {
     sig_dfl_action_t action = signal_default_action(sig);
@@ -774,8 +833,8 @@ static int signal_handle_default(process_t *proc, int sig)
 }
 
 /*
- * Deliver a single signal to the current process.
- * Called from signal_deliver_if_pending() when returning to userspace.
+ * Deliver a single signal to the current process, called from
+ * signal_deliver_if_pending() when returning to userspace.
  *
  * Returns:
  *   SIG_DELIV_HANDLED (0) - default/ignore action applied, continue
@@ -801,8 +860,8 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     /* Check if signal is default */
     if (sa->sa_handler == SIG_DFL) {
         /*
-         * Global init gets no signals it doesn't want (Linux get_signal():
-         * a SIGNAL_UNKILLABLE task skips SIG_DFL signals other than the
+         * Global init gets no signals it doesn't want (a SIGNAL_UNKILLABLE
+         * task skips SIG_DFL signals other than the
          * uncatchable SIGKILL/SIGSTOP).  This closes the blocked-then-
          * unblocked window that the send-time check cannot observe.
          */
@@ -827,7 +886,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     if (!(action.sa_flags & SA_NODEFER)) sigaddset(&task->signal_blocked, sig);
 
     /* Block additional signals in sa_mask */
-    sigorset(&task->signal_blocked, &task->signal_blocked, &action.sa_mask);
+    sigorset(&task->signal_blocked, &task->signal_blocked, &action.sa_mask[0]);
 
     /*
      * SA_RESETHAND affects future deliveries.  Keep using the snapshot above
@@ -837,13 +896,15 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
         sa->sa_handler  = SIG_DFL;
         sa->sa_flags    = 0;
         sa->sa_restorer = 0;
-        sigemptyset(&sa->sa_mask);
+        sigemptyset(&sa->sa_mask[0]);
     }
 
     /* Set up the signal frame on the user stack (including old_mask). */
     int frame_status = signal_setup_frame(frame, sig, &action, info, old_mask);
     if (frame_status < 0) {
-        plogk("signal: Failed to set up frame for sig %d tgid %llu tid %llu rsp %p: %d\n", sig, proc->task ? proc->task->pid : 0, task->pid, (void *)frame->rsp, frame_status);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit))
+            plogk("signal: Failed to set up frame for sig %d tgid %llu tid %llu rsp %p: %d\n", sig, (proc->task ? proc->task->pid : 0), task->pid, (void *)frame->rsp, frame_status);
         return SIG_DELIV_TERM;
     }
     task->signal_restore_mask = false;
@@ -851,10 +912,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     return SIG_DELIV_HANDLER;
 }
 
-/*
- * Check if there is any pending signal that should be delivered.
- * Considers the blocked mask.
- */
+/* Check if there is any pending signal that should be delivered. Considers the blocked mask. */
 int signal_has_pending(signal_state_t *state)
 {
     if (!state) return 0;
@@ -907,14 +965,37 @@ bool signal_is_blocked_or_ignored(process_t *proc, int sig)
     return blocked_or_ignored;
 }
 
-/*
- * Dequeue the next pending signal to deliver.
- * Real-time signals are dequeued from the queue; standard signals
- * are found by scanning the pending bitmap.
- */
+/* Force a synchronous fault signal through: drop it from the blocked mask and turn an ignored disposition fatal. */
+void signal_force_delivery(process_t *proc, int sig)
+{
+    if (!proc || !sig_valid(sig)) return;
+
+    signal_state_t *state = &proc->signal;
+    spin_lock(&state->lock);
+    task_t *task = current_task();
+    if (!task || task->process != proc) task = proc->task;
+    if (task) (void)sigdelset(&task->signal_blocked, sig);
+    if (state->sighand[sig].sa_handler == SIG_IGN) state->sighand[sig].sa_handler = SIG_DFL;
+    spin_unlock(&state->lock);
+}
+
+/* True when `sig` has no handler and no tracer, so it takes its default action. */
+bool signal_is_unhandled(process_t *proc, int sig)
+{
+    if (!proc || !proc->task || !sig_valid(sig)) return false;
+    if (ptrace_tracer_pid(proc->task)) return false;
+
+    signal_state_t *state = &proc->signal;
+    spin_lock(&state->lock);
+    bool unhandled = state->sighand[sig].sa_handler == SIG_DFL;
+    spin_unlock(&state->lock);
+    return unhandled;
+}
+
+/* Dequeue the next pending signal to deliver. Real-time signals are dequeued from the queue; standard signals are found by scanning the pending bitmap. */
 static int signal_dequeue(signal_state_t *state, task_t *task, siginfo_t *info)
 {
-    if (!task) return -1;
+    if (!task) return -EINVAL;
     sigset_t blocked = task->signal_blocked;
 
     /* Real-time signals retain queue order, but thread-directed entries are private. */
@@ -926,18 +1007,20 @@ static int signal_dequeue(signal_state_t *state, task_t *task, siginfo_t *info)
         if (sig_is_rt(sig) && target_matches && !sigismember(&blocked, sig)) {
             uint64_t target_tid = cur->target_tid;
             memcpy(info, &cur->info, sizeof(*info));
-            if (prev)
+            if (prev) {
                 prev->next = cur->next;
-            else
+            } else {
                 state->sigqueue_head = cur->next;
+            }
             if (cur == state->sigqueue_tail) state->sigqueue_tail = prev;
             state->sigqueue_count--;
             sigqueue_free(cur);
             if (!sigqueue_contains(state, sig, target_tid)) {
-                if (target_tid)
+                if (target_tid) {
                     sigdelset(&task->signal_pending, sig);
-                else
+                } else {
                     sigdelset(&state->pending, sig);
+                }
             }
             return sig;
         }
@@ -961,10 +1044,11 @@ static int signal_dequeue(signal_state_t *state, task_t *task, siginfo_t *info)
         if (cur) {
             target_tid = cur->target_tid;
             memcpy(info, &cur->info, sizeof(*info));
-            if (prev)
+            if (prev) {
                 prev->next = cur->next;
-            else
+            } else {
                 state->sigqueue_head = cur->next;
+            }
             if (state->sigqueue_tail == cur) state->sigqueue_tail = prev;
             state->sigqueue_count--;
             sigqueue_free(cur);
@@ -974,34 +1058,33 @@ static int signal_dequeue(signal_state_t *state, task_t *task, siginfo_t *info)
             info->si_code  = SI_USER;
         }
         if (!sigqueue_contains(state, sig, target_tid)) {
-            if (target_tid)
+            if (target_tid) {
                 sigdelset(&task->signal_pending, sig);
-            else
+            } else {
                 sigdelset(&state->pending, sig);
+            }
         }
         return sig;
     }
 
-    return -1;
+    return 0;
 }
 
 /*
- * Main signal delivery entry point.
- * Called on every return from kernel to userspace (syscall return,
- * interrupt return). Modifies the syscall frame to redirect execution
- * to the signal handler if needed.
+ * Main signal delivery entry point, called on every return from kernel to
+ * userspace (syscall return, interrupt return).  Modifies the syscall frame to
+ * redirect execution to the signal handler if needed.
  *
- * IMPORTANT: This function does NOT modify frame->rax (the syscall
- * return value). The decision about whether to return -EINTR or
- * restart a syscall is made by the caller (syscall_dispatch based on
- * the syscall's own return value).
+ * IMPORTANT: frame->rax (the syscall return value) is NOT modified here.  The
+ * decision between -EINTR and a syscall restart is made by the caller
+ * (syscall_dispatch, from the syscall's own return value).
  *
- * Delivery rules (matching expected behavior):
- * - SIG_IGN / default non-terminating actions: all such pending signals
- *   are cleared in one call (no need to return to userspace between them).
- * - Default terminating actions: process exits immediately.
- * - User handler: only ONE signal is delivered per call. The remaining
- *   pending signals will be delivered on the next return to userspace.
+ * Delivery rules:
+ * - SIG_IGN / default non-terminating actions: all such pending signals are
+ *   cleared in one call.
+ * - Default terminating actions: the process exits immediately.
+ * - User handler: only ONE signal is delivered per call; the rest stay pending
+ *   for the next return to userspace.
  *
  * Returns:
  *   0 if no signal was pending, or signal was delivered (continue)
@@ -1032,7 +1115,7 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
         siginfo_t info;
         int       sig = signal_dequeue(state, current, &info);
 
-        if (sig < 0) break;
+        if (sig <= 0) break; // 0 = drained; -errno = defensive guard.
 
         /*
          * A tracer observes the signal before normal disposition.  The
@@ -1059,23 +1142,17 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
 
         if (ret == SIG_DELIV_HANDLER) {
             /*
-             * User handler set up: deliver ONLY this signal, leave rest pending.
-             * The handler will run when we return to userspace; on the next
-             * syscall/interrupt return, remaining signals will be delivered.
+             * User handler set up: deliver ONLY this signal, leave the rest pending.  The
+             * handler runs on return to userspace; remaining signals are delivered on the
+             * next syscall/interrupt return.
              */
             break;
         }
 
-        /*
-         * ret == SIG_DELIV_HANDLED: default/ignore action.
-         * Continue loop to clear more pending default/ignore signals.
-         */
+        /* ret == SIG_DELIV_HANDLED: default/ignore action. Continue loop to clear more pending default/ignore signals. */
     }
 
-    /*
-     * No user handler consumed the deferred mask (for example, the signal
-     * was ignored or used a non-terminating default action).
-     */
+    /* No user handler consumed the deferred mask (for example, the signal was ignored or used a non-terminating default action). */
     if (current->signal_restore_mask) {
         current->signal_blocked      = current->signal_saved_mask;
         current->signal_restore_mask = false;
@@ -1123,12 +1200,10 @@ void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_cod
     info.si_status = exit_code;
 
     bool newly_pending;
-    signal_send_locked(state, parent, NULL, SIGCHLD, &info, &newly_pending, NULL);
-
+    (void)signal_send_locked(state, parent, NULL, SIGCHLD, &info, &newly_pending, NULL);
     spin_unlock(&state->lock);
 
     if (newly_pending) signalfd_deliver(parent, SIGCHLD, &info);
-
     if (parent->task) task_wakeup(parent->task);
 }
 
@@ -1148,7 +1223,7 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
         info.si_code   = code;
         info.si_pid    = child_pid;
         info.si_status = status;
-        signal_send_locked(state, parent, NULL, SIGCHLD, &info, &newly_pending, NULL);
+        (void)signal_send_locked(state, parent, NULL, SIGCHLD, &info, &newly_pending, NULL);
     }
     spin_unlock(&state->lock);
     if (newly_pending) signalfd_deliver(parent, SIGCHLD, &info);
@@ -1164,7 +1239,7 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
  */
 int64_t sys_kill_impl(int64_t pid, int sig)
 {
-    /* Linux reserves signal 0 as an existence/permission probe. */
+    /* Signal 0 is reserved as an existence/permission probe. */
     if (sig < 0 || sig >= NSIG) return -EINVAL;
 
     if (pid > 0) {
@@ -1225,7 +1300,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
                 info.si_code  = SI_USER;
                 info.si_pid   = cur->task->pid;
                 info.si_uid   = cur->uid;
-                signal_send(target, sig, &info);
+                (void)signal_send(target, sig, &info);
             }
             found = 1;
             process_put(target);
@@ -1326,37 +1401,23 @@ int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, siz
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    signal_state_t *state = &proc->signal;
+    /* The user copies can fault, so they stay outside the signal lock. */
+    sigaction_t new_sa;
+    if (act && copy_from_user(&new_sa, act, sizeof(sigaction_t))) return -EFAULT;
+    if (act && new_sa.sa_handler == SIG_ERR) return -EINVAL;
+    if (act && sig != SIGCHLD) new_sa.sa_flags &= ~(SA_NOCLDSTOP | SA_NOCLDWAIT);
 
+    signal_state_t *state = &proc->signal;
     spin_lock(&state->lock);
 
-    if (oact) {
-        if (copy_to_user(oact, &state->sighand[sig], sizeof(sigaction_t))) {
-            spin_unlock(&state->lock);
-            return -EFAULT;
-        }
-    }
-
-    if (act) {
-        sigaction_t new_sa;
-        if (copy_from_user(&new_sa, act, sizeof(sigaction_t))) {
-            spin_unlock(&state->lock);
-            return -EFAULT;
-        }
-
-        /* Validate */
-        if (new_sa.sa_handler == SIG_ERR) {
-            spin_unlock(&state->lock);
-            return -EINVAL;
-        }
-
-        /* SA_NOCLDSTOP and SA_NOCLDWAIT only meaningful for SIGCHLD */
-        if (sig != SIGCHLD) new_sa.sa_flags &= ~(SA_NOCLDSTOP | SA_NOCLDWAIT);
-
-        state->sighand[sig] = new_sa;
-    }
+    sigaction_t old_sa;
+    bool        have_old = (oact != NULL);
+    if (have_old) old_sa = state->sighand[sig];
+    if (act) state->sighand[sig] = new_sa;
 
     spin_unlock(&state->lock);
+
+    if (have_old && copy_to_user(oact, &old_sa, sizeof(sigaction_t))) return -EFAULT;
     return 0;
 }
 
@@ -1364,42 +1425,31 @@ int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, siz
 int64_t sys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oset, size_t sigsetsize)
 {
     if (sigsetsize != sizeof(sigset_t)) return -EINVAL;
+    if (set && how != SIG_BLOCK && how != SIG_UNBLOCK && how != SIG_SETMASK) return -EINVAL;
 
     process_t *proc = process_current();
     task_t    *task = current_task();
+
     if (!proc || !task) return -ESRCH;
 
-    signal_state_t *state = &proc->signal;
+    /* The user copies can fault, so they stay outside the signal lock. */
+    sigset_t new_set;
+    if (set && copy_from_user(&new_set, set, sizeof(sigset_t))) return -EFAULT;
 
+    signal_state_t *state = &proc->signal;
     spin_lock(&state->lock);
 
-    if (oset) {
-        if (copy_to_user(oset, &task->signal_blocked, sizeof(sigset_t))) {
-            spin_unlock(&state->lock);
-            return -EFAULT;
-        }
-    }
+    sigset_t old_set;
+    bool     have_old = (oset != NULL);
 
+    if (have_old) old_set = task->signal_blocked;
     if (set) {
-        sigset_t new_set;
-        if (copy_from_user(&new_set, set, sizeof(sigset_t))) {
-            spin_unlock(&state->lock);
-            return -EFAULT;
-        }
-
-        switch (how) {
-            case SIG_BLOCK :
-                sigorset(&task->signal_blocked, &task->signal_blocked, &new_set);
-                break;
-            case SIG_UNBLOCK :
-                task->signal_blocked &= ~new_set;
-                break;
-            case SIG_SETMASK :
-                task->signal_blocked = new_set;
-                break;
-            default :
-                spin_unlock(&state->lock);
-                return -EINVAL;
+        if (how == SIG_BLOCK) {
+            sigorset(&task->signal_blocked, &task->signal_blocked, &new_set);
+        } else if (how == SIG_UNBLOCK) {
+            task->signal_blocked &= ~new_set;
+        } else {
+            task->signal_blocked = new_set;
         }
 
         /* SIGKILL and SIGSTOP cannot be blocked */
@@ -1408,6 +1458,8 @@ int64_t sys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oset, size_t 
     }
 
     spin_unlock(&state->lock);
+
+    if (have_old && copy_to_user(oset, &old_set, sizeof(sigset_t))) return -EFAULT;
     return 0;
 }
 
@@ -1500,6 +1552,7 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, task_t *task, const 
 
     while (cur) {
         int sig = cur->info.si_signo;
+
         /*
          * sigtimedwait() is specifically meant to synchronously consume
          * signals that the caller has blocked from asynchronous delivery.
@@ -1511,24 +1564,27 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, task_t *task, const 
         if (target_matches && sigismember(filter, sig)) {
             uint64_t target_tid = cur->target_tid;
             memcpy(info, &cur->info, sizeof(siginfo_t));
-            if (prev)
+            if (prev) {
                 prev->next = cur->next;
-            else
+            } else {
                 state->sigqueue_head = cur->next;
+            }
             if (cur == state->sigqueue_tail) state->sigqueue_tail = prev;
             state->sigqueue_count--;
             sigqueue_free(cur);
             if (!sigqueue_contains(state, sig, target_tid)) {
-                if (target_tid && task)
+                if (target_tid && task) {
                     sigdelset(&task->signal_pending, sig);
-                else
+                } else {
                     sigdelset(&state->pending, sig);
+                }
             }
             return sig;
         }
         prev = cur;
         cur  = cur->next;
     }
+
     /*
      * A standard signal can still be represented only by the pending bitmap
      * if allocating its optional siginfo queue entry failed.
@@ -1539,10 +1595,11 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, task_t *task, const 
         memset(info, 0, sizeof(*info));
         info->si_signo = sig;
         info->si_code  = SI_USER;
-        if (task && sigismember(&task->signal_pending, sig))
+        if (task && sigismember(&task->signal_pending, sig)) {
             sigdelset(&task->signal_pending, sig);
-        else
+        } else {
             sigdelset(&state->pending, sig);
+        }
         return sig;
     }
     return 0;
@@ -1592,7 +1649,7 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
     bool     timed         = timeout != NULL;
     uint64_t deadline_tick = 0;
     if (timed) {
-        timer_timespec_t timeout_ts;
+        linux_timespec_t timeout_ts;
         uint64_t         timeout_ns;
         if (copy_from_user(&timeout_ts, timeout, sizeof(timeout_ts))) return -EFAULT;
         if (!timer_timespec_to_ns(&timeout_ts, &timeout_ns)) return -EINVAL;
@@ -1638,10 +1695,11 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
         wait_queue_prepare(&wq);
         spin_unlock(&state->lock);
 
-        if (timed)
+        if (timed) {
             (void)wait_queue_wait_timed(&wq, deadline_tick);
-        else
+        } else {
             wait_queue_sleep();
+        }
     }
 }
 
@@ -1652,46 +1710,35 @@ int64_t sys_sigaltstack(const stack_t *ss, stack_t *oss)
     task_t    *task = current_task();
     if (!proc || !task) return -ESRCH;
 
+    /* The user copies can fault, so they stay outside the signal lock. */
+    stack_t new_ss;
+    if (ss && copy_from_user(&new_ss, ss, sizeof(stack_t))) return -EFAULT;
+    if (ss && !(new_ss.ss_flags & SS_DISABLE) && new_ss.ss_size < (size_t)4096) return -ENOMEM;
+
     signal_state_t *state = &proc->signal;
     spin_lock(&state->lock);
 
-    if (oss) {
-        if (copy_to_user(oss, &task->signal_altstack, sizeof(stack_t))) {
-            spin_unlock(&state->lock);
-            return -EFAULT;
-        }
-    }
+    stack_t old_ss;
+    bool    have_old = (oss != NULL);
+    if (have_old) old_ss = task->signal_altstack;
 
     if (ss) {
-        stack_t new_ss;
-        if (copy_from_user(&new_ss, ss, sizeof(stack_t))) {
-            spin_unlock(&state->lock);
-            return -EFAULT;
-        }
-
         if (new_ss.ss_flags & SS_DISABLE) {
             task->signal_altstack.ss_flags = SS_DISABLE;
             task->signal_altstack.ss_sp    = NULL;
             task->signal_altstack.ss_size  = 0;
         } else {
-            if (new_ss.ss_size < (size_t)4096) {
-                spin_unlock(&state->lock);
-                return -ENOMEM;
-            }
             task->signal_altstack = new_ss;
         }
     }
 
     spin_unlock(&state->lock);
+
+    if (have_old && copy_to_user(oss, &old_ss, sizeof(stack_t))) return -EFAULT;
     return 0;
 }
 
-/*
- * sys_pause - Wait for a signal
- *
- * Uses the wait queue to avoid the TOCTOU race between checking
- * for pending signals and blocking. Always returns -EINTR.
- */
+/* sys_pause - Block until a signal is pending; always returns -EINTR */
 int64_t sys_pause(void)
 {
     process_t *proc = process_current();
@@ -1715,7 +1762,7 @@ int64_t sys_rt_sigqueueinfo(int64_t pid, int sig, siginfo_t *info)
     if (!sig_valid(sig)) return -EINVAL;
     if (sig == SIGKILL || sig == SIGSTOP) return -EINVAL;
 
-    process_t *proc = process_find_get((int64_t)pid);
+    process_t *proc = process_find_get(pid);
     if (!proc) return -ESRCH;
 
     siginfo_t user_info;
@@ -1780,13 +1827,11 @@ int64_t sys_rt_tgsigqueueinfo(int64_t tgid, int64_t tid, int sig, siginfo_t *inf
 /*
  * do_rt_sigreturn - Restore context from signal user frame.
  *
- * Called from syscall_dispatch (special-cased to have frame access).
- * Reads the signal_user_frame_t from the user stack (which was written
- * by signal_setup_frame) and restores all saved registers into the
- * current syscall frame, plus the blocked signal mask.
- *
- * After this call, the caller should invoke signal_deliver_if_pending
- * so that signals unblocked by the restored mask are delivered.
+ * Called from syscall_dispatch (special-cased to have frame access).  Reads the
+ * signal_user_frame_t from the user stack (written by signal_setup_frame) and
+ * restores all saved registers plus the blocked signal mask into the current
+ * syscall frame.  The caller should then invoke signal_deliver_if_pending() so
+ * that signals unblocked by the restored mask are delivered.
  *
  * Returns 0 on success, negative errno on error.
  */
@@ -1858,14 +1903,14 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
 /*
  * sys_rt_sigreturn - System call entry point (stub).
  *
- * This is called via the normal syscall table dispatch, which does
- * NOT give us access to the syscall frame. The actual work is done
- * by do_rt_sigreturn(), which is called directly from syscall_dispatch
- * (special-cased like fork/clone/execve) with the frame pointer.
+ * Reached only through the normal syscall table dispatch, which does NOT
+ * provide the syscall frame.  The real work is done by do_rt_sigreturn(),
+ * called directly from syscall_dispatch (special-cased like fork/clone/execve)
+ * with the frame pointer.
  *
- * This stub exists so the syscall table entry has a valid handler;
- * it should never actually be called because syscall_dispatch
- * intercepts SYS_RT_SIGRETURN before the table dispatch.
+ * The stub exists so the syscall table entry has a valid handler; it should
+ * never actually be called because syscall_dispatch intercepts SYS_RT_SIGRETURN
+ * before the table dispatch.
  */
 int64_t sys_rt_sigreturn(void)
 {
@@ -1945,7 +1990,7 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
             info.si_signo = sig;
             info.si_code  = code;
             if (sender) {
-                info.si_pid = sender->task ? (int64_t)sender->task->pid : 0;
+                info.si_pid = sender->task ? (int32_t)sender->task->pid : 0;
                 info.si_uid = sender->uid;
             }
             int ret = signal_send(target, sig, &info);

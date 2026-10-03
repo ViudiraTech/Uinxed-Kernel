@@ -35,12 +35,9 @@ int tsc_check_invariant(void)
 /* Use HPET to calibrate TSC frequency. */
 uint64_t tsc_calibrate_with_hpet(hpet_info_t *hpet_addr)
 {
-    if (!hpet_addr || !hpet_available()) {
-        plogk("tsc: HPET not available for calibration.\n");
-        return 0;
-    }
+    if (!hpet_addr || !hpet_available()) return 0;
 
-    const uint64_t     calibration_time = 10000000ULL; /* 10 ms */
+    const uint64_t     calibration_time = 10000000ULL; // 10 ms
     uint64_t           total_frequency  = 0;
     unsigned int       valid_runs       = 0;
     const unsigned int calibration_runs = 5;
@@ -50,7 +47,7 @@ uint64_t tsc_calibrate_with_hpet(hpet_info_t *hpet_addr)
         uint64_t tsc_start  = rdtsc_serialized();
         uint64_t target     = hpet_start + calibration_time;
 
-        while (nano_time() < target) __asm__ volatile("pause");
+        while (nano_time() < target) cpu_relax();
 
         uint64_t tsc_end  = rdtsc_serialized();
         uint64_t hpet_end = nano_time();
@@ -64,11 +61,7 @@ uint64_t tsc_calibrate_with_hpet(hpet_info_t *hpet_addr)
         total_frequency += frequency;
         valid_runs++;
     }
-
-    if (!valid_runs) {
-        plogk("tsc: HPET calibration failed.\n");
-        return 0;
-    }
+    if (!valid_runs) return 0;
 
     tsc_frequency = total_frequency / valid_runs;
     if (!tsc_frequency) return 0;
@@ -76,7 +69,7 @@ uint64_t tsc_calibrate_with_hpet(hpet_info_t *hpet_addr)
     /* Q32 fixed-point nanoseconds per TSC cycle for the hot read path. */
     tsc_ns_ratio = (1000000000ULL << 32) / tsc_frequency;
 
-    plogk("tsc: calibrated frequency = %lu MHz (%u/%u valid samples)\n", tsc_frequency / 1000000ULL, valid_runs, calibration_runs);
+    plogk("tsc: calibrated frequency = %llu MHz (%u/%u valid samples)\n", tsc_frequency / 1000000ULL, valid_runs, calibration_runs);
     return tsc_frequency;
 }
 
@@ -123,7 +116,7 @@ uint64_t tsc_nano_time(void)
 void tsc_init(void)
 {
     if (!cpu_support_rdtsc()) {
-        plogk("tsc: TSC not supported by CPU; HPET will remain the clocksource.\n");
+        plogk("tsc: TSC not supported by CPU; keeping the existing clocksource.\n");
         return;
     }
 
@@ -132,7 +125,7 @@ void tsc_init(void)
     plogk("tsc: invariant TSC is %s.\n", tsc_invariant ? "supported" : "not supported");
 
     if (!tsc_calibrate_with_hpet(get_acpi_hpet())) {
-        plogk("tsc: calibration unavailable; HPET will remain the clocksource.\n");
+        plogk("tsc: calibration failed; keeping the existing clocksource.\n");
         return;
     }
 
@@ -154,5 +147,5 @@ void tsc_init(void)
     }
 
     __atomic_store_n(&tsc_clocksource_ok, 1, __ATOMIC_RELEASE);
-    plogk("tsc: selected as CLOCK_MONOTONIC clocksource (epoch=%lu ns, resolution=%lu ns)\n", tsc_epoch_ns, tsc_resolution_ns());
+    plogk("tsc: selected as CLOCK_MONOTONIC clocksource (epoch=%llu ns, resolution=%llu ns)\n", tsc_epoch_ns, tsc_resolution_ns());
 }

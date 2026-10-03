@@ -12,72 +12,51 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/heap.h>
-#include <process/sched.h>
+#include <sync/mutex.h>
 
-/* Wait for log to become free, using two-phase wait queue. Process context only. */
+/* Wait for the log mutex. Process context only. */
 void fs_txn_log_lock(fs_txn_log_t *log)
 {
-    for (;;) {
-        spin_lock(&log->guard);
-        if (!log->busy) {
-            log->busy = true;
-            spin_unlock(&log->guard);
-            return;
-        }
-        wait_queue_prepare(&log->wq);
-        spin_unlock(&log->guard);
-        wait_queue_sleep();
-    }
+    mutex_lock(&log->lock);
 }
 
-/* Release log lock and wake all waiters. */
+/* Release the log mutex. */
 void fs_txn_log_unlock(fs_txn_log_t *log)
 {
-    spin_lock(&log->guard);
-    log->busy = false;
-    spin_unlock(&log->guard);
-    wait_queue_wake_all(&log->wq);
+    mutex_unlock(&log->lock);
 }
 
-/*
- * Wait until the log has no active transaction AND the mutex is free (the
- * previous transaction's commit/abort fully finished), then claim it.  This
- * serialises fs_txn_begin() so two threads can never publish overlapping
- * active-transaction pointers.  Claimers sleep on the same wait queue that
- * fs_txn_log_unlock() wakes.
- */
+/* Claim the log once no transaction is active and no operation is in flight */
 static void fs_txn_claim_log(fs_txn_log_t *log)
 {
     for (;;) {
-        spin_lock(&log->guard);
-        if (!log->transaction_active && !log->busy) {
+        mutex_lock(&log->lock);
+        if (!log->transaction_active) {
             log->transaction_active = 1;
-            spin_unlock(&log->guard);
+            mutex_unlock(&log->lock);
             return;
         }
-        wait_queue_prepare(&log->wq);
-        spin_unlock(&log->guard);
+        wait_queue_prepare(&log->claim_wait);
+        mutex_unlock(&log->lock);
         wait_queue_sleep();
     }
 }
 
-/* Mark the log as no longer active; caller holds the log mutex. */
+/* Mark the log as no longer active and wake the claimers; caller holds the log mutex. */
 static void fs_txn_release_log_locked(fs_txn_log_t *log)
 {
-    spin_lock(&log->guard);
     log->transaction_active = 0;
-    spin_unlock(&log->guard);
+    wait_queue_wake_all(&log->claim_wait);
 }
 
 /* Mark the log as no longer active (self-locking, wakes claimers). */
 static void fs_txn_release_log(fs_txn_log_t *log)
 {
-    spin_lock(&log->guard);
+    mutex_lock(&log->lock);
     log->transaction_active = 0;
-    spin_unlock(&log->guard);
-    wait_queue_wake_all(&log->wq);
+    mutex_unlock(&log->lock);
+    wait_queue_wake_all(&log->claim_wait);
 }
 
 /*
@@ -106,7 +85,9 @@ static void fs_txn_release_buffers(fs_txn_t *transaction)
 static int fs_txn_flush(fs_txn_log_t *log)
 {
     int status = blockdev_flush(&log->device);
-    return status == EOK ? EOK : (status == -EOPNOTSUPP ? -EOPNOTSUPP : -EIO);
+    if (status == EOK) return EOK;
+    if (status == -EOPNOTSUPP) return -EOPNOTSUPP;
+    return -EIO;
 }
 
 /* Check that home_block lies within the device. */
@@ -126,13 +107,11 @@ static int fs_txn_write_home(fs_txn_t *transaction, uint32_t required_flags)
     for (buffer = transaction->buffers; buffer; buffer = buffer->next) {
         if (!(buffer->flags & required_flags)) continue;
         if (required_flags == FS_TXN_ORDERED_DATA && (buffer->flags & FS_TXN_METADATA)) continue;
-        if (!fs_txn_home_block_valid(log, buffer->home_block)) {
-            plogk("fs_txn: Write_home block %llu out of range (block_size %u)\n", (unsigned long long)buffer->home_block, log->block_size);
-            return -EIO;
-        }
+        if (!fs_txn_home_block_valid(log, buffer->home_block)) return -EIO;
         int status = blockdev_write_bytes(&log->device, buffer->home_block * (uint64_t)log->block_size, buffer->data, log->block_size);
         if (status != EOK) {
-            plogk("fs_txn: Write_home block %llu write failed (drive %u, status %d)\n", (unsigned long long)buffer->home_block, log->device.drive, status);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Write_home block %llu write failed (drive %u, status %d)\n", buffer->home_block, log->device.drive, status);
             return status;
         }
     }
@@ -153,12 +132,11 @@ static void fs_txn_finish(fs_txn_t *transaction)
 /* Initialize a transaction log bound to a block device. */
 int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops, void *backend_context)
 {
-    if (!log || !device || !device->sector_size || !device->sector_count || block_size < device->sector_size || block_size % device->sector_size) {
-        plogk("fs_txn: Log init invalid parameters (drive %u, block_size %u)\n", device ? device->drive : 0, block_size);
-        return -EINVAL;
-    }
+    if (!log || !device || !device->sector_size || !device->sector_count || block_size < device->sector_size || block_size % device->sector_size) return -EINVAL;
+
     memset(log, 0, sizeof(*log));
-    wait_queue_init(&log->wq);
+    mutex_init(&log->lock);
+    wait_queue_init(&log->claim_wait);
     log->device              = *device;
     log->ops                 = ops;
     log->backend_context     = backend_context;
@@ -180,10 +158,8 @@ void fs_txn_log_destroy(fs_txn_log_t *log)
 int fs_txn_recover(fs_txn_log_t *log)
 {
     int status;
-    if (!log) {
-        plogk("fs_txn: Recover with NULL log.\n");
-        return -EINVAL;
-    }
+    if (!log) return -EINVAL;
+
     fs_txn_claim_log(log);
     status = log->ops && log->ops->recover ? log->ops->recover(log->backend_context) : EOK;
     if (status != EOK) {
@@ -198,18 +174,12 @@ int fs_txn_recover(fs_txn_log_t *log)
 /* Begin a new transaction on the log. */
 int fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction)
 {
-    if (!log || !transaction || !credits) {
-        plogk("fs_txn: Begin invalid arguments.\n");
-        return -EINVAL;
-    }
-    if (log->device.read_only) {
-        plogk("fs_txn: Begin on read-only device (drive %u)\n", log->device.drive);
-        return -EROFS;
-    }
+    if (!log || !transaction || !credits) return -EINVAL;
+    if (log->device.read_only) return -EROFS;
+
     fs_txn_claim_log(log);
     if (log->aborted) {
         int error = log->last_error ? log->last_error : -EROFS;
-        plogk("fs_txn: Begin on aborted log (drive %u, last_error %d)\n", log->device.drive, error);
         fs_txn_release_log(log);
         return error;
     }
@@ -226,18 +196,10 @@ int fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction)
 static int fs_txn_stage_locked(fs_txn_t *transaction, uint64_t home_block, const void *data, uint32_t flags)
 {
     fs_txn_buffer_t *buffer;
-    if (!transaction || !transaction->active || !data) {
-        plogk("fs_txn: Stage invalid arguments.\n");
-        return -EINVAL;
-    }
-    if (!(flags & (FS_TXN_METADATA | FS_TXN_ORDERED_DATA))) {
-        plogk("fs_txn: Stage invalid flags %#x (home_block %llu)\n", (unsigned)flags, (unsigned long long)home_block);
-        return -EINVAL;
-    }
-    if (!fs_txn_home_block_valid(transaction->log, home_block)) {
-        plogk("fs_txn: Stage home_block %llu out of range (block_size %u)\n", (unsigned long long)home_block, transaction->log->block_size);
-        return -EIO;
-    }
+
+    if (!transaction || !transaction->active || !data) return -EINVAL;
+    if (!(flags & (FS_TXN_METADATA | FS_TXN_ORDERED_DATA))) return -EINVAL;
+    if (!fs_txn_home_block_valid(transaction->log, home_block)) return -EINVAL;
 
     for (buffer = transaction->buffers; buffer; buffer = buffer->next) {
         if (buffer->home_block != home_block) continue;
@@ -246,27 +208,31 @@ static int fs_txn_stage_locked(fs_txn_t *transaction, uint64_t home_block, const
         return EOK;
     }
     if (transaction->used >= transaction->credits) {
-        plogk("fs_txn: Stage credits exhausted (home_block %llu, used %u, credits %u)\n", (unsigned long long)home_block, transaction->used, transaction->credits);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Stage credits exhausted (home_block %llu, used %u, credits %u)\n", home_block, transaction->used, transaction->credits);
         return -ENOSPC;
     }
     buffer = calloc(1, sizeof(*buffer));
     if (!buffer) {
-        plogk("fs_txn: Stage buffer allocation failed (home_block %llu)\n", (unsigned long long)home_block);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Stage buffer allocation failed (home_block %llu)\n", home_block);
         return -ENOMEM;
     }
     buffer->data = malloc(transaction->log->block_size);
     if (!buffer->data) {
-        plogk("fs_txn: Stage data allocation failed (home_block %llu, block_size %u)\n", (unsigned long long)home_block, transaction->log->block_size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Stage data allocation failed (home_block %llu, block_size %u)\n", home_block, transaction->log->block_size);
         free(buffer);
         return -ENOMEM;
     }
     memcpy(buffer->data, data, transaction->log->block_size);
     buffer->home_block = home_block;
     buffer->flags      = flags;
-    if (transaction->tail)
+    if (transaction->tail) {
         transaction->tail->next = buffer;
-    else
+    } else {
         transaction->buffers = buffer;
+    }
     transaction->tail = buffer;
     transaction->used++;
     return EOK;
@@ -291,14 +257,8 @@ static int fs_txn_read_locked(fs_txn_t *transaction, uint64_t home_block, void *
     fs_txn_buffer_t *buffer;
     int              status;
 
-    if (!transaction || !transaction->active || !data) {
-        plogk("fs_txn: Read invalid arguments.\n");
-        return -EINVAL;
-    }
-    if (!fs_txn_home_block_valid(transaction->log, home_block)) {
-        plogk("fs_txn: Read home_block %llu out of range (block_size %u)\n", (unsigned long long)home_block, transaction->log->block_size);
-        return -EIO;
-    }
+    if (!transaction || !transaction->active || !data) return -EINVAL;
+    if (!fs_txn_home_block_valid(transaction->log, home_block)) return -EINVAL;
     for (buffer = transaction->buffers; buffer; buffer = buffer->next) {
         if (buffer->home_block == home_block) {
             memcpy(data, buffer->data, transaction->log->block_size);
@@ -306,7 +266,10 @@ static int fs_txn_read_locked(fs_txn_t *transaction, uint64_t home_block, void *
         }
     }
     status = blockdev_read_bytes(&transaction->log->device, home_block * (uint64_t)transaction->log->block_size, data, transaction->log->block_size);
-    if (status != EOK) plogk("fs_txn: Read home_block %llu failed (drive %u, status %d)\n", (unsigned long long)home_block, transaction->log->device.drive, status);
+    if (status != EOK) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Read home_block %llu failed (drive %u, status %d)\n", home_block, transaction->log->device.drive, status);
+    }
     return status;
 }
 
@@ -328,7 +291,7 @@ static int fs_txn_byte_range_valid(fs_txn_t *transaction, uint64_t offset, size_
 {
     if (!transaction || !transaction->active || !transaction->log || offset > UINT64_MAX - size) return 0;
     fs_txn_log_t *log = transaction->log;
-    if (!log->device.sector_size || log->device.sector_count > UINT64_MAX / log->device.sector_size) return 0;
+    if (!blockdev_geometry_valid(&log->device)) return 0;
     uint64_t device_size = log->device.sector_count * log->device.sector_size;
     return offset <= device_size && size <= device_size - offset;
 }
@@ -337,15 +300,14 @@ static int fs_txn_byte_range_valid(fs_txn_t *transaction, uint64_t offset, size_
 int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t size)
 {
     if (!size) return EOK;
-    if (!data || !fs_txn_byte_range_valid(transaction, offset, size)) {
-        plogk("fs_txn: Read_bytes invalid range (offset %llu, size %zu)\n", (unsigned long long)offset, size);
-        return -EINVAL;
-    }
+    if (!data || !fs_txn_byte_range_valid(transaction, offset, size)) return -EINVAL;
+
     uint8_t *output     = data;
     uint32_t block_size = transaction->log->block_size;
     uint8_t *block      = malloc(block_size);
     if (!block) {
-        plogk("fs_txn: Read_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size, block_size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Read_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", offset, size, block_size);
         return -ENOMEM;
     }
     int           status = EOK;
@@ -372,15 +334,14 @@ int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t
 int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data, size_t size, uint32_t flags)
 {
     if (!size) return EOK;
-    if (!data || !fs_txn_byte_range_valid(transaction, offset, size)) {
-        plogk("fs_txn: Stage_bytes invalid range (offset %llu, size %zu)\n", (unsigned long long)offset, size);
-        return -EINVAL;
-    }
+    if (!data || !fs_txn_byte_range_valid(transaction, offset, size)) return -EINVAL;
+
     const uint8_t *input      = data;
     uint32_t       block_size = transaction->log->block_size;
     uint8_t       *block      = malloc(block_size);
     if (!block) {
-        plogk("fs_txn: Stage_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size, block_size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Stage_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", offset, size, block_size);
         return -ENOMEM;
     }
     int           status = EOK;
@@ -410,11 +371,9 @@ int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data,
 }
 
 /*
- * Serve a whole-block read through the volume's currently-active
- * transaction, if any.  The active-transaction pointer is read and the
- * transaction's buffer list is walked under the log lock, so a concurrent
- * commit cannot clear the pointer and free the buffers while they are in
- * use.
+ * Serve a whole-block read through the volume's currently-active transaction,
+ * if any.  The transaction's buffer list is walked under the log lock, so a
+ * concurrent commit cannot free the buffers while they are in use.
  *
  * Returns 0 when no transaction is active (the caller must fall back to a
  * direct device read), 1 when the block was served, or a negative errno.
@@ -456,11 +415,7 @@ int fs_txn_stage_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t home_b
     return status < 0 ? status : 1;
 }
 
-/*
- * Serve a byte-range read through the volume's currently-active
- * transaction, if any.  Same locking contract and return convention as
- * fs_txn_read_active().
- */
+/* Serve a byte-range read through the volume's currently-active transaction, if any.  Same locking contract and return convention as fs_txn_read_active(). */
 int fs_txn_read_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t offset, void *data, size_t size)
 {
     if (!size) return EOK;
@@ -469,7 +424,8 @@ int fs_txn_read_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t o
 
     uint8_t *block = malloc(log->block_size);
     if (!block) {
-        plogk("fs_txn: Read_bytes_active block allocation failed (offset %llu, size %zu)\n", (unsigned long long)offset, size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Read_bytes_active block allocation failed (offset %llu, size %zu)\n", offset, size);
         return -ENOMEM;
     }
 
@@ -511,7 +467,8 @@ int fs_txn_stage_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t 
 
     uint8_t *block = malloc(log->block_size);
     if (!block) {
-        plogk("fs_txn: Stage_bytes_active block allocation failed (offset %llu, size %zu)\n", (unsigned long long)offset, size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("fs_txn: Stage_bytes_active block allocation failed (offset %llu, size %zu)\n", offset, size);
         return -ENOMEM;
     }
 
@@ -560,11 +517,7 @@ int fs_txn_commit(fs_txn_t *transaction)
     fs_txn_log_t    *log;
     int              status = EOK;
 
-    if (!transaction || !transaction->active) {
-        plogk("fs_txn: Commit invalid arguments.\n");
-        return -EINVAL;
-    }
-
+    if (!transaction || !transaction->active) return -EINVAL;
     log = transaction->log;
 
     if (transaction->error) status = transaction->error;
@@ -605,12 +558,22 @@ void fs_txn_abort(fs_txn_t *transaction, int error)
     fs_txn_finish(transaction);
 }
 
+/* Mark the log aborted after an I/O error, so later transactions fail fast with the recorded error. */
+void fs_txn_log_abort(fs_txn_log_t *log, int error)
+{
+    if (!log) return;
+    fs_txn_log_lock(log);
+    if (!log->aborted) {
+        log->aborted    = 1;
+        log->last_error = error ? error : -EIO;
+        plogk("fs_txn: Drive %u: log aborted after an I/O error (%d); metadata writes are refused.\n", log->device.drive, log->last_error);
+    }
+    fs_txn_log_unlock(log);
+}
+
 /* Return the last error recorded on the log. */
 int fs_txn_log_error(const fs_txn_log_t *log)
 {
-    if (!log) {
-        plogk("fs_txn: Log_error with NULL log.\n");
-        return -EINVAL;
-    }
+    if (!log) return -EINVAL;
     return log->last_error;
 }

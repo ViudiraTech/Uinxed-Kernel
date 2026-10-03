@@ -12,7 +12,6 @@
 #define INCLUDE_XHCI_H_
 
 #include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 

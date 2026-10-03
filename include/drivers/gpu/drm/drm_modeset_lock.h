@@ -16,6 +16,12 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
+#define DRM_MODESET_LOCK_INIT(lock) \
+    do {                            \
+        (lock)->mutex.lock = 0;     \
+        (lock)->ctx        = NULL;  \
+    } while (0)
+
 struct drm_device;
 
 struct drm_modeset_lock {
@@ -23,12 +29,6 @@ struct drm_modeset_lock {
         struct drm_modeset_acquire_ctx *ctx;   // owning context, NULL when free
         ilist_node_t                    link;  // node in ctx->locked list
 };
-
-#define DRM_MODESET_LOCK_INIT(lock) \
-    do {                            \
-        (lock)->mutex.lock = 0;     \
-        (lock)->ctx        = NULL;  \
-    } while (0)
 
 struct drm_modeset_acquire_ctx {
         spinlock_t               ctx_lock;       // protects this ctx's bookkeeping

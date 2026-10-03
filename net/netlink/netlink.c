@@ -8,77 +8,68 @@
  *
  */
 
-#include <fs/core/vfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/timer/timer.h>
 #include <libs/kobject/kobject.h>
-#include <libs/list/circular_list.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
+#include <libs/util/byteorder.h>
 #include <mem/heap.h>
 #include <net/core/netdev.h>
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_NETLINK && CONFIG_NET
 
 /* Constants */
 
-#define NL_RECV_QUEUE_MAX 1024 // secondary cap; rcvbuf is the primary limit
-#define NL_BROADCAST_MAX  256  // bounded per-protocol socket registry
-#define NL_PROTO_MAX      32   // NETLINK_MAX rounded up
-
-#define AF_UNSPEC         0
-#define IF_OPER_DOWN      2U
-#define IF_OPER_UP        6U
-#define RT_TABLE_MAIN     254U
-#define RTPROT_KERNEL     2U
-#define RTPROT_BOOT       3U
-#define RT_SCOPE_UNIVERSE 0U
-#define RT_SCOPE_LINK     253U
-#define RTN_UNICAST       1U
-#define RTMSG_BUF_SIZE    256U
+#    define IF_OPER_DOWN      2U
+#    define IF_OPER_UP        6U
+#    define RT_TABLE_MAIN     254U
+#    define RTPROT_KERNEL     2U
+#    define RTPROT_BOOT       3U
+#    define RT_SCOPE_UNIVERSE 0U
+#    define RT_SCOPE_LINK     253U
+#    define RTN_UNICAST       1U
 
 /* Multicast group entry */
-
 typedef struct nl_mcast_entry {
         struct socket *sk;     // subscriber socket
         uint32_t       groups; // subscribed groups bitmask for this socket
 } nl_mcast_entry_t;
 
 /* Per-protocol multicast table */
-
 typedef struct nl_mcast_table {
-        nl_mcast_entry_t entries[NL_BROADCAST_MAX];
+        nl_mcast_entry_t entries[CONFIG_NL_BROADCAST_MAX];
         uint32_t         count;
         spinlock_t       lock;
 } nl_mcast_table_t;
 
-static nl_mcast_table_t nl_mcast[NL_PROTO_MAX];
+typedef struct rtnl_dump_context {
+        struct socket *sk;
+        uint32_t       seq;
+        int32_t        ifindex;
+        uint32_t       destination;
+        uint32_t       emitted;
+        int            has_destination;
+        int            multipart;
+        int            error;
+} rtnl_dump_context_t;
 
-/*
- * nl-dbg: one-shot tracer for every -EINVAL the netlink layer returns.
- * Userspace logs a bare "Invalid argument"; these probes name the exact
- * rejection site and its arguments.
- */
-void netlink_einval_trace(const char *where, long a, long b)
-{
-    static uint32_t seen[64];
-    size_t        slot = ((uintptr_t)where >> 4) & 63U;
-    if (__atomic_exchange_n(&seen[slot], 1u, __ATOMIC_RELAXED)) return;
-    plogk("nl-dbg: EINVAL at %s (a=%#lx b=%#lx)\n", where, (unsigned long)a, (unsigned long)b);
-}
+typedef struct rtnl_device_info {
+        char     name[CONFIG_NETDEV_NAME_MAX];
+        uint8_t  address[6];
+        uint32_t mtu;
+        uint32_t flags;
+        uint32_t ipv4_address;
+        uint32_t ipv4_netmask;
+        uint32_t ipv4_gateway;
+        uint32_t ifindex;
+} rtnl_device_info_t;
 
+static nl_mcast_table_t nl_mcast[CONFIG_NETLINK_MAX];
 
 /* Auto-assigned port ID counter */
-
 static uint32_t   nl_pid_counter;
 static spinlock_t nl_pid_lock;
 
@@ -128,34 +119,6 @@ static void nl_msg_put(nl_msg_t *msg)
 {
     if (!msg) return;
     if (--msg->refcount == 0) nl_msg_free(msg);
-}
-
-typedef struct rtnl_dump_context {
-        struct socket *sk;
-        uint32_t       seq;
-        int32_t        ifindex;
-        uint32_t       destination;
-        uint32_t       emitted;
-        int            has_destination;
-        int            multipart;
-        int            error;
-} rtnl_dump_context_t;
-
-typedef struct rtnl_device_info {
-        char     name[NETDEV_NAME_MAX];
-        uint8_t  address[6];
-        uint32_t mtu;
-        uint32_t flags;
-        uint32_t ipv4_address;
-        uint32_t ipv4_netmask;
-        uint32_t ipv4_gateway;
-        uint32_t ifindex;
-} rtnl_device_info_t;
-
-/* Convert a 32-bit value to network byte order. */
-static uint32_t rtnl_be32(uint32_t value)
-{
-    return __builtin_bswap32(value);
 }
 
 /* Count the one bits in a netmask to derive the prefix length. */
@@ -241,10 +204,10 @@ static void rtnl_snapshot_device(net_device_t *device, rtnl_device_info_t *info)
 /* Emit one RTM_NEWLINK message describing a device. */
 static void rtnl_emit_link(net_device_t *device, void *opaque)
 {
-    rtnl_dump_context_t *context                 = opaque;
-    rtnl_device_info_t   info                    = {0};
-    uint8_t              payload[RTMSG_BUF_SIZE] = {0};
-    uint32_t             length                  = sizeof(ifinfomsg_t);
+    rtnl_dump_context_t *context                        = opaque;
+    rtnl_device_info_t   info                           = {0};
+    uint8_t              payload[CONFIG_RTMSG_BUF_SIZE] = {0};
+    uint32_t             length                         = sizeof(ifinfomsg_t);
     if (context->error) return;
     rtnl_snapshot_device(device, &info);
     if (context->ifindex && context->ifindex != (int32_t)info.ifindex) return;
@@ -271,10 +234,10 @@ static void rtnl_emit_link(net_device_t *device, void *opaque)
 /* Emit one RTM_NEWADDR message for a device's IPv4 address. */
 static void rtnl_emit_address(net_device_t *device, void *opaque)
 {
-    rtnl_dump_context_t *context                 = opaque;
-    rtnl_device_info_t   info                    = {0};
-    uint8_t              payload[RTMSG_BUF_SIZE] = {0};
-    uint32_t             length                  = sizeof(ifaddrmsg_t);
+    rtnl_dump_context_t *context                        = opaque;
+    rtnl_device_info_t   info                           = {0};
+    uint8_t              payload[CONFIG_RTMSG_BUF_SIZE] = {0};
+    uint32_t             length                         = sizeof(ifaddrmsg_t);
     if (context->error) return;
     rtnl_snapshot_device(device, &info);
     if (!info.ipv4_address || (context->ifindex && context->ifindex != (int32_t)info.ifindex)) return;
@@ -283,8 +246,8 @@ static void rtnl_emit_address(net_device_t *device, void *opaque)
     message->ifa_prefixlen = rtnl_prefix_length(info.ipv4_netmask);
     message->ifa_scope     = RT_SCOPE_UNIVERSE;
     message->ifa_index     = info.ifindex;
-    uint32_t address       = rtnl_be32(info.ipv4_address);
-    uint32_t broadcast     = rtnl_be32(info.ipv4_address | ~info.ipv4_netmask);
+    uint32_t address       = bswap32(info.ipv4_address);
+    uint32_t broadcast     = bswap32(info.ipv4_address | ~info.ipv4_netmask);
     if (rtnl_add_attr(payload, sizeof(payload), &length, IFA_ADDRESS, &address, sizeof(address)) || rtnl_add_attr(payload, sizeof(payload), &length, IFA_LOCAL, &address, sizeof(address))
         || rtnl_add_attr(payload, sizeof(payload), &length, IFA_BROADCAST, &broadcast, sizeof(broadcast))
         || rtnl_add_attr(payload, sizeof(payload), &length, IFA_LABEL, info.name, (uint16_t)(strlen(info.name) + 1))) {
@@ -298,23 +261,23 @@ static void rtnl_emit_address(net_device_t *device, void *opaque)
 /* Emit one RTM_NEWROUTE message for a connected or default route. */
 static int rtnl_emit_one_route(rtnl_dump_context_t *context, const rtnl_device_info_t *info, int is_default)
 {
-    uint8_t  payload[RTMSG_BUF_SIZE] = {0};
-    uint32_t length                  = sizeof(rtmsg_t);
-    rtmsg_t *message                 = (rtmsg_t *)payload;
-    message->rtm_family              = AF_INET;
-    message->rtm_dst_len             = is_default ? 0 : rtnl_prefix_length(info->ipv4_netmask);
-    message->rtm_table               = RT_TABLE_MAIN;
-    message->rtm_protocol            = is_default ? RTPROT_BOOT : RTPROT_KERNEL;
-    message->rtm_scope               = is_default ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK;
-    message->rtm_type                = RTN_UNICAST;
-    uint32_t ifindex                 = info->ifindex;
-    uint32_t source                  = rtnl_be32(info->ipv4_address);
+    uint8_t  payload[CONFIG_RTMSG_BUF_SIZE] = {0};
+    uint32_t length                         = sizeof(rtmsg_t);
+    rtmsg_t *message                        = (rtmsg_t *)payload;
+    message->rtm_family                     = AF_INET;
+    message->rtm_dst_len                    = is_default ? 0 : rtnl_prefix_length(info->ipv4_netmask);
+    message->rtm_table                      = RT_TABLE_MAIN;
+    message->rtm_protocol                   = is_default ? RTPROT_BOOT : RTPROT_KERNEL;
+    message->rtm_scope                      = is_default ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK;
+    message->rtm_type                       = RTN_UNICAST;
+    uint32_t ifindex                        = info->ifindex;
+    uint32_t source                         = bswap32(info->ipv4_address);
     if (rtnl_add_attr(payload, sizeof(payload), &length, RTA_OIF, &ifindex, sizeof(ifindex))) return -EMSGSIZE;
     if (is_default) {
-        uint32_t gateway = rtnl_be32(info->ipv4_gateway);
+        uint32_t gateway = bswap32(info->ipv4_gateway);
         if (rtnl_add_attr(payload, sizeof(payload), &length, RTA_GATEWAY, &gateway, sizeof(gateway))) return -EMSGSIZE;
     } else {
-        uint32_t destination = rtnl_be32(info->ipv4_address & info->ipv4_netmask);
+        uint32_t destination = bswap32(info->ipv4_address & info->ipv4_netmask);
         if (rtnl_add_attr(payload, sizeof(payload), &length, RTA_DST, &destination, sizeof(destination))) return -EMSGSIZE;
     }
     if (rtnl_add_attr(payload, sizeof(payload), &length, RTA_PREFSRC, &source, sizeof(source))) return -EMSGSIZE;
@@ -330,12 +293,13 @@ static void rtnl_emit_routes(net_device_t *device, void *opaque)
     rtnl_snapshot_device(device, &info);
     if (!info.ipv4_address || !info.ipv4_netmask || !(info.flags & NETDEV_F_UP) || (context->ifindex && context->ifindex != (int32_t)info.ifindex)) return;
     int connected = !context->has_destination || ((context->destination & info.ipv4_netmask) == (info.ipv4_address & info.ipv4_netmask));
-    if (connected)
+    if (connected) {
         context->error = rtnl_emit_one_route(context, &info, 0);
-    else if (info.ipv4_gateway)
+    } else if (info.ipv4_gateway) {
         context->error = rtnl_emit_one_route(context, &info, 1);
-    else
+    } else {
         return;
+    }
     if (!context->error) context->emitted++;
     if (context->multipart && connected && !context->error && info.ipv4_gateway) {
         context->error = rtnl_emit_one_route(context, &info, 1);
@@ -356,7 +320,7 @@ static int rtnl_parse_route_request(const nlmsghdr_t *request, rtnl_dump_context
         if (attr->rta_type == RTA_DST && data_length >= sizeof(uint32_t)) {
             uint32_t destination;
             memcpy(&destination, RTA_DATA(attr), sizeof(destination));
-            context->destination     = rtnl_be32(destination);
+            context->destination     = bswap32(destination);
             context->has_destination = 1;
         } else if (attr->rta_type == RTA_OIF && data_length >= sizeof(uint32_t)) {
             uint32_t ifindex;
@@ -384,23 +348,25 @@ static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
     };
     uint32_t payload_length = NLMSG_PAYLOAD(request, 0);
     uint32_t minimum_length;
-    if (request->nlmsg_type == RTM_GETLINK)
+    if (request->nlmsg_type == RTM_GETLINK) {
         minimum_length = sizeof(ifinfomsg_t);
-    else if (request->nlmsg_type == RTM_GETADDR)
+    } else if (request->nlmsg_type == RTM_GETADDR) {
         minimum_length = sizeof(ifaddrmsg_t);
-    else if (request->nlmsg_type == RTM_GETROUTE)
+    } else if (request->nlmsg_type == RTM_GETROUTE) {
         /* Linux accepts the one-byte rtgenmsg selector for route dumps. */
         minimum_length = context.multipart ? sizeof(rtgenmsg_t) : sizeof(rtmsg_t);
-    else
+    } else {
         return rtnl_queue_error(sk, request, -EOPNOTSUPP);
+    }
     if (payload_length < minimum_length) return rtnl_queue_error(sk, request, -EINVAL);
     uint8_t family = payload_length ? *((uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN)) : AF_UNSPEC;
     if (family != AF_UNSPEC && family != AF_INET && request->nlmsg_type != RTM_GETLINK) return rtnl_queue_error(sk, request, -EAFNOSUPPORT);
     if (!context.multipart) {
-        if (request->nlmsg_type == RTM_GETLINK && payload_length >= sizeof(ifinfomsg_t))
+        if (request->nlmsg_type == RTM_GETLINK && payload_length >= sizeof(ifinfomsg_t)) {
             context.ifindex = ((ifinfomsg_t *)((uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN)))->ifi_index;
-        else if (request->nlmsg_type == RTM_GETADDR && payload_length >= sizeof(ifaddrmsg_t))
+        } else if (request->nlmsg_type == RTM_GETADDR && payload_length >= sizeof(ifaddrmsg_t)) {
             context.ifindex = (int32_t)((ifaddrmsg_t *)((uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN)))->ifa_index;
+        }
     }
     if (request->nlmsg_type == RTM_GETROUTE && payload_length >= sizeof(rtmsg_t) && rtnl_parse_route_request(request, &context)) return rtnl_queue_error(sk, request, -EINVAL);
     switch (request->nlmsg_type) {
@@ -447,7 +413,7 @@ static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
 {
     nl_mcast_table_t *tab;
 
-    if (protocol >= NL_PROTO_MAX) return NULL;
+    if (protocol >= CONFIG_NETLINK_MAX) return NULL;
     tab = &nl_mcast[protocol];
 
     spin_lock(&tab->lock);
@@ -472,13 +438,11 @@ static int nl_mcast_subscribe(uint32_t protocol, struct socket *sk, uint32_t por
     nl_mcast_table_t *tab;
     int               own_index = -1;
 
-    if (protocol >= NL_PROTO_MAX) return -EPROTONOSUPPORT;
+    if (protocol >= CONFIG_NETLINK_MAX) return -EPROTONOSUPPORT;
 
     nl_sock_t *ns = nl_sk(sk);
     if (!ns) return -EINVAL;
-
     tab = &nl_mcast[protocol];
-
     spin_lock(&tab->lock);
 
     /* Check the whole table before updating an entry already owned by sk. */
@@ -494,7 +458,7 @@ static int nl_mcast_subscribe(uint32_t protocol, struct socket *sk, uint32_t por
         }
     }
 
-    if (own_index < 0 && tab->count >= NL_BROADCAST_MAX) {
+    if (own_index < 0 && tab->count >= CONFIG_NL_BROADCAST_MAX) {
         spin_unlock(&tab->lock);
         return -ENOBUFS;
     }
@@ -517,11 +481,12 @@ static int nl_mcast_subscribe(uint32_t protocol, struct socket *sk, uint32_t por
     return EOK;
 }
 
+/* Nl mcast unsubscribe. */
 static void nl_mcast_unsubscribe(uint32_t protocol, struct socket *sk)
 {
     nl_mcast_table_t *tab;
 
-    if (protocol >= NL_PROTO_MAX) return;
+    if (protocol >= CONFIG_NETLINK_MAX) return;
     tab = &nl_mcast[protocol];
 
     spin_lock(&tab->lock);
@@ -549,17 +514,19 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     struct socket *sk;
     nl_sock_t     *ns;
 
-    if (protocol >= NL_PROTO_MAX) return NULL;
+    if (protocol >= CONFIG_NETLINK_MAX) return NULL;
 
     sk = calloc(1, sizeof(struct socket));
     if (!sk) {
-        plogk("netlink: Socket alloc failed (protocol=%u)\n", (unsigned)protocol);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("netlink: Socket alloc failed (protocol=%u)\n", protocol);
         return NULL;
     }
 
     ns = calloc(1, sizeof(nl_sock_t));
     if (!ns) {
-        plogk("netlink: Socket state alloc failed (protocol=%u)\n", (unsigned)protocol);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("netlink: Socket state alloc failed (protocol=%u)\n", protocol);
         free(sk);
         return NULL;
     }
@@ -592,8 +559,10 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
         sk->gid = process->gid;
     }
 
-    /* Wrapper functions to match socket_t polymorphic signatures */
-    /* (socket_read takes 5 params; netlink ops take 6 with flags) */
+    /*
+     * Wrapper functions to match socket_t polymorphic signatures
+     * (socket_read takes 5 params; netlink ops take 6 with flags).
+     */
     sk->socket_read  = netlink_wrap_read;
     sk->socket_write = netlink_wrap_write;
     sk->socket_poll  = netlink_wrap_poll;
@@ -607,7 +576,7 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     ns->nl_bound         = 0;
     ns->recv_queue       = NULL;
     ns->recv_queue_len   = 0;
-    ns->recv_queue_max   = NL_RECV_QUEUE_MAX;
+    ns->recv_queue_max   = CONFIG_NL_RECV_QUEUE_MAX;
     ns->recv_queue_bytes = 0;
     ns->sk               = sk;
 
@@ -651,6 +620,7 @@ static void nl_sock_cleanup(nl_sock_t **p)
     if (p && *p) nl_sock_put(*p);
 }
 
+/* Netlink close. */
 void netlink_close(struct socket *sk)
 {
     nl_sock_t *ns;
@@ -664,14 +634,11 @@ void netlink_close(struct socket *sk)
     nl_mcast_unsubscribe(ns->nl_protocol, sk);
 
     /*
-     * Mark the socket closed and wake any reader blocked on recv_wq.  The
-     * socket holds one reference and each in-flight recvmsg holds a transient
-     * reference, so the queue and ns are only freed by the last put: a reader
-     * woken here still observes a live ->closed flag (checked under
-     * recv_lock) and returns instead of touching freed state.  Freeing ns
-     * unconditionally after the wake, as the old code did, left a reader's
-     * sched_node linked into freed memory and let a woken reader re-lock a
-     * freed recv_lock.
+     * Mark the socket closed and wake any reader blocked on recv_wq.  The socket
+     * holds one reference and each in-flight recvmsg holds a transient reference,
+     * so the queue and ns are only freed by the last put: a reader woken here still
+     * observes a live ->closed flag (checked under recv_lock) and returns instead
+     * of touching freed state.
      */
     spin_lock(&ns->recv_lock);
     ns->closed = 1;
@@ -682,34 +649,22 @@ void netlink_close(struct socket *sk)
     nl_sock_put(ns);
 }
 
-/* Bind */
-
 /* Bind a netlink socket: set its port ID and multicast group subscription. */
 int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
 {
     nl_sock_t *ns;
 
-    if (!sk || !addr) {
-        netlink_einval_trace("bind:null", (long)sk, (long)addr);
-        return -EINVAL;
-    }
-    if (addrlen < sizeof(uint16_t)) {
-        netlink_einval_trace("bind:short-addrlen", addrlen, 0);
-        return -EINVAL;
-    }
+    if (!sk || !addr) return -EINVAL;
+    if (addrlen < sizeof(uint16_t)) return -EINVAL;
     if (addr->nl_family != AF_NETLINK) return -EAFNOSUPPORT;
 
     ns = nl_sk(sk);
-    if (!ns) {
-        netlink_einval_trace("bind:no-priv", (long)sk, 0);
-        return -EINVAL;
-    }
+    if (!ns) return -EINVAL;
 
     spin_lock(&sk->lock);
 
     if (ns->nl_bound) {
         spin_unlock(&sk->lock);
-        netlink_einval_trace("bind:already-bound", ns->nl_pid, ns->nl_protocol);
         return -EINVAL; // already bound
     }
 
@@ -730,7 +685,7 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
         candidate = nl_alloc_pid();
     }
     if (ret != EOK) {
-        if (ret == -EADDRINUSE) plogk("netlink: Bind failed, pid %u already in use.\n", (unsigned)addr->nl_pid);
+        if (ret == -EADDRINUSE) plogk("netlink: Bind failed, pid %u already in use.\n", addr->nl_pid);
         ns->nl_pid = 0;
         spin_unlock(&sk->lock);
         return ret;
@@ -748,21 +703,12 @@ int netlink_connect(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrl
 {
     nl_sock_t *ns;
 
-    if (!sk || !addr) {
-        netlink_einval_trace("conn:null", (long)sk, (long)addr);
-        return -EINVAL;
-    }
-    if (addrlen < sizeof(uint16_t)) {
-        netlink_einval_trace("conn:short-addrlen", addrlen, 0);
-        return -EINVAL;
-    }
+    if (!sk || !addr) return -EINVAL;
+    if (addrlen < sizeof(uint16_t)) return -EINVAL;
     if (addr->nl_family != AF_NETLINK && addr->nl_family != 0 /* AF_UNSPEC */) return -EAFNOSUPPORT;
 
     ns = nl_sk(sk);
-    if (!ns) {
-        netlink_einval_trace("conn:no-priv", (long)sk, 0);
-        return -EINVAL;
-    }
+    if (!ns) return -EINVAL;
 
     spin_lock(&sk->lock);
     if (!ns->nl_bound) {
@@ -801,23 +747,22 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
     if (!ns || !data || !len) return -EINVAL;
     msg = nl_msg_alloc(data, len, sender_pid, sender_groups, sender_uid, sender_gid);
     if (!msg) {
-        plogk("netlink: Datagram message allocation failed (len=%u)\n", len);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("netlink: Datagram message allocation failed (len=%u)\n", len);
         return -ENOMEM;
     }
     node = clist_alloc(msg);
     if (!node) {
-        plogk("netlink: Datagram queue node allocation failed (len=%u)\n", len);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("netlink: Datagram queue node allocation failed (len=%u)\n", len);
         nl_msg_put(msg);
         return -ENOMEM;
     }
 
     spin_lock(&ns->recv_lock);
     if (ns->recv_queue_len >= ns->recv_queue_max || len > sk->rcvbuf || ns->recv_queue_bytes > sk->rcvbuf - len) {
-        static uint64_t last_log;
-        if (sched_ticks() - last_log >= 1000) {
-            plogk("netlink: Receive queue overflow, dropping datagram (len=%u)\n", len);
-            last_log = sched_ticks();
-        }
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("netlink: Receive queue overflow, dropping datagram (len=%u)\n", len);
         ns->overrun = 1;
         if (!ns->no_enobufs) sk->so_error = -ENOBUFS;
         spin_unlock(&ns->recv_lock);
@@ -862,7 +807,7 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
     int               delivered   = 0;
     int               first_error = EOK;
 
-    if (protocol >= NL_PROTO_MAX) return -EPROTONOSUPPORT;
+    if (protocol >= CONFIG_NETLINK_MAX) return -EPROTONOSUPPORT;
     if (!data || !len || !groups) return -EINVAL;
     tab = &nl_mcast[protocol];
 
@@ -874,10 +819,11 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
     for (uint32_t i = 0; i < tab->count; i++) {
         if (!tab->entries[i].sk || !(tab->entries[i].groups & groups)) continue;
         int ret = nl_queue_datagram(tab->entries[i].sk, data, len, sender_pid, groups, sender_uid, sender_gid);
-        if (!ret)
+        if (!ret) {
             delivered++;
-        else if (!first_error)
+        } else if (!first_error) {
             first_error = ret;
+        }
     }
     spin_unlock(&tab->lock);
 
@@ -889,19 +835,12 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
 int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockaddr_nl_t *addr, uint32_t addrlen, int flags)
 {
     nl_sock_t *ns;
-
     (void)flags;
 
-    if (!sk || !buf) {
-        netlink_einval_trace("send:null", (long)sk, (long)buf);
-        return -EINVAL;
-    }
+    if (!sk || !buf) return -EINVAL;
 
     ns = nl_sk(sk);
-    if (!ns) {
-        netlink_einval_trace("send:no-priv", (long)sk, 0);
-        return -EINVAL;
-    }
+    if (!ns) return -EINVAL;
 
     if (!ns->nl_bound) {
         sockaddr_nl_t local = {.nl_family = AF_NETLINK};
@@ -909,10 +848,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         if (ret) return ret;
     }
 
-    if (addr && (addrlen < sizeof(sockaddr_nl_t) || addr->nl_family != AF_NETLINK)) {
-        netlink_einval_trace("send:bad-addr", addrlen, addr->nl_family);
-        return -EINVAL;
-    }
+    if (addr && (addrlen < sizeof(sockaddr_nl_t) || addr->nl_family != AF_NETLINK)) return -EINVAL;
 
     /*
      * NETLINK_KOBJECT_UEVENT deliberately does not carry nlmsghdr.  A
@@ -976,26 +912,16 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         return (ret >= 0 || ret == -ESRCH) ? (int)len : ret;
     }
 
-    if (len < NLMSG_HDRLEN) {
-        netlink_einval_trace("send:short-msg", (long)len, 0);
-        return -EINVAL;
-    }
+    if (len < NLMSG_HDRLEN) return -EINVAL;
     nlmsghdr_t *nlh = (nlmsghdr_t *)buf;
 
     /* Validate the header */
-    if (nlh->nlmsg_len < NLMSG_HDRLEN) {
-        netlink_einval_trace("send:bad-hdrlen", nlh->nlmsg_len, (long)len);
-        return -EINVAL;
-    }
-    if (nlh->nlmsg_len > len) {
-        netlink_einval_trace("send:hdrlen>len", nlh->nlmsg_len, (long)len);
-        return -EINVAL;
-    }
+    if (nlh->nlmsg_len < NLMSG_HDRLEN) return -EINVAL;
+    if (nlh->nlmsg_len > len) return -EINVAL;
 
     uint32_t nlhdr_len = nlh->nlmsg_len;
 
-    /* Kernel (pid=0) is always allowed */
-    /* Userspace sends: nl_pid must be set to the sender's pid */
+    /* Kernel (pid=0) is always allowed; userspace sends: nl_pid must beset to the sender's pid. */
     if (addr && addrlen >= sizeof(sockaddr_nl_t)) {
         /* Send to a specific destination */
         uint32_t       dest_pid = addr->nl_pid;
@@ -1019,9 +945,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
                 nlmsghdr_t *request   = (nlmsghdr_t *)((uint8_t *)buf + offset);
                 size_t      remaining = len - offset;
                 if (!NLMSG_OK(request, remaining)) break;
-                if ((request->nlmsg_flags & NLM_F_ACK) || ns->nl_protocol == NETLINK_AUDIT) {
-                    rtnl_queue_error(sk, request, 0);
-                }
+                if ((request->nlmsg_flags & NLM_F_ACK) || ns->nl_protocol == NETLINK_AUDIT) rtnl_queue_error(sk, request, 0);
                 offset += NLMSG_ALIGN(request->nlmsg_len);
             }
             return (int)len;
@@ -1055,9 +979,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
             nlmsghdr_t *request   = (nlmsghdr_t *)((uint8_t *)buf + offset);
             size_t      remaining = len - offset;
             if (!NLMSG_OK(request, remaining)) break;
-            if ((request->nlmsg_flags & NLM_F_ACK) || ns->nl_protocol == NETLINK_AUDIT) {
-                rtnl_queue_error(sk, request, 0);
-            }
+            if ((request->nlmsg_flags & NLM_F_ACK) || ns->nl_protocol == NETLINK_AUDIT) rtnl_queue_error(sk, request, 0);
             offset += NLMSG_ALIGN(request->nlmsg_len);
         }
         return (int)len;
@@ -1119,13 +1041,13 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
          * missed notify anywhere in the poll-source chain degrades to a
          * one-second latency instead of a wedged reader.
          */
-        uint64_t slice_deadline = sched_ticks() + TIMER_HZ;
+        uint64_t slice_deadline = sched_ticks() + CONFIG_TIMER_HZ;
         wait_queue_prepare(&ns->recv_wq);
         spin_unlock(&ns->recv_lock);
         (void)wait_queue_wait_timed(&ns->recv_wq, slice_deadline);
         spin_lock(&ns->recv_lock);
 
-        /* Re-check: a concurrent netlink_close() may have woken us to die. */
+        /* Re-check: a concurrent netlink_close() may have woken this task to die. */
         if (ns->closed) {
             spin_unlock(&ns->recv_lock);
             return -EBADF;
@@ -1218,10 +1140,6 @@ int netlink_poll(struct socket *sk, size_t events)
     return revents & (int)events;
 }
 
-/* setsockopt / getsockopt */
-
-#define SOL_NETLINK 270
-
 /* Apply a netlink socket option, mostly membership toggles. */
 int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint32_t optlen)
 {
@@ -1235,15 +1153,9 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
 
     switch (optname) {
         case NETLINK_ADD_MEMBERSHIP : {
-            if (optlen < sizeof(int)) {
-                netlink_einval_trace("setsockopt:add-membership-optlen", optlen, optname);
-                return -EINVAL;
-            }
+            if (optlen < sizeof(int)) return -EINVAL;
             if (copy_from_user(&ival, optval, sizeof(int))) return -EFAULT;
-            if (ival <= 0 || ival > 32) {
-                netlink_einval_trace("setsockopt:add-membership-group", ival, optname);
-                return -EINVAL;
-            }
+            if (ival <= 0 || ival > 32) return -EINVAL;
 
             spin_lock(&sk->lock);
             uint32_t groups = ns->nl_groups | (1U << (uint32_t)(ival - 1));
@@ -1269,12 +1181,13 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
             if (optlen < sizeof(int)) return -EINVAL;
             if (copy_from_user(&ival, optval, sizeof(int))) return -EFAULT;
             spin_lock(&sk->lock);
-            if (optname == NETLINK_NO_ENOBUFS)
+            if (optname == NETLINK_NO_ENOBUFS) {
                 ns->no_enobufs = ival != 0;
-            else if (optname == NETLINK_BROADCAST_ERROR)
+            } else if (optname == NETLINK_BROADCAST_ERROR) {
                 ns->broadcast_error = ival != 0;
-            else
+            } else {
                 ns->packet_info = ival != 0;
+            }
             spin_unlock(&sk->lock);
             return EOK;
         case NETLINK_CAP_ACK :
@@ -1352,9 +1265,7 @@ int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags
 int netlink_has_listeners(uint32_t protocol, uint32_t group)
 {
     nl_mcast_table_t *tab;
-
-    if (protocol >= NL_PROTO_MAX) return 0;
-
+    if (protocol >= CONFIG_NETLINK_MAX) return 0;
     tab = &nl_mcast[protocol];
 
     spin_lock(&tab->lock);
@@ -1375,16 +1286,19 @@ static int netlink_wrap_read(struct socket *sk, void *buf, size_t sz, void *addr
     return netlink_recvmsg(sk, buf, sz, addr, addrlen, 0);
 }
 
+/* Netlink wrap write. */
 static int netlink_wrap_write(struct socket *sk, const void *buf, size_t sz, const void *addr, uint32_t addrlen)
 {
     return netlink_sendmsg(sk, buf, sz, addr, addrlen, 0);
 }
 
+/* Netlink wrap poll. */
 static int netlink_wrap_poll(struct socket *sk, size_t events)
 {
     return netlink_poll(sk, events);
 }
 
+/* Netlink wrap close. */
 static int netlink_wrap_close(struct socket *sk)
 {
     netlink_close(sk);
@@ -1394,15 +1308,16 @@ static int netlink_wrap_close(struct socket *sk)
 /* Subsystem init */
 void netlink_init(void)
 {
-#if CONFIG_NETLINK
     memset(nl_mcast, 0, sizeof(nl_mcast));
 
-    for (int i = 0; i < NL_PROTO_MAX; i++) {
+    for (int i = 0; i < CONFIG_NETLINK_MAX; i++) {
         nl_mcast[i].count = 0;
         memset(&nl_mcast[i].lock, 0, sizeof(nl_mcast[i].lock));
     }
 
     nl_pid_counter = 0;
     memset(&nl_pid_lock, 0, sizeof(nl_pid_lock));
-#endif
+    plogk("netlink: netlink family initialized.\n");
 }
+
+#endif

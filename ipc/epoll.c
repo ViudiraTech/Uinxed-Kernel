@@ -9,31 +9,17 @@
  */
 
 #include <fs/core/vfs.h>
+#include <fs/core/vfs_stub.h>
 #include <ipc/epoll.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 #include <syscall/poll.h>
 #include <syscall/syscall.h>
-
-/* Constants */
-
-#ifndef EPOLL_MAX_FDS
-#    define EPOLL_MAX_FDS 1024
-#endif
-#define EPOLL_MAX_NESTS     4
-#define EPOLL_TICKS_PER_SEC TIMER_HZ
 
 /* Internal structures */
 
@@ -57,7 +43,7 @@ typedef struct epoll_item {
 } epoll_item_t;
 
 typedef struct epoll_instance {
-        epoll_item_t    *items[EPOLL_MAX_FDS];
+        epoll_item_t    *items[CONFIG_EPOLL_MAX_FDS];
         int              fd_count;
         int              max_fd;
         wait_queue_t     wq;
@@ -68,7 +54,6 @@ typedef struct epoll_instance {
 } epoll_instance_t;
 
 /* Static filesystem ID */
-
 static int epoll_fsid = -1;
 
 /* Serializes changes to the graph formed by epoll-on-epoll registrations. */
@@ -89,7 +74,7 @@ static epoll_instance_t *epoll_file_instance(process_file_t *file)
 static bool epoll_path_reaches(epoll_instance_t *start, epoll_instance_t *needle, unsigned int depth)
 {
     if (start == needle) return true;
-    if (depth >= EPOLL_MAX_NESTS) return true;
+    if (depth >= CONFIG_EPOLL_MAX_NESTS) return true;
     for (int fd = 0; fd <= start->max_fd; fd++) {
         epoll_item_t *item = start->items[fd];
         if (!item || !__atomic_load_n(&item->active, __ATOMIC_ACQUIRE)) continue;
@@ -98,14 +83,6 @@ static bool epoll_path_reaches(epoll_instance_t *start, epoll_instance_t *needle
         if (child && epoll_path_reaches(child, needle, depth + 1)) return true;
     }
     return false;
-}
-
-static bool epoll_signal_pending(process_t *proc)
-{
-    spin_lock(&proc->signal.lock);
-    bool pending = signal_has_interrupting_pending(&proc->signal);
-    spin_unlock(&proc->signal.lock);
-    return pending;
 }
 
 /*
@@ -163,22 +140,20 @@ static void epoll_target_close(vfs_poll_subscription_t *subscription, uint32_t e
 /* Find an epoll_item by fd.  Must be called with epi->lock held. */
 static epoll_item_t *epoll_item_find(epoll_instance_t *epi, int fd)
 {
-    if (fd < 0 || fd >= EPOLL_MAX_FDS) return NULL;
+    if (fd < 0 || fd >= CONFIG_EPOLL_MAX_FDS) return NULL;
     return epi->items[fd];
 }
 
-/*
- * Add a new fd to the epoll set.  Must be called with epi->lock held.
- * Returns NULL on error (fd already present, or OOM).
- */
+/* Add a new fd to the epoll set.  Must be called with epi->lock held. Returns NULL on error (fd already present, or OOM). */
 static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, process_file_t *file, const epoll_event_t *event)
 {
-    if (fd < 0 || fd >= EPOLL_MAX_FDS) return NULL;
+    if (fd < 0 || fd >= CONFIG_EPOLL_MAX_FDS) return NULL;
     if (epi->items[fd]) return NULL; // already present
 
     epoll_item_t *item = malloc(sizeof(epoll_item_t));
     if (!item) {
-        plogk("epoll: Item allocation failed (fd %d)\n", fd);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("epoll: Item allocation failed (fd %d)\n", fd);
         return NULL;
     }
     memset(item, 0, sizeof(epoll_item_t));
@@ -200,13 +175,10 @@ static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, process_file_
     return item;
 }
 
-/*
- * Delete an fd from the epoll set.  Must be called with epi->lock held.
- * Returns 0 on success, -ENOENT if not found.
- */
+/* Delete an fd from the epoll set.  Must be called with epi->lock held. Returns 0 on success, -ENOENT if not found. */
 static epoll_item_t *epoll_item_del(epoll_instance_t *epi, int fd)
 {
-    if (fd < 0 || fd >= EPOLL_MAX_FDS) return NULL;
+    if (fd < 0 || fd >= CONFIG_EPOLL_MAX_FDS) return NULL;
 
     epoll_item_t *item = epi->items[fd];
     if (!item) return NULL;
@@ -219,10 +191,7 @@ static epoll_item_t *epoll_item_del(epoll_instance_t *epi, int fd)
     return item;
 }
 
-/*
- * Modify an existing fd registration.  Must be called with epi->lock held.
- * Returns 0 on success, -ENOENT if not found.
- */
+/* Modify an existing fd registration.  Must be called with epi->lock held. Returns 0 on success, -ENOENT if not found. */
 static int epoll_item_mod(epoll_instance_t *epi, int fd, const epoll_event_t *event)
 {
     epoll_item_t *item = epoll_item_find(epi, fd);
@@ -235,13 +204,7 @@ static int epoll_item_mod(epoll_instance_t *epi, int fd, const epoll_event_t *ev
     return EOK;
 }
 
-/* Polling: check all registered fds for readiness */
-
-/*
- * Poll all registered fds and update their revents.
- * Must be called with epi->lock held.
- * Returns the number of ready fds.
- */
+/* Poll all registered fds and update their revents. Must be called with epi->lock held. Returns the number of ready fds. */
 static int epoll_poll_all(epoll_instance_t *epi)
 {
     int ready = 0;
@@ -262,10 +225,7 @@ static int epoll_poll_all(epoll_instance_t *epi)
         uint32_t current     = epoll_map_poll_result(poll_result, item->events);
 
         if (item->events & EPOLLET) {
-            /*
-             * Edge-triggered: only report events that transitioned
-             * from not-ready to ready since the last poll.
-             */
+            /* Edge-triggered: only report events that transitioned from not-ready to ready since the last poll. */
             uint32_t changed = __atomic_exchange_n(&item->pending_events, 0, __ATOMIC_ACQ_REL);
             item->last_revents &= ~changed;
             uint32_t new_ready = current & ~item->last_revents;
@@ -331,9 +291,7 @@ static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_event
         epoll_event_t ev;
         ev.events = item->revents;
         ev.data   = item->data;
-
         if (copy_to_user(&user_events[collected], &ev, sizeof(epoll_event_t))) return -EFAULT;
-
         collected++;
 
         /* Handle EPOLLONESHOT: disable this fd after reporting */
@@ -346,18 +304,7 @@ static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_event
     return collected;
 }
 
-/* VFS open callback; epoll nodes carry no name-based open state. */
-static void epoll_vfs_open(void *parent, const char *name, vfs_node_t node)
-{
-    (void)parent;
-    (void)name;
-    (void)node;
-}
-
-/*
- * Close callback: wake all blocked waiters and decrement refcount.
- * Actual cleanup happens in epoll_vfs_free when refcount reaches 0.
- */
+/* Close callback: wake all blocked waiters and decrement refcount. Actual cleanup happens in epoll_vfs_free when refcount reaches 0. */
 static void epoll_vfs_close(void *current)
 {
     epoll_instance_t *epi = (epoll_instance_t *)current;
@@ -376,26 +323,6 @@ static void epoll_item_release(epoll_item_t *item)
     vfs_poll_source_unsubscribe(&item->file->close_source, &item->close_subscription);
     process_file_put(item->file);
     free(item);
-}
-
-/* epoll does not support read(); return -EINVAL. */
-static size_t epoll_vfs_read(void *file, void *addr, size_t offset, size_t size)
-{
-    (void)file;
-    (void)addr;
-    (void)offset;
-    (void)size;
-    return (size_t)-1;
-}
-
-/* epoll does not support write(); return -EINVAL. */
-static size_t epoll_vfs_write(void *file, const void *addr, size_t offset, size_t size)
-{
-    (void)file;
-    (void)addr;
-    (void)offset;
-    (void)size;
-    return (size_t)-1;
 }
 
 /* Poll callback: report POLLIN if any registered fd is ready. */
@@ -432,70 +359,6 @@ static int epoll_vfs_free(void *handle)
     return EOK;
 }
 
-/* Stubs for unused VFS callbacks */
-static int epoll_stub_mount(const char *s, vfs_node_t n)
-{
-    (void)s;
-    (void)n;
-    return -ENOSYS;
-}
-
-static void epoll_stub_unmount(void *root)
-{
-    (void)root;
-}
-
-static size_t epoll_stub_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
-{
-    (void)node;
-    (void)addr;
-    (void)offset;
-    (void)size;
-    return (size_t)-1;
-}
-
-static int epoll_stub_mk(void *parent, const char *name, vfs_node_t node)
-{
-    (void)parent;
-    (void)name;
-    (void)node;
-    return -ENOSYS;
-}
-
-static int epoll_stub_stat(void *file, vfs_node_t node)
-{
-    (void)file;
-    (void)node;
-    return EOK;
-}
-
-static int epoll_stub_ioctl(void *file, size_t req, void *arg)
-{
-    (void)file;
-    (void)req;
-    (void)arg;
-    return -ENOSYS;
-}
-
-static vfs_node_t epoll_stub_dup(vfs_node_t node)
-{
-    (void)node;
-    return NULL;
-}
-
-static int epoll_stub_del(void *parent, vfs_node_t node)
-{
-    (void)parent;
-    (void)node;
-    return -ENOSYS;
-}
-
-static int epoll_stub_rename(const vfs_rename_context_t *context)
-{
-    (void)context;
-    return -ENOSYS;
-}
-
 /* Allocate an epoll instance and wrap it in a VFS node. */
 static vfs_node_t epoll_node_create(void)
 {
@@ -503,7 +366,8 @@ static vfs_node_t epoll_node_create(void)
 
     epoll_instance_t *epi = malloc(sizeof(epoll_instance_t));
     if (!epi) {
-        plogk("epoll: Instance allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("epoll: Instance allocation failed.\n");
         return NULL;
     }
     memset(epi, 0, sizeof(epoll_instance_t));
@@ -515,7 +379,8 @@ static vfs_node_t epoll_node_create(void)
 
     vfs_node_t node = vfs_node_alloc(NULL, "[epoll]");
     if (!node) {
-        plogk("epoll: Node allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("epoll: Node allocation failed.\n");
         free(epi);
         return NULL;
     }
@@ -543,7 +408,7 @@ static epoll_instance_t *epoll_resolve_fd(int epfd, process_t *proc, process_fil
 
     spin_lock(&proc->fd_lock);
     process_file_t *file = NULL;
-    if (epfd >= 0 && epfd < PROCESS_MAX_FD) {
+    if (epfd >= 0 && epfd < CONFIG_PROCESS_MAX_FD) {
         file = proc->fds[epfd];
         if (file) process_file_get(file);
     }
@@ -605,14 +470,22 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-
     if (epfd == fd) return -EINVAL;
 
     process_file_t   *ep_file = NULL;
     epoll_instance_t *epi     = epoll_resolve_fd(epfd, proc, &ep_file);
     if (!epi) return -EBADF;
 
-    epoll_event_t   ev;
+    epoll_event_t ev;
+
+    /* The user copy can fault, so it stays outside the locks. */
+    if (op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD) {
+        if (!event || copy_from_user(&ev, event, sizeof(epoll_event_t))) {
+            process_file_put(ep_file);
+            return -EFAULT;
+        }
+    }
+
     int64_t         ret;
     process_file_t *target        = NULL;
     epoll_item_t   *release       = NULL;
@@ -644,15 +517,6 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 
     switch (op) {
         case EPOLL_CTL_ADD : {
-            if (!event) {
-                ret = -EFAULT;
-                break;
-            }
-            if (copy_from_user(&ev, event, sizeof(epoll_event_t))) {
-                ret = -EFAULT;
-                break;
-            }
-
             epoll_item_t *old = epoll_item_find(epi, fd);
             if (old && __atomic_load_n(&old->target_closed, __ATOMIC_ACQUIRE)) release = epoll_item_del(epi, fd);
             epoll_item_t *item = epoll_item_add(epi, fd, target, &ev);
@@ -682,23 +546,12 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
             ret = EOK;
             break;
         }
-
-        case EPOLL_CTL_DEL : {
+        case EPOLL_CTL_DEL :
             release = epoll_item_del(epi, fd);
             ret     = release ? EOK : -ENOENT;
             break;
-        }
 
         case EPOLL_CTL_MOD : {
-            if (!event) {
-                ret = -EFAULT;
-                break;
-            }
-            if (copy_from_user(&ev, event, sizeof(epoll_event_t))) {
-                ret = -EFAULT;
-                break;
-            }
-
             ret = epoll_item_mod(epi, fd, &ev);
             if (ret != EOK) break;
 
@@ -751,9 +604,8 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-
     if (!events && maxevents > 0) return -EFAULT;
-    if (maxevents <= 0 || maxevents > EPOLL_MAX_EVENTS) return -EINVAL;
+    if (maxevents <= 0 || maxevents > CONFIG_EPOLL_MAX_EVENTS) return -EINVAL;
 
     process_file_t   *ep_file = NULL;
     epoll_instance_t *epi     = epoll_resolve_fd(epfd, proc, &ep_file);
@@ -765,18 +617,16 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
      * Safety-net deadline: an infinite epoll_wait blocks in bounded slices and
      * re-scans on expiry.  The two-phase wait protocol makes a lost wakeup
      * impossible as long as every notifier follows it, but a single protocol
-     * violation anywhere in a driver then wedges the waiter FOREVER (observed
-     * as udev stalls during coldplug on large-SMP machines).  Re-checking the
-     * readiness scan once per second costs one pass over the registered fds
-     * and converts any residual lost-wakeup bug from an unrecoverable hang
-     * into a sub-second hiccup.
+     * violation anywhere in a driver would wedge the waiter forever.  Re-checking
+     * the readiness scan once per second costs one pass over the registered fds and
+     * converts any residual lost-wakeup bug into a sub-second hiccup.
      */
-    const uint64_t slice_ticks = TIMER_HZ; // re-scan at least once per second
+    const uint64_t slice_ticks = CONFIG_TIMER_HZ; // re-scan at least once per second
 
     uint64_t deadline = 0;
     bool     infinite = timeout < 0;
     if (!infinite) {
-        uint64_t ticks = ((uint64_t)timeout * EPOLL_TICKS_PER_SEC + 999) / 1000;
+        uint64_t ticks = ((uint64_t)timeout * CONFIG_TIMER_HZ + 999) / 1000;
         deadline       = sched_ticks() + ticks;
     }
 
@@ -805,7 +655,7 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
             wait_deadline = deadline;
         }
 
-        if (epoll_signal_pending(proc)) {
+        if (signal_has_interrupting_pending_current()) {
             ret = -ERESTARTSYS;
             break;
         }
@@ -813,39 +663,24 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
         wait_queue_prepare(&epi->wq);
         if (__atomic_load_n(&epi->event_generation, __ATOMIC_ACQUIRE) != generation) {
             /*
-             * Events arrived between the scan and the prepare: withdraw our
-             * OWN prepared entry instead of waking the queue (self-wake
-             * through wake_all is not a cancellation protocol).
+             * Events arrived between the scan and the prepare: withdraw the prepared
+             * entry instead of waking the queue (a self-wake through
+             * wait_queue_wake_all() is not a cancellation protocol).
              */
             wait_queue_cancel(&epi->wq);
+
             /* The loop contract requires epi->lock to remain held here. */
             continue;
         }
         spin_unlock(&epi->lock);
-        if (epoll_signal_pending(proc)) {
+        if (signal_has_interrupting_pending_current()) {
             wait_queue_cancel(&epi->wq);
             spin_lock(&epi->lock);
             ret = -ERESTARTSYS;
             break;
         }
-        int timed_out = wait_queue_wait_timed(&epi->wq, wait_deadline) == -ETIMEDOUT;
-        (void)timed_out;
+        (void)wait_queue_wait_timed(&epi->wq, wait_deadline);
         spin_lock(&epi->lock);
-
-        /*
-         * Lost-wakeup detector: the slice expired without a notification.
-         * If a rescan now finds ready fds, the wake was missed somewhere in
-         * the poll-source chain - the caller paid up to one second of
-         * latency.  This is the boot-slowness signature.
-         */
-        if (timed_out && epoll_poll_all(epi) > 0) {
-            static uint64_t last_lost_log;
-            uint64_t       now = sched_ticks();
-            if (now - last_lost_log >= TIMER_HZ / 4) {
-                plogk("epoll-dbg: lost wakeup recovered by 1s safety-net rescan (epfd=%d)\n", epfd);
-                last_lost_log = now;
-            }
-        }
     }
 
     spin_unlock(&epi->lock);
@@ -903,31 +738,31 @@ void epoll_init(void)
     }
     memset(cb, 0, sizeof(struct vfs_callback));
 
-    cb->mount    = epoll_stub_mount;
-    cb->unmount  = epoll_stub_unmount;
-    cb->open     = epoll_vfs_open;
+    /* Epoll nodes expose no name-based open state and no file contents. */
+    cb->unmount  = vfs_stub_unmount;
+    cb->open     = vfs_stub_open;
     cb->close    = epoll_vfs_close;
-    cb->read     = epoll_vfs_read;
-    cb->write    = epoll_vfs_write;
-    cb->readlink = epoll_stub_readlink;
-    cb->mkdir    = epoll_stub_mk;
-    cb->mkfile   = epoll_stub_mk;
-    cb->link     = epoll_stub_mk;
-    cb->symlink  = epoll_stub_mk;
-    cb->stat     = epoll_stub_stat;
-    cb->ioctl    = epoll_stub_ioctl;
-    cb->dup      = epoll_stub_dup;
+    cb->read     = vfs_stub_read;
+    cb->write    = vfs_stub_write;
+    cb->readlink = vfs_stub_readlink;
+    cb->mkdir    = vfs_stub_mk;
+    cb->mkfile   = vfs_stub_mk;
+    cb->link     = vfs_stub_mk;
+    cb->symlink  = vfs_stub_mk;
+    cb->stat     = vfs_stub_stat;
+    cb->ioctl    = vfs_stub_ioctl;
+    cb->dup      = vfs_stub_dup;
     cb->poll     = epoll_vfs_poll;
     cb->free     = epoll_vfs_free;
-    cb->delete   = epoll_stub_del;
-    cb->rename   = epoll_stub_rename;
+    cb->delete   = vfs_stub_del;
+    cb->rename   = vfs_stub_rename;
 
-    epoll_fsid = vfs_regist(cb);
+    epoll_fsid = vfs_regist_fs("epoll", cb);
     if (epoll_fsid < 0) {
         plogk("epoll: Failed to register VFS callback (err=%d)\n", epoll_fsid);
         free(cb);
         return;
     }
 
-    plogk("epoll: Epoll subsystem registered (fsid=%d, max_fds=%d)\n", epoll_fsid, EPOLL_MAX_FDS);
+    plogk("epoll: Epoll subsystem registered (fsid=%d, max_fds=%d)\n", epoll_fsid, CONFIG_EPOLL_MAX_FDS);
 }

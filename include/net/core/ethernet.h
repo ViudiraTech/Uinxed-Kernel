@@ -20,13 +20,13 @@
 #define ETH_TYPE_ARP    0x0806U
 #define ETH_TYPE_IPV6   0x86ddU
 
-extern const uint8_t ethernet_broadcast_address[ETH_ADDRESS_LEN];
-
 typedef struct net_ethernet_frame {
         uint16_t       ether_type;
         const uint8_t *payload;
         size_t         payload_len;
 } net_ethernet_frame_t;
+
+extern const uint8_t ethernet_broadcast_address[ETH_ADDRESS_LEN];
 
 /* Ethernet frame parse/dispatch and transmit. */
 int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *frame);

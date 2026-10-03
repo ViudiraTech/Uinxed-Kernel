@@ -13,35 +13,23 @@
 
 #include <libs/list/intrusive_list.h>
 #include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/util/rbtree.h>
 #include <mem/page.h>
 #include <process/ptrace.h>
-#include <sync/spin_lock.h>
 
-typedef struct process process_t;
-typedef struct cgroup  cgroup_t;
-struct seccomp_filter;
-
-#define TASK_NAME_LEN      32
-#define TASK_KERNEL_STACK  0x10000
-#define TASK_DEFAULT_SLICE 5
+#define TASK_NAME_LEN 32
 
 /*
- * Upper bound of the PID space.  Must match PROCESS_TABLE_SIZE (process.h):
- * the process table is indexed by pid, so a pid at or beyond this value can
- * never be registered.  PIDs 1..TASK_PID_MAX-1 are allocatable; 0 is reserved
- * for the idle/swapper tasks.
- */
-#define TASK_PID_MAX 4096
-
-/*
- * PF_KTHREAD marks a kernel thread (Linux PF_KTHREAD).  Kernel threads have
+ * PF_KTHREAD marks a kernel thread.  Kernel threads have
  * no user address space, are children of kthreadd, and take a distinct exit
  * path that skips user-only teardown (ptrace, controlling tty, vfork).
  */
 #define PF_KTHREAD 0x00200000ULL
+
+typedef struct process process_t;
+typedef struct cgroup  cgroup_t;
+struct seccomp_filter;
 
 typedef struct wait_queue {
         ilist_node_t tasks;
@@ -130,25 +118,26 @@ struct task {
         uint64_t           involuntary_switches;
 
         /* POSIX signal mask, directed pending set and alternate stack are per-thread. */
-        sigset_t     signal_blocked;
-        sigset_t     signal_saved_mask;
-        sigset_t     signal_pending;
-        bool         signal_restore_mask;
-        stack_t      signal_altstack;
-        char         name[TASK_NAME_LEN];
-        process_t   *process;
-        uint64_t     clear_child_tid;
-        ilist_node_t thread_node;
-        cgroup_t    *cgroup;
-        ilist_node_t cgroup_node;
+        sigset_t        signal_blocked;
+        sigset_t        signal_saved_mask;
+        sigset_t        signal_pending;
+        bool            signal_restore_mask;
+        stack_t         signal_altstack;
+        char            name[TASK_NAME_LEN];
+        process_t      *process;
+        uint64_t        clear_child_tid;
+        ilist_node_t    thread_node;
+        cgroup_t       *cgroup;
+        ilist_node_t    cgroup_node;
         struct nsproxy *nsproxy;
 
         /* EEVDF scheduling fields */
-        uint64_t vruntime;            // virtual runtime
-        uint64_t deadline;            // virtual deadline
-        int64_t  vlag;                // virtual lag for placement
-        uint32_t weight;              // scheduling weight (NICE_0_LOAD = 1024)
-                                      /* PI (Priority Inheritance) fields */
+        uint64_t vruntime; // virtual runtime
+        uint64_t deadline; // virtual deadline
+        int64_t  vlag;     // virtual lag for placement
+        uint32_t weight;   // scheduling weight (NICE_0_LOAD = 1024)
+
+        /* PI (Priority Inheritance) fields */
         uint32_t         base_weight; // original weight before PI boost
         uint32_t         pi_weight;   // effective weight for PI waiter ordering
         rb_node_t        pi_node;     // rbtree node for pi_waiters
@@ -171,14 +160,14 @@ struct task {
         uintptr_t uaccess_fault_resume;
         uint8_t   uaccess_fault_nofault;
 
-        /* Linux seccomp and no_new_privs are per-thread and survive exec. */
+        /* seccomp and no_new_privs are per-thread and survive exec. */
         struct seccomp_filter *seccomp_filter;
         uint8_t                seccomp_mode;
         bool                   no_new_privs;
-        uint8_t                securebits; // Linux PR_SET_SECUREBITS state
-        ptrace_state_t         ptrace;  // Linux ptrace state is per-thread
-        uint64_t               flags;   // PF_KTHREAD etc.
-        kthread_info_t         kthread; // kernel-thread lifecycle (PF_KTHREAD only)
+        uint8_t                securebits; // PR_SET_SECUREBITS state
+        ptrace_state_t         ptrace;     // ptrace state is per-thread
+        uint64_t               flags;      // PF_KTHREAD etc.
+        kthread_info_t         kthread;    // kernel-thread lifecycle (PF_KTHREAD only)
 
         /*
          * Reference count.  task_alloc_status() starts it at 1; task_free()
@@ -212,6 +201,8 @@ void wait_queue_wait(wait_queue_t *queue);
  *   // ... after wakeup, re-check condition ...
  */
 void wait_queue_prepare(wait_queue_t *queue);
+
+/* Wait queue sleep. */
 void wait_queue_sleep(void);
 
 /* Remove a prepared-but-not-yet-slept current task from this queue. */
@@ -231,10 +222,7 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks);
 /* Wake one task from a wait queue */
 task_t *wait_queue_wake_one(wait_queue_t *queue);
 
-/*
- * Wake one task with Linux WF_SYNC-like affinity: a fully sleeping wakee may
- * be placed on the waker's CPU to keep producer/consumer cache state local.
- */
+/* Wake one task with WF_SYNC-like affinity: a fully sleeping wakee may be placed on the waker's CPU to keep producer/consumer cache state local. */
 task_t *wait_queue_wake_one_sync(wait_queue_t *queue);
 
 /* Wake every task from a wait queue */
@@ -243,7 +231,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue);
 /* Allocate a task structure */
 task_t *task_alloc(const char *name);
 
-/* Allocate a task and preserve the Linux errno for admission failures. */
+/* Allocate a task and preserve the errno for admission failures. */
 task_t *task_alloc_status(const char *name, int *error);
 
 /* Take a reference on a task that is known to be alive. */

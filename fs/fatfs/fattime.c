@@ -11,6 +11,8 @@
 #include <arch/cmos.h>
 #include <fs/fatfs/ff.h>
 
+#if CONFIG_FAT_FS
+
 /* FatFs timestamp callback: current time encoded as a FAT timestamp. */
 DWORD get_fattime(void)
 {
@@ -24,3 +26,5 @@ DWORD get_fattime(void)
     if (year < 1980) year = 1980;
     return ((year - 1980) << 25) | (mon << 21) | (day << 16) | (hour << 11) | (min << 5) | (sec / 2);
 }
+
+#endif

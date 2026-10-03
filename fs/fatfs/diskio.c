@@ -14,13 +14,12 @@
  * -----------------------------------------------------------------------
  */
 
-#include <drivers/block/core/blockdev.h>
 #include <fs/fatfs/fatfs_disk.h>
-#include <fs/fatfs/ff.h>
 #include <fs/fatfs/ffdiskio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/string.h>
+
+#if CONFIG_FAT_FS
 
 static blockdev_device_t fatfs_devices[FF_VOLUMES];
 static BYTE              fatfs_ready[FF_VOLUMES];
@@ -80,14 +79,14 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     if (disk_status(pdrv) & STA_NOINIT) return RES_NOTRDY;
 
     if (blockdev_read_sectors(&fatfs_devices[pdrv], sector, count, buff) != EOK) {
-        plogk("fatfs: Drive %u: sector read failed at %llu (count %u)\n", pdrv, (unsigned long long)sector, count);
+        plogk("fatfs: Drive %u: sector read failed at %llu (count %u)\n", pdrv, sector, count);
         return RES_ERROR;
     }
 
     return RES_OK;
 }
 
-#if FF_FS_READONLY == 0
+#    if FF_FS_READONLY == 0
 /* Write sectors to a FatFs physical drive. */
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
@@ -95,13 +94,13 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     if (disk_status(pdrv) & STA_NOINIT) return RES_NOTRDY;
 
     if (blockdev_write_sectors(&fatfs_devices[pdrv], sector, count, buff) != EOK) {
-        plogk("fatfs: Drive %u: sector write failed at %llu (count %u)\n", pdrv, (unsigned long long)sector, count);
+        plogk("fatfs: Drive %u: sector write failed at %llu (count %u)\n", pdrv, sector, count);
         return RES_ERROR;
     }
 
     return RES_OK;
 }
-#endif
+#    endif
 
 /* Handle a FatFs disk control command. */
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
@@ -129,3 +128,5 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
             return RES_PARERR;
     }
 }
+
+#endif

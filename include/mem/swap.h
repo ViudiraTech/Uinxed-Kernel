@@ -11,20 +11,20 @@
 #ifndef INCLUDE_SWAP_H_
 #define INCLUDE_SWAP_H_
 
-#ifdef SWAP_TEST_ONLY
-#    include <stddef.h>
-#    include <stdint.h>
-#else
-#    include <libs/std/stdbool.h>
-#    include <libs/std/stddef.h>
-#    include <libs/std/stdint.h>
-#endif
+#include <kernel/errno.h>
+#include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <mem/page.h>
 
-#define SWAP_PAGE_SIZE        4096ULL
-#define SWAP_MAX_AREAS        32
+#define SWAP_PAGE_SIZE 4096ULL
+
+#define SWAP_SIGNATURE_OFFSET (SWAP_PAGE_SIZE - 10)
+#define SWAP_HEADER_VERSION   1024
+#define SWAP_HEADER_LAST_PAGE 1028
 #define SWAP_PRIORITY_DEFAULT (-2)
 
-/* Linux swapon(2) flags. */
+/* swapon(2) flags. */
 #define SWAP_FLAG_PREFER    0x8000U
 #define SWAP_FLAG_PRIO_MASK 0x7fffU
 #define SWAP_FLAG_DISCARD   0x10000U
@@ -65,7 +65,16 @@ typedef struct swap_stats {
 /* Swap-file header and swap-entry PTE encoding. */
 int      swap_header_decode(const void *page, size_t bytes, uint64_t backing_pages, swap_header_info_t *info);
 uint64_t swap_entry_encode(uint32_t type, uint64_t offset, uint64_t pte_flags);
-int      swap_entry_is_swap(uint64_t pte);
+
+#if CONFIG_SWAP
+int swap_entry_is_swap(uint64_t pte);
+#else
+static inline int swap_entry_is_swap(uint64_t)
+{
+    return 0;
+}
+#endif
+
 uint32_t swap_entry_type(uint64_t pte);
 uint64_t swap_entry_offset(uint64_t pte);
 uint64_t swap_entry_pte_flags(uint64_t pte);
@@ -77,20 +86,76 @@ int      swap_slot_retain(swap_slot_map_t *map, uint64_t slot);
 int      swap_slot_release(swap_slot_map_t *map, uint64_t slot);
 uint32_t swap_slot_refs(const swap_slot_map_t *map, uint64_t slot);
 
-#ifndef SWAP_TEST_ONLY
-#    include <mem/page.h>
+#if CONFIG_SWAP
 
 /* Lifecycle, swap files, reclaim, and fault handling. */
 void swap_init(void);
-int  swap_activate_path(const char *path, uint32_t flags);
-int  swap_deactivate_path(const char *path);
-int  swap_reclaim(size_t target);
+
+/* Swap activate path. */
+int swap_activate_path(const char *path, uint32_t flags);
+
+/* Swap deactivate path. */
+int swap_deactivate_path(const char *path);
+
+/* Swap reclaim. */
+int swap_reclaim(size_t target);
+
+/* Swap has free space. */
 bool swap_has_free_space(void);
-int  swap_fault(page_directory_t *directory, uintptr_t address);
-int  swap_entry_retain_pte(uint64_t pte);
-int  swap_entry_release_pte(uint64_t pte);
+
+/* Swap fault. */
+int swap_fault(page_directory_t *directory, uintptr_t address);
+
+/* Swap entry retain pte. */
+int swap_entry_retain_pte(uint64_t pte);
+
+/* Swap entry release pte. */
+int swap_entry_release_pte(uint64_t pte);
+
+/* Swap get stats. */
 void swap_get_stats(swap_stats_t *stats);
-int  swap_format_proc_swaps(char *buf, size_t cap);
+
+/* Swap format proc swaps. */
+int swap_format_proc_swaps(char *buf, size_t cap);
+
+#else
+static inline void swap_init(void) {}
+static inline int  swap_activate_path(const char *, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int swap_deactivate_path(const char *)
+{
+    return -ENOSYS;
+}
+static inline int swap_reclaim(size_t)
+{
+    return 0;
+}
+static inline bool swap_has_free_space(void)
+{
+    return false;
+}
+static inline int swap_fault(page_directory_t *, uintptr_t)
+{
+    return -EFAULT;
+}
+static inline int swap_entry_retain_pte(uint64_t)
+{
+    return 0;
+}
+static inline int swap_entry_release_pte(uint64_t)
+{
+    return 0;
+}
+static inline void swap_get_stats(swap_stats_t *stats)
+{
+    if (stats) *stats = (swap_stats_t) {0};
+}
+static inline int swap_format_proc_swaps(char *, size_t)
+{
+    return 0;
+}
 #endif
 
 #endif // INCLUDE_SWAP_H_

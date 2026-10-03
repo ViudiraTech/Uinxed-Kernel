@@ -8,25 +8,23 @@
  *
  */
 
-#include <arch/common.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/tty.h>
 #include <drivers/tty/vt_ansi.h>
-#include <kernel/timer/timer.h>
 #include <libs/gfx/fonts.h>
 #include <libs/gfx/gfx_proc.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <sync/spin_lock.h>
 
+/* Blink state.  cursor_drawn records where the block cursor currently sits so the next phase flip can restore that cell from the text grid. */
+#define CURSOR_BLINK_INTERVAL ((CONFIG_TIMER_HZ * 2) / 5) // 400 ms per phase
+
 vt_ansi_state_t vt_ansi_state;
 
 /* Bitmap fonts */
-
 static char     *text_grid       = 0;
 static uint32_t *color_grid      = 0;
 static uint32_t *bg_grid         = 0;
@@ -43,20 +41,13 @@ static bool      handoff_in_progress;
  * while holding this lock.
  */
 static spinlock_t fbcon_lock;
+static uint64_t   cursor_last_tick;
+static bool       cursor_phase;
+static bool       cursor_drawn;
+static uint32_t   cursor_drawn_row;
+static uint32_t   cursor_drawn_col;
 
-/*
- * Blink state.  cursor_drawn records where the block cursor currently sits
- * so the next phase flip can restore that cell from the text grid.
- */
-#define CURSOR_BLINK_INTERVAL ((TIMER_HZ * 2) / 5) // 400 ms per phase
-
-static uint64_t cursor_last_tick;
-static bool     cursor_phase;
-static bool     cursor_drawn;
-static uint32_t cursor_drawn_row;
-static uint32_t cursor_drawn_col;
-
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
 static uint32_t logo_rows;       // grid rows covered by the boot logo
 static uint32_t logo_cover_rows; // top rows still showing the logo (redraw-protected)
 static bool     logo_released;   // true once kernel init handed the screen back
@@ -71,7 +62,7 @@ static bool     logo_released;   // true once kernel init handed the screen back
  */
 static bool fbcon_row_logo_protected(uint32_t row)
 {
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     return row < logo_cover_rows;
 #else
     (void)row;
@@ -88,7 +79,7 @@ static void fbcon_mark_cell_dirty(uint32_t row, uint32_t col)
     if (dirty_last_col[row] < col) dirty_last_col[row] = col;
 }
 
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
 /*
  * Reserve the top logo_rows rows for the boot logo.  The console scrolls
  * below them; text starts just under the logo.  Once kernel init has handed
@@ -109,10 +100,7 @@ static void fbcon_set_logo_active_locked(bool active)
     if (vt_ansi_state.y < logo_rows) vt_ansi_state.y = logo_rows;
 }
 
-/*
- * An explicit erase that reaches above the logo reclaims the area for good;
- * the logo is then wiped by the clear.
- */
+/* An explicit erase that reaches above the logo reclaims the area for good; the logo is then wiped by the clear. */
 static void fbcon_erase_release_logo_locked(void)
 {
     if (!logo_cover_rows) return;
@@ -136,7 +124,7 @@ static void fbcon_release_logo_locked(void)
 /* Reserve the boot-logo area (called when the logo is actually drawn). */
 void fbcon_set_logo_active(bool active)
 {
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     spin_lock(&fbcon_lock);
     fbcon_set_logo_active_locked(active);
     spin_unlock(&fbcon_lock);
@@ -152,7 +140,7 @@ void fbcon_set_logo_active(bool active)
  */
 void fbcon_release_logo(void)
 {
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     spin_lock(&fbcon_lock);
     fbcon_release_logo_locked();
     spin_unlock(&fbcon_lock);
@@ -164,9 +152,9 @@ static void fbcon_clear_row(uint32_t row)
 {
     if (!text_grid || !color_grid || row >= c_height) return;
 
-    memset(text_grid + (size_t)row * c_width, ' ', c_width);
+    memset(text_grid + ((size_t)row * c_width), ' ', c_width);
     for (uint32_t col = 0; col < c_width; col++) {
-        size_t idx      = (size_t)row * c_width + col;
+        size_t idx      = ((size_t)row * c_width) + col;
         color_grid[idx] = fore_color;
         if (bg_grid) bg_grid[idx] = back_color;
     }
@@ -180,7 +168,7 @@ static void fbcon_redraw_row_range(uint32_t row, uint32_t first_col, uint32_t la
     if (first_col >= c_width || last_col >= c_width || first_col > last_col) return;
 
     for (uint32_t col = first_col; col <= last_col; col++) {
-        size_t   index = (size_t)row * c_width + col;
+        size_t   index = ((size_t)row * c_width) + col;
         uint32_t bg    = bg_grid ? bg_grid[index] : back_color;
         fbcon_draw_char_bg(text_grid[index], col * font_width, row * font_height, color_grid[index], bg);
     }
@@ -244,13 +232,9 @@ static void fbcon_clear_uncovered_bottom(void)
     uint32_t used_height = c_height * font_height;
     if (used_height < height) {
         for (uint32_t y = used_height; y < height; y++) {
-            uint32_t *line  = buffer + (size_t)y * stride;
+            uint32_t *line  = buffer + ((size_t)y * stride);
             size_t    count = stride;
-#if defined(__x86_64__) || defined(__i386__)
             __asm__ volatile("rep stosl" : "+D"(line), "+c"(count) : "a"(back_color) : "memory");
-#else
-            for (uint32_t x = 0; x < stride; x++) line[x] = back_color;
-#endif
         }
     }
 }
@@ -275,9 +259,9 @@ void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
     }
 
     for (uint32_t r = bottom - lines; r < bottom; r++) {
-        memset(text_grid + (size_t)r * c_width, ' ', c_width);
+        memset(text_grid + ((size_t)r * c_width), ' ', c_width);
         for (uint32_t col = 0; col < c_width; col++) {
-            size_t idx      = (size_t)r * c_width + col;
+            size_t idx      = ((size_t)r * c_width) + col;
             color_grid[idx] = fore_color;
             if (bg_grid) bg_grid[idx] = back_color;
         }
@@ -286,16 +270,17 @@ void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
             dirty_last_col[r]  = c_width - 1;
         }
     }
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     /*
      * A scroll that spans the top of the screen consumes the blank rows
      * still hiding the logo, so the logo is covered one line at a time.
      */
     if (top == 0 && logo_cover_rows) {
-        if (lines >= logo_cover_rows)
+        if (lines >= logo_cover_rows) {
             logo_cover_rows = 0;
-        else
+        } else {
             logo_cover_rows -= lines;
+        }
     }
 #endif
     full_redraw_pending = 1;
@@ -321,9 +306,9 @@ void fbcon_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
     }
 
     for (uint32_t r = top; r < top + lines; r++) {
-        memset(text_grid + (size_t)r * c_width, ' ', c_width);
+        memset(text_grid + ((size_t)r * c_width), ' ', c_width);
         for (uint32_t col = 0; col < c_width; col++) {
-            size_t idx      = (size_t)r * c_width + col;
+            size_t idx      = ((size_t)r * c_width) + col;
             color_grid[idx] = fore_color;
             if (bg_grid) bg_grid[idx] = back_color;
         }
@@ -339,7 +324,7 @@ void fbcon_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
 void fbcon_erase_display(uint32_t mode)
 {
     if (!text_grid || !color_grid) return;
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     /*
      * A clear that reaches above the logo reclaims the area.  Mode 0 reaches
      * the top rows only when the cursor sits inside the logo area.
@@ -349,16 +334,16 @@ void fbcon_erase_display(uint32_t mode)
     switch (mode) {
         case 0 :
             for (uint32_t col = cx; col < c_width; col++) {
-                size_t idx      = (size_t)cy * c_width + col;
+                size_t idx      = ((size_t)cy * c_width) + col;
                 text_grid[idx]  = ' ';
                 color_grid[idx] = fore_color;
                 if (bg_grid) bg_grid[idx] = back_color;
                 fbcon_mark_cell_dirty(cy, col);
             }
             for (uint32_t r = cy + 1; r < c_height; r++) {
-                memset(text_grid + (size_t)r * c_width, ' ', c_width);
+                memset(text_grid + ((size_t)r * c_width), ' ', c_width);
                 for (uint32_t col = 0; col < c_width; col++) {
-                    size_t idx      = (size_t)r * c_width + col;
+                    size_t idx      = ((size_t)r * c_width) + col;
                     color_grid[idx] = fore_color;
                     if (bg_grid) bg_grid[idx] = back_color;
                     fbcon_mark_cell_dirty(r, col);
@@ -367,16 +352,16 @@ void fbcon_erase_display(uint32_t mode)
             break;
         case 1 :
             for (uint32_t col = 0; col <= cx; col++) {
-                size_t idx      = (size_t)cy * c_width + col;
+                size_t idx      = ((size_t)cy * c_width) + col;
                 text_grid[idx]  = ' ';
                 color_grid[idx] = fore_color;
                 if (bg_grid) bg_grid[idx] = back_color;
                 fbcon_mark_cell_dirty(cy, col);
             }
             for (uint32_t r = 0; r < cy; r++) {
-                memset(text_grid + (size_t)r * c_width, ' ', c_width);
+                memset(text_grid + ((size_t)r * c_width), ' ', c_width);
                 for (uint32_t col = 0; col < c_width; col++) {
-                    size_t idx      = (size_t)r * c_width + col;
+                    size_t idx      = ((size_t)r * c_width) + col;
                     color_grid[idx] = fore_color;
                     if (bg_grid) bg_grid[idx] = back_color;
                     fbcon_mark_cell_dirty(r, col);
@@ -407,13 +392,13 @@ void fbcon_erase_display(uint32_t mode)
 void fbcon_erase_line(uint32_t mode, uint32_t y)
 {
     if (!text_grid || !color_grid || y >= c_height) return;
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     if (logo_cover_rows && y < logo_cover_rows) fbcon_erase_release_logo_locked();
 #endif
     switch (mode) {
         case 0 :
             for (uint32_t col = cx; col < c_width; col++) {
-                size_t idx      = (size_t)y * c_width + col;
+                size_t idx      = ((size_t)y * c_width) + col;
                 text_grid[idx]  = ' ';
                 color_grid[idx] = fore_color;
                 if (bg_grid) bg_grid[idx] = back_color;
@@ -422,7 +407,7 @@ void fbcon_erase_line(uint32_t mode, uint32_t y)
             break;
         case 1 :
             for (uint32_t col = 0; col <= cx; col++) {
-                size_t idx      = (size_t)y * c_width + col;
+                size_t idx      = ((size_t)y * c_width) + col;
                 text_grid[idx]  = ' ';
                 color_grid[idx] = fore_color;
                 if (bg_grid) bg_grid[idx] = back_color;
@@ -430,9 +415,9 @@ void fbcon_erase_line(uint32_t mode, uint32_t y)
             }
             break;
         case 2 :
-            memset(text_grid + (size_t)y * c_width, ' ', c_width);
+            memset(text_grid + ((size_t)y * c_width), ' ', c_width);
             for (uint32_t col = 0; col < c_width; col++) {
-                size_t idx      = (size_t)y * c_width + col;
+                size_t idx      = ((size_t)y * c_width) + col;
                 color_grid[idx] = fore_color;
                 if (bg_grid) bg_grid[idx] = back_color;
                 fbcon_mark_cell_dirty(y, col);
@@ -449,7 +434,7 @@ void fbcon_erase_chars(uint32_t x, uint32_t y, uint32_t count)
     if (!text_grid || !color_grid || y >= c_height) return;
     if (x + count > c_width) count = c_width - x;
     for (uint32_t col = x; col < x + count; col++) {
-        size_t idx      = (size_t)y * c_width + col;
+        size_t idx      = ((size_t)y * c_width) + col;
         text_grid[idx]  = ' ';
         color_grid[idx] = fore_color;
         if (bg_grid) bg_grid[idx] = back_color;
@@ -572,13 +557,11 @@ void fbcon_init(void)
 
     vt_ansi_init(&vt_ansi_state, c_width, c_height);
     vt_ansi_set_default_colors(&vt_ansi_state, 0xaaaaaa, 0x000000);
-
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     logo_rows       = (KLOGO_AREA_HEIGHT + font_height - 1) / font_height;
     logo_cover_rows = 0;
     logo_released   = false;
 #endif
-
     tty_console_resize((uint16_t)c_height, (uint16_t)c_width);
 }
 
@@ -665,9 +648,9 @@ void fbcon_resize(void)
             uint32_t copy_cols = old_cw < c_width ? old_cw : c_width;
 
             for (uint32_t row = 0; row < copy_rows; row++) {
-                memcpy(text_grid + (size_t)row * c_width, old_text + (size_t)row * old_cw, (size_t)copy_cols);
-                memcpy(color_grid + (size_t)row * c_width, old_color + (size_t)row * old_cw, (size_t)copy_cols * sizeof(uint32_t));
-                if (bg_grid && old_bg) memcpy(bg_grid + (size_t)row * c_width, old_bg + (size_t)row * old_cw, (size_t)copy_cols * sizeof(uint32_t));
+                memcpy(text_grid + ((size_t)row * c_width), old_text + ((size_t)row * old_cw), (size_t)copy_cols);
+                memcpy(color_grid + ((size_t)row * c_width), old_color + ((size_t)row * old_cw), (size_t)copy_cols * sizeof(uint32_t));
+                if (bg_grid && old_bg) memcpy(bg_grid + ((size_t)row * c_width), old_bg + ((size_t)row * old_cw), (size_t)copy_cols * sizeof(uint32_t));
             }
         }
 
@@ -683,8 +666,7 @@ void fbcon_resize(void)
             cy              = old_cur_y;
         }
     }
-
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     /* Keep the boot-logo reservation in sync after any rebuild. */
     if (logo_cover_rows) {
         if (logo_rows && c_height > logo_rows) {
@@ -695,7 +677,6 @@ void fbcon_resize(void)
         }
     }
 #endif
-
     cursor_last_tick = 0;
     cursor_phase     = false;
     cursor_drawn     = false;
@@ -765,11 +746,11 @@ void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint3
     if ((uint64_t)y + font_height > height) draw_rows = (uint32_t)height - y;
     if ((uint64_t)x + font_width > width) draw_cols = (uint32_t)width - x;
 
-    uint8_t *char_font      = ascii_font + (size_t)(uint8_t)c * font_height;
-    uint32_t char_base_addr = y * stride + x;
+    uint8_t *char_font      = ascii_font + ((size_t)(uint8_t)c * font_height);
+    uint32_t char_base_addr = (y * stride) + x;
 
     for (row = 0; row < draw_rows; row++) {
-        uint32_t *row_buf  = buffer + char_base_addr + row * stride;
+        uint32_t *row_buf  = buffer + char_base_addr + (row * stride);
         uint8_t   font_row = char_font[row];
         for (uint32_t col = 0; col < draw_cols; col++) row_buf[col] = (font_row & (0x80 >> col)) ? fg : bg;
     }
@@ -786,7 +767,7 @@ static uint32_t fbcon_rgb24_to_fb(uint32_t rgb24)
 static void vt_ansicb_draw_char(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
 {
     if (!text_grid || !color_grid || y >= c_height || x >= c_width) return;
-    size_t idx      = (size_t)y * c_width + x;
+    size_t idx      = ((size_t)y * c_width) + x;
     text_grid[idx]  = c;
     color_grid[idx] = fbcon_rgb24_to_fb(fg);
     if (bg_grid) bg_grid[idx] = fbcon_rgb24_to_fb(bg);
@@ -914,7 +895,7 @@ void fbcon_cursor_tick(uint64_t now_ticks)
         uint32_t row = vt_ansi_state.y;
         uint32_t col = vt_ansi_state.x;
         if (row < c_height && col < c_width && !fbcon_row_logo_protected(row)) {
-            size_t   idx = (size_t)row * c_width + col;
+            size_t   idx = ((size_t)row * c_width) + col;
             uint32_t fg  = color_grid[idx];
             uint32_t bg  = bg_grid ? bg_grid[idx] : back_color;
             fbcon_draw_char_bg(text_grid[idx], col * font_width, row * font_height, bg, fg);

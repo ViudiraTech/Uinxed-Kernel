@@ -20,6 +20,21 @@
         if ((tblname##_ptr) != 0) (func)((tblname##_ptr)); \
     } while (0)
 
+/* ACPI fixed event IDs */
+#define ACPI_EVENT_POWER_BUTTON 0
+#define ACPI_EVENT_SLEEP_BUTTON 1
+#define ACPI_EVENT_RTC          2
+
+/* PM1 status register bit definitions */
+#define ACPI_PM1_STS_PWRBTN (1 << 8)
+#define ACPI_PM1_STS_SLPBTN (1 << 9)
+#define ACPI_PM1_STS_RTC    (1 << 10)
+
+/* PM1 enable register bit definitions */
+#define ACPI_PM1_EN_PWRBTN (1 << 8)
+#define ACPI_PM1_EN_SLPBTN (1 << 9)
+#define ACPI_PM1_EN_RTC    (1 << 10)
+
 typedef struct {
         char     signature[4];
         uint32_t length;
@@ -176,6 +191,9 @@ typedef struct {
         int          enabled;
 } mcfg_t;
 
+/* Generic ACPI event callback */
+typedef void (*acpi_event_callback_t)(void *context);
+
 /* Find the corresponding ACPI table in SDT */
 void *find_table(const char *name);
 
@@ -200,26 +218,6 @@ void facp_init(acpi_facp_t *facp0);
 
 /* Get the FACP structure */
 acpi_facp_t *get_acpi_facp(void);
-
-/* ACPI SCI (System Control Interrupt) and GPE (General Purpose Event) */
-
-/* ACPI fixed event IDs */
-#define ACPI_EVENT_POWER_BUTTON 0
-#define ACPI_EVENT_SLEEP_BUTTON 1
-#define ACPI_EVENT_RTC          2
-
-/* PM1 status register bit definitions */
-#define ACPI_PM1_STS_PWRBTN (1 << 8)
-#define ACPI_PM1_STS_SLPBTN (1 << 9)
-#define ACPI_PM1_STS_RTC    (1 << 10)
-
-/* PM1 enable register bit definitions */
-#define ACPI_PM1_EN_PWRBTN (1 << 8)
-#define ACPI_PM1_EN_SLPBTN (1 << 9)
-#define ACPI_PM1_EN_RTC    (1 << 10)
-
-/* Generic ACPI event callback */
-typedef void (*acpi_event_callback_t)(void *context);
 
 /* Read PM1 status register */
 uint16_t acpi_pm1_status(void);
@@ -254,11 +252,11 @@ void acpi_event_poll(void);
 /* Initialize ACPI event subsystem (SCI + GPE + power button) */
 void acpi_event_init(void);
 
-/* Cycle the power via ACPI reset register */
-void power_reset(void);
+/* Reboot via ACPI reset register, with 8042/0xCF9 fallbacks; never returns */
+__attribute__((noreturn)) void power_reset(void);
 
-/* Power off via ACPI S5 sleep state */
-void power_off(void);
+/* Power off via ACPI S5 sleep state; never returns (halts if ACPI is unusable) */
+__attribute__((noreturn)) void power_off(void);
 
 /* Obtain ACPI major version */
 uint8_t get_acpi_version_major(void);

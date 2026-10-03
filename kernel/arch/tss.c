@@ -8,11 +8,8 @@
  *
  */
 
-#include <arch/gdt.h>
 #include <arch/smp.h>
-#include <arch/tss.h>
 #include <kernel/printk.h>
-#include <libs/std/stdint.h>
 
 /* Task state segment definition */
 tss_stack_t tss_stack;
@@ -34,9 +31,9 @@ void tss_init(void)
     tss0.ist[0]     = ALIGN_DOWN(((uint64_t)&tss_stack) + sizeof(tss_stack_t), 16);
     tss0.ist[1]     = ALIGN_DOWN(((uint64_t)&nmi_stack) + sizeof(tss_stack_t), 16);
 
-    plogk("tss: TSS descriptor configured (address = %p, limit = 0x%04x)\n", &tss0, sizeof(tss_t) - 1);
-    plogk("tss: IST0 stack = %p\n", tss0.ist[0]);
-    plogk("tss: IST1 stack = %p\n", tss0.ist[1]);
+    plogk("tss: TSS descriptor configured (address = %p, limit = 0x%04lx)\n", &tss0, (sizeof(tss_t) - 1));
+    plogk("tss: IST0 stack = %p\n", (void *)tss0.ist[0]);
+    plogk("tss: IST1 stack = %p\n", (void *)tss0.ist[1]);
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x38) : "memory");
     plogk("tss: TR register loaded with selector 0x%04x\n", 0x38);
 }

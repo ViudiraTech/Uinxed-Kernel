@@ -11,6 +11,7 @@
 #ifndef INCLUDE_AHCI_H_
 #define INCLUDE_AHCI_H_
 
+#include <drivers/block/ata/ata_cmds.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
@@ -108,42 +109,6 @@
 #define FIS_TYPE_BIST      0x58
 #define FIS_TYPE_PIO_SETUP 0x5F
 #define FIS_TYPE_DEV_BITS  0xA1
-
-/* ATA commands */
-#ifndef ATA_CMD_READ_DMA_EXT
-#    define ATA_CMD_READ_DMA_EXT 0x25
-#endif
-#ifndef ATA_CMD_WRITE_DMA_EXT
-#    define ATA_CMD_WRITE_DMA_EXT 0x35
-#endif
-#ifndef ATA_CMD_IDENTIFY
-#    define ATA_CMD_IDENTIFY 0xEC
-#endif
-#ifndef ATA_CMD_IDENTIFY_PACKET
-#    define ATA_CMD_IDENTIFY_PACKET 0xA1
-#endif
-#ifndef ATA_CMD_PACKET
-#    define ATA_CMD_PACKET 0xA0
-#endif
-#ifndef ATA_CMD_CACHE_FLUSH
-#    define ATA_CMD_CACHE_FLUSH 0xE7
-#endif
-#ifndef ATA_CMD_CACHE_FLUSH_EXT
-#    define ATA_CMD_CACHE_FLUSH_EXT 0xEA
-#endif
-
-/* ATA identify data offsets (words) */
-#define ATA_IDENT_DEVICETYPE   0
-#define ATA_IDENT_CYLINDERS    2
-#define ATA_IDENT_HEADS        6
-#define ATA_IDENT_SECTORS      12
-#define ATA_IDENT_SERIAL       20
-#define ATA_IDENT_MODEL        54
-#define ATA_IDENT_CAPABILITIES 98
-#define ATA_IDENT_FIELDVALID   106
-#define ATA_IDENT_MAX_LBA      120
-#define ATA_IDENT_COMMANDSETS  164
-#define ATA_IDENT_MAX_LBA_EXT  200
 
 /* FIS Register - Host to Device (20 bytes = 5 DWORDS) */
 typedef struct {
@@ -347,18 +312,10 @@ typedef struct {
         char     model[41];
 } ahci_device_t;
 
-/* External declarations */
-extern ahci_device_t ahci_devices[AHCI_MAX_DEVICES];
-extern int           ahci_device_count;
-
-/* HBA MMIO base (shared with satapi) */
-extern volatile uint8_t *hba_mmio;
-
 /* Per-port state (shared between ahci.c and satapi.c) */
 typedef struct {
         volatile uint8_t *port_mmio;
         uint8_t           port_no;
-        int               present;
         hba_cmd_header_t *cmd_list;
         hba_fis_t        *fis;
         hba_cmd_tbl_t    *cmd_tbl;
@@ -378,6 +335,12 @@ typedef struct {
         spinlock_t lock;
 } ahci_port_state_t;
 
+/* External declarations */
+extern ahci_device_t ahci_devices[AHCI_MAX_DEVICES];
+extern int           ahci_device_count;
+
+/* HBA MMIO base (shared with satapi) */
+extern volatile uint8_t *hba_mmio;
 extern ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];
 
 /* Read a 32-bit AHCI register relative to the HBA MMIO base */
@@ -386,8 +349,15 @@ uint32_t ahci_read32(volatile uint8_t *base, uint32_t reg);
 /* Write a 32-bit AHCI register relative to the HBA MMIO base */
 void ahci_write32(volatile uint8_t *base, uint32_t reg, uint32_t val);
 
+/* Find a free command slot on a port, or -ENOSPC */
+int ahci_find_slot(ahci_port_state_t *port);
+
 /* Initialize all AHCI controllers on the PCI bus */
+#if CONFIG_ATA
 void init_ahci(void);
+#else
+static inline void init_ahci(void) {}
+#endif
 
 /* Read `numsects` sectors from an AHCI ATA drive */
 int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffer);

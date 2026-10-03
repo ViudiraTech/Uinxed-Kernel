@@ -14,17 +14,12 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define PAGECACHE_PAGE_SIZE 4096UL
-
-#define PAGECACHE_MAPPING_UNEVICTABLE (1U << 0)
-
-#define PAGECACHE_WB_SYNC       (1U << 0)
-#define PAGECACHE_WB_KEEP_ERROR (1U << 1)
-
+#define PAGECACHE_PAGE_SIZE                4096UL
+#define PAGECACHE_MAPPING_UNEVICTABLE      (1U << 0)
+#define PAGECACHE_WB_SYNC                  (1U << 0)
 #define PAGECACHE_INVALIDATE_DISCARD_DIRTY (1U << 0)
-
-#define PAGECACHE_EVICT_WRITEBACK     (1U << 0)
-#define PAGECACHE_EVICT_DISCARD_DIRTY (1U << 1)
+#define PAGECACHE_EVICT_WRITEBACK          (1U << 0)
+#define PAGECACHE_EVICT_DISCARD_DIRTY      (1U << 1)
 
 typedef struct pagecache_mapping pagecache_mapping_t;
 typedef struct pagecache_page    pagecache_page_t;
@@ -85,11 +80,14 @@ int      pagecache_invalidate(pagecache_mapping_t *mapping, uint64_t start, uint
 int      pagecache_evict(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, uint32_t flags);
 int      pagecache_truncate(pagecache_mapping_t *mapping, uint64_t size);
 uint64_t pagecache_size(const pagecache_mapping_t *mapping);
-int      pagecache_mapping_error(pagecache_mapping_t *mapping);
 void     pagecache_mapping_pin(pagecache_mapping_t *mapping);
 void     pagecache_mapping_unpin(pagecache_mapping_t *mapping);
 int      pagecache_readahead(pagecache_mapping_t *mapping, uint64_t offset, size_t size);
 void     pagecache_mmap_readahead(pagecache_mapping_t *mapping, uint64_t index);
+
+/* Writeback error marks: a descriptor samples one at open and hands it back on every flush. */
+uint32_t pagecache_wb_err_sample(pagecache_mapping_t *mapping);
+int      pagecache_wb_err_check(pagecache_mapping_t *mapping, uint32_t *sample);
 
 /* Page operations */
 pagecache_page_t *pagecache_get_page(pagecache_mapping_t *mapping, uint64_t index, int create);

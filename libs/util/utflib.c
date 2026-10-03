@@ -35,7 +35,7 @@ int charntorune(Rune *p, const char *s, size_t len)
     Rune    r;
     uint8_t c, i, m, n, x;
 
-    if (!len) return 0; // can't even look at s[0]
+    if (!len) return 0; // no input byte left to decode
 
     c = *s++;
 
@@ -82,12 +82,9 @@ size_t utfnlen(const char *s, size_t len)
     Rune        r;
 
     for (k = 0; *(p = s) != '\0'; len -= s - p, k++) {
-        if (!len) return k; // can't even look at s[0]
-
+        if (!len) return k; // no input byte left to decode
         c = *s++;
-
         if ((c & 0300) != 0300) continue; // not a leading byte
-
         n = utftab[c & 077];
 
         if (!n) continue;                  // illegal byte

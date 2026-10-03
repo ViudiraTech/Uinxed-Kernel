@@ -13,6 +13,25 @@
 
 #include <libs/std/stdint.h>
 
+/* TF flags */
+
+#define TF_CREATE     1
+#define TF_MODIFY     2
+#define TF_ACCESS     4
+#define TF_ATTRIBUTES 8
+#define TF_LONG_FORM  128
+
+/* RR flags */
+
+#define RR_PX 1
+#define RR_PN 2
+#define RR_SL 4
+#define RR_NM 8
+#define RR_CL 16
+#define RR_PL 32
+#define RR_RE 64
+#define RR_TF 128
+
 /* SUSP / Rock Ridge on-disk structures */
 
 struct SU_SP_s {
@@ -85,25 +104,6 @@ struct RR_ZF_s {
         uint8_t real_size[8];
 } __attribute__((packed));
 
-/* TF flags */
-
-#define TF_CREATE     1
-#define TF_MODIFY     2
-#define TF_ACCESS     4
-#define TF_ATTRIBUTES 8
-#define TF_LONG_FORM  128
-
-/* RR flags */
-
-#define RR_PX 1
-#define RR_PN 2
-#define RR_SL 4
-#define RR_NM 8
-#define RR_CL 16
-#define RR_PL 32
-#define RR_RE 64
-#define RR_TF 128
-
 /* Rock Ridge record header */
 
 struct rock_ridge {
@@ -140,10 +140,13 @@ typedef struct isofs_rr_state {
         uint32_t block_size;
         uint32_t block_bits;
         int      rock_offset;
+
         /* callbacks for block I/O */
         int (*read_block)(void *ctx, uint32_t block, void *buf, uint32_t size);
         void *io_ctx;
 } isofs_rr_state_t;
+
+struct isofs_mount;
 
 /*
  * Read the full symlink target from a directory record's SL entries.

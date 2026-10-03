@@ -14,38 +14,25 @@
 #include <drivers/block/ata/sata/satapi.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
-#include <mem/frame.h>
-#include <mem/hhdm.h>
+#include <libs/util/byteorder.h>
 
-#define SATAPI_CDB_LEN   16
-#define SATAPI_DMA_BYTES (8u * 4096u)
+#if CONFIG_ATA
+
+#    define SATAPI_CDB_LEN     16
+#    define SATAPI_DMA_BYTES   (8u * 4096u)
+#    define SATAPI_INQUIRY_LEN 36
 
 ahci_satapi_device_t ahci_satapi_devices[AHCI_MAX_DEVICES];
 int                  ahci_satapi_device_count = 0;
 
-/* Slot finder (same logic as ahci.c) */
-static int satapi_find_slot(ahci_port_state_t *port)
-{
-    uint32_t slots = ((ahci_read32(hba_mmio, HOST_CAP) >> 8) & 0x1F) + 1;
-    uint32_t ci    = ahci_read32(port->port_mmio, PORT_CI);
-    uint32_t sact  = ahci_read32(port->port_mmio, PORT_SACT);
-    for (uint32_t i = 0; i < slots; i++)
-        if (!((ci | sact) & (1u << i))) return (int)i;
-    return -1;
-}
-
 /* Issue an ATAPI packet command via AHCI */
 static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t *cdb, uint16_t cdb_len, uint8_t direction, int is_dma, uint64_t buf_phys, uint32_t byte_count)
 {
+    (void)direction;
     volatile hba_cmd_header_t *hdr = &port->cmd_list[slot];
     volatile uint8_t          *p   = port->port_mmio;
     int                        tout;
-
-    (void)direction;
 
     memset((void *)port->cmd_tbl->acmd, 0, 16);
     memcpy((void *)port->cmd_tbl->acmd, cdb, (cdb_len < 16) ? cdb_len : 16);
@@ -63,6 +50,7 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
 
     hdr->cfl = CFL_DWORDS;
     hdr->a   = 1;
+
     /*
      * For ATAPI, w=0 means device-to-host (read), w=1 means host-to-device (write).
      * Currently all SATAPI commands are reads; for write support this must be
@@ -86,7 +74,7 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
 
     tout = 1000000;
     while (ahci_read32(p, PORT_TFDATA) & 0x88)
-        if (--tout <= 0) return -EBUSY;
+        if (--tout <= 0) return -ETIMEDOUT;
 
     ahci_write32(p, PORT_IRQ_STAT, 0xFFFFFFFF);
     ahci_write32(p, PORT_CI, (uint32_t)(1 << slot));
@@ -114,7 +102,6 @@ void ahci_satapi_init(void)
 
     for (uint8_t d = 0; d < 4; d++)
         if (atapi_devices[d].reserved && atapi_devices[d].type == IDE_ATAPI) sr_idx++;
-
     for (int i = 0; i < AHCI_MAX_DEVICES; i++) {
         if (!ahci_devices[i].reserved || ahci_devices[i].type != AHCI_DEV_SATAPI) continue;
 
@@ -136,7 +123,8 @@ void ahci_satapi_init(void)
             ahci_devices[i].sector_size = blk_sz;
         }
 
-        plogk("ahci-satapi: Registered optical drive sr%u on AHCI port %u, %u blocks, %u bytes per block.\n", sr_idx, hw_port, sdev->lba_size, sdev->blk_size);
+        (void)ahci_satapi_inquiry((uint8_t)i, ahci_devices[i].model, sizeof(ahci_devices[i].model));
+        plogk("ahci-satapi: Registered sr%u on AHCI port %u (%u blocks x %u bytes, \"%s\")\n", sr_idx, hw_port, sdev->lba_size, sdev->blk_size, ahci_devices[i].model);
 
         sr_idx++;
         ahci_satapi_device_count++;
@@ -163,6 +151,7 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
         uint8_t  chunk       = left > max_blocks ? max_blocks : left;
         uint32_t total_bytes = (uint32_t)chunk * blk_size;
         uint8_t  cdb[SATAPI_CDB_LEN];
+
         memset(cdb, 0, sizeof(cdb));
         cdb[0] = GPCMD_READ_12;
         cdb[2] = (lba >> 24) & 0xFF;
@@ -174,15 +163,18 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
         cdb[8] = (chunk >> 8) & 0xFF;
         cdb[9] = chunk & 0xFF;
 
-        int slot = satapi_find_slot(port);
+        int slot = ahci_find_slot(port);
         if (slot < 0) {
-            plogk("ahci-satapi: drive %u: no free command slot for read at LBA %u\n", drive, lba);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("ahci-satapi: drive %u: no free command slot for read at LBA %u\n", drive, lba);
             spin_unlock(&port->lock);
             return -EBUSY;
         }
+
         int ret = satapi_issue_packet(port, slot, cdb, 12, SATAPI_PROT_PIO, 0, port->dma_buf_phys, total_bytes);
         if (ret != 0) {
-            plogk("ahci-satapi: drive %u: read error at LBA %u: %d\n", drive, lba, ret);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("ahci-satapi: drive %u: read error at LBA %u: %d\n", drive, lba, ret);
             spin_unlock(&port->lock);
             return ret;
         }
@@ -202,7 +194,7 @@ uint8_t ahci_satapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte
     ahci_port_state_t *port = &ahci_ports[ahci_satapi_devices[drive].port_idx];
 
     spin_lock(&port->lock);
-    int slot = satapi_find_slot(port);
+    int slot = ahci_find_slot(port);
     if (slot < 0) {
         spin_unlock(&port->lock);
         return 0xFE;
@@ -240,13 +232,40 @@ uint8_t ahci_satapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *b
     uint8_t err;
 
     if (!lba_size || !blk_size) return 0xFF;
-
     err = ahci_satapi_send_packet(drive, cdb, 8, SATAPI_PROT_PIO, cap_buf, &len);
     if (err) return err;
 
-    *lba_size = (((uint32_t)cap_buf[0] << 24) | ((uint32_t)cap_buf[1] << 16) | ((uint32_t)cap_buf[2] << 8) | (uint32_t)cap_buf[3]) + 1;
-    *blk_size = ((uint32_t)cap_buf[4] << 24) | ((uint32_t)cap_buf[5] << 16) | ((uint32_t)cap_buf[6] << 8) | (uint32_t)cap_buf[7];
+    *lba_size = load_be32(cap_buf) + 1;
+    *blk_size = load_be32(cap_buf + 4);
 
+    return 0;
+}
+
+/* Send INQUIRY, writing the vendor and product identification into model */
+uint8_t ahci_satapi_inquiry(uint8_t drive, char *model, size_t model_size)
+{
+    uint8_t cdb[SATAPI_CDB_LEN] = {GPCMD_INQUIRY, 0, 0, 0, SATAPI_INQUIRY_LEN, 0, 0, 0, 0, 0};
+    uint8_t inquiry[SATAPI_INQUIRY_LEN];
+    size_t  len = sizeof(inquiry);
+    uint8_t err;
+    size_t  out = 0;
+
+    if (!model || !model_size) return 0xFF;
+    memset(inquiry, 0, sizeof(inquiry));
+    err = ahci_satapi_send_packet(drive, cdb, (uint16_t)sizeof(inquiry), SATAPI_PROT_PIO, inquiry, &len);
+    if (err) return err;
+
+    /* Vendor is 8 bytes at offset 8, product 16 at offset 16, both space padded. */
+    for (uint8_t field = 0; field < 2; field++) {
+        const uint8_t *src  = inquiry + (field ? 16 : 8);
+        size_t         size = field ? 16 : 8;
+
+        while (size && src[size - 1] == ' ') size--;
+        if (!size) continue;
+        if (out && out + 1 < model_size) model[out++] = ' ';
+        for (size_t k = 0; k < size && out + 1 < model_size; k++) model[out++] = (char)src[k];
+    }
+    model[out] = 0;
     return 0;
 }
 
@@ -266,3 +285,5 @@ int ahci_satapi_cmd_type(uint8_t opcode)
             return ATAPI_MISC;
     }
 }
+
+#endif

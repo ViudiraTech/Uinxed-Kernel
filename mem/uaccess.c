@@ -8,16 +8,14 @@
  *
  */
 
+#include <arch/common.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/uaccess.h>
 
 /*
  * The active process page table already maps both the kernel and userspace.
@@ -73,9 +71,9 @@ static int copy_user_direct_task(task_t *task, void *dst, const void *src, size_
     uint8_t   old_nofault       = task->uaccess_fault_nofault;
     task->uaccess_fault_nofault = nofault != 0;
     task->uaccess_fault_resume  = (uintptr_t)__uaccess_copy_fault;
-    __asm__ volatile("" ::: "memory");
+    compiler_barrier();
     int ret = __uaccess_copy_direct(dst, src, size);
-    __asm__ volatile("" ::: "memory");
+    compiler_barrier();
     task->uaccess_fault_resume  = old_resume;
     task->uaccess_fault_nofault = old_nofault;
     return ret;
@@ -97,9 +95,9 @@ static int clear_user_direct(void *dst, size_t size)
     uint8_t   old_nofault       = task->uaccess_fault_nofault;
     task->uaccess_fault_nofault = 0;
     task->uaccess_fault_resume  = (uintptr_t)__uaccess_copy_fault;
-    __asm__ volatile("" ::: "memory");
+    compiler_barrier();
     int ret = __uaccess_clear_direct(dst, size);
-    __asm__ volatile("" ::: "memory");
+    compiler_barrier();
     task->uaccess_fault_resume  = old_resume;
     task->uaccess_fault_nofault = old_nofault;
     return ret;
@@ -171,21 +169,19 @@ static int user_translate(process_t *proc, uintptr_t uaddr, int write, void **ka
 
 /*
  * A private writable mapping is deliberately made read-only when an address
- * space is cloned.  Kernel writes through copy_to_user() must take the same
- * COW fault path as a user-mode store; writing through the direct-map alias
- * without resolving COW would corrupt the parent's page, while rejecting the
- * mapping would spuriously return EFAULT for perfectly valid user memory.
+ * space is cloned.  Kernel writes through copy_to_user() must take the same COW
+ * fault path as a user-mode store; writing through the direct-map alias without
+ * resolving COW would corrupt the parent's page.
  *
- * Resolve only after the ordinary writable walk fails.  This preserves the
- * fast path for writable mappings and ensures that genuinely read-only or
- * unmapped memory remains inaccessible.  The second walk is required because
- * page_resolve_cow_fault() may replace the physical leaf, and also closes the
- * race with another thread resolving the same mapping concurrently.
+ * Resolve only after the ordinary writable walk fails, which preserves the fast
+ * path for writable mappings while genuinely read-only or unmapped memory still
+ * fails.  The second walk is required because page_resolve_cow_fault() may
+ * replace the physical leaf, and also closes the race with another thread
+ * resolving the same mapping concurrently.
  */
 static int user_translate_writable(process_t *proc, uintptr_t uaddr, void **kaddr, size_t *page_left)
 {
     if (user_translate(proc, uaddr, 1, kaddr, page_left)) return 1;
-
     if (!proc || !proc->user_page_dir) return 0;
     if (page_resolve_cow_fault(proc, uaddr) < 0) return 0;
 
@@ -256,15 +252,15 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
             /* Fault handling may allocate and shoot down TLBs. */
             if (to_user && page_resolve_cow_fault(proc, user) == 0) continue;
             if (process_demand_fault(proc, user, to_user, 0) == 0) continue;
-            plogk("uaccess: Copy %s fault at %p (size %zu, remaining %zu)\n", to_user ? "to_user" : "from_user", (void *)user, size, remaining);
             return -EFAULT;
         }
 
         size_t step = remaining < page_left ? remaining : page_left;
-        if (to_user)
+        if (to_user) {
             memcpy(kaddr, (const void *)kern, step);
-        else
+        } else {
             memcpy((void *)kern, kaddr, step);
+        }
         spin_unlock(&proc->user_page_dir->lock);
         user += step;
         kern += step;
@@ -310,10 +306,11 @@ static int copy_user_bytes_process_nofault(process_t *proc, void *dst, const voi
         }
 
         size_t step = remaining < page_left ? remaining : page_left;
-        if (to_user)
+        if (to_user) {
             memcpy(kaddr, (const void *)kern, step);
-        else
+        } else {
             memcpy((void *)kern, kaddr, step);
+        }
         spin_unlock(&proc->user_page_dir->lock);
 
         user += step;

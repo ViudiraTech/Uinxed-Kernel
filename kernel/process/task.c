@@ -10,14 +10,10 @@
 
 #include <arch/fpu.h>
 #include <cgroup/cgroup.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <mem/heap.h>
 #include <process/namespace.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <security/seccomp.h>
 
 #define PID_HASH_BITS 8
@@ -65,10 +61,7 @@ static pid_entry_t *pid_hash_remove(task_t *task)
     return NULL;
 }
 
-/*
- * Find a task by PID.  Returns a raw pointer with no reference; the caller
- * must not use it after any point where the task could be reaped.
- */
+/* Find a task by PID.  Returns a raw pointer with no reference; the caller must not use it after any point where the task could be reaped. */
 task_t *pid_find_task(uint64_t pid)
 {
     uint32_t idx  = pid_hash_index(pid);
@@ -117,7 +110,7 @@ static bool pid_hash_contains_locked(uint64_t pid)
 }
 
 /*
- * Allocate a PID in [1, TASK_PID_MAX), reusing freed PIDs once the monotonically
+ * Allocate a PID in [1, CONFIG_PROCESS_TABLE_SIZE), reusing freed PIDs once the monotonically
  * increasing next_pid wraps.  A task's PID is removed from the hash in task_free(),
  * so the hash is the authoritative "in use" set.  PIDs 1 (init) and 2 (kthreadd)
  * are naturally reserved because their tasks never leave the hash.
@@ -125,15 +118,15 @@ static bool pid_hash_contains_locked(uint64_t pid)
 static uint64_t alloc_pid_locked(void)
 {
     uint64_t start = scheduler.next_pid;
-    if (start < 1 || start >= TASK_PID_MAX) start = 1;
+    if (start < 1 || start >= CONFIG_PROCESS_TABLE_SIZE) start = 1;
 
-    for (uint64_t i = 0; i < TASK_PID_MAX; i++) {
+    for (uint64_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
         uint64_t candidate = start + i;
-        if (candidate >= TASK_PID_MAX) candidate -= (TASK_PID_MAX - 1);
+        if (candidate >= CONFIG_PROCESS_TABLE_SIZE) candidate -= (CONFIG_PROCESS_TABLE_SIZE - 1);
 
         if (!pid_hash_contains_locked(candidate)) {
             scheduler.next_pid = candidate + 1;
-            if (scheduler.next_pid >= TASK_PID_MAX) scheduler.next_pid = 1;
+            if (scheduler.next_pid >= CONFIG_PROCESS_TABLE_SIZE) scheduler.next_pid = 1;
             return candidate;
         }
     }
@@ -163,7 +156,8 @@ task_t *task_alloc_status(const char *name, int *error)
     task_t *task   = calloc(1, sizeof(task_t));
     if (error) *error = EOK;
     if (!task) {
-        plogk("task: %s: task control block allocation failed.\n", name ? name : "unnamed");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("task: %s: task control block allocation failed.\n", name ? name : "unnamed");
         if (error) *error = -ENOMEM;
         return NULL;
     }
@@ -171,14 +165,16 @@ task_t *task_alloc_status(const char *name, int *error)
 
     pid_entry_t *pid_entry = malloc(sizeof(pid_entry_t));
     if (!pid_entry) {
-        plogk("task: %s: PID table entry allocation failed.\n", name ? name : "unnamed");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("task: %s: PID table entry allocation failed.\n", name ? name : "unnamed");
         free(task);
         if (error) *error = -ENOMEM;
         return NULL;
     }
 
     if (fpu_task_init(task)) {
-        plogk("task: %s: FPU state allocation failed.\n", name ? name : "unnamed");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("task: %s: FPU state allocation failed.\n", name ? name : "unnamed");
         free(pid_entry);
         free(task);
         if (error) *error = -ENOMEM;
@@ -186,7 +182,7 @@ task_t *task_alloc_status(const char *name, int *error)
     }
 
     task->page_directory    = get_kernel_pagedir();
-    task->time_slice        = TASK_DEFAULT_SLICE;
+    task->time_slice        = CONFIG_TASK_DEFAULT_SLICE;
     task->cpu_id            = 0;
     task->rq_cpu            = UINT32_MAX;
     task->last_cpu          = UINT32_MAX;
@@ -224,7 +220,8 @@ task_t *task_alloc_status(const char *name, int *error)
     if (cgroup_root()) parent = current_task();
     int status = cgroup_task_fork(task, parent);
     if (status != EOK) {
-        plogk("task: %s: cgroup fork failed (%d)\n", name ? name : "unnamed", status);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("task: %s: cgroup fork failed (%d)\n", name ? name : "unnamed", status);
         free(pid_entry);
         fpu_task_destroy(task);
         free(task);
@@ -241,7 +238,8 @@ task_t *task_alloc_status(const char *name, int *error)
     task->pid = alloc_pid_locked();
     if (!task->pid) {
         spin_unlock(&pid_hash_lock);
-        plogk("task: %s: PID space exhausted.\n", name ? name : "unnamed");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("task: %s: PID space exhausted.\n", name ? name : "unnamed");
         cgroup_task_exit(task);
         if (task->nsproxy) nsproxy_put(task->nsproxy);
         free(pid_entry);
@@ -269,10 +267,7 @@ void task_ref(task_t *task)
     if (task) (void)__atomic_add_fetch(&task->refcount, 1, __ATOMIC_ACQ_REL);
 }
 
-/*
- * Drop a reference on a task, freeing the task_t and its kernel stack when
- * the count reaches zero.  The final putter must be the only user of the task.
- */
+/* Drop a reference on a task, freeing the task_t and its kernel stack when the count reaches zero.  The final putter must be the only user of the task. */
 void task_put(task_t *task)
 {
     if (!task) return;

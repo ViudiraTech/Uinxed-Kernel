@@ -9,19 +9,18 @@
 #include <fs/core/icache.h>
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
-#include <libs/std/stdbool.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <sync/spin_lock.h>
 
-#define VFS_ICACHE_BUCKETS    512U
-#define VFS_ICACHE_MAX_UNUSED 4096U
+#define ICACHE_INC(field) ((void)__atomic_add_fetch(&icache_stats.field, 1, __ATOMIC_RELAXED))
+#define ICACHE_DEC(field) ((void)__atomic_sub_fetch(&icache_stats.field, 1, __ATOMIC_RELAXED))
+#define ICACHE_TICK()     __atomic_add_fetch(&icache_clock, 1, __ATOMIC_RELAXED)
 
 typedef struct vfs_inode_key {
         uintptr_t mount;
         uint64_t  mount_id;
         uint64_t  ino;
-        uint64_t  dev;
+        dev_t     dev;
         uint16_t  fsid;
 } vfs_inode_key_t;
 
@@ -36,8 +35,8 @@ struct vfs_inode {
         uint64_t        size;
         uint64_t        realsize;
         uint64_t        blksz;
-        uint64_t        dev;
-        uint64_t        rdev;
+        dev_t           dev;
+        dev_t           rdev;
         uint32_t        owner;
         uint32_t        group;
         uint32_t        mode;
@@ -53,14 +52,11 @@ typedef struct vfs_icache_bucket {
         vfs_inode_t *head;
 } vfs_icache_bucket_t;
 
-static vfs_icache_bucket_t icache_buckets[VFS_ICACHE_BUCKETS];
+static vfs_icache_bucket_t icache_buckets[CONFIG_VFS_ICACHE_BUCKETS];
 static vfs_icache_stats_t  icache_stats;
 static uint64_t            icache_clock;
 
-#define ICACHE_INC(field) ((void)__atomic_add_fetch(&icache_stats.field, 1, __ATOMIC_RELAXED))
-#define ICACHE_DEC(field) ((void)__atomic_sub_fetch(&icache_stats.field, 1, __ATOMIC_RELAXED))
-#define ICACHE_TICK()     __atomic_add_fetch(&icache_clock, 1, __ATOMIC_RELAXED)
-
+/* Inode-cache key. */
 static vfs_inode_key_t icache_key(vfs_node_t node)
 {
     vfs_node_t      root = node->root ? node->root : node;
@@ -74,6 +70,7 @@ static vfs_inode_key_t icache_key(vfs_node_t node)
     return key;
 }
 
+/* Inode-cache hash. */
 static uint64_t icache_hash(const vfs_inode_key_t *key)
 {
     uint64_t hash = key->ino * 11400714819323198485ULL;
@@ -84,16 +81,19 @@ static uint64_t icache_hash(const vfs_inode_key_t *key)
     return hash;
 }
 
+/* Inode-cache key equal. */
 static bool icache_key_equal(const vfs_inode_key_t *left, const vfs_inode_key_t *right)
 {
     return left->mount == right->mount && left->mount_id == right->mount_id && left->ino == right->ino && left->dev == right->dev && left->fsid == right->fsid;
 }
 
+/* Inode-cache bucket. */
 static vfs_icache_bucket_t *icache_bucket(const vfs_inode_key_t *key)
 {
-    return &icache_buckets[icache_hash(key) & (VFS_ICACHE_BUCKETS - 1)];
+    return &icache_buckets[icache_hash(key) & (CONFIG_VFS_ICACHE_BUCKETS - 1)];
 }
 
+/* Inode-cache snapshot. */
 static void icache_snapshot(vfs_inode_t *inode, vfs_node_t node)
 {
     inode->type        = node->type & ~file_delete;
@@ -112,6 +112,7 @@ static void icache_snapshot(vfs_inode_t *inode, vfs_node_t node)
     inode->writetime   = node->writetime;
 }
 
+/* Inode-cache apply. */
 static void icache_apply(vfs_node_t node, const vfs_inode_t *inode)
 {
     uint16_t dentry_bits = node->type & file_delete;
@@ -131,6 +132,7 @@ static void icache_apply(vfs_node_t node, const vfs_inode_t *inode)
     node->writetime      = inode->writetime;
 }
 
+/* VFS operation: icache init. */
 void vfs_icache_init(void)
 {
     memset(icache_buckets, 0, sizeof(icache_buckets));
@@ -138,6 +140,7 @@ void vfs_icache_init(void)
     icache_clock = 0;
 }
 
+/* Inode-cache bind. */
 static int icache_bind(vfs_node_t node, bool authoritative)
 {
     if (!node || !node->inode) return -EINVAL;
@@ -201,23 +204,27 @@ static int icache_bind(vfs_node_t node, bool authoritative)
     ICACHE_INC(aliases);
     if (authoritative || created)
         for (vfs_node_t alias = inode->aliases; alias; alias = alias->inode_alias_next) icache_apply(alias, inode);
-    else
+    else {
         icache_apply(node, inode);
+    }
     spin_unlock(&bucket->lock);
     free(fresh);
     return EOK;
 }
 
+/* VFS operation: icache bind. */
 int vfs_icache_bind(vfs_node_t node)
 {
     return icache_bind(node, false);
 }
 
+/* VFS operation: icache refresh. */
 int vfs_icache_refresh(vfs_node_t node)
 {
     return icache_bind(node, true);
 }
 
+/* VFS operation: icache unbind. */
 void vfs_icache_unbind(vfs_node_t node)
 {
     if (!node || !node->cache_inode) return;
@@ -225,10 +232,11 @@ void vfs_icache_unbind(vfs_node_t node)
     vfs_icache_bucket_t *bucket = icache_bucket(&inode->key);
     spin_lock(&bucket->lock);
     if (node->cache_inode == inode) {
-        if (node->inode_alias_prev)
+        if (node->inode_alias_prev) {
             node->inode_alias_prev->inode_alias_next = node->inode_alias_next;
-        else if (inode->aliases == node)
+        } else if (inode->aliases == node) {
             inode->aliases = node->inode_alias_next;
+        }
         if (node->inode_alias_next) node->inode_alias_next->inode_alias_prev = node->inode_alias_prev;
         node->inode_alias_prev = node->inode_alias_next = NULL;
         node->cache_inode                               = NULL;
@@ -247,9 +255,10 @@ void vfs_icache_unbind(vfs_node_t node)
 
     uint64_t entries = __atomic_load_n(&icache_stats.entries, __ATOMIC_RELAXED);
     uint64_t active  = __atomic_load_n(&icache_stats.active_entries, __ATOMIC_RELAXED);
-    if (entries > active + VFS_ICACHE_MAX_UNUSED) (void)vfs_icache_reclaim(64);
+    if (entries > active + CONFIG_VFS_ICACHE_MAX_UNUSED) (void)vfs_icache_reclaim(64);
 }
 
+/* VFS operation: icache publish. */
 void vfs_icache_publish(vfs_node_t node)
 {
     if (!node || !node->cache_inode) return;
@@ -264,12 +273,13 @@ void vfs_icache_publish(vfs_node_t node)
     spin_unlock(&bucket->lock);
 }
 
+/* VFS operation: icache invalidate mount. */
 void vfs_icache_invalidate_mount(vfs_node_t mount_root)
 {
     if (!mount_root) return;
     uintptr_t mount    = (uintptr_t)mount_root;
     uint64_t  mount_id = mount_root->mount_id;
-    for (size_t index = 0; index < VFS_ICACHE_BUCKETS; index++) {
+    for (size_t index = 0; index < CONFIG_VFS_ICACHE_BUCKETS; index++) {
         vfs_icache_bucket_t *bucket = &icache_buckets[index];
         spin_lock(&bucket->lock);
         for (vfs_inode_t *inode = bucket->head; inode; inode = inode->hash_next) {
@@ -282,11 +292,12 @@ void vfs_icache_invalidate_mount(vfs_node_t mount_root)
     }
 }
 
+/* VFS operation: icache reclaim. */
 size_t vfs_icache_reclaim(size_t target)
 {
     size_t reclaimed = 0;
     if (!target) return 0;
-    for (size_t index = 0; index < VFS_ICACHE_BUCKETS && reclaimed < target; index++) {
+    for (size_t index = 0; index < CONFIG_VFS_ICACHE_BUCKETS && reclaimed < target; index++) {
         vfs_icache_bucket_t *bucket = &icache_buckets[index];
         vfs_inode_t         *dead   = NULL;
         spin_lock(&bucket->lock);
@@ -314,6 +325,7 @@ size_t vfs_icache_reclaim(size_t target)
     return reclaimed;
 }
 
+/* VFS operation: icache get stats. */
 void vfs_icache_get_stats(vfs_icache_stats_t *stats)
 {
     if (!stats) return;

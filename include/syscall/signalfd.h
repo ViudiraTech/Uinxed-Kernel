@@ -12,16 +12,12 @@
 #define INCLUDE_SIGNALFD_H_
 
 #include <fs/core/vfs.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <process/task.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 
 #define SFD_CLOEXEC  (1 << 19)
 #define SFD_NONBLOCK (1 << 11)
 
-/* Linux signalfd_siginfo structure (128 bytes) */
+/* signalfd_siginfo structure (128 bytes) */
 typedef struct signalfd_siginfo {
         uint32_t ssi_signo;
         int32_t  ssi_errno;
@@ -53,9 +49,6 @@ typedef struct signalfd_ctx {
         spinlock_t   lock;
         wait_queue_t wq;
 } signalfd_ctx_t;
-
-/* Create or update a signalfd */
-int sys_signalfd(int fd, const void *mask, int flags);
 
 /* Create or update a signalfd (with flags) */
 int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags);

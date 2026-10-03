@@ -14,8 +14,9 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <libs/util/crc32c.h>
-#include <mem/alloc.h>
 #include <mem/heap.h>
+
+#if CONFIG_EXTFS
 
 /*
  * Superblock handling
@@ -48,17 +49,21 @@ static uint64_t extfs_block_offset(extfs_sb_info_t *sb, uint32_t block)
 static int extfs_disk_read(extfs_sb_info_t *sb, uint64_t offset, void *buf, size_t size)
 {
     /*
-     * The active-transaction pointer is read and the transaction's buffers
-     * are walked under the log lock, so a concurrent commit cannot free the
-     * transaction out from under us (fs_txn_read_bytes_active returns 0 when
-     * no transaction is active and we fall through to the device).
+     * The active-transaction pointer is read and the transaction's buffers are
+     * walked under the log lock, so a concurrent commit cannot free the
+     * transaction out from under the reader (fs_txn_read_bytes_active returns 0
+     * when no transaction is active and the caller falls through to the device).
      */
     int served = sb->block_size ? fs_txn_read_bytes_active(&sb->transaction_log, &sb->active_transaction, offset, buf, size) : 0;
     if (served > 0) return EOK;
     if (served < 0) return served;
 
     int status = blockdev_read_bytes(&sb->device, offset, buf, size);
-    if (status != EOK) plogk("extfs: Drive %u: block read failed at byte %llu (size %llu): %d\n", sb->device.drive, (unsigned long long)offset, (unsigned long long)size, status);
+    if (status != EOK) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("extfs: Drive %u: block read failed at byte %llu (size %zu): %d\n", sb->device.drive, offset, size, status);
+        fs_txn_log_abort(&sb->transaction_log, status);
+    }
     return status;
 }
 
@@ -167,7 +172,11 @@ static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *bu
     if (served < 0) return served;
 
     int status = blockdev_write_bytes(&sb->device, offset, buf, size);
-    if (status != EOK) plogk("extfs: Drive %u: block write failed at byte %llu (size %llu): %d\n", sb->device.drive, (unsigned long long)offset, (unsigned long long)size, status);
+    if (status != EOK) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("extfs: Drive %u: block write failed at byte %llu (size %zu): %d\n", sb->device.drive, offset, size, status);
+        fs_txn_log_abort(&sb->transaction_log, status);
+    }
     return status;
 }
 
@@ -175,8 +184,8 @@ static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *bu
 int extfs_read_block(extfs_sb_info_t *sb, uint32_t phys_block, void *buf)
 {
     if (!sb || !sb->es || !buf || phys_block >= sb->blocks_count) {
-        if (sb && sb->es) plogk("extfs: Drive %u: read of block %u out of range (count %llu)\n", sb->device.drive, phys_block, (unsigned long long)sb->blocks_count);
-        return -EIO;
+        if (sb && sb->es) plogk("extfs: Drive %u: read of block %u out of range (count %llu)\n", sb->device.drive, phys_block, sb->blocks_count);
+        return -EINVAL;
     }
     int served = fs_txn_read_active(&sb->transaction_log, &sb->active_transaction, phys_block, buf);
     if (served > 0) return EOK;
@@ -189,15 +198,12 @@ int extfs_write_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
 {
     if (!sb || !sb->es || !buf || sb->read_only) return sb && sb->read_only ? -EROFS : -EINVAL;
     if (phys_block >= sb->blocks_count) {
-        plogk("extfs: Drive %u: write to block %u out of range (count %llu)\n", sb->device.drive, phys_block, (unsigned long long)sb->blocks_count);
-        return -EIO;
+        plogk("extfs: Drive %u: write to block %u out of range (count %llu)\n", sb->device.drive, phys_block, sb->blocks_count);
+        return -EINVAL;
     }
     int served = fs_txn_stage_active(&sb->transaction_log, &sb->active_transaction, phys_block, buf, FS_TXN_METADATA);
     if (served > 0) return EOK;
-    if (served < 0) {
-        plogk("extfs: Drive %u: metadata stage of block %u failed (%d)\n", sb->device.drive, phys_block, served);
-        return served;
-    }
+    if (served < 0) return served;
     return extfs_disk_write(sb, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
 
@@ -206,15 +212,12 @@ int extfs_write_data_block(extfs_sb_info_t *sb, uint32_t phys_block, const void 
 {
     if (!sb || !sb->es || !buf || sb->read_only) return sb && sb->read_only ? -EROFS : -EINVAL;
     if (phys_block >= sb->blocks_count) {
-        plogk("extfs: Drive %u: data write to block %u out of range (count %llu)\n", sb->device.drive, phys_block, (unsigned long long)sb->blocks_count);
+        plogk("extfs: Drive %u: data write to block %u out of range (count %llu)\n", sb->device.drive, phys_block, sb->blocks_count);
         return -EIO;
     }
     int served = fs_txn_stage_active(&sb->transaction_log, &sb->active_transaction, phys_block, buf, FS_TXN_ORDERED_DATA);
     if (served > 0) return EOK;
-    if (served < 0) {
-        plogk("extfs: Drive %u: data stage of block %u failed (%d)\n", sb->device.drive, phys_block, served);
-        return served;
-    }
+    if (served < 0) return served;
     return blockdev_write_bytes(&sb->device, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
 
@@ -238,7 +241,7 @@ int extfs_transaction_begin(extfs_sb_info_t *sb, fs_txn_t *transaction, uint32_t
     fs_txn_log_lock(&sb->transaction_log);
     busy = sb->active_transaction != NULL;
     fs_txn_log_unlock(&sb->transaction_log);
-    if (busy) return -EINVAL;
+    if (busy) return -EBUSY;
 
     status = fs_txn_begin(&sb->transaction_log, credits, transaction);
     if (status == EOK) {
@@ -290,11 +293,11 @@ void extfs_transaction_abort(extfs_sb_info_t *sb, fs_txn_t *transaction, int err
     }
     for (uint32_t i = 0; i < sb->gdb_count; i++) {
         uint32_t count     = sb->desc_per_block;
-        uint32_t remaining = sb->groups_count - i * sb->desc_per_block;
+        uint32_t remaining = sb->groups_count - (i * sb->desc_per_block);
         if (remaining < count) count = remaining;
         uint64_t offset = extfs_block_offset(sb, sb->s_first_data_block + 1 + i);
         for (uint32_t j = 0; j < count; j++) {
-            if (blockdev_read_bytes(&sb->device, offset + (uint64_t)j * sb->desc_size, &sb->group_desc[i * sb->desc_per_block + j], sb->desc_size) != EOK) {
+            if (blockdev_read_bytes(&sb->device, offset + ((uint64_t)j * sb->desc_size), &sb->group_desc[(i * sb->desc_per_block) + j], sb->desc_size) != EOK) {
                 sb->read_only = 1;
                 return;
             }
@@ -506,21 +509,16 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
         blockdev_release(&sb->device);
         return -EINVAL;
     }
-
     if (sb->s_first_ino == 0) sb->s_first_ino = EXT2_GOOD_OLD_FIRST_INO;
-
     sb->groups_count = (uint32_t)((sb->blocks_count - sb->s_first_data_block + sb->blocks_per_group - 1) / sb->blocks_per_group);
-
-    sb->desc_size = (sb->es->s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT) ? sb->es->s_desc_size : 32;
+    sb->desc_size    = (sb->es->s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT) ? sb->es->s_desc_size : 32;
     if (sb->desc_size < 32 || sb->desc_size > sizeof(ext2_group_desc_t) || (sb->desc_size & 7)) {
         extfs_free_super(sb);
         return -EINVAL;
     }
     sb->desc_per_block = sb->block_size / sb->desc_size;
-
-    sb->gdb_count = (sb->groups_count + sb->desc_per_block - 1) / sb->desc_per_block;
-
-    sb->group_desc = calloc(sb->groups_count, sizeof(ext2_group_desc_t));
+    sb->gdb_count      = (sb->groups_count + sb->desc_per_block - 1) / sb->desc_per_block;
+    sb->group_desc     = calloc(sb->groups_count, sizeof(ext2_group_desc_t));
     if (!sb->group_desc) {
         free(sb->es);
         blockdev_release(&sb->device);
@@ -531,11 +529,11 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
         uint32_t blk       = sb->s_first_data_block + 1 + i;
         uint64_t off       = extfs_block_offset(sb, blk);
         uint32_t count     = sb->desc_per_block;
-        uint32_t remaining = sb->groups_count - i * sb->desc_per_block;
+        uint32_t remaining = sb->groups_count - (i * sb->desc_per_block);
         if (remaining < count) count = remaining;
 
         for (uint32_t j = 0; j < count; j++) {
-            status = extfs_disk_read(sb, off + (uint64_t)j * sb->desc_size, &sb->group_desc[i * sb->desc_per_block + j], sb->desc_size);
+            status = extfs_disk_read(sb, off + ((uint64_t)j * sb->desc_size), &sb->group_desc[(i * sb->desc_per_block) + j], sb->desc_size);
             if (status != EOK) {
                 extfs_free_super(sb);
                 return -EIO;
@@ -602,3 +600,5 @@ void extfs_free_super(extfs_sb_info_t *sb)
     blockdev_release(&sb->device);
     memset(sb, 0, sizeof(*sb));
 }
+
+#endif

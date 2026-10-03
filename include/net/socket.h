@@ -11,19 +11,17 @@
 #ifndef INCLUDE_SOCKET_H_
 #define INCLUDE_SOCKET_H_
 
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <net/abi/inet.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
+#include <syscall/abi.h>
 
 /* Address families */
 
-#define AF_UNSPEC  0
 #define AF_UNIX    1
 #define AF_LOCAL   1
-#define AF_INET    2
-#define AF_INET6   10
 #define AF_NETLINK 16
 
 /* Socket types */
@@ -40,36 +38,36 @@
 #define SOL_SOCKET  1
 #define SOL_NETLINK 270
 
-#define SO_DEBUG       1
-#define SO_REUSEADDR   2
-#define SO_TYPE        3
-#define SO_ERROR       4
-#define SO_DONTROUTE   5
-#define SO_BROADCAST   6
-#define SO_SNDBUF      7
-#define SO_RCVBUF      8
-#define SO_KEEPALIVE   9
-#define SO_OOBINLINE   10
-#define SO_LINGER      13
-#define SO_PEERCRED    17
-#define SO_RCVLOWAT    18
-#define SO_SNDLOWAT    19
-#define SO_RCVTIMEO    20
-#define SO_SNDTIMEO    21
-#define SO_ACCEPTCONN  30
-#define SO_PASSCRED    16
-#define SO_PEERSEC     31
-#define SO_SNDBUFFORCE 32
-#define SO_RCVBUFFORCE 33
-#define SO_BINDTODEVICE 25
+#define SO_DEBUG         1
+#define SO_REUSEADDR     2
+#define SO_TYPE          3
+#define SO_ERROR         4
+#define SO_DONTROUTE     5
+#define SO_BROADCAST     6
+#define SO_SNDBUF        7
+#define SO_RCVBUF        8
+#define SO_KEEPALIVE     9
+#define SO_OOBINLINE     10
+#define SO_LINGER        13
+#define SO_PEERCRED      17
+#define SO_RCVLOWAT      18
+#define SO_SNDLOWAT      19
+#define SO_RCVTIMEO      20
+#define SO_SNDTIMEO      21
+#define SO_ACCEPTCONN    30
+#define SO_PASSCRED      16
+#define SO_PEERSEC       31
+#define SO_SNDBUFFORCE   32
+#define SO_RCVBUFFORCE   33
+#define SO_BINDTODEVICE  25
 #define SO_ATTACH_FILTER 26
 #define SO_DETACH_FILTER 27
 #define SO_PASSSEC       34
 #define SO_TIMESTAMP     29
 #define SO_TIMESTAMPNS   35
 #define SO_TIMESTAMPING  37
-#define SO_PROTOCOL    38
-#define SO_DOMAIN      39
+#define SO_PROTOCOL      38
+#define SO_DOMAIN        39
 
 /* Message flags */
 
@@ -106,17 +104,20 @@
 
 #define UNIX_PATH_MAX 108
 
+#define CMSG_ALIGN(len)     (((len) + sizeof(size_t) - 1) & (size_t) ~(sizeof(size_t) - 1))
+#define CMSG_LEN(len)       (CMSG_ALIGN(sizeof(cmsghdr_t)) + (size_t)(len))
+#define CMSG_SPACE(len)     (CMSG_ALIGN(sizeof(cmsghdr_t)) + CMSG_ALIGN(len))
+#define CMSG_DATA(cmsg)     ((void *)((uint8_t *)(cmsg) + sizeof(cmsghdr_t)))
+#define CMSG_FIRSTHDR(mhdr) ((mhdr)->msg_controllen >= sizeof(cmsghdr_t) ? (cmsghdr_t *)(mhdr)->msg_control : NULL)
+
 typedef struct sockaddr_un {
         uint16_t sun_family;
         char     sun_path[UNIX_PATH_MAX];
 } sockaddr_un_t;
 
-/* struct msghdr - message header for sendmsg/recvmsg */
+_Static_assert(sizeof(sockaddr_un_t) == 110, "Linux x86_64 sockaddr_un ABI size");
 
-typedef struct iovec {
-        void  *iov_base;
-        size_t iov_len;
-} iovec_t;
+/* struct msghdr - message header for sendmsg/recvmsg */
 
 typedef struct msghdr {
         void         *msg_name;
@@ -128,17 +129,17 @@ typedef struct msghdr {
         int           msg_flags;
 } msghdr_t;
 
+_Static_assert(sizeof(msghdr_t) == 56, "Linux x86_64 msghdr ABI size");
+_Static_assert(offsetof(msghdr_t, msg_iov) == 16, "x86_64 msghdr msg_iov offset");
+
 typedef struct cmsghdr {
         size_t cmsg_len;
         int    cmsg_level;
         int    cmsg_type;
 } cmsghdr_t;
 
-#define CMSG_ALIGN(len)     (((len) + sizeof(size_t) - 1) & (size_t) ~(sizeof(size_t) - 1))
-#define CMSG_LEN(len)       (CMSG_ALIGN(sizeof(cmsghdr_t)) + (size_t)(len))
-#define CMSG_SPACE(len)     (CMSG_ALIGN(sizeof(cmsghdr_t)) + CMSG_ALIGN(len))
-#define CMSG_DATA(cmsg)     ((void *)((uint8_t *)(cmsg) + sizeof(cmsghdr_t)))
-#define CMSG_FIRSTHDR(mhdr) ((mhdr)->msg_controllen >= sizeof(cmsghdr_t) ? (cmsghdr_t *)(mhdr)->msg_control : NULL)
+/* CMSG_ALIGN/CMSG_LEN/CMSG_SPACE/CMSG_DATA are all derived from this size. */
+_Static_assert(sizeof(cmsghdr_t) == 16, "Linux x86_64 cmsghdr ABI size");
 
 /* struct linger */
 
@@ -147,6 +148,8 @@ typedef struct linger {
         int l_linger;
 } linger_t;
 
+_Static_assert(sizeof(linger_t) == 8, "Linux x86_64 linger ABI size");
+
 /* struct ucred - user credentials */
 
 typedef struct ucred {
@@ -154,6 +157,8 @@ typedef struct ucred {
         uint32_t uid;
         uint32_t gid;
 } ucred_t;
+
+_Static_assert(sizeof(ucred_t) == 12, "Linux x86_64 ucred ABI size");
 
 /* Socket state machine */
 
@@ -167,12 +172,6 @@ typedef enum {
 } socket_state_t;
 
 /* Socket internal buffer */
-
-#ifndef SOCK_BUF_SIZE
-#    define SOCK_BUF_SIZE 65536
-#endif
-#define SOCK_BUF_MAX    262144
-#define SOCK_RIGHTS_MAX 64
 
 typedef struct sock_buf {
         uint8_t   *data;
@@ -202,11 +201,8 @@ struct socket {
         sock_buf_t recv_buf;
         sock_buf_t send_buf;
 
-        /*
-         * Open-file descriptions received through AF_UNIX SCM_RIGHTS.
-         * Each queued entry owns one process_file reference.
-         */
-        struct process_file *rights[SOCK_RIGHTS_MAX];
+        /* Open-file descriptions received through AF_UNIX SCM_RIGHTS. Each queued entry owns one process_file reference. */
+        struct process_file *rights[CONFIG_SOCK_RIGHTS_MAX];
         uint16_t             rights_head;
         uint16_t             rights_tail;
         uint16_t             rights_count;
@@ -267,7 +263,7 @@ struct socket {
         wait_queue_t waitq;
 };
 
-/* Socket system call interface */
+#if CONFIG_NET
 
 /* Create a socket and install it as a new file descriptor. */
 int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol);
@@ -320,19 +316,96 @@ void socket_init(void);
 /* Attach a socket to a process fd table */
 int socket_fd_install(socket_t *sk);
 
-/*
- * Pin / release a socket across a table lookup (e.g. netlink unicast
- * delivery to a destination socket that may be closed concurrently).
- */
+/* Pin / release a socket across a table lookup (e.g. netlink unicast delivery to a destination socket that may be closed concurrently). */
 void socket_ref(socket_t *sk);
-int  socket_try_ref(socket_t *sk);
+
+/* Socket try ref. */
+int socket_try_ref(socket_t *sk);
+
+/* Socket unref. */
 void socket_unref(socket_t *sk);
 
 /* Sendmmsg/recvmmsg */
 int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags);
 int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeout);
 
-/* Format the Linux-compatible /proc/net/unix listener/socket table. */
+/* Format the /proc/net/unix listener/socket table. */
 size_t socket_format_unix_table(char *buffer, size_t capacity);
+
+#else
+static inline int64_t sys_socket(uint32_t, uint32_t, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_bind(int, const sockaddr_t *, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_listen(int, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_accept(int, sockaddr_t *, uint32_t *, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_connect(int, const sockaddr_t *, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_sendto(int, const void *, size_t, int, const sockaddr_t *, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_recvfrom(int, void *, size_t, int, sockaddr_t *, uint32_t *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_sendmsg(int, const msghdr_t *, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_recvmsg(int, msghdr_t *, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_shutdown(int, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_socketpair(int, int, int, int *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_getsockname(int, sockaddr_t *, uint32_t *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_getpeername(int, sockaddr_t *, uint32_t *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_setsockopt(int, int, int, const void *, uint32_t)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_getsockopt(int, int, int, void *, uint32_t *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_sendmmsg(int, void *, uint32_t, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_recvmmsg(int, void *, uint32_t, int, void *)
+{
+    return -ENOSYS;
+}
+static inline void   socket_init(void) {}
+static inline size_t socket_format_unix_table(char *, size_t)
+{
+    return 0;
+}
+#endif
 
 #endif // INCLUDE_SOCKET_H_

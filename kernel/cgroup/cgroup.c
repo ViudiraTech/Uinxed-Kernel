@@ -9,18 +9,13 @@
  */
 
 #include <cgroup/cgroup.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/list/circular_list.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_CGROUP
 
 typedef struct cgroup {
         char        *name;
@@ -98,6 +93,7 @@ static int controller_available_locked(cgroup_t *cg, uint64_t flag)
     return cg == &root_cgroup || (cg->parent->subtree_control & flag);
 }
 
+/* cgroup controller available. */
 int cgroup_controller_available(cgroup_t *cg, uint64_t flag)
 {
     int available;
@@ -108,6 +104,7 @@ int cgroup_controller_available(cgroup_t *cg, uint64_t flag)
     return available;
 }
 
+/* cgroup pids available. */
 int cgroup_pids_available(cgroup_t *cg)
 {
     return cgroup_controller_available(cg, CGROUP_CONTROLLER_PIDS);
@@ -143,7 +140,7 @@ static void uncharge_locked(cgroup_t *cgroup)
 static task_t *find_task_locked(cgroup_t *cg, uint64_t pid)
 {
     for (ilist_node_t *node = cg->tasks.next; node != &cg->tasks; node = node->next) {
-        task_t *task = (task_t *)((uint8_t *)node - offsetof(task_t, cgroup_node));
+        task_t *task = container_of(node, task_t, cgroup_node);
         if (task->pid == pid) return task;
     }
     for (clist_t n = cg->children; n; n = n->next) {
@@ -179,22 +176,21 @@ static int attach_task_locked(cgroup_t *target, task_t *task)
 /* Initialize the cgroup unified hierarchy */
 void cgroup_init(void)
 {
-#if CONFIG_CGROUP
     memset(&root_cgroup, 0, sizeof(root_cgroup));
     root_cgroup.name = strdup("");
     if (!root_cgroup.name) {
         plogk("cgroup: root name alloc failed.\n");
         return;
     }
-    root_cgroup.pids_max       = CGROUP_PIDS_MAX;
-    root_cgroup.memory_max     = CGROUP_MEMORY_MAX;
-    root_cgroup.memory_high    = CGROUP_MEMORY_MAX;
-    root_cgroup.memory_swap_max= CGROUP_MEMORY_MAX;
-    root_cgroup.cpu_weight     = 100;
-    root_cgroup.io_weight      = 100;
+    root_cgroup.pids_max        = CGROUP_PIDS_MAX;
+    root_cgroup.memory_max      = CGROUP_MEMORY_MAX;
+    root_cgroup.memory_high     = CGROUP_MEMORY_MAX;
+    root_cgroup.memory_swap_max = CGROUP_MEMORY_MAX;
+    root_cgroup.cpu_weight      = 100;
+    root_cgroup.io_weight       = 100;
     strncpy(root_cgroup.cpuset_cpus, "0-63", sizeof(root_cgroup.cpuset_cpus) - 1);
     strncpy(root_cgroup.cpuset_mems, "0", sizeof(root_cgroup.cpuset_mems) - 1);
-    root_cgroup.refcount       = 1;
+    root_cgroup.refcount = 1;
     ilist_init(&root_cgroup.tasks);
     cgroup_lock.lock = 0;
     cgroup_ready     = 1;
@@ -206,7 +202,6 @@ void cgroup_init(void)
     cgroup_register_controller("cpuset", CGROUP_CONTROLLER_CPUSET);
 
     plogk("cgroup: Unified hierarchy initialized with multi-controller support.\n");
-#endif
 }
 
 /* Register a controller */
@@ -235,10 +230,11 @@ cgroup_t *cgroup_get(cgroup_t *cg)
     if (!cg) return NULL;
     if (cg == &root_cgroup) return cg;
     spin_lock(&cgroup_lock);
-    if (cg->dying)
+    if (cg->dying) {
         cg = NULL;
-    else
+    } else {
         cg->refcount++;
+    }
     spin_unlock(&cgroup_lock);
     return cg;
 }
@@ -249,7 +245,10 @@ void cgroup_put(cgroup_t *cg)
     int release = 0;
     if (!cg || cg == &root_cgroup) return;
     spin_lock(&cgroup_lock);
-    if (cg->refcount && --cg->refcount == 0 && cg->dying) release = 1;
+    if (cg->refcount) {
+        --cg->refcount;
+        if (cg->refcount == 0 && cg->dying) release = 1;
+    }
     spin_unlock(&cgroup_lock);
     if (release) {
         free(cg->name);
@@ -322,7 +321,7 @@ int cgroup_create(cgroup_t *parent, const char *name, cgroup_t **result)
     cg->io_weight       = 100;
     strncpy(cg->cpuset_cpus, parent->cpuset_cpus, sizeof(cg->cpuset_cpus) - 1);
     strncpy(cg->cpuset_mems, parent->cpuset_mems, sizeof(cg->cpuset_mems) - 1);
-    cg->refcount        = 1;
+    cg->refcount = 1;
     ilist_init(&cg->tasks);
 
     spin_lock(&cgroup_lock);
@@ -455,21 +454,17 @@ int cgroup_set_subtree_control(cgroup_t *cg, const char *value, size_t size)
 static void kill_subtree_locked(cgroup_t *cg)
 {
     for (ilist_node_t *n = cg->tasks.next; n != &cg->tasks; n = n->next) {
-        task_t *task = (task_t *)((uint8_t *)n - offsetof(task_t, cgroup_node));
-        if (task->process && task->pid > 1) {
-            signal_send(task->process, SIGKILL, NULL);
-        }
+        task_t *task = container_of(n, task_t, cgroup_node);
+        if (task->process && task->pid > 1) (void)signal_send(task->process, SIGKILL, NULL);
     }
-    for (clist_t n = cg->children; n; n = n->next) {
-        kill_subtree_locked(n->data);
-    }
+    for (clist_t n = cg->children; n; n = n->next) kill_subtree_locked(n->data);
 }
 
 /* Kill all tasks in this cgroup and its descendants */
 int cgroup_kill(cgroup_t *cg, const char *value, size_t size)
 {
-    uint64_t val = 0;
-    int status = parse_u64(value, size, &val);
+    uint64_t val    = 0;
+    int      status = parse_u64(value, size, &val);
     if (status != EOK) return status;
     if (val != 1) return -EINVAL;
 
@@ -482,8 +477,8 @@ int cgroup_kill(cgroup_t *cg, const char *value, size_t size)
 /* Freeze or unfreeze a cgroup subtree */
 int cgroup_set_freeze(cgroup_t *cg, const char *value, size_t size)
 {
-    uint64_t val = 0;
-    int status = parse_u64(value, size, &val);
+    uint64_t val    = 0;
+    int      status = parse_u64(value, size, &val);
     if (status != EOK) return status;
     if (val > 1) return -EINVAL;
 
@@ -534,6 +529,7 @@ int cgroup_set_memory_max(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set the cgroup memory high attribute. */
 int cgroup_set_memory_high(cgroup_t *cg, const char *value, size_t size)
 {
     uint64_t limit;
@@ -552,6 +548,7 @@ int cgroup_set_memory_high(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set the cgroup memory low attribute. */
 int cgroup_set_memory_low(cgroup_t *cg, const char *value, size_t size)
 {
     uint64_t limit;
@@ -566,6 +563,7 @@ int cgroup_set_memory_low(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set the cgroup cpu max attribute. */
 int cgroup_set_cpu_max(cgroup_t *cg, const char *value, size_t size)
 {
     if (!cg || !value || !size || !cgroup_controller_available(cg, CGROUP_CONTROLLER_CPU)) return -EOPNOTSUPP;
@@ -584,6 +582,7 @@ int cgroup_set_cpu_max(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set the cgroup cpu weight attribute. */
 int cgroup_set_cpu_weight(cgroup_t *cg, const char *value, size_t size)
 {
     uint64_t weight;
@@ -598,6 +597,7 @@ int cgroup_set_cpu_weight(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set the cgroup io max attribute. */
 int cgroup_set_io_max(cgroup_t *cg, const char *value, size_t size)
 {
     (void)value;
@@ -606,6 +606,7 @@ int cgroup_set_io_max(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set the cgroup io weight attribute. */
 int cgroup_set_io_weight(cgroup_t *cg, const char *value, size_t size)
 {
     uint64_t weight;
@@ -620,6 +621,7 @@ int cgroup_set_io_weight(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set the cgroup cpuset cpus attribute. */
 int cgroup_set_cpuset_cpus(cgroup_t *cg, const char *value, size_t size)
 {
     if (!cg || !value || !size || !cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
@@ -631,6 +633,7 @@ int cgroup_set_cpuset_cpus(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set the cgroup cpuset mems attribute. */
 int cgroup_set_cpuset_mems(cgroup_t *cg, const char *value, size_t size)
 {
     if (!cg || !value || !size || !cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
@@ -696,8 +699,11 @@ int cgroup_show_controllers(cgroup_t *cg, char *buf, size_t size)
     if (available & CGROUP_CONTROLLER_CPU) at += snprintf(buf + at, size > at ? size - at : 0, "cpu ");
     if (available & CGROUP_CONTROLLER_IO) at += snprintf(buf + at, size > at ? size - at : 0, "io ");
     if (available & CGROUP_CONTROLLER_CPUSET) at += snprintf(buf + at, size > at ? size - at : 0, "cpuset ");
-    if (at > 0 && buf[at - 1] == ' ') buf[at - 1] = '\n';
-    else if (at == 0 && size > 0) buf[0] = '\0';
+    if (at > 0 && buf[at - 1] == ' ') {
+        buf[at - 1] = '\n';
+    } else if (at == 0 && size > 0) {
+        buf[0] = '\0';
+    }
 
     return (int)at;
 }
@@ -713,8 +719,11 @@ int cgroup_show_subtree_control(cgroup_t *cg, char *buf, size_t size)
     if (enabled & CGROUP_CONTROLLER_CPU) at += snprintf(buf + at, size > at ? size - at : 0, "cpu ");
     if (enabled & CGROUP_CONTROLLER_IO) at += snprintf(buf + at, size > at ? size - at : 0, "io ");
     if (enabled & CGROUP_CONTROLLER_CPUSET) at += snprintf(buf + at, size > at ? size - at : 0, "cpuset ");
-    if (at > 0 && buf[at - 1] == ' ') buf[at - 1] = '\n';
-    else if (at == 0 && size > 0) buf[0] = '\0';
+    if (at > 0 && buf[at - 1] == ' ') {
+        buf[at - 1] = '\n';
+    } else if (at == 0 && size > 0) {
+        buf[0] = '\0';
+    }
 
     return (int)at;
 }
@@ -725,9 +734,9 @@ int cgroup_show_procs(cgroup_t *cg, char *buf, size_t size)
     size_t at = 0;
     spin_lock(&cgroup_lock);
     for (ilist_node_t *n = cg->tasks.next; n != &cg->tasks; n = n->next) {
-        task_t *task = (task_t *)((uint8_t *)n - offsetof(task_t, cgroup_node));
+        task_t *task = container_of(n, task_t, cgroup_node);
         if (at >= size) break;
-        int written = snprintf(buf + at, size - at, "%llu\n", task->pid);
+        int written = snprintf(buf + at, size - at, "%llu\n", (task->pid));
         if (written < 0) break;
         if ((size_t)written >= size - at) {
             at = size;
@@ -739,6 +748,7 @@ int cgroup_show_procs(cgroup_t *cg, char *buf, size_t size)
     return (int)(at < size ? at : size);
 }
 
+/* Read the cgroup threads attribute. */
 int cgroup_show_threads(cgroup_t *cg, char *buf, size_t size)
 {
     return cgroup_show_procs(cg, buf, size);
@@ -755,6 +765,7 @@ int cgroup_show_events(cgroup_t *cg, char *buf, size_t size)
     return snprintf(buf, size, "populated %d\nfrozen %d\n", populated, frozen);
 }
 
+/* Read the cgroup stat attribute. */
 int cgroup_show_stat(cgroup_t *cg, char *buf, size_t size)
 {
     uint64_t nr_descendants = 0, nr_dying_descendants = 0;
@@ -764,13 +775,8 @@ int cgroup_show_stat(cgroup_t *cg, char *buf, size_t size)
     return snprintf(buf, size, "nr_descendants %llu\nnr_dying_descendants %llu\n", nr_descendants, nr_dying_descendants);
 }
 
-int cgroup_show_max_descendants(cgroup_t *cg, char *buf, size_t size)
-{
-    (void)cg;
-    return snprintf(buf, size, "max\n");
-}
-
-int cgroup_show_max_depth(cgroup_t *cg, char *buf, size_t size)
+/* Read the cgroup max descendants and max depth attributes. */
+int cgroup_show_max(cgroup_t *cg, char *buf, size_t size)
 {
     (void)cg;
     return snprintf(buf, size, "max\n");
@@ -784,9 +790,10 @@ int cgroup_show_pids_current(cgroup_t *cg, char *buf, size_t size)
     spin_lock(&cgroup_lock);
     current = cg->pids_current;
     spin_unlock(&cgroup_lock);
-    return snprintf(buf, size, "%llu\n", current);
+    return snprintf(buf, size, "%llu\n", (current));
 }
 
+/* Read the cgroup pids max attribute. */
 int cgroup_show_pids_max(cgroup_t *cg, char *buf, size_t size)
 {
     uint64_t limit;
@@ -794,9 +801,10 @@ int cgroup_show_pids_max(cgroup_t *cg, char *buf, size_t size)
     spin_lock(&cgroup_lock);
     limit = cg->pids_max;
     spin_unlock(&cgroup_lock);
-    return limit == CGROUP_PIDS_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", limit);
+    return limit == CGROUP_PIDS_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", (limit));
 }
 
+/* Read the cgroup pids events attribute. */
 int cgroup_show_pids_events(cgroup_t *cg, char *buf, size_t size)
 {
     uint64_t events;
@@ -804,56 +812,56 @@ int cgroup_show_pids_events(cgroup_t *cg, char *buf, size_t size)
     spin_lock(&cgroup_lock);
     events = cg->pids_events_max;
     spin_unlock(&cgroup_lock);
-    return snprintf(buf, size, "max %llu\n", events);
+    return snprintf(buf, size, "max %llu\n", (events));
 }
 
 /* memory controller formatting */
-int cgroup_show_memory_current(cgroup_t *cg, char *buf, size_t size)
+int cgroup_show_memory_zero(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_MEMORY)) return -EOPNOTSUPP;
     return snprintf(buf, size, "0\n");
 }
 
+/* Read the cgroup memory max attribute. */
 int cgroup_show_memory_max(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_MEMORY)) return -EOPNOTSUPP;
-    return cg->memory_max == CGROUP_MEMORY_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", cg->memory_max);
+    return cg->memory_max == CGROUP_MEMORY_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", (cg->memory_max));
 }
 
+/* Read the cgroup memory high attribute. */
 int cgroup_show_memory_high(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_MEMORY)) return -EOPNOTSUPP;
-    return cg->memory_high == CGROUP_MEMORY_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", cg->memory_high);
+    return cg->memory_high == CGROUP_MEMORY_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", (cg->memory_high));
 }
 
+/* Read the cgroup memory low attribute. */
 int cgroup_show_memory_low(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_MEMORY)) return -EOPNOTSUPP;
-    return snprintf(buf, size, "%llu\n", cg->memory_low);
+    return snprintf(buf, size, "%llu\n", (cg->memory_low));
 }
 
+/* Read the cgroup memory stat attribute. */
 int cgroup_show_memory_stat(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_MEMORY)) return -EOPNOTSUPP;
     return snprintf(buf, size, "anon 0\nfile 0\nkernel 0\nslab 0\nsock 0\nshmem 0\nfile_mapped 0\nfile_dirty 0\nfile_writeback 0\n");
 }
 
+/* Read the cgroup memory events attribute. */
 int cgroup_show_memory_events(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_MEMORY)) return -EOPNOTSUPP;
     return snprintf(buf, size, "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n");
 }
 
-int cgroup_show_memory_swap_current(cgroup_t *cg, char *buf, size_t size)
-{
-    if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_MEMORY)) return -EOPNOTSUPP;
-    return snprintf(buf, size, "0\n");
-}
-
+/* Read the cgroup memory swap max attribute. */
 int cgroup_show_memory_swap_max(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_MEMORY)) return -EOPNOTSUPP;
-    return cg->memory_swap_max == CGROUP_MEMORY_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", cg->memory_swap_max);
+    return cg->memory_swap_max == CGROUP_MEMORY_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", (cg->memory_swap_max));
 }
 
 /* cpu controller formatting */
@@ -861,15 +869,17 @@ int cgroup_show_cpu_max(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_CPU)) return -EOPNOTSUPP;
     if (cg->cpu_quota == CGROUP_PIDS_MAX) return snprintf(buf, size, "max %llu\n", cg->cpu_period ? cg->cpu_period : 100000ULL);
-    return snprintf(buf, size, "%llu %llu\n", cg->cpu_quota, cg->cpu_period ? cg->cpu_period : 100000ULL);
+    return snprintf(buf, size, "%llu %llu\n", (cg->cpu_quota), cg->cpu_period ? cg->cpu_period : 100000ULL);
 }
 
+/* Read the cgroup cpu weight attribute. */
 int cgroup_show_cpu_weight(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_CPU)) return -EOPNOTSUPP;
     return snprintf(buf, size, "%llu\n", cg->cpu_weight ? cg->cpu_weight : 100ULL);
 }
 
+/* Read the cgroup cpu stat attribute. */
 int cgroup_show_cpu_stat(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_CPU)) return -EOPNOTSUPP;
@@ -877,22 +887,17 @@ int cgroup_show_cpu_stat(cgroup_t *cg, char *buf, size_t size)
 }
 
 /* io controller formatting */
-int cgroup_show_io_max(cgroup_t *cg, char *buf, size_t size)
+int cgroup_show_io_empty(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_IO)) return -EOPNOTSUPP;
-    return snprintf(buf, size, "");
+    return snprintf(buf, size, "%s", "");
 }
 
+/* Read the cgroup io weight attribute. */
 int cgroup_show_io_weight(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_IO)) return -EOPNOTSUPP;
     return snprintf(buf, size, "default %llu\n", cg->io_weight ? cg->io_weight : 100ULL);
-}
-
-int cgroup_show_io_stat(cgroup_t *cg, char *buf, size_t size)
-{
-    if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_IO)) return -EOPNOTSUPP;
-    return snprintf(buf, size, "");
 }
 
 /* cpuset controller formatting */
@@ -902,6 +907,7 @@ int cgroup_show_cpuset_cpus(cgroup_t *cg, char *buf, size_t size)
     return snprintf(buf, size, "%s\n", cg->cpuset_cpus[0] ? cg->cpuset_cpus : "0-63");
 }
 
+/* Read the cgroup cpuset mems attribute. */
 int cgroup_show_cpuset_mems(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
@@ -956,11 +962,13 @@ int cgroup_format_proc_cgroups(char *buf, size_t size)
 
     size_t at = 0;
     at += snprintf(buf + at, size > at ? size - at : 0, "#subsys_name\thierarchy\tnum_cgroups\tenabled\n");
-    if (controllers & CGROUP_CONTROLLER_PIDS) at += snprintf(buf + at, size > at ? size - at : 0, "pids\t0\t%llu\t1\n", count);
-    if (controllers & CGROUP_CONTROLLER_MEMORY) at += snprintf(buf + at, size > at ? size - at : 0, "memory\t0\t%llu\t1\n", count);
-    if (controllers & CGROUP_CONTROLLER_CPU) at += snprintf(buf + at, size > at ? size - at : 0, "cpu\t0\t%llu\t1\n", count);
-    if (controllers & CGROUP_CONTROLLER_IO) at += snprintf(buf + at, size > at ? size - at : 0, "io\t0\t%llu\t1\n", count);
-    if (controllers & CGROUP_CONTROLLER_CPUSET) at += snprintf(buf + at, size > at ? size - at : 0, "cpuset\t0\t%llu\t1\n", count);
+    if (controllers & CGROUP_CONTROLLER_PIDS) at += snprintf(buf + at, size > at ? size - at : 0, "pids\t0\t%llu\t1\n", (count));
+    if (controllers & CGROUP_CONTROLLER_MEMORY) at += snprintf(buf + at, size > at ? size - at : 0, "memory\t0\t%llu\t1\n", (count));
+    if (controllers & CGROUP_CONTROLLER_CPU) at += snprintf(buf + at, size > at ? size - at : 0, "cpu\t0\t%llu\t1\n", (count));
+    if (controllers & CGROUP_CONTROLLER_IO) at += snprintf(buf + at, size > at ? size - at : 0, "io\t0\t%llu\t1\n", (count));
+    if (controllers & CGROUP_CONTROLLER_CPUSET) at += snprintf(buf + at, size > at ? size - at : 0, "cpuset\t0\t%llu\t1\n", (count));
 
     return (int)at;
 }
+
+#endif

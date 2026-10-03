@@ -13,10 +13,11 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <libs/util/crc32c.h>
-#include <mem/alloc.h>
 #include <mem/heap.h>
 
-#define EXT4_FT_DIR_CSUM 0xDEU
+#if CONFIG_EXTFS
+
+#    define EXT4_FT_DIR_CSUM 0xDEU
 
 /*
  * Overview
@@ -25,15 +26,14 @@
  * linear- or htree-style record layout.
  */
 
-typedef struct ext4_dir_entry_tail {
-        uint32_t reserved_zero1;
-        uint16_t rec_len;
-        uint8_t  reserved_zero2;
-        uint8_t  reserved_ft;
-        uint32_t checksum;
-} __attribute__((packed)) ext4_dir_entry_tail_t;
+typedef struct extfs_dir_item {
+        uint32_t inode;
+        uint8_t  name_len;
+        uint8_t  file_type;
+        char     name[EXT2_NAME_LEN];
+} extfs_dir_item_t;
 
-static int      extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset);
+/* extfs dir rec len. */
 static uint32_t extfs_dir_rec_len(uint32_t name_len);
 
 /* Derive the per-directory checksum seed from its inode. */
@@ -72,12 +72,12 @@ static int extfs_dx_checksum_verify(extfs_handle_t *dir_h, uint32_t logical, con
     memcpy(&limit, block + count_offset, 2);
     memcpy(&count, block + count_offset + 2, 2);
     if (!count || count > limit || count_offset + (uint32_t)limit * 8 + 8 > dir_h->sb->block_size) return 0;
-    const uint8_t *tail = block + count_offset + (size_t)limit * 8;
+    const uint8_t *tail = block + count_offset + ((size_t)limit * 8);
     uint32_t       reserved, stored;
     memcpy(&reserved, tail, 4);
     memcpy(&stored, tail + 4, 4);
     if (reserved) return 0;
-    uint32_t checksum = crc32c_update(extfs_dir_checksum_seed(dir_h), block, count_offset + (uint32_t)count * 8);
+    uint32_t checksum = crc32c_update(extfs_dir_checksum_seed(dir_h), block, count_offset + ((uint32_t)count * 8));
     checksum          = crc32c_update(checksum, tail, 4);
     uint32_t zero     = 0;
     checksum          = crc32c_update(checksum, &zero, 4);
@@ -137,13 +137,6 @@ static int extfs_dir_write_leaf(extfs_handle_t *dir_h, uint32_t physical, void *
     return extfs_write_block(dir_h->sb, physical, block);
 }
 
-typedef struct extfs_dir_item {
-        uint32_t inode;
-        uint8_t  name_len;
-        uint8_t  file_type;
-        char     name[EXT2_NAME_LEN];
-} extfs_dir_item_t;
-
 /* Append a directory entry to the item vector, growing it as needed. */
 static int extfs_dir_item_push(extfs_dir_item_t **items, uint32_t *count, uint32_t *capacity, const ext2_dir_entry_t *entry)
 {
@@ -162,7 +155,7 @@ static int extfs_dir_item_push(extfs_dir_item_t **items, uint32_t *count, uint32
     return EOK;
 }
 
-/* Convert an HTree directory to Linux-compatible linear blocks before mutation. */
+/* Convert an HTree directory to linear blocks before mutation. */
 static int extfs_dir_deindex(extfs_handle_t *dir_h, ext2_inode_t *raw)
 {
     if (!(raw->i_flags & EXT4_INDEX_FL)) return EOK;
@@ -175,17 +168,15 @@ static int extfs_dir_deindex(extfs_handle_t *dir_h, ext2_inode_t *raw)
 
     for (uint32_t logical = 0; logical < blocks && status == EOK; logical++) {
         uint32_t physical = extfs_map_block(dir_h, logical, 0);
-        if (!physical || (status = extfs_read_block(sb, physical, buffer)) != EOK // NOLINT(bugprone-assignment-in-if-condition)
-            || !extfs_dir_block_verify(dir_h, logical, buffer)) {
+        if (!physical || (status = extfs_read_block(sb, physical, buffer)) != EOK || !extfs_dir_block_verify(dir_h, logical, buffer)) {
             if (status == EOK) status = -EIO;
             break;
         }
         if (logical == 0) {
             ext2_dir_entry_t *dot    = (ext2_dir_entry_t *)buffer;
             ext2_dir_entry_t *dotdot = (ext2_dir_entry_t *)(buffer + dot->rec_len);
-            if (!extfs_dirent_valid(sb, dot, 0) || !extfs_dirent_valid(sb, dotdot, dot->rec_len)
-                || (status = extfs_dir_item_push(&items, &count, &capacity, dot)) != EOK     // NOLINT(bugprone-assignment-in-if-condition)
-                || (status = extfs_dir_item_push(&items, &count, &capacity, dotdot)) != EOK) // NOLINT(bugprone-assignment-in-if-condition)
+            if (!extfs_dirent_valid(sb, dot, 0) || !extfs_dirent_valid(sb, dotdot, dot->rec_len) || (status = extfs_dir_item_push(&items, &count, &capacity, dot)) != EOK
+                || (status = extfs_dir_item_push(&items, &count, &capacity, dotdot)) != EOK)
                 break;
             continue;
         }
@@ -252,7 +243,7 @@ static uint32_t extfs_dir_rec_len(uint32_t name_len)
 }
 
 /* Validate a directory entry's length and inode reference. */
-static int extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset)
+int extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset)
 {
     uint32_t remaining = sb->block_size - offset;
     if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) {
@@ -295,7 +286,7 @@ int extfs_dir_lookup(extfs_handle_t *dir_h, const char *name, uint32_t *ino)
     uint64_t dir_size = raw.i_size;
     for (block_num = 0; (uint64_t)block_num * sb->block_size < dir_size; block_num++) {
         uint32_t offset = 0;
-        uint32_t valid  = (uint32_t)((dir_size - (uint64_t)block_num * sb->block_size) > sb->block_size ? sb->block_size : dir_size - (uint64_t)block_num * sb->block_size);
+        uint32_t valid  = (uint32_t)((dir_size - (uint64_t)block_num * sb->block_size) > sb->block_size ? sb->block_size : dir_size - ((uint64_t)block_num * sb->block_size));
 
         phys = extfs_map_block(dir_h, block_num, 0);
         if (!phys) continue;
@@ -508,7 +499,6 @@ int extfs_dir_remove_entry(extfs_handle_t *dir_h, const char *name)
     name_len = strlen(name);
     if (!name_len) return -EINVAL;
     if (name_len > EXT2_NAME_LEN) return -ENAMETOOLONG;
-
     if (extfs_read_inode_raw(sb, dir_h->inode_no, &raw) != EOK) return -EIO;
     if ((raw.i_mode & 0xF000) != EXT2_S_IFDIR) return -ENOTDIR;
     int deindex_status = extfs_dir_deindex(dir_h, &raw);
@@ -813,3 +803,5 @@ int extfs_dir_empty(extfs_handle_t *dir_h)
     free(block_buf);
     return 1;
 }
+
+#endif

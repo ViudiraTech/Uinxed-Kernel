@@ -9,18 +9,10 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
-#include <mem/alloc.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_DRM
 
 /* Enum table for the "DPMS" property (names are part of the ABI). */
 static const struct drm_mode_property_enum drm_dpms_enum_list[] = {
@@ -42,10 +34,7 @@ int drm_mode_create_dpms_property(struct drm_device *dev)
 {
     struct drm_property *prop;
 
-    if (!dev) {
-        DRM_ERROR("create_dpms_property with NULL device.\n");
-        return -EINVAL;
-    }
+    if (!dev) return -EINVAL;
     if (dev->mode_config.prop_dpms) return 0;
 
     /* Plain enum property, no ATOMIC/IMMUTABLE bits. */
@@ -62,10 +51,7 @@ int drm_mode_create_dpms_property(struct drm_device *dev)
 /* Attach the standard DPMS property with an initial value of ON (connector construction time). */
 int drm_connector_attach_dpms_property(struct drm_connector *connector)
 {
-    if (!connector || !connector->dev) {
-        DRM_ERROR("attach_dpms_property with invalid connector.\n");
-        return -EINVAL;
-    }
+    if (!connector || !connector->dev) return -EINVAL;
     if (!connector->dev->mode_config.prop_dpms) {
         DRM_ERROR("DPMS property not created yet.\n");
         return -EINVAL;
@@ -82,7 +68,7 @@ int drm_connector_dpms_get(struct drm_connector *connector)
      * While the driving CRTC is in self-refresh the output still scans out a
      * stale frame, so report ON regardless of the stored level. No driver in
      * this kernel enables self-refresh yet (the field is always false), but
-     * the check is kept for Linux-compatible semantics.
+     * the check is kept for compatibility.
      */
     if (connector->state && connector->state->crtc && connector->state->crtc->state && connector->state->crtc->state->self_refresh_active) return DRM_MODE_DPMS_ON;
 
@@ -100,16 +86,13 @@ int drm_connector_dpms_commit(struct drm_connector *connector, int mode)
     bool                     active = false;
     int                      i;
 
-    if (!connector || !connector->dev || !connector->dev->driver) {
-        DRM_ERROR("dpms_commit with invalid args.\n");
-        return -EINVAL;
-    }
+    if (!connector || !connector->dev || !connector->dev->driver) return -EINVAL;
     if (!(connector->dev->driver->driver_features & DRIVER_ATOMIC)) {
         DRM_ERROR("dpms_commit on non-atomic driver.\n");
         return -EOPNOTSUPP;
     }
 
-    /* Atomic drivers fold STANDBY/SUSPEND into OFF, matching Linux. */
+    /* Atomic drivers fold STANDBY/SUSPEND into OFF, for compatibility. */
     if (mode != DRM_MODE_DPMS_ON) mode = DRM_MODE_DPMS_OFF;
     if (connector->dpms == mode) return 0;
 
@@ -149,7 +132,7 @@ int drm_connector_dpms_commit(struct drm_connector *connector, int mode)
 
     /*
      * Deactivate the CRTC unless another connector routed to it stays ON.
-     * add_affected_connectors() already restricted the set to connectors on
+     * drm_atomic_add_affected_connectors() already restricted the set to connectors on
      * @crtc, so the crtc check below is only defensive.
      */
     for (i = 0; i < state->num_connector; i++) {
@@ -181,14 +164,8 @@ int drm_connector_set_dpms(struct drm_connector *connector, int mode)
 {
     struct drm_connector_helper_funcs *funcs;
 
-    if (!connector || !connector->dev) {
-        DRM_ERROR("set_dpms with invalid connector.\n");
-        return -EINVAL;
-    }
-    if (mode != DRM_MODE_DPMS_ON && mode != DRM_MODE_DPMS_STANDBY && mode != DRM_MODE_DPMS_SUSPEND && mode != DRM_MODE_DPMS_OFF) {
-        DRM_ERROR("Connector %u invalid dpms value %d\n", connector->base.id, mode);
-        return -EINVAL;
-    }
+    if (!connector || !connector->dev) return -EINVAL;
+    if (mode != DRM_MODE_DPMS_ON && mode != DRM_MODE_DPMS_STANDBY && mode != DRM_MODE_DPMS_SUSPEND && mode != DRM_MODE_DPMS_OFF) return -EINVAL;
     if (!connector->dev->driver) {
         DRM_ERROR("Connector %u has no driver.\n", connector->base.id);
         return -EINVAL;
@@ -205,3 +182,5 @@ int drm_connector_set_dpms(struct drm_connector *connector, int mode)
     connector->dpms = mode;
     return 0;
 }
+
+#endif

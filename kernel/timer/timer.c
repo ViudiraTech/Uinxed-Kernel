@@ -9,24 +9,18 @@
  */
 
 #include <arch/common.h>
-#include <arch/smp.h>
-#include <drivers/firmware/acpi.h>
+#include <arch/idt.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/tty.h>
-#include <kernel/errno.h>
-#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/math.h>
-#include <libs/std/stdint.h>
 #include <net/core/netdev.h>
 #include <process/kthread.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
 
@@ -39,6 +33,68 @@ static bool         timer_deferred_pending;
 static bool         timer_deferred_registered;
 static uint64_t     timer_deferred_last_tick;
 
+/* Check whether the given clock ID and flags support sleeping */
+bool timer_clock_sleep_supported(uint64_t clockid, uint64_t flags)
+{
+    return (clockid == TIMER_CLOCK_REALTIME || clockid == TIMER_CLOCK_MONOTONIC || clockid == TIMER_CLOCK_BOOTTIME) && (flags == 0 || flags == TIMER_ABSTIME);
+}
+
+/* Convert a timespec to nanoseconds, validating the input range */
+bool timer_timespec_to_ns(const linux_timespec_t *ts, uint64_t *ns)
+{
+    if (!ts || !ns || ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= (int64_t)TIMER_NSEC_PER_SEC) return false;
+    if ((uint64_t)ts->tv_sec > (UINT64_MAX - (uint64_t)ts->tv_nsec) / TIMER_NSEC_PER_SEC) return false;
+
+    *ns = (uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC + (uint64_t)ts->tv_nsec;
+    return true;
+}
+
+/* Convert nanoseconds to timer ticks, rounding up */
+uint64_t timer_ns_to_ticks_ceil(uint64_t ns)
+{
+    return (ns / TIMER_TICK_NS) + (ns % TIMER_TICK_NS != 0);
+}
+
+/* Convert timer ticks to nanoseconds */
+uint64_t timer_ticks_to_ns(uint64_t ticks)
+{
+    return ticks > UINT64_MAX / TIMER_TICK_NS ? UINT64_MAX : ticks * TIMER_TICK_NS;
+}
+
+/* Convert timer ticks to user-space ticks */
+uint64_t timer_ticks_to_user_ticks(uint64_t ticks)
+{
+    uint64_t seconds = ticks / CONFIG_TIMER_HZ;
+    uint64_t rest    = ticks % CONFIG_TIMER_HZ;
+    if (seconds > UINT64_MAX / TIMER_USER_HZ) return UINT64_MAX;
+    return (seconds * TIMER_USER_HZ) + (rest * TIMER_USER_HZ / CONFIG_TIMER_HZ);
+}
+
+/* Convert nanoseconds to a timespec */
+linux_timespec_t timer_ns_to_timespec(uint64_t ns)
+{
+    linux_timespec_t ts = {
+        .tv_sec  = (int64_t)(ns / TIMER_NSEC_PER_SEC),
+        .tv_nsec = (int64_t)(ns % TIMER_NSEC_PER_SEC),
+    };
+    return ts;
+}
+
+/* Compute the sleep duration and tick count for a sleep request */
+bool timer_sleep_duration(const linux_timespec_t *request, uint64_t now_ns, bool absolute, uint64_t *duration_ns, uint64_t *ticks)
+{
+    uint64_t request_ns;
+    if (!duration_ns || !ticks || !timer_timespec_to_ns(request, &request_ns)) return false;
+
+    if (absolute) {
+        *duration_ns = (request_ns > now_ns) ? request_ns - now_ns : 0;
+    } else {
+        *duration_ns = request_ns;
+    }
+    *ticks = timer_ns_to_ticks_ceil(*duration_ns);
+    return true;
+}
+
 /* Run the deferred timer bottom-half: TTY/timerfd flush, interval timers, vblank and network ticks. */
 static void timer_deferred_service(void)
 {
@@ -49,7 +105,7 @@ static void timer_deferred_service(void)
     signal_itimer_real_tick(now);
     drm_vblank_tick();
 
-    uint64_t interval = TIMER_HZ / 100U;
+    uint64_t interval = CONFIG_TIMER_HZ / 100U;
     if (!interval) interval = 1;
     if (now - net_timer_last_tick >= interval) {
         net_timer_last_tick = now;
@@ -120,12 +176,13 @@ uint64_t timer_monotonic_ns(void)
 {
     uint64_t now;
 
-    if (tsc_clocksource_available())
+    if (tsc_clocksource_available()) {
         now = tsc_nano_time();
-    else if (hpet_available())
+    } else if (hpet_available()) {
         now = nano_time();
-    else
+    } else {
         now = timer_ticks_to_ns(sched_ticks());
+    }
 
     uint64_t floor = __atomic_load_n(&timer_monotonic_floor_ns, __ATOMIC_ACQUIRE);
     for (;;) {
@@ -183,10 +240,14 @@ uint32_t timer_realtime_seconds32(void)
     return seconds > UINT32_MAX ? UINT32_MAX : (uint32_t)seconds;
 }
 
-void timer_handle_frame(syscall_frame_t *frame) __attribute__((used, noinline));
+/* Return the realtime clock as a 64-bit seconds value */
+int64_t timer_realtime_seconds(void)
+{
+    return timer_realtime_ns() / (int64_t)TIMER_NSEC_PER_SEC;
+}
 
 /* Timer interrupt body operating on a stable, complete user register frame. */
-void timer_handle_frame(syscall_frame_t *frame)
+__attribute__((used)) void timer_handle_frame(syscall_frame_t *frame)
 {
     disable_intr();
 
@@ -202,7 +263,7 @@ void timer_handle_frame(syscall_frame_t *frame)
     /* Drain any NMI-parked message: a maskable IRQ can never interrupt a spinlock holder, so plogk() is safe here. */
     nmi_log_flush();
     task_t *interrupted = current_task();
-    if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, (frame->cs & 3U) == 3U);
+    if (interrupted && interrupted->process) signal_itimer_cpu_tick(interrupted->process, user_mode(frame));
     send_eoi();
     if (timer_deferred_registered) {
         /*
@@ -211,7 +272,7 @@ void timer_handle_frame(syscall_frame_t *frame)
          * CPU can no longer stall TTY/timerfd/vblank/itimer servicing.
          */
         uint64_t now_ticks     = sched_ticks();
-        uint64_t base_interval = TIMER_HZ / 100U;
+        uint64_t base_interval = CONFIG_TIMER_HZ / 100U;
         if (!base_interval) base_interval = 1;
 
         uint64_t monotonic_ns = timer_monotonic_ns();
@@ -222,8 +283,8 @@ void timer_handle_frame(syscall_frame_t *frame)
     }
 
     /* Keep CPU-local/global maintenance ahead of the possible context switch. */
-    sched_tick((frame->cs & 3U) == 3U);
-    if ((frame->cs & 3U) == 3U) (void)signal_deliver_if_pending(frame);
+    sched_tick(user_mode(frame));
+    if (user_mode(frame)) (void)signal_deliver_if_pending(frame);
 }
 
 /* Assembly trampoline for timer_handle: saves all GPRs so signal delivery sees a complete frame. */
@@ -283,7 +344,7 @@ __asm__(".text\n"
 void nsleep(uint64_t ns)
 {
     uint64_t start_time = timer_monotonic_ns();
-    while (timer_monotonic_ns() - start_time < ns) __asm__ volatile("pause");
+    while (timer_monotonic_ns() - start_time < ns) cpu_relax();
 }
 
 /* Microsecond-based delay function */

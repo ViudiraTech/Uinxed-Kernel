@@ -12,6 +12,10 @@
 #define INCLUDE_MEM_SYSFS_H_
 
 /* Register the "mem" class and its standard device nodes in sysfs. */
+#if CONFIG_SYSFS
 void mem_sysfs_init(void);
+#else
+static inline void mem_sysfs_init(void) {}
+#endif
 
 #endif // INCLUDE_MEM_SYSFS_H_

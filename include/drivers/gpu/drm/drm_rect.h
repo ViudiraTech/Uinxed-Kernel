@@ -14,6 +14,9 @@
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 
+#define DRM_RECT_FMT    "x%d %d %dx%d"
+#define DRM_RECT_ARG(r) (r)->x1, (r)->y1, drm_rect_width(r), drm_rect_height(r)
+
 struct drm_rect {
         int32_t x1;
         int32_t y1;
@@ -21,54 +24,23 @@ struct drm_rect {
         int32_t y2;
 };
 
-#define DRM_RECT_FMT    "x%d %d %dx%d"
-#define DRM_RECT_ARG(r) (r)->x1, (r)->y1, drm_rect_width(r), drm_rect_height(r)
-
 /* Width of the rectangle. */
-static inline int drm_rect_width(const struct drm_rect *r)
-{
-    return r->x2 - r->x1;
-}
+int drm_rect_width(const struct drm_rect *r);
 
 /* Height of the rectangle. */
-static inline int drm_rect_height(const struct drm_rect *r)
-{
-    return r->y2 - r->y1;
-}
+int drm_rect_height(const struct drm_rect *r);
 
 /* Initialize a rectangle at (x, y) with the given size. */
-static inline void drm_rect_init(struct drm_rect *r, int x, int y, int w, int h)
-{
-    r->x1 = x;
-    r->y1 = y;
-    r->x2 = x + w;
-    r->y2 = y + h;
-}
+void drm_rect_init(struct drm_rect *r, int x, int y, int w, int h);
 
 /* Grow the rectangle by (dw, dh). */
-static inline void drm_rect_adjust_size(struct drm_rect *r, int dw, int dh)
-{
-    r->x2 += dw;
-    r->y2 += dh;
-}
+void drm_rect_adjust_size(struct drm_rect *r, int dw, int dh);
 
 /* Shift the rectangle by (dx, dy). */
-static inline void drm_rect_translate(struct drm_rect *r, int dx, int dy)
-{
-    r->x1 += dx;
-    r->y1 += dy;
-    r->x2 += dx;
-    r->y2 += dy;
-}
+void drm_rect_translate(struct drm_rect *r, int dx, int dy);
 
 /* Move the rectangle's top-left corner to (x, y). */
-static inline void drm_rect_translate_to(struct drm_rect *r, int x, int y)
-{
-    r->x2 += x - r->x1;
-    r->y2 += y - r->y1;
-    r->x1 = x;
-    r->y1 = y;
-}
+void drm_rect_translate_to(struct drm_rect *r, int x, int y);
 
 /* Intersect r with clip in place; returns true if result is non-empty. */
 bool drm_rect_intersect(struct drm_rect *r, const struct drm_rect *clip);

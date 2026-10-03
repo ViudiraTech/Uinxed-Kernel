@@ -19,17 +19,6 @@
 struct vfs_node;
 struct process;
 
-#define MAX_ARGC    1024
-#define MAX_CMDLINE 256
-
-#ifndef TTY_BUF_SIZE
-#    define TTY_BUF_SIZE 4096
-#endif
-
-#ifndef TTY_DEFAULT_DEV
-#    define TTY_DEFAULT_DEV "tty0"
-#endif
-
 typedef enum {
     TTY_DEVICE_VGA,
     TTY_DEVICE_SERIAL,
@@ -53,7 +42,7 @@ tty_device_t *get_boot_tty(void);
 void tty_set_device_type(tty_device_kind_t type);
 
 /* Print characters to tty */
-void tty_print_ch(const char ch);
+void tty_print_ch(char ch);
 
 /* Print string to tty */
 void tty_print_str(const char *str);

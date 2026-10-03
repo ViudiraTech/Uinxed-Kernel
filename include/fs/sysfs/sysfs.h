@@ -12,44 +12,6 @@
 #define INCLUDE_SYSFS_H_
 
 #include <kernel/printk.h>
-#include <libs/std/stdarg.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-
-/* Forward declarations */
-
-struct kobject;
-struct kset;
-struct kobj_type;
-
-/* Core attribute types */
-
-struct attribute {
-        const char *name;
-        uint16_t    mode;
-};
-
-struct bin_attribute {
-        struct attribute attr;
-        size_t           size;
-        ssize_t (*read)(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count);
-        ssize_t (*write)(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count);
-        int (*mmap)(struct kobject *kobj, struct bin_attribute *attr, void *vma);
-};
-
-struct attribute_group {
-        const char *name;
-        int (*is_visible)(struct kobject *kobj, struct attribute *attr, int idx);
-        struct attribute     **attrs;
-        struct bin_attribute **bin_attrs;
-};
-
-/* Sysfs operations (per-ktype read/write callbacks) */
-
-struct sysfs_ops {
-        ssize_t (*show)(struct kobject *kobj, struct attribute *attr, char *buf);
-        ssize_t (*store)(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count);
-};
 
 /* Convenience attribute macros */
 
@@ -73,86 +35,7 @@ struct sysfs_ops {
     }
 
 /* sysfs buffer helpers (PAGE_SIZE semantics) */
-
 #define SYSFS_PAGE_SIZE 4096
-
-/* Emit formatted output into a sysfs buffer at offset 0 */
-static inline int sysfs_emit(char *buf, const char *fmt, ...)
-{
-    va_list args;
-    int     n;
-
-    if (!buf) return 0;
-
-    va_start(args, fmt);
-    n = vsnprintf(buf, SYSFS_PAGE_SIZE, fmt, args);
-    va_end(args);
-
-    return n;
-}
-
-/* Emit formatted output into a sysfs buffer at a given offset */
-static inline int sysfs_emit_at(char *buf, int at, const char *fmt, ...)
-{
-    va_list args;
-    int     n;
-
-    if (!buf) return 0;
-    if (at < 0 || at >= SYSFS_PAGE_SIZE) return 0;
-
-    va_start(args, fmt);
-    n = vsnprintf(buf + at, SYSFS_PAGE_SIZE - at, fmt, args);
-    va_end(args);
-
-    return n;
-}
-
-/* Create / remove a single attribute file under a kobject */
-int  sysfs_create_file(struct kobject *kobj, const struct attribute *attr);
-void sysfs_remove_file(struct kobject *kobj, const struct attribute *attr);
-
-/* Create / remove a binary attribute file under a kobject */
-int  sysfs_create_bin_file(struct kobject *kobj, const struct bin_attribute *attr);
-void sysfs_remove_bin_file(struct kobject *kobj, const struct bin_attribute *attr);
-
-/* Create / remove a symbolic link under a kobject */
-int  sysfs_create_symlink(struct kobject *kobj, struct kobject *target, const char *name);
-void sysfs_remove_symlink(struct kobject *kobj, const char *name);
-
-/* Create / remove a group of attribute files at once */
-int  sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp);
-void sysfs_remove_group(struct kobject *kobj, const struct attribute_group *grp);
-
-/* Create / remove a group of attribute files (with merge semantics) */
-int  sysfs_create_groups(struct kobject *kobj, const struct attribute_group **groups);
-void sysfs_remove_groups(struct kobject *kobj, const struct attribute_group **groups);
-
-/* Create / remove the sysfs directory for a kobject (called internally) */
-int  sysfs_create_dir(struct kobject *kobj);
-void sysfs_remove_dir(struct kobject *kobj);
-
-/* Register sysfs with the VFS layer and mount at /sys */
-void sysfs_regist(void);
-int  sysfs_kobject_init(void);
-
-/* Internal: remove all attribute files and symlinks under a kobject */
-void sysfs_cleanup_kobject_files(struct kobject *kobj);
-
-/* Internal: notify sysfs that a kobject's name has changed */
-int sysfs_rename_dir(struct kobject *kobj, const char *new_name);
-
-/* Internal: move a kobject directory below a new parent. */
-int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent);
-
-/* The root kobject of the sysfs tree. */
-extern struct kobject *sysfs_root_kobj;
-
-/* /sys/dev/{char,block} : major:minor symlink directories used by udev. */
-extern struct kobject *sysfs_dev_char_kobj;
-extern struct kobject *sysfs_dev_block_kobj;
-
-/* Internal: get the absolute sysfs path of a kobject */
-char *kobject_get_path(struct kobject *kobj);
 
 /* Device-model convenience macros */
 
@@ -246,5 +129,93 @@ char *kobject_get_path(struct kobject *kobj);
         .show  = _name##_show,                    \
         .store = NULL,                            \
     }
+
+/* Forward declarations */
+
+struct kobject;
+struct kset;
+struct kobj_type;
+
+/* Core attribute types */
+
+struct attribute {
+        const char *name;
+        uint16_t    mode;
+};
+
+struct bin_attribute {
+        struct attribute attr;
+        size_t           size;
+        ssize_t (*read)(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count);
+        ssize_t (*write)(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count);
+        int (*mmap)(struct kobject *kobj, struct bin_attribute *attr, void *vma);
+};
+
+struct attribute_group {
+        const char *name;
+        int (*is_visible)(struct kobject *kobj, struct attribute *attr, int idx);
+        struct attribute     **attrs;
+        struct bin_attribute **bin_attrs;
+};
+
+/* Sysfs operations (per-ktype read/write callbacks) */
+
+struct sysfs_ops {
+        ssize_t (*show)(struct kobject *kobj, struct attribute *attr, char *buf);
+        ssize_t (*store)(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count);
+};
+
+/* The root kobject of the sysfs tree. */
+extern struct kobject *sysfs_root_kobj;
+
+/* /sys/dev/{char,block} : major:minor symlink directories used by udev. */
+extern struct kobject *sysfs_dev_char_kobj;
+extern struct kobject *sysfs_dev_block_kobj;
+
+/* Emit formatted output into a sysfs buffer at offset 0 */
+__attribute__((format(printf, 2, 3))) int sysfs_emit(char *buf, const char *fmt, ...);
+
+/* Emit formatted output into a sysfs buffer at a given offset */
+__attribute__((format(printf, 3, 4))) int sysfs_emit_at(char *buf, int at, const char *fmt, ...);
+
+/* Create / remove a single attribute file under a kobject */
+int  sysfs_create_file(struct kobject *kobj, const struct attribute *attr);
+void sysfs_remove_file(struct kobject *kobj, const struct attribute *attr);
+
+/* Create / remove a binary attribute file under a kobject */
+int  sysfs_create_bin_file(struct kobject *kobj, const struct bin_attribute *attr);
+void sysfs_remove_bin_file(struct kobject *kobj, const struct bin_attribute *attr);
+
+/* Create / remove a symbolic link under a kobject */
+int  sysfs_create_symlink(struct kobject *kobj, struct kobject *target, const char *name);
+void sysfs_remove_symlink(struct kobject *kobj, const char *name);
+
+/* Create / remove a group of attribute files at once */
+int  sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp);
+void sysfs_remove_group(struct kobject *kobj, const struct attribute_group *grp);
+
+/* Create / remove a group of attribute files (with merge semantics) */
+int  sysfs_create_groups(struct kobject *kobj, const struct attribute_group **groups);
+void sysfs_remove_groups(struct kobject *kobj, const struct attribute_group **groups);
+
+/* Create / remove the sysfs directory for a kobject (called internally) */
+int  sysfs_create_dir(struct kobject *kobj);
+void sysfs_remove_dir(struct kobject *kobj);
+
+/* Register sysfs with the VFS layer and mount at /sys */
+void sysfs_regist(void);
+int  sysfs_kobject_init(void);
+
+/* Internal: remove all attribute files and symlinks under a kobject */
+void sysfs_cleanup_kobject_files(struct kobject *kobj);
+
+/* Internal: notify sysfs that a kobject's name has changed */
+int sysfs_rename_dir(struct kobject *kobj, const char *new_name);
+
+/* Internal: move a kobject directory below a new parent. */
+int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent);
+
+/* Internal: get the absolute sysfs path of a kobject */
+char *kobject_get_path(struct kobject *kobj);
 
 #endif // INCLUDE_SYSFS_H_

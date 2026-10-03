@@ -15,6 +15,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
+/* Sector size assumed by the block layer */
 #define BLOCKDEV_SECTOR_SIZE 512
 
 /* Linux block-device ioctls used by storage probing tools and QEMU. */
@@ -28,6 +29,12 @@
 /* Ops dispatch macro - mirrors VFS callbackof() */
 #define blk_ops(dev, _name_) (blk_ops_table[(dev)->ops_id]->_name_)
 
+/* Drive encoding for blockdev_open_drive / blockdev_parse_drive */
+#define BLKDEV_AHCI_FLAG  0x80
+#define BLKDEV_ATAPI_FLAG 0x20
+#define BLKDEV_NVME_FLAG  0x40
+#define BLKDEV_DRIVE_MASK 0x1F
+
 /* Forward declaration */
 struct blockdev_device;
 
@@ -39,12 +46,6 @@ typedef struct blockdev_ops {
         void (*retain)(const struct blockdev_device *dev);
         void (*release)(const struct blockdev_device *dev);
 } *blockdev_ops_t;
-
-/* Drive encoding for blockdev_open_drive / blockdev_parse_drive */
-#define BLKDEV_AHCI_FLAG  0x80
-#define BLKDEV_ATAPI_FLAG 0x20
-#define BLKDEV_NVME_FLAG  0x40
-#define BLKDEV_DRIVE_MASK 0x1F
 
 typedef struct blockdev_device {
         uint8_t  ops_id;
@@ -59,7 +60,6 @@ typedef struct blockdev_device {
 
 /* Global ops table - populated by driver init */
 extern blockdev_ops_t *blk_ops_table;
-#define BLOCKDEV_MAX_TYPES 16
 
 /* Register a block device backend. Returns type id (>=1), or negative errno. */
 int blockdev_register_type(blockdev_ops_t ops);
@@ -85,19 +85,16 @@ int blockdev_open_drive(uint8_t drive, blockdev_device_t *device);
 /* Parse a drive name ("hda", "sda", "sr0", "nvme0n1", ...) into an encoded drive ID */
 int blockdev_parse_drive(const char *name, uint8_t *drive);
 
-/* Parse Linux disk and partition names. A partition value of zero names the whole disk. */
+/* Parse disk and partition names. A partition value of zero names the whole disk. */
 int blockdev_parse_name(const char *name, uint8_t *drive, uint32_t *partition);
 
-/* Format a Linux SCSI-style disk name (sda ... sdz, sdaa ...). */
+/* Format a SCSI-style disk name (sda ... sdz, sdaa ...). */
 int blockdev_format_disk_name(char *buffer, size_t size, uint32_t index);
 
-/* Open a whole disk or a numbered MBR/GPT partition by its Linux name. */
+/* Open a whole disk or a numbered MBR/GPT partition by its disk name. */
 int blockdev_open_name(const char *name, blockdev_device_t *device);
 
-/*
- * Create a partition view of a parent block device.
- * Copies the parent's ops_id and wraps base_lba/sector_count.
- */
+/* Create a partition view of a parent block device. Copies the parent's ops_id and wraps base_lba/sector_count. */
 int blockdev_open_partition(const blockdev_device_t *parent, uint64_t first_lba, uint64_t sector_count, blockdev_device_t *device);
 
 /* Read `count` sectors starting at `lba` into `buffer` */
@@ -108,6 +105,9 @@ int blockdev_write_sectors(const blockdev_device_t *device, uint64_t lba, uint32
 
 /* Commit volatile device write caches, if the backend provides one. */
 int blockdev_flush(const blockdev_device_t *device);
+
+/* True when the descriptor's sector geometry can address storage. */
+bool blockdev_geometry_valid(const blockdev_device_t *device);
 
 /* Hold/drop a backend reference for copied blockdev descriptors. */
 void blockdev_retain(const blockdev_device_t *device);

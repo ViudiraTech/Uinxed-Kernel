@@ -11,6 +11,7 @@
 #ifndef INCLUDE_IPV4_H_
 #define INCLUDE_IPV4_H_
 
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>
 
@@ -19,10 +20,9 @@
 #define IPV4_PROTO_TCP  6U
 #define IPV4_PROTO_UDP  17U
 
-#define IPV4_FLAG_DF          0x4000U
-#define IPV4_FLAG_MF          0x2000U
-#define IPV4_FRAGMENT_MASK    0x1fffU
-#define IPV4_REASSEMBLY_SLOTS 4U
+#define IPV4_FLAG_DF       0x4000U
+#define IPV4_FLAG_MF       0x2000U
+#define IPV4_FRAGMENT_MASK 0x1fffU
 
 typedef void (*ipv4_error_hook_t)(uint8_t protocol, uint32_t source, uint32_t destination, const void *transport, size_t transport_length, int error, uint32_t mtu);
 
@@ -51,8 +51,17 @@ typedef struct net_ipv4_packet {
 } net_ipv4_packet_t;
 
 /* IPv4 parse, forwarding, and routing. */
-int  net_ipv4_parse(const void *data, size_t length, net_ipv4_packet_t *packet);
-int  ipv4_input(net_device_t *device, net_pbuf_t *packet);
+int net_ipv4_parse(const void *data, size_t length, net_ipv4_packet_t *packet);
+
+#if CONFIG_INET && CONFIG_NET
+int ipv4_input(net_device_t *device, net_pbuf_t *packet);
+#else
+static inline int ipv4_input(net_device_t *, net_pbuf_t *)
+{
+    return -EPROTONOSUPPORT;
+}
+#endif
+
 int  ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl, net_pbuf_t *packet);
 int  ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop);
 int  ipv4_set_error_hook(ipv4_error_hook_t hook);

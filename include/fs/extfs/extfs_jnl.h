@@ -4,7 +4,7 @@
  *      Native ext journaling backend for extfs
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -12,10 +12,6 @@
 #define INCLUDE_EXTFS_JNL_H_
 
 #include <fs/core/fs_txn.h>
-#include <libs/std/stdint.h>
-
-struct extfs_sb_info;
-typedef struct extfs_journal extfs_journal_t;
 
 #define EXTFS_JNL_MAGIC_NUMBER     0xC03B3998U
 #define EXTFS_JNL_DESCRIPTOR_BLOCK 1U
@@ -37,11 +33,16 @@ typedef struct extfs_journal extfs_journal_t;
 #define EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3      0x00000010U
 #define EXTFS_JNL_FEATURE_INCOMPAT_FAST_COMMIT  0x00000020U
 
+struct extfs_sb_info;
+typedef struct extfs_journal extfs_journal_t;
+
 typedef struct extfs_jnl_header {
         uint32_t magic;
         uint32_t block_type;
         uint32_t sequence;
 } __attribute__((packed)) extfs_jnl_header_t;
+
+_Static_assert(sizeof(extfs_jnl_header_t) == 12, "ext3 journal header on-disk size");
 
 typedef struct extfs_jnl_superblock {
         extfs_jnl_header_t header;
@@ -67,6 +68,8 @@ typedef struct extfs_jnl_superblock {
         uint32_t           checksum;
         uint8_t            user_uuids[16 * 48];
 } __attribute__((packed)) extfs_jnl_superblock_t;
+
+_Static_assert(sizeof(extfs_jnl_superblock_t) == 1024, "ext3 journal superblock on-disk size");
 
 /* Open (or recover) the journal for a filesystem. */
 int extfs_jnl_open(struct extfs_sb_info *sb, extfs_journal_t **journal);

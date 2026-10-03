@@ -9,29 +9,30 @@
  */
 
 #include <arch/smp.h>
-#include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
 #include <ipc/pipe.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <process/namespace.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_basic.h>
+
+/* utime / utimes / futimesat / utimensat */
+
+#define LINUX_UTIME_NOW  1073741823LL
+#define LINUX_UTIME_OMIT 1073741822LL
+
+/* process credentials */
+#define CREDENTIAL_ID_UNCHANGED UINT32_MAX
 
 /* getitimer / setitimer / alarm */
-
 typedef struct linux_itimerval {
         int64_t it_interval_sec;
         int64_t it_interval_usec;
@@ -39,13 +40,62 @@ typedef struct linux_itimerval {
         int64_t it_value_usec;
 } linux_itimerval_t;
 
+/* capget / capset */
+typedef struct linux_cap_header {
+        uint32_t version;
+        int32_t  pid;
+} linux_cap_header_t;
+
+typedef struct linux_cap_data {
+        uint32_t effective;
+        uint32_t permitted;
+        uint32_t inheritable;
+} linux_cap_data_t;
+
+typedef struct linux_utimbuf {
+        int64_t actime;
+        int64_t modtime;
+} linux_utimbuf_t;
+
+/* times */
+typedef struct linux_tms {
+        int64_t tms_utime;
+        int64_t tms_stime;
+        int64_t tms_cutime;
+        int64_t tms_cstime;
+} linux_tms_t;
+
+/*
+ * security / vserver / uselib / ustat / sysfs / vhangup / modify_ldt /
+ * pivot_root / _sysctl / iopl / ioperm / create_module / get_kernel_syms /
+ * query_module / quotactl / nfsservctl / getpmsg / putpmsg / afs_syscall /
+ * tuxcall / lookup_dcookie / remap_file_pages / kexec_load /
+ * add_key / request_key / keyctl / migrate_pages / move_pages /
+ * mbind / set_mempolicy / get_mempolicy / kexec_file_load / bpf /
+ * userfaultfd / io_uring_setup / io_uring_enter / io_uring_register /
+ * open_tree / move_mount / fsopen / fsconfig / fsmount / fspick /
+ * fanotify_init / fanotify_mark / get_thread_area / set_thread_area /
+ * io_setup / io_destroy / io_getevents / io_submit / io_cancel
+ *
+ * These are either deprecated, highly complex, or require kernel subsystems
+ * that don't exist yet.  They remain as sys_unimplemented (return -ENOSYS).
+ * See syscall.c for the table entries.
+ */
+
+/* openat2 syscall: openat with an extensible how argument */
+typedef struct open_how {
+        uint64_t flags;
+        uint64_t mode;
+        uint64_t resolve;
+} open_how_t;
+
 /* Convert seconds+microseconds to timer ticks */
 static int itimer_time_to_ticks(int64_t sec, int64_t usec, uint64_t *ticks)
 {
     if (!ticks || sec < 0 || usec < 0 || usec >= 1000000) return -EINVAL;
-    uint64_t sub_ticks = ((uint64_t)usec * TIMER_HZ + 999999ULL) / 1000000ULL;
-    if ((uint64_t)sec > (UINT64_MAX - sub_ticks) / TIMER_HZ) return -EINVAL;
-    *ticks = (uint64_t)sec * TIMER_HZ + sub_ticks;
+    uint64_t sub_ticks = ((uint64_t)usec * CONFIG_TIMER_HZ + 999999ULL) / 1000000ULL;
+    if ((uint64_t)sec > (UINT64_MAX - sub_ticks) / CONFIG_TIMER_HZ) return -EINVAL;
+    *ticks = (uint64_t)sec * CONFIG_TIMER_HZ + sub_ticks;
     return 0;
 }
 
@@ -53,10 +103,10 @@ static int itimer_time_to_ticks(int64_t sec, int64_t usec, uint64_t *ticks)
 static linux_itimerval_t itimer_ticks_to_value(uint64_t remaining, uint64_t interval)
 {
     linux_itimerval_t value = {
-        .it_interval_sec  = (int64_t)(interval / TIMER_HZ),
-        .it_interval_usec = (int64_t)((interval % TIMER_HZ) * 1000000ULL / TIMER_HZ),
-        .it_value_sec     = (int64_t)(remaining / TIMER_HZ),
-        .it_value_usec    = (int64_t)((remaining % TIMER_HZ) * 1000000ULL / TIMER_HZ),
+        .it_interval_sec  = (int64_t)(interval / CONFIG_TIMER_HZ),
+        .it_interval_usec = (int64_t)((interval % CONFIG_TIMER_HZ) * 1000000ULL / CONFIG_TIMER_HZ),
+        .it_value_sec     = (int64_t)(remaining / CONFIG_TIMER_HZ),
+        .it_value_usec    = (int64_t)((remaining % CONFIG_TIMER_HZ) * 1000000ULL / CONFIG_TIMER_HZ),
     };
     return value;
 }
@@ -116,11 +166,11 @@ int64_t sys_alarm_impl(uint64_t seconds, uint64_t arg1, uint64_t arg2, uint64_t 
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    uint64_t value         = seconds > UINT64_MAX / TIMER_HZ ? UINT64_MAX : seconds * TIMER_HZ;
+    uint64_t value         = seconds > UINT64_MAX / CONFIG_TIMER_HZ ? UINT64_MAX : seconds * CONFIG_TIMER_HZ;
     uint64_t old_remaining = 0;
     signal_itimer_set(proc, 0, value, 0, &old_remaining, NULL);
     if (!old_remaining) return 0;
-    uint64_t rounded = old_remaining / TIMER_HZ + (old_remaining % TIMER_HZ != 0);
+    uint64_t rounded = (old_remaining / CONFIG_TIMER_HZ) + (old_remaining % CONFIG_TIMER_HZ != 0);
     return rounded > UINT32_MAX ? UINT32_MAX : (int64_t)rounded;
 }
 
@@ -151,28 +201,15 @@ int64_t sys_setgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (proc->uid != 0) return -EPERM;
-    if (size > PROCESS_MAX_GROUPS) return -EINVAL;
+    if (size > CONFIG_PROCESS_MAX_GROUPS) return -EINVAL;
     if (size && !list) return -EFAULT;
 
-    uint32_t groups[PROCESS_MAX_GROUPS];
+    uint32_t groups[CONFIG_PROCESS_MAX_GROUPS];
     if (size && copy_from_user(groups, (const void *)list, (size_t)size * sizeof(uint32_t))) return -EFAULT;
     if (size) memcpy(proc->supplementary_groups, groups, (size_t)size * sizeof(uint32_t));
     proc->supplementary_group_count = (uint16_t)size;
     return 0;
 }
-
-/* capget / capset */
-
-typedef struct linux_cap_header {
-        uint32_t version;
-        int32_t  pid;
-} linux_cap_header_t;
-
-typedef struct linux_cap_data {
-        uint32_t effective;
-        uint32_t permitted;
-        uint32_t inheritable;
-} linux_cap_data_t;
 
 /* capget syscall: read process capabilities */
 int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -229,34 +266,12 @@ int64_t sys_flock_impl(uint64_t fd, uint64_t operation, uint64_t arg2, uint64_t 
     return 0;
 }
 
-/* utime / utimes / futimesat / utimensat */
-
-#define LINUX_UTIME_NOW  1073741823LL
-#define LINUX_UTIME_OMIT 1073741822LL
-
-typedef struct linux_utimbuf {
-        int64_t actime;
-        int64_t modtime;
-} linux_utimbuf_t;
-
-typedef struct linux_utimeval {
-        int64_t tv_sec;
-        int64_t tv_usec;
-} linux_utimeval_t;
-
-/* Current realtime in whole seconds */
-static int64_t utime_now_seconds(void)
-{
-    int64_t nanoseconds = timer_realtime_ns();
-    return nanoseconds / (int64_t)TIMER_NSEC_PER_SEC;
-}
-
 /* Set file times by dirfd and path */
-static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_timespec64_t requested[2], uint64_t flags)
+static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_timespec_t requested[2], uint64_t flags)
 {
     if (!proc) return -ESRCH;
 
-    int64_t  atime      = utime_now_seconds();
+    int64_t  atime      = timer_realtime_seconds();
     int64_t  mtime      = atime;
     uint32_t time_flags = VFS_SET_TIME_ATIME | VFS_SET_TIME_MTIME;
 
@@ -275,6 +290,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
             *seconds[i] = requested[i].tv_sec;
             time_flags |= VFS_SET_TIME_EXPLICIT;
         }
+
         /* When both fields are omitted, do not resolve the path. */
         if (!(time_flags & (VFS_SET_TIME_ATIME | VFS_SET_TIME_MTIME))) return EOK;
     }
@@ -291,14 +307,14 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
         if (!file) return -EBADF;
         node = file->node;
     } else {
-        char input[SYSCALL_PATH_MAX];
+        char input[CONFIG_VFS_PATH_MAX];
         ret = copy_path_from_user(upath, input);
         if (ret != EOK) return ret;
 
         if (!input[0]) {
             if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
             if (dirfd == PROCESS_AT_FDCWD) {
-                char resolved[SYSCALL_PATH_MAX];
+                char resolved[CONFIG_VFS_PATH_MAX];
                 ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, ".", resolved, sizeof(resolved));
                 if (ret == EOK) node = vfs_open_checked(resolved, &ret);
             } else {
@@ -307,7 +323,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
                 node = file->node;
             }
         } else {
-            char resolved[SYSCALL_PATH_MAX];
+            char resolved[CONFIG_VFS_PATH_MAX];
             ret = process_resolve_path_at(proc, dirfd, input, resolved, sizeof(resolved));
             if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(resolved, &ret) : vfs_open_checked(resolved, &ret);
         }
@@ -319,10 +335,11 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
     }
     vfs_update(node);
     ret = vfs_set_times_process(node, atime, mtime, time_flags, proc);
-    if (file)
+    if (file) {
         process_file_put(file);
-    else
+    } else {
         vfs_close(node);
+    }
     return ret;
 }
 
@@ -336,8 +353,8 @@ int64_t sys_utime_impl(uint64_t filename, uint64_t times, uint64_t arg2, uint64_
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    linux_timespec64_t requested[2];
-    linux_utimbuf_t    legacy;
+    linux_timespec_t requested[2];
+    linux_utimbuf_t  legacy;
     if (times) {
         if (copy_from_user(&legacy, (const void *)times, sizeof(legacy))) return -EFAULT;
         requested[0].tv_sec  = legacy.actime;
@@ -358,8 +375,8 @@ int64_t sys_utimes_impl(uint64_t filename, uint64_t times, uint64_t arg2, uint64
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    linux_timespec64_t requested[2];
-    linux_utimeval_t   legacy[2];
+    linux_timespec_t requested[2];
+    linux_timeval_t  legacy[2];
     if (times) {
         if (copy_from_user(legacy, (const void *)times, sizeof(legacy))) return -EFAULT;
         for (size_t i = 0; i < 2; i++) {
@@ -391,24 +408,10 @@ int64_t sys_setpriority_impl(uint64_t which, uint64_t who, uint64_t niceval, uin
     (void)arg4;
     (void)arg5;
     if (which > 2) return -EINVAL;
-    if ((int64_t)niceval < -20 || (int64_t)niceval > 19) return -EACCES;
+    if ((int64_t)niceval < -20 || (int64_t)niceval > 19) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if ((int64_t)niceval < 0 && proc->uid != 0) return -EACCES;
-    return 0;
-}
-
-/* sched_setparam syscall */
-int64_t sys_sched_setparam_impl(uint64_t pid, uint64_t param, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)pid;
-    (void)param;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
     return 0;
 }
 
@@ -427,21 +430,6 @@ int64_t sys_sched_getparam_impl(uint64_t pid, uint64_t param, uint64_t arg2, uin
     } p = {.sched_priority = 0};
 
     return copy_to_user((void *)param, &p, sizeof(p)) ? -EFAULT : 0;
-}
-
-/* sched_setscheduler syscall */
-int64_t sys_sched_setscheduler_impl(uint64_t pid, uint64_t policy, uint64_t param, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)pid;
-    (void)param;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (policy > 2) return -EINVAL;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    if (policy != 0 && proc->uid != 0) return -EPERM;
-    return 0;
 }
 
 /* sched_getscheduler syscall */
@@ -491,11 +479,9 @@ int64_t sys_sched_rr_get_interval_impl(uint64_t pid, uint64_t tp, uint64_t arg2,
     (void)arg4;
     (void)arg5;
     if (!tp) return -EFAULT;
-    linux_timespec64_t ts = {.tv_sec = 0, .tv_nsec = 100000000};
+    linux_timespec_t ts = {.tv_sec = 0, .tv_nsec = 100000000};
     return copy_to_user((void *)tp, &ts, sizeof(ts)) ? -EFAULT : 0;
 }
-
-/* sched_setaffinity / sched_getaffinity */
 
 /* sched_setaffinity syscall */
 int64_t sys_sched_setaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -558,32 +544,48 @@ int64_t sys_sched_getattr_impl(uint64_t pid, uint64_t attr, uint64_t size, uint6
 /* sethostname syscall */
 int64_t sys_sethostname_impl(uint64_t name, uint64_t len, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)name;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    if (!name) return -EFAULT;
     if (len > 64) return -EINVAL;
     process_t *proc = process_current();
     if (!proc || proc->uid != 0) return -EPERM;
+
+    char buffer[65];
+    if (copy_from_user(buffer, (const void *)name, len)) return -EFAULT;
+    buffer[len] = '\0';
+
+    uts_namespace_t *uts = uts_namespace_current();
+    spin_lock(&uts->ns.lock);
+    memcpy(uts->nodename, buffer, len + 1);
+    spin_unlock(&uts->ns.lock);
     return 0;
 }
 
 /* setdomainname syscall */
 int64_t sys_setdomainname_impl(uint64_t name, uint64_t len, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)name;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    if (!name) return -EFAULT;
     if (len > 64) return -EINVAL;
     process_t *proc = process_current();
     if (!proc || proc->uid != 0) return -EPERM;
+
+    char buffer[65];
+    if (copy_from_user(buffer, (const void *)name, len)) return -EFAULT;
+    buffer[len] = '\0';
+
+    uts_namespace_t *uts = uts_namespace_current();
+    spin_lock(&uts->ns.lock);
+    memcpy(uts->domainname, buffer, len + 1);
+    spin_unlock(&uts->ns.lock);
     return 0;
 }
-
-/* set_robust_list / get_robust_list */
 
 /* set_robust_list syscall */
 int64_t sys_set_robust_list_impl(uint64_t head, uint64_t len, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -607,7 +609,7 @@ int64_t sys_get_robust_list_impl(uint64_t pid, uint64_t head_ptr, uint64_t len_p
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     process_t *target = proc;
-    if (pid != 0 && pid != (uint64_t)proc->task->pid) {
+    if (pid != 0 && pid != proc->task->pid) {
         target = process_find_get((pid_t)pid);
         if (!target) return -ESRCH;
     }
@@ -627,8 +629,6 @@ int64_t sys_get_robust_list_impl(uint64_t pid, uint64_t head_ptr, uint64_t len_p
     return 0;
 }
 
-/* fchownat / futimesat / fchmodat */
-
 /* fchownat syscall: change ownership by dirfd+path */
 int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_t group, uint64_t flags, uint64_t arg5)
 {
@@ -646,14 +646,14 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
         if (!file) return -EBADF;
         node = file->node;
     } else {
-        char input[SYSCALL_PATH_MAX];
+        char input[CONFIG_VFS_PATH_MAX];
         ret = copy_path_from_user(path, input);
         if (ret != EOK) return ret;
 
         if (!input[0]) {
             if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
             if ((int)dirfd == PROCESS_AT_FDCWD) {
-                char resolved[SYSCALL_PATH_MAX];
+                char resolved[CONFIG_VFS_PATH_MAX];
                 ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, ".", resolved, sizeof(resolved));
                 if (ret == EOK) node = vfs_open_checked(resolved, &ret);
             } else {
@@ -662,7 +662,7 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
                 node = file->node;
             }
         } else {
-            char resolved[SYSCALL_PATH_MAX];
+            char resolved[CONFIG_VFS_PATH_MAX];
             ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
             if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(resolved, &ret) : vfs_open_checked(resolved, &ret);
         }
@@ -674,10 +674,11 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
     }
     vfs_update(node);
     ret = vfs_chown_process(node, (uint32_t)owner, (uint32_t)group, proc);
-    if (file)
+    if (file) {
         process_file_put(file);
-    else
+    } else {
         vfs_close(node);
+    }
     return ret;
 }
 
@@ -690,8 +691,8 @@ int64_t sys_futimesat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    linux_timespec64_t requested[2];
-    linux_utimeval_t   legacy[2];
+    linux_timespec_t requested[2];
+    linux_timeval_t  legacy[2];
     if (times) {
         if (copy_from_user(legacy, (const void *)times, sizeof(legacy))) return -EFAULT;
         for (size_t i = 0; i < 2; i++) {
@@ -712,12 +713,12 @@ int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    char input[SYSCALL_PATH_MAX];
+    char input[CONFIG_VFS_PATH_MAX];
     int  ret = copy_path_from_user(path, input);
     if (ret != 0) return ret;
     if (!input[0]) return -ENOENT;
 
-    char resolved[SYSCALL_PATH_MAX];
+    char resolved[CONFIG_VFS_PATH_MAX];
     ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
     if (ret != 0) return ret;
 
@@ -728,15 +729,6 @@ int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t
     vfs_close(node);
     return result;
 }
-
-/* times */
-
-typedef struct linux_tms {
-        int64_t tms_utime;
-        int64_t tms_stime;
-        int64_t tms_cutime;
-        int64_t tms_cstime;
-} linux_tms_t;
 
 /* times syscall: return process CPU time */
 int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -750,12 +742,8 @@ int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3
     int64_t     now = (int64_t)timer_ticks_to_user_ticks(sched_ticks());
     linux_tms_t buf = {.tms_utime = now, .tms_stime = 0, .tms_cutime = 0, .tms_cstime = 0};
     if (copy_to_user((void *)tms, &buf, sizeof(buf))) return -EFAULT;
-    return (int64_t)now;
+    return now;
 }
-
-/* process credentials */
-
-#define CREDENTIAL_ID_UNCHANGED UINT32_MAX
 
 /* Check whether a UID transition is permitted */
 static bool credential_uid_allowed(const process_t *proc, uint32_t uid)
@@ -961,10 +949,10 @@ int64_t sys_chdir_impl(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg
     if (!path) return -EFAULT;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    char name[SYSCALL_PATH_MAX];
+    char name[CONFIG_VFS_PATH_MAX];
     int  ret = copy_path_from_user(path, name);
     if (ret) return ret;
-    char resolved[SYSCALL_PATH_MAX];
+    char resolved[CONFIG_VFS_PATH_MAX];
     ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, name, resolved, sizeof(resolved));
     if (ret) return ret;
     vfs_node_t node = vfs_open(resolved);
@@ -998,7 +986,7 @@ int64_t sys_fchdir_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3
         process_file_put(pf);
         return -ENOTDIR;
     }
-    char path[VFS_PATH_MAX];
+    char path[CONFIG_VFS_PATH_MAX];
     int  ret = vfs_node_path(pf->node, path, sizeof(path));
     if (ret != EOK) {
         process_file_put(pf);
@@ -1020,10 +1008,10 @@ int64_t sys_truncate_impl(uint64_t path, uint64_t length, uint64_t arg2, uint64_
     if (!path) return -EFAULT;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    char name[SYSCALL_PATH_MAX];
+    char name[CONFIG_VFS_PATH_MAX];
     int  ret = copy_path_from_user(path, name);
     if (ret) return ret;
-    char resolved[SYSCALL_PATH_MAX];
+    char resolved[CONFIG_VFS_PATH_MAX];
     ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, name, resolved, sizeof(resolved));
     if (ret) return ret;
     vfs_node_t node = vfs_open(resolved);
@@ -1053,15 +1041,14 @@ int64_t sys_ftruncate_impl(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t
         return -EINVAL;
     }
     int ret;
-    if (memfd_is_node(pf->node))
+    if (memfd_is_node(pf->node)) {
         ret = memfd_resize(pf->node, length);
-    else
+    } else {
         ret = vfs_truncate(pf->node, length);
+    }
     process_file_put(pf);
     return ret;
 }
-
-/* sync */
 
 /* sync syscall: flush all filesystems */
 int64_t sys_sync_impl(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1076,8 +1063,6 @@ int64_t sys_sync_impl(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3
     return 0;
 }
 
-/* listxattr / llistxattr / flistxattr */
-
 /* listxattr syscall: no extended attributes */
 int64_t sys_listxattr_impl(uint64_t path, uint64_t list, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -1090,8 +1075,6 @@ int64_t sys_listxattr_impl(uint64_t path, uint64_t list, uint64_t size, uint64_t
     return 0; // no extended attributes
 }
 
-/* setxattr / getxattr / removexattr (and l-variants and f-variants) */
-
 /* setxattr syscall: unsupported */
 int64_t sys_setxattr_impl(uint64_t path, uint64_t name, uint64_t value, uint64_t size, uint64_t flags, uint64_t arg5)
 {
@@ -1101,7 +1084,7 @@ int64_t sys_setxattr_impl(uint64_t path, uint64_t name, uint64_t value, uint64_t
     (void)size;
     (void)flags;
     (void)arg5;
-    return -EOPNOTSUPP;
+    return -ENOSYS;
 }
 
 /* getxattr syscall: no extended attributes */
@@ -1129,7 +1112,7 @@ int64_t sys_removexattr_impl(uint64_t path, uint64_t name, uint64_t arg2, uint64
 }
 
 /* tkill syscall: send a signal to a thread */
-int64_t sys_tkill_real(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+int64_t sys_tkill_wrap(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
     (void)arg3;
@@ -1226,32 +1209,29 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    char old_name[SYSCALL_PATH_MAX], new_name[SYSCALL_PATH_MAX];
+    char old_name[CONFIG_VFS_PATH_MAX], new_name[CONFIG_VFS_PATH_MAX];
     int  ret = copy_path_from_user(oldpath, old_name);
     if (ret) return ret;
     ret = copy_path_from_user(newpath, new_name);
     if (ret) return ret;
 
-    char old_resolved[SYSCALL_PATH_MAX], new_resolved[SYSCALL_PATH_MAX];
+    char old_resolved[CONFIG_VFS_PATH_MAX], new_resolved[CONFIG_VFS_PATH_MAX];
     ret = process_resolve_path_at(proc, (int)olddirfd, old_name, old_resolved, sizeof(old_resolved));
     if (ret) return ret;
     ret = process_resolve_path_at(proc, (int)newdirfd, new_name, new_resolved, sizeof(new_resolved));
     if (ret) return ret;
-
     if (flags & RENAME_EXCHANGE) return -EOPNOTSUPP;
 
     vfs_node_t node = vfs_open_nofollow(old_resolved);
     if (!node) return -ENOENT;
 
-    char old_parent_path[SYSCALL_PATH_MAX], new_parent_path[SYSCALL_PATH_MAX];
-    memcpy(old_parent_path, old_resolved, sizeof(old_parent_path));
-    memcpy(new_parent_path, new_resolved, sizeof(new_parent_path));
-    vfs_node_t old_dir = vfs_open_parent_of(old_parent_path);
-    vfs_node_t new_dir = vfs_open_parent_of(new_parent_path);
-    if (!old_dir || !new_dir)
+    vfs_node_t old_dir = vfs_open_parent_of(old_resolved);
+    vfs_node_t new_dir = vfs_open_parent_of(new_resolved);
+    if (!old_dir || !new_dir) {
         ret = -ENOENT;
-    else
+    } else {
         ret = vfs_rename(node, new_dir, path_basename(new_resolved), (flags & RENAME_NOREPLACE) ? VFS_RENAME_NOREPLACE : 0);
+    }
     if (old_dir) vfs_close(old_dir);
     if (new_dir) vfs_close(new_dir);
     vfs_close(node);
@@ -1266,8 +1246,8 @@ int64_t sys_clock_gettime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uin
     (void)arg4;
     (void)arg5;
     if (!tp) return -EFAULT;
-    linux_timespec64_t ts;
-    int64_t            ns;
+    linux_timespec_t ts;
+    int64_t          ns;
     switch (clockid) {
         case 0 :
         case 5 : // CLOCK_REALTIME / CLOCK_REALTIME_COARSE
@@ -1299,7 +1279,7 @@ int64_t sys_clock_getres_impl(uint64_t clockid, uint64_t res, uint64_t arg2, uin
     (void)arg4;
     (void)arg5;
     if (!res) return 0;
-    linux_timespec64_t ts;
+    linux_timespec_t ts;
     switch (clockid) {
         case CLOCK_REALTIME :
         case CLOCK_MONOTONIC :
@@ -1329,7 +1309,7 @@ int64_t sys_utimensat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    linux_timespec64_t requested[2];
+    linux_timespec_t requested[2];
     if (times && copy_from_user(requested, (const void *)times, sizeof(requested))) return -EFAULT;
     return set_times_at(proc, (int)dirfd, path, times ? requested : NULL, flags);
 }
@@ -1373,17 +1353,20 @@ int64_t sys_fallocate_impl(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t
 /* sync_file_range syscall */
 int64_t sys_sync_file_range_impl(uint64_t fd, uint64_t offset, uint64_t nbytes, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
-    (void)offset;
-    (void)nbytes;
     (void)arg4;
     (void)arg5;
-    if (flags & ~15ULL) return -EINVAL;
+    if (flags & ~7ULL) return -EINVAL;
+    if (nbytes > UINT64_MAX - offset) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     process_file_t *pf = process_fd_get(proc, (int)fd);
     if (!pf) return -EBADF;
+
+    /* The wait and write flags all come down to one synchronous writeback of the range; a count of zero reaches the end of the file. */
+    int result = EOK;
+    if (flags) result = vfs_writeback_range(pf->node, offset, nbytes ? offset + nbytes - 1 : UINT64_MAX, 0);
     process_file_put(pf);
-    return 0;
+    return result;
 }
 
 /* set_tid_address syscall */
@@ -1407,10 +1390,10 @@ int64_t sys_mknodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    char input[SYSCALL_PATH_MAX];
+    char input[CONFIG_VFS_PATH_MAX];
     int  ret = copy_path_from_user(path, input);
     if (ret != EOK) return ret;
-    char resolved[SYSCALL_PATH_MAX];
+    char resolved[CONFIG_VFS_PATH_MAX];
     ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
     if (ret != EOK) return ret;
     return mknod_create_node(resolved, mode, dev);
@@ -1442,8 +1425,22 @@ int64_t sys_sendfile_impl(uint64_t out_fd, uint64_t in_fd, uint64_t offset, uint
             process_file_put(pf_out);
             return -EFAULT;
         }
+        if (user_off < 0) {
+            process_file_put(pf_in);
+            process_file_put(pf_out);
+            return -EINVAL;
+        }
         old_off = process_fd_seek(proc, (int)in_fd, 0, SEEK_CUR);
-        process_fd_seek(proc, (int)in_fd, user_off, SEEK_SET);
+        if (old_off < 0) {
+            process_file_put(pf_in);
+            process_file_put(pf_out);
+            return old_off;
+        }
+        if (process_fd_seek(proc, (int)in_fd, user_off, SEEK_SET) < 0) {
+            process_file_put(pf_in);
+            process_file_put(pf_out);
+            return -EINVAL;
+        }
     }
 
     uint8_t buf[4096];
@@ -1456,25 +1453,34 @@ int64_t sys_sendfile_impl(uint64_t out_fd, uint64_t in_fd, uint64_t offset, uint
             if (have_off) process_fd_seek(proc, (int)in_fd, old_off, SEEK_SET);
             process_file_put(pf_in);
             process_file_put(pf_out);
-            return total ? (int64_t)total : n;
+            return process_fd_write_flush(proc, (int)out_fd, total ? (int64_t)total : n);
         }
         if (!n) break;
-        int64_t w = process_fd_write(proc, (int)out_fd, buf, (size_t)n);
-        if (w < 0) {
+        int64_t w    = 0;
+        size_t  sent = 0;
+        while (sent < (size_t)n) {
+            w = process_fd_write_deferred(proc, (int)out_fd, buf + sent, (size_t)n - sent);
+            if (w <= 0) break;
+            sent += (size_t)w;
+        }
+
+        /* Give back the part of the chunk the output would not take, so the input offset matches the bytes copied; a pipe or socket input has no offset, so its refused tail is dropped. */
+        if (sent < (size_t)n) process_fd_seek(proc, (int)in_fd, -(int64_t)((size_t)n - sent), SEEK_CUR);
+        if (w <= 0 || sent < (size_t)n) {
             if (have_off) process_fd_seek(proc, (int)in_fd, old_off, SEEK_SET);
             process_file_put(pf_in);
             process_file_put(pf_out);
-            return total ? (int64_t)total : w;
+            return process_fd_write_flush(proc, (int)out_fd, (total + sent) ? (int64_t)(total + sent) : w);
         }
-        total += (size_t)w;
+        total += sent;
         if ((size_t)n < chunk) break;
     }
 
     if (have_off) {
         int64_t new_off = process_fd_seek(proc, (int)in_fd, 0, SEEK_CUR);
         if (copy_to_user((void *)offset, &new_off, sizeof(int64_t))) {
-            plogk("sys_sendfile: copy_to_user offset failed.\n");
             process_fd_seek(proc, (int)in_fd, old_off, SEEK_SET);
+            process_fd_write_flush(proc, (int)out_fd, (int64_t)total);
             process_file_put(pf_in);
             process_file_put(pf_out);
             return -EFAULT;
@@ -1483,15 +1489,8 @@ int64_t sys_sendfile_impl(uint64_t out_fd, uint64_t in_fd, uint64_t offset, uint
     }
     process_file_put(pf_in);
     process_file_put(pf_out);
-    return (int64_t)total;
+    return process_fd_write_flush(proc, (int)out_fd, (int64_t)total);
 }
-
-/* preadv / pwritev */
-
-typedef struct sys_iovec {
-        void  *iov_base;
-        size_t iov_len;
-} sys_iovec_t;
 
 /* preadv syscall */
 int64_t sys_preadv_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t offset, uint64_t arg4, uint64_t arg5)
@@ -1502,8 +1501,8 @@ int64_t sys_preadv_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t off
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    sys_iovec_t  inline_iov[16];
-    sys_iovec_t *vectors = inline_iov;
+    iovec_t  inline_iov[16];
+    iovec_t *vectors = inline_iov;
     if (iovcnt > 16) {
         vectors = malloc((size_t)iovcnt * sizeof(*vectors));
         if (!vectors) return -ENOMEM;
@@ -1549,8 +1548,8 @@ int64_t sys_pwritev_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t of
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    sys_iovec_t  inline_iov[16];
-    sys_iovec_t *vectors = inline_iov;
+    iovec_t  inline_iov[16];
+    iovec_t *vectors = inline_iov;
     if (iovcnt > 16) {
         vectors = malloc((size_t)iovcnt * sizeof(*vectors));
         if (!vectors) return -ENOMEM;
@@ -1573,18 +1572,18 @@ int64_t sys_pwritev_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t of
         if (!vectors[i].iov_len) continue;
         if (offset > UINT64_MAX - total) {
             if (vectors != inline_iov) free(vectors);
-            return total ? (int64_t)total : -EINVAL;
+            return process_fd_write_flush(proc, (int)fd, total ? (int64_t)total : -EINVAL);
         }
-        int64_t n = process_fd_pwrite_user(proc, (int)fd, vectors[i].iov_base, vectors[i].iov_len, offset + total);
+        int64_t n = process_fd_pwrite_user_deferred(proc, (int)fd, vectors[i].iov_base, vectors[i].iov_len, offset + total);
         if (n < 0) {
             if (vectors != inline_iov) free(vectors);
-            return total ? (int64_t)total : n;
+            return process_fd_write_flush(proc, (int)fd, total ? (int64_t)total : n);
         }
         total += (size_t)n;
         if ((size_t)n < vectors[i].iov_len) break;
     }
     if (vectors != inline_iov) free(vectors);
-    return (int64_t)total;
+    return process_fd_write_flush(proc, (int)fd, (int64_t)total);
 }
 
 /* preadv2 syscall */
@@ -1646,7 +1645,7 @@ int64_t sys_pidfd_send_signal_impl(uint64_t pidfd, uint64_t sig, uint64_t info, 
     (void)arg4;
     (void)arg5;
     if (flags) return -EINVAL;
-    if (pidfd >= PROCESS_MAX_FD) return -EBADF;
+    if (pidfd >= CONFIG_PROCESS_MAX_FD) return -EBADF;
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -1664,8 +1663,6 @@ int64_t sys_pidfd_send_signal_impl(uint64_t pidfd, uint64_t sig, uint64_t info, 
     process_file_put(pf);
     return ret;
 }
-
-/* process_vm_readv / process_vm_writev */
 
 /* process_vm_readv syscall: unsupported */
 int64_t sys_process_vm_readv_impl(uint64_t pid, uint64_t local_iov, uint64_t local_iovcnt, uint64_t remote_iov, uint64_t remote_iovcnt, uint64_t flags)
@@ -1690,8 +1687,6 @@ int64_t sys_process_vm_writev_impl(uint64_t pid, uint64_t local_iov, uint64_t lo
     if (flags) return -EINVAL;
     return -ENOSYS;
 }
-
-#include <process/namespace.h>
 
 /* unshare syscall */
 int64_t sys_unshare_impl(uint64_t unshare_flags, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1718,10 +1713,57 @@ int64_t sys_setns_impl(uint64_t fd, uint64_t nstype, uint64_t arg2, uint64_t arg
 int64_t sys_splice_impl(uint64_t fd_in, uint64_t off_in, uint64_t fd_out, uint64_t off_out, uint64_t len, uint64_t flags)
 {
     if (flags & ~6ULL) return -EINVAL;
+
     /* Simple fallback: read from fd_in, write to fd_out */
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (!len) return 0;
+
+    bool    have_off_in  = (off_in != 0);
+    bool    have_off_out = (off_out != 0);
+    int64_t saved_in = -1, saved_out = -1;
+    int64_t ret = 0;
+
+    if (have_off_in) {
+        int64_t user_in = 0;
+        if (copy_from_user(&user_in, (const void *)off_in, sizeof(user_in))) {
+            ret = -EFAULT;
+            goto done;
+        }
+        if (user_in < 0) {
+            ret = -EINVAL;
+            goto done;
+        }
+        saved_in = process_fd_seek(proc, (int)fd_in, 0, SEEK_CUR);
+        if (saved_in < 0) {
+            ret = saved_in;
+            goto done;
+        }
+        if (process_fd_seek(proc, (int)fd_in, user_in, SEEK_SET) < 0) {
+            ret = -EINVAL;
+            goto done;
+        }
+    }
+    if (have_off_out) {
+        int64_t user_out = 0;
+        if (copy_from_user(&user_out, (const void *)off_out, sizeof(user_out))) {
+            ret = -EFAULT;
+            goto done;
+        }
+        if (user_out < 0) {
+            ret = -EINVAL;
+            goto done;
+        }
+        saved_out = process_fd_seek(proc, (int)fd_out, 0, SEEK_CUR);
+        if (saved_out < 0) {
+            ret = saved_out;
+            goto done;
+        }
+        if (process_fd_seek(proc, (int)fd_out, user_out, SEEK_SET) < 0) {
+            ret = -EINVAL;
+            goto done;
+        }
+    }
 
     uint8_t buf[4096];
     size_t  total = 0;
@@ -1729,25 +1771,71 @@ int64_t sys_splice_impl(uint64_t fd_in, uint64_t off_in, uint64_t fd_out, uint64
         size_t chunk = len - total;
         if (chunk > sizeof(buf)) chunk = sizeof(buf);
         int64_t n = process_fd_read(proc, (int)fd_in, buf, chunk);
-        if (n < 0) return total ? (int64_t)total : n;
+        if (n < 0) {
+            ret = total ? (int64_t)total : n;
+            goto done;
+        }
         if (!n) break;
-        int64_t w = process_fd_write(proc, (int)fd_out, buf, (size_t)n);
-        if (w < 0) return total ? (int64_t)total : w;
-        total += (size_t)w;
+        int64_t w    = 0;
+        size_t  sent = 0;
+        while (sent < (size_t)n) {
+            w = process_fd_write_deferred(proc, (int)fd_out, buf + sent, (size_t)n - sent);
+            if (w <= 0) break;
+            sent += (size_t)w;
+        }
+
+        /* Give back the part of the chunk the output would not take, so the input offset matches the bytes copied; a pipe or socket input has no offset, so its refused tail is dropped. */
+        if (sent < (size_t)n) process_fd_seek(proc, (int)fd_in, -(int64_t)((size_t)n - sent), SEEK_CUR);
+        if (w <= 0 || sent < (size_t)n) {
+            ret = (total + sent) ? (int64_t)(total + sent) : w;
+            goto done;
+        }
+        total += sent;
         if ((size_t)n < chunk) break;
     }
-    (void)off_in;
-    (void)off_out;
-    return (int64_t)total;
+    ret = (int64_t)total;
+done:
+    ret = process_fd_write_flush(proc, (int)fd_out, ret);
+
+    /* Report the reached positions, then restore fd positions for explicit-offset callers */
+    if (have_off_in) {
+        int64_t pos = process_fd_seek(proc, (int)fd_in, 0, SEEK_CUR);
+        if (ret >= 0 && pos >= 0 && copy_to_user((void *)off_in, &pos, sizeof(pos))) ret = -EFAULT;
+        if (saved_in >= 0) process_fd_seek(proc, (int)fd_in, saved_in, SEEK_SET);
+    }
+    if (have_off_out) {
+        int64_t pos = process_fd_seek(proc, (int)fd_out, 0, SEEK_CUR);
+        if (ret >= 0 && pos >= 0 && copy_to_user((void *)off_out, &pos, sizeof(pos))) ret = -EFAULT;
+        if (saved_out >= 0) process_fd_seek(proc, (int)fd_out, saved_out, SEEK_SET);
+    }
+    return ret;
 }
 
-/* tee syscall */
+/* tee syscall: duplicate pipe content without consuming it */
 int64_t sys_tee_impl(uint64_t fd_in, uint64_t fd_out, uint64_t len, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
     (void)arg5;
-    if (flags) return -EINVAL;
-    return sys_splice_impl(fd_in, 0, fd_out, 0, len, 0);
+    if (flags & ~2ULL) return -EINVAL;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    process_file_t *pf_in  = process_fd_get(proc, (int)fd_in);
+    process_file_t *pf_out = process_fd_get(proc, (int)fd_out);
+    if (!pf_in || !pf_out) {
+        if (pf_in) process_file_put(pf_in);
+        if (pf_out) process_file_put(pf_out);
+        return -EBADF;
+    }
+
+    int64_t ret = -EINVAL;
+    if ((pf_in->node->type & file_pipe) && (pf_out->node->type & file_pipe)) {
+        uint64_t write_flags = (pf_out->flags & O_NONBLOCK) || (flags & 2ULL) ? O_NONBLOCK : 0;
+        ret                  = pipe_tee(pf_in->private_data, pf_out->private_data, (size_t)len, write_flags);
+    }
+    process_file_put(pf_in);
+    process_file_put(pf_out);
+    return ret;
 }
 
 /* vmsplice syscall: unsupported */
@@ -1762,18 +1850,6 @@ int64_t sys_vmsplice_impl(uint64_t fd, uint64_t iov, uint64_t nr_segs, uint64_t 
     return -ENOSYS;
 }
 
-/* ioprio_set syscall */
-int64_t sys_ioprio_set_impl(uint64_t which, uint64_t who, uint64_t ioprio, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)who;
-    (void)ioprio;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (which > 2) return -EINVAL;
-    return 0;
-}
-
 /* ioprio_get syscall */
 int64_t sys_ioprio_get_impl(uint64_t which, uint64_t who, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -1784,106 +1860,6 @@ int64_t sys_ioprio_get_impl(uint64_t which, uint64_t who, uint64_t arg2, uint64_
     (void)arg5;
     if (which > 2) return -EINVAL;
     return 4; // IOPRIO_DEFAULT
-}
-
-/* timer_create / settime / gettime / getoverrun / delete */
-
-/* timer_create syscall */
-int64_t sys_timer_create_impl(uint64_t clockid, uint64_t evp, uint64_t timerid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)clockid;
-    (void)evp;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (!timerid) return -EFAULT;
-
-    /* POSIX timers: return dummy timer id = 1 */
-    int32_t tid = 1;
-    if (copy_to_user((void *)timerid, &tid, sizeof(tid))) return -EFAULT;
-    return 0;
-}
-
-/* timer_settime syscall */
-int64_t sys_timer_settime_impl(uint64_t timerid, uint64_t flags, uint64_t new_value, uint64_t old_value, uint64_t arg4, uint64_t arg5)
-{
-    (void)timerid;
-    (void)flags;
-    (void)new_value;
-    (void)arg4;
-    (void)arg5;
-    if (old_value) {
-        linux_itimerval_t tv = {0};
-        if (copy_to_user((void *)old_value, &tv, sizeof(tv))) return -EFAULT;
-    }
-    return 0;
-}
-
-/* timer_gettime syscall */
-int64_t sys_timer_gettime_impl(uint64_t timerid, uint64_t curr_value, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)timerid;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (!curr_value) return -EFAULT;
-    linux_itimerval_t tv = {0};
-    return copy_to_user((void *)curr_value, &tv, sizeof(tv)) ? -EFAULT : 0;
-}
-
-/* timer_getoverrun syscall */
-int64_t sys_timer_getoverrun_impl(uint64_t timerid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)timerid;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 0;
-}
-
-/* timer_delete syscall */
-int64_t sys_timer_delete_impl(uint64_t timerid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)timerid;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 0;
-}
-
-/* syslog syscall */
-int64_t sys_syslog_impl(uint64_t type, uint64_t buf, uint64_t len, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)buf;
-    (void)len;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-
-    /*
-     * 0=close, 1=open, 2=read, 3=read_all, 4=read_clear, 5=clear,
-     * 6=disable, 7=enable, 8=set_level, 9=unread, 10=size
-     */
-    if (type == 10) return 0; // kernel log buffer size: 0
-    if (type <= 9) return 0;  // all operations accepted
-    return -EINVAL;
-}
-
-/* adjtimex syscall */
-int64_t sys_adjtimex_impl(uint64_t txc, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)txc;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 0; // clock synchronized, no adjustment needed
 }
 
 /* settimeofday syscall */
@@ -1902,59 +1878,9 @@ int64_t sys_settimeofday_impl(uint64_t tv, uint64_t tz, uint64_t arg2, uint64_t 
     } timeval;
 
     if (copy_from_user(&timeval, (const void *)tv, sizeof(timeval))) return -EFAULT;
-    timer_realtime_set_ns(timeval.tv_sec * 1000000000LL + timeval.tv_usec * 1000LL);
+    timer_realtime_set_ns((timeval.tv_sec * 1000000000LL) + (timeval.tv_usec * 1000LL));
     return 0;
 }
-
-/* clock_adjtime syscall */
-int64_t sys_clock_adjtime_impl(uint64_t clockid, uint64_t txc, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)clockid;
-    (void)txc;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 0;
-}
-
-/* acct syscall: accepted as no-op */
-int64_t sys_acct_impl(uint64_t filename, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)filename;
-    (void)arg1;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return 0; // process accounting: accept but do nothing
-}
-
-/*
- * security / vserver / uselib / ustat / sysfs / vhangup / modify_ldt /
- * pivot_root / _sysctl / iopl / ioperm / create_module / get_kernel_syms /
- * query_module / quotactl / nfsservctl / getpmsg / putpmsg / afs_syscall /
- * tuxcall / lookup_dcookie / remap_file_pages / kexec_load /
- * add_key / request_key / keyctl / migrate_pages / move_pages /
- * mbind / set_mempolicy / get_mempolicy / name_to_handle_at /
- * open_by_handle_at / setns / kexec_file_load / seccomp / bpf /
- * userfaultfd / io_uring_setup / io_uring_enter / io_uring_register /
- * open_tree / move_mount / fsopen / fsconfig / fsmount / fspick /
- * fanotify_init / fanotify_mark / get_thread_area / set_thread_area /
- * io_setup / io_destroy / io_getevents / io_submit / io_cancel
- *
- * These are either deprecated, highly complex, or require kernel subsystems
- * that don't exist yet.  They remain as sys_stub (return -ENOSYS).
- * See syscall.c for the table entries.
- */
-
-/* openat2 syscall: openat with an extensible how argument */
-
-typedef struct open_how {
-        uint64_t flags;
-        uint64_t mode;
-        uint64_t resolve;
-} open_how_t;
 
 /* openat2 syscall: openat with an extensible how argument */
 int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t usize, uint64_t arg4, uint64_t arg5)
@@ -1974,11 +1900,11 @@ int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t u
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    char input[VFS_PATH_MAX];
+    char input[CONFIG_VFS_PATH_MAX];
     int  ret = copy_path_from_user(path, input);
     if (ret) return ret;
 
-    char resolved[VFS_PATH_MAX];
+    char resolved[CONFIG_VFS_PATH_MAX];
     ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
     if (ret) return ret;
 
@@ -1989,17 +1915,14 @@ int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t u
     return process_fd_install(proc, node, oh.flags);
 }
 
-/*
- * pidfd_getfd (438)
- * Get a duplicate of another process's file descriptor via pidfd.
- */
+/* pidfd_getfd (438) Get a duplicate of another process's file descriptor via pidfd. */
 int64_t sys_pidfd_getfd_impl(uint64_t pidfd, uint64_t targetfd, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
     (void)arg4;
     (void)arg5;
     if (flags) return -EINVAL;
-    if (pidfd >= PROCESS_MAX_FD || targetfd >= PROCESS_MAX_FD) return -EBADF;
+    if (pidfd >= CONFIG_PROCESS_MAX_FD || targetfd >= CONFIG_PROCESS_MAX_FD) return -EBADF;
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;

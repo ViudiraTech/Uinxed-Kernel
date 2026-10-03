@@ -9,7 +9,9 @@
  */
 
 #include <fs/isofs/isofs.h>
-#include <libs/std/stdint.h>
+#include <libs/util/byteorder.h>
+
+#if CONFIG_ISO9660_FS
 
 static int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
@@ -61,7 +63,11 @@ uint64_t isofs_date_to_unix(const uint8_t *p, int flags)
         hour   = p[3];
         minute = p[4];
         second = p[5];
-        tz     = (flags & ISO_DATE_HIGH_SIERRA) ? 0 : (p[6] < 128 ? (int)p[6] : (int)p[6] - 256);
+        if (flags & ISO_DATE_HIGH_SIERRA) {
+            tz = 0;
+        } else {
+            tz = (p[6] < 128) ? (int)p[6] : (int)p[6] - 256;
+        }
     }
 
     if (year < 0) return 0;
@@ -70,3 +76,53 @@ uint64_t isofs_date_to_unix(const uint8_t *p, int flags)
 
     return ts;
 }
+
+/* ISO 9660 byte-order read helpers */
+uint8_t isonum_711(const uint8_t *p)
+{
+    return *p;
+}
+
+/* Read a signed 8-bit ISO9660 integer. */
+int8_t isonum_712(const int8_t *p)
+{
+    return *p;
+}
+
+/* Read a little-endian 16-bit ISO9660 integer. */
+uint16_t isonum_721(const uint8_t *p)
+{
+    return load_le16(p);
+}
+
+/* Read a big-endian 16-bit ISO9660 integer. */
+uint16_t isonum_722(const uint8_t *p)
+{
+    return load_be16(p);
+}
+
+/* Read a 16-bit ISO9660 integer (both endiannesses). */
+uint16_t isonum_723(const uint8_t *p)
+{
+    return isonum_721(p);
+}
+
+/* Read a little-endian 32-bit ISO9660 integer. */
+uint32_t isonum_731(const uint8_t *p)
+{
+    return load_le32(p);
+}
+
+/* Read a big-endian 32-bit ISO9660 integer. */
+uint32_t isonum_732(const uint8_t *p)
+{
+    return load_be32(p);
+}
+
+/* Read a 32-bit ISO9660 integer (both endiannesses). */
+uint32_t isonum_733(const uint8_t *p)
+{
+    return isonum_731(p);
+}
+
+#endif

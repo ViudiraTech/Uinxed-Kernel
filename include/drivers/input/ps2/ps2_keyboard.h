@@ -13,7 +13,6 @@
 
 #include <drivers/input/input_event.h>
 #include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
 
 typedef struct {
         uint8_t pause_index;

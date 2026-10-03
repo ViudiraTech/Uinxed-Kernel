@@ -12,12 +12,17 @@
 #define INCLUDE_USB_STORAGE_H_
 
 #include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 #define USB_MSC_CBW_SIGNATURE 0x43425355U
 #define USB_MSC_CSW_SIGNATURE 0x53425355U
 #define USB_MSC_CBW_FLAG_IN   0x80
+
+/* Class, subclass and class-specific requests (USB MSC / BOT) */
+#define USB_MSC_SUBCLASS_SCSI 0x06
+#define USB_MSC_PROTOCOL_BOT  0x50
+#define USB_MSC_REQ_RESET     0xff
+#define USB_MSC_REQ_MAX_LUN   0xfe
 
 typedef struct __attribute__((packed)) {
         uint32_t signature;

@@ -4,7 +4,7 @@
  *      Filesystem transaction and write-ahead-log coordination
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -12,10 +12,8 @@
 #define INCLUDE_FS_TXN_H_
 
 #include <drivers/block/core/blockdev.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
+#include <sync/mutex.h>
 
 #define FS_TXN_METADATA     0x0001U
 #define FS_TXN_ORDERED_DATA 0x0002U
@@ -46,19 +44,11 @@ typedef struct fs_txn_log {
         int                         last_error;
         int                         transaction_active;
 
-        /*
-         * Sleepable log mutex.  fs_txn_commit() performs real disk I/O
-         * (blockdev_write_bytes / blockdev_flush) that may complete by
-         * interrupt; a spinlock would mask IRQs and deadlock the CPU on such
-         * a device.  The busy flag is guarded by the brief guard spinlock and
-         * contention sleeps on the two-phase wait queue (the vfs_ns_lock()
-         * pattern).  All fs_txn callers are process context, so sleeping is
-         * legal; the lock is held across the whole commit so no concurrent
-         * reader/writer can bypass to the device mid-commit.
-         */
-        spinlock_t   guard;
-        bool         busy;
-        wait_queue_t wq;
+        /* Sleepable log mutex, held across a whole commit so no reader/writer can bypass to the device mid-commit. */
+        mutex_t lock;
+
+        /* Published-transaction flag, guarded by lock; claimers wait on claim_wait for it to clear. */
+        wait_queue_t claim_wait;
 } fs_txn_log_t;
 
 typedef struct fs_txn {
@@ -103,20 +93,24 @@ int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data,
 int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t size);
 
 /*
- * The four *_active helpers serve a block/byte-range I/O through the
- * volume's currently-active transaction, if any.  The active-transaction
- * pointer is read and the transaction's buffer list is walked under the log
- * lock, so a concurrent commit/abort cannot clear the pointer and free the
- * buffers while they are in use.  Each returns 0 when no transaction is
- * active (the caller must fall back to a direct device I/O), 1 when the
- * request was served, or a negative errno.  The active-transaction pointer
- * is the fs-private field published by the filesystem (e.g. extfs
- * sb->active_transaction); the filesystem must update it under the same log
+ * The four *_active helpers serve a block/byte-range I/O through the volume's
+ * currently-active transaction, if any.  The active-transaction pointer is read
+ * and the transaction's buffer list is walked under the log lock, so a
+ * concurrent commit/abort cannot clear the pointer and free the buffers while
+ * they are in use.  Each returns 0 when no transaction is active (the caller
+ * must fall back to a direct device I/O), 1 when the request was served, or a
+ * negative errno.  The filesystem must update the pointer under the same log
  * lock in its begin/commit/abort paths.
  */
 int fs_txn_read_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t home_block, void *data);
+
+/* Filesystem transaction stage active. */
 int fs_txn_stage_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t home_block, const void *data, uint32_t flags);
+
+/* Filesystem transaction read bytes active. */
 int fs_txn_read_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t offset, void *data, size_t size);
+
+/* Filesystem transaction stage bytes active. */
 int fs_txn_stage_bytes_active(fs_txn_log_t *log, fs_txn_t **active_pp, uint64_t offset, const void *data, size_t size, uint32_t flags);
 
 /* Commit the transaction and write the metadata to its home blocks. */
@@ -127,5 +121,8 @@ void fs_txn_abort(fs_txn_t *transaction, int error);
 
 /* Return the last error recorded on the log. */
 int fs_txn_log_error(const fs_txn_log_t *log);
+
+/* Mark the log aborted after an I/O error, so later transactions fail fast with the recorded error. */
+void fs_txn_log_abort(fs_txn_log_t *log, int error);
 
 #endif // INCLUDE_FS_TXN_H_

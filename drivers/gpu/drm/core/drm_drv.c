@@ -10,32 +10,26 @@
 
 #include <drivers/base/device.h>
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/tty.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/sysfs/drm_sysfs.h>
-#include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/list/intrusive_list.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <sync/spin_lock.h>
 
-/* Forward: DRM class (registered once by drm_init) */
+#if CONFIG_DRM
 
 /* Minor allocator - per-type bitmaps for indices 0..DRM_MAX_MINOR-1 */
-
 static uint64_t   drm_minor_bitmap_primary;
 static uint64_t   drm_minor_bitmap_render;
 static uint64_t   drm_minor_bitmap_accel;
 static spinlock_t drm_minor_lock = {.lock = 0, .rflags = 0};
+
+/* DRM dev unplug. */
+static void drm_dev_unplug(struct drm_device *dev);
 
 /* Allocate the lowest free minor index of the given type. */
 int drm_minor_alloc(int type)
@@ -53,7 +47,6 @@ int drm_minor_alloc(int type)
             bm = &drm_minor_bitmap_accel;
             break;
         default :
-            DRM_ERROR("Minor alloc failed: invalid minor type %d\n", type);
             return -EINVAL;
     }
 
@@ -96,13 +89,6 @@ void drm_minor_free(int type, int index)
     spin_unlock(&drm_minor_lock);
 }
 
-/* drm_master type is defined in <drivers/gpu/drm/drm_device.h> */
-
-/* Forward declarations for cross-file helpers (defined in drm_file.c) */
-
-struct drm_file *drm_file_alloc(struct drm_device *dev);
-void             drm_file_free(struct drm_file *file);
-
 /* drm_dev_alloc - allocate and zero-initialize a drm_device */
 struct drm_device *drm_dev_alloc(struct drm_driver *driver)
 {
@@ -110,10 +96,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     struct drm_minor  *minor;
     int                ret;
 
-    if (!driver) {
-        DRM_ERROR("dev_alloc called with NULL driver.\n");
-        return NULL;
-    }
+    if (!driver) return NULL;
 
     dev = malloc(sizeof(*dev));
     if (!dev) {
@@ -128,7 +111,6 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     dev->refcount               = 1; // caller's reference
 
     /* All spinlocks are zero-initialized by memset above (unlocked state). */
-
     ilist_init(&dev->filelist);
 
     /*
@@ -231,7 +213,7 @@ static void drm_register_dri_node(struct drm_device *dev, struct drm_minor *mino
 {
     char               path[64];
     tmpfs_device_ops_t ops;
-    uint64_t           devt;
+    dev_t              devt;
     int                ret;
 
     if (!minor || !node_marker) return;
@@ -260,17 +242,13 @@ static void drm_register_dri_node(struct drm_device *dev, struct drm_minor *mino
 int drm_dev_register(struct drm_device *dev, uint64_t flags)
 {
     (void)flags;
-    if (!dev) {
-        DRM_ERROR("dev_register called with NULL device.\n");
-        return -EINVAL;
-    }
+    if (!dev) return -EINVAL;
 
     /*
      * mode_config bounds are set by drm_mode_config_init() and may have been
      * pinned by the driver's KMS setup (e.g. simpledrm pins min==max to the
      * native framebuffer). Do not overwrite them here.
      */
-
     if (dev->driver && (dev->driver->driver_features & DRIVER_MODESET)) {
         /*
          * Enable polling for KMS devices; the remaining mode_config defaults
@@ -295,6 +273,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     /* Register /dev/dri/renderDN if the driver supports rendering. */
     if (dev->render && dev->driver && (dev->driver->driver_features & DRIVER_RENDER)) {
         drm_register_dri_node(dev, dev->render, 128, &dev->dev_node_renderD);
+
         /*
          * Mirror the render node under /sys/class/drm/ (renderD128+N), but
          * only when the /dev/dri node itself was actually registered.
@@ -319,9 +298,8 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     /*
      * Publish the device to the core device list (looked up by minor for
      * /dev/dri opens and iterated by the vblank emulation timer).  Done by
-     * the core, exactly like drm_dev_register() in Linux, so GPU drivers
-     * only call drm_dev_alloc()/drm_dev_register() and never touch the
-     * list themselves.
+     * the core, so GPU drivers only call drm_dev_alloc()/drm_dev_register()
+     * and never touch the list themselves.
      */
     drm_device_list_add(dev);
 
@@ -353,6 +331,7 @@ void drm_kms_console_handoff(struct drm_device *dev, struct drm_framebuffer *fb)
 void drm_dev_unregister(struct drm_device *dev)
 {
     if (!dev) return;
+    drm_dev_unplug(dev);
     drm_dev_put(dev);
 }
 
@@ -430,10 +409,7 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
 {
     int ret;
 
-    if (!dev || !file) {
-        DRM_ERROR("Open failed: NULL device or file.\n");
-        return -EINVAL;
-    }
+    if (!dev || !file) return -EINVAL;
 
     /*
      * Acquire a reference to the device for the lifetime of this
@@ -499,7 +475,7 @@ void drm_release(struct drm_file *file)
     struct drm_device *dev;
 
     if (!file) return;
-    dev = (struct drm_device *)file->dev;
+    dev = file->dev;
 
     /*
      * Block new nonblocking commits before framebuffer/GEM teardown and wait
@@ -596,3 +572,5 @@ void drm_release(struct drm_file *file)
     /* Release the device reference acquired in drm_open. */
     if (dev) drm_dev_put(dev);
 }
+
+#endif

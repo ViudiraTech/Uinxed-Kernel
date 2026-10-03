@@ -17,12 +17,55 @@
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_rect.h>
-#include <libs/list/intrusive_list.h>
-#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
+
+/* Driver */
+
+#define DRIVER_MODESET          BIT0_
+#define DRIVER_ATOMIC           BIT1_
+#define DRIVER_GEM              BIT2_
+#define DRIVER_PRIME            BIT3_
+#define DRIVER_RENDER           BIT4_
+#define DRIVER_SYNCOBJ          BIT5_
+#define DRIVER_SYNCOBJ_TIMELINE BIT6_
+#define DRIVER_GEM_GPUVA        BIT7_
+
+/*
+ * The driver's page-flip callback returns only after scanout has been
+ * updated.  The atomic core may run that callback on its commit worker;
+ * normal completion events are still paced by vblank.
+ */
+#define DRIVER_SYNCHRONOUS_FLIP BIT8_
+
+/* Project-internal feature bit shims (kept local to avoid polluting common.h). */
+#define BIT0_ (1U << 0)
+#define BIT1_ (1U << 1)
+#define BIT2_ (1U << 2)
+#define BIT3_ (1U << 3)
+#define BIT4_ (1U << 4)
+#define BIT5_ (1U << 5)
+#define BIT6_ (1U << 6)
+#define BIT7_ (1U << 7)
+#define BIT8_ (1U << 8)
+
+/* ioctl permission flags */
+#define DRM_AUTH      0x1
+#define DRM_MASTER    0x2
+#define DRM_ROOT_ONLY 0x4
+#define DRM_UNLOCKED  0x8
+
+/* DRM_MAJOR */
+#define DRM_MAJOR 226
+
+/*
+ * Minor type values; 32 is spaced to leave room for more minor types.
+ * CONTROL is unused here and accel is not yet implemented.
+ */
+#define DRM_MINOR_PRIMARY 0
+#define DRM_MINOR_RENDER  2
+#define DRM_MINOR_ACCEL   32
+#define DRM_MAX_MINOR     64
 
 /* Forward declarations */
 
@@ -185,15 +228,6 @@ struct drm_mode_object {
         struct drm_property_set *properties; // optional per-object property set
 };
 
-/* Generic object lookup by id+type. Returns NULL if not found. */
-struct drm_mode_object *drm_mode_object_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id, uint32_t type);
-
-/* Increment the object reference count. */
-void drm_mode_object_get(struct drm_mode_object *obj);
-
-/* Drop a reference; frees the object when it reaches zero. */
-void drm_mode_object_put(struct drm_mode_object *obj);
-
 struct drm_property_enum {
         uint64_t     value;
         char         name[DRM_PROP_NAME_LEN];
@@ -248,10 +282,7 @@ struct drm_display_mode {
         ilist_node_t usermode_head;
 };
 
-/* KMS object forward structures (minimal; full defs in their headers) */
-
 /* CRTC helper funcs - stored in crtc->helper_private */
-
 struct drm_crtc_helper_funcs {
         /* Called after a mode has been set on the CRTC */
         void (*mode_set)(struct drm_crtc *crtc, struct drm_framebuffer *fb);
@@ -438,15 +469,9 @@ struct drm_connector {
         uint32_t  possible_encoders_count;
         uint32_t *possible_encoders_ids;
 
-        /*
-         * Sysfs class device (/sys/class/drm/cardN-<type>-<id>), for removal
-         * during connector cleanup.
-         */
+        /* Sysfs class device (/sys/class/drm/cardN-<type>-<id>), for removal during connector cleanup. */
         struct device *kdev;
 };
-
-/* Map a DRM_MODE_CONNECTOR_* value to its Linux connector name ("Virtual", ...). */
-const char *drm_connector_type_name(uint32_t type);
 
 struct drm_framebuffer_funcs {
         int (*dirty)(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips);
@@ -543,6 +568,7 @@ struct drm_gem_object {
         void              *import_attach;    // attached dma-buf attachment (for PRIME import)
         void              *dma_buf;          // dma-buf (for PRIME export)
         int                prime_fd;         // assigned PRIME fd, -1 if none
+        uint32_t           flink_name;       // global flink name, 0 if not flinked
         struct drm_gem_object_funcs_placeholder {
                 int dummy;
         } funcs_placeholder;
@@ -618,45 +644,11 @@ struct drm_mode_config {
         uint64_t     commit_queue_done;
 };
 
-/* Driver */
-
-#define DRIVER_MODESET          BIT0_
-#define DRIVER_ATOMIC           BIT1_
-#define DRIVER_GEM              BIT2_
-#define DRIVER_PRIME            BIT3_
-#define DRIVER_RENDER           BIT4_
-#define DRIVER_SYNCOBJ          BIT5_
-#define DRIVER_SYNCOBJ_TIMELINE BIT6_
-#define DRIVER_GEM_GPUVA        BIT7_
-/*
- * The driver's page-flip callback returns only after scanout has been
- * updated.  The atomic core may run that callback on its commit worker;
- * normal completion events are still paced by vblank.
- */
-#define DRIVER_SYNCHRONOUS_FLIP BIT8_
-
-/* Project-internal feature bit shims (kept local to avoid polluting common.h). */
-#define BIT0_ (1U << 0)
-#define BIT1_ (1U << 1)
-#define BIT2_ (1U << 2)
-#define BIT3_ (1U << 3)
-#define BIT4_ (1U << 4)
-#define BIT5_ (1U << 5)
-#define BIT6_ (1U << 6)
-#define BIT7_ (1U << 7)
-#define BIT8_ (1U << 8)
-
 struct drm_ioctl_desc {
         unsigned int cmd;
         int (*func)(struct drm_device *dev, void *data, struct drm_file *file_priv);
         unsigned int flags;
 };
-
-/* ioctl permission flags */
-#define DRM_AUTH      0x1
-#define DRM_MASTER    0x2
-#define DRM_ROOT_ONLY 0x4
-#define DRM_UNLOCKED  0x8
 
 struct drm_driver {
         const char *name;
@@ -806,18 +798,17 @@ struct drm_minor {
         char              *device_node_name; // e.g. "card0"
 };
 
-/* Linux include/linux/major.h: DRM_MAJOR 226. */
-#define DRM_MAJOR 226
+/* Generic object lookup by id+type. Returns NULL if not found. */
+struct drm_mode_object *drm_mode_object_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id, uint32_t type);
 
-/*
- * Minor type values mirror enum drm_minor_type in include/drm/drm_file.h
- * (PRIMARY=0, CONTROL=1, RENDER=2, ACCEL=32; 32 is spaced to leave room for
- * more minor types). CONTROL is unused here and accel is not yet implemented.
- */
-#define DRM_MINOR_PRIMARY 0
-#define DRM_MINOR_RENDER  2
-#define DRM_MINOR_ACCEL   32
-#define DRM_MAX_MINOR     64
+/* Increment the object reference count. */
+void drm_mode_object_get(struct drm_mode_object *obj);
+
+/* Drop a reference; frees the object when it reaches zero. */
+void drm_mode_object_put(struct drm_mode_object *obj);
+
+/* Map a DRM_MODE_CONNECTOR_* value to its canonical connector name ("Virtual", ...). */
+const char *drm_connector_type_name(uint32_t type);
 
 /* Allocate a free /dev/dri minor of the given type. */
 int drm_minor_alloc(int type);
@@ -923,17 +914,27 @@ int                         drm_mode_config_init(struct drm_device *dev);
 int                         drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs);
 void                        drm_handle_vblank(struct drm_device *dev, unsigned int pipe);
-void                        drm_vblank_tick(void);
-bool                        drm_vblank_deferred_due(uint64_t monotonic_ns);
-void                        drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
-void                        drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
-uint32_t                    drm_crtc_vblank_count(struct drm_crtc *crtc);
-int                         drm_crtc_vblank_get(struct drm_crtc *crtc);
-void                        drm_crtc_vblank_put(struct drm_crtc *crtc);
-void                        drm_crtc_vblank_on(struct drm_crtc *crtc);
-void                        drm_crtc_vblank_off(struct drm_crtc *crtc);
-void                        drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_priv);
-void                        drm_vblank_cleanup(struct drm_device *dev);
+
+#if CONFIG_DRM
+void drm_vblank_tick(void);
+bool drm_vblank_deferred_due(uint64_t monotonic_ns);
+#else
+static inline void drm_vblank_tick(void) {}
+static inline bool drm_vblank_deferred_due(uint64_t)
+{
+    return false;
+}
+#endif
+
+void     drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
+void     drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
+uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc);
+int      drm_crtc_vblank_get(struct drm_crtc *crtc);
+void     drm_crtc_vblank_put(struct drm_crtc *crtc);
+void     drm_crtc_vblank_on(struct drm_crtc *crtc);
+void     drm_crtc_vblank_off(struct drm_crtc *crtc);
+void     drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_priv);
+void     drm_vblank_cleanup(struct drm_device *dev);
 
 /* Capability ioctl handlers. */
 int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv);
@@ -974,9 +975,11 @@ void drm_crtc_cleanup(struct drm_crtc *crtc);
 int  drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void *funcs, int encoder_type, const char *name);
 int  drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t possible_crtcs, void *funcs, const uint32_t *formats, unsigned int format_count, const uint64_t *modifiers,
                     enum drm_plane_type type, const char *name);
+
+/* DRM plane cleanup. */
 void drm_plane_cleanup(struct drm_plane *plane);
 
-/* Can this plane scan out the given fourcc format? */
+/* Whether the plane can scan out the given fourcc format. */
 bool drm_plane_format_supported(const struct drm_plane *plane, uint32_t format);
 void drm_connector_cleanup(struct drm_connector *connector);
 int  drm_connector_init(struct drm_device *dev, struct drm_connector *connector, void *funcs, int connector_type);

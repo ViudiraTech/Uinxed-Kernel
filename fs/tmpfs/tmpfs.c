@@ -8,6 +8,7 @@
  *
  */
 
+#include <fs/core/vfs_stub.h>
 #include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -17,6 +18,8 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <process/uaccess.h>
+
+#define TMPFS_USER_IO_CHUNK PAGE_4K_SIZE
 
 int        tmpfs_id    = 0;
 static int devtmpfs_id = 0;
@@ -205,12 +208,12 @@ static int tmpfs_allocate_page_locked(tmpfs_file_t *f, size_t index)
     if (status != EOK) return status;
     if (!f->pages[index]) {
         /*
-         * This runs with data_lock held.  Ordinary alloc_frames() may enter
-         * swap reclaim, whose file backend can re-enter tmpfs and wait on the
-         * same inode lock forever.  A filesystem backend must fail the write
-         * instead of recursing into reclaim while its inode is locked.
+         * This runs with data_lock held.  Allocation never enters swap
+         * reclaim -- reclaim is driven explicitly by the caller -- so it
+         * cannot re-enter tmpfs through the swap file backend and wait on
+         * this same inode lock.
          */
-        uint64_t frame = alloc_frames_noreclaim(1);
+        uint64_t frame = alloc_frames(1);
         if (!frame) return -ENOMEM;
 
         uint8_t *page = phys_to_virt(frame);
@@ -235,7 +238,6 @@ static size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t si
     if (!f || (!addr && size)) return 0;
     if (f->device.write) return f->device.write(f->device.ctx, addr, offset, size);
     if (!size) return 0;
-
     if (offset > SIZE_MAX - size) return 0;
     size_t end = offset + size;
     spin_lock(&f->data_lock);
@@ -248,7 +250,7 @@ static size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t si
 
         int status = tmpfs_allocate_page_locked(f, page);
         if (status != EOK) {
-            plogk("tmpfs: Page allocation failed at offset %lu (%d)\n", (unsigned long)(offset + done), status);
+            plogk("tmpfs: Page allocation failed at offset %zu (%d)\n", offset + done, status);
             spin_unlock(&f->data_lock);
             return done;
         }
@@ -468,13 +470,6 @@ int tmpfs_free(void *handle)
     return EOK;
 }
 
-/* No-op for legacy VFS callbacks that need no implementation. */
-void tmpfs_dummy(void)
-{
-}
-
-/* Per-open-instance callbacks, delegating to the device ops. */
-
 /* Delegate per-open allocation to the device ops. */
 static int tmpfs_file_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
@@ -540,15 +535,12 @@ static int64_t tmpfs_file_write(vfs_node_t node, void *private_data, uint64_t fl
     return result;
 }
 
-#define TMPFS_USER_IO_CHUNK PAGE_4K_SIZE
-
 /* Delegate per-open user-buffer read to the device ops. */
 static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc)
 {
     tmpfs_file_t *f = node->handle;
     if (!f) return -EINVAL;
     if (f->device.file_read_user) return f->device.file_read_user(f->device.ctx, private_data, flags, addr, offset, size, proc);
-
     if (!size) return 0;
 
     size_t   capacity = size < TMPFS_USER_IO_CHUNK ? size : TMPFS_USER_IO_CHUNK;
@@ -657,11 +649,11 @@ static int tmpfs_file_ioctl(vfs_node_t node, void *private_data, uint64_t flags,
 static struct vfs_callback tmpfs_callbacks = {
     .mount                 = tmpfs_mount,
     .unmount               = tmpfs_umount,
-    .open                  = (vfs_open_t)tmpfs_dummy,
-    .close                 = (vfs_close_t)tmpfs_dummy,
+    .open                  = vfs_stub_open,
+    .close                 = vfs_stub_close,
     .read                  = tmpfs_read,
     .write                 = tmpfs_write,
-    .readlink              = (vfs_readlink_t)tmpfs_dummy,
+    .readlink              = vfs_stub_readlink,
     .mkdir                 = tmpfs_mkdir,
     .mkfile                = tmpfs_mkfile,
     .link                  = tmpfs_link,
@@ -690,27 +682,30 @@ static struct vfs_callback tmpfs_callbacks = {
 /* Register tmpfs with the VFS layer (initialize tmpfs) */
 void tmpfs_regist(void)
 {
-    tmpfs_id = vfs_regist_fs_flags("tmpfs", &tmpfs_callbacks, VFS_FS_NODEV);
+    tmpfs_id = vfs_regist_fs_flags("tmpfs", &tmpfs_callbacks, VFS_FS_NODEV | VFS_FS_DEVICE_NODES);
     if (!(tmpfs_id & ERRNO_MASK)) plogk("tmpfs: Filesystem registered (fsid=%d)\n", tmpfs_id);
-    if (tmpfs_id & ERRNO_MASK) plogk("tmpfs: Register error.\n");
+    if (tmpfs_id & ERRNO_MASK) plogk("tmpfs: Register error (%d)\n", tmpfs_id);
 
     /*
      * devtmpfs uses tmpfs storage and device callbacks, but is a distinct
      * mount type in the userspace ABI (/proc/filesystems and mountinfo).
      */
-    devtmpfs_id = vfs_regist_fs_flags("devtmpfs", &tmpfs_callbacks, VFS_FS_NODEV);
+    devtmpfs_id = vfs_regist_fs_flags("devtmpfs", &tmpfs_callbacks, VFS_FS_NODEV | VFS_FS_DEVICE_NODES);
     if (!(devtmpfs_id & ERRNO_MASK)) plogk("devtmpfs: Filesystem registered (fsid=%d)\n", devtmpfs_id);
-    if (devtmpfs_id & ERRNO_MASK) plogk("devtmpfs: Register error.\n");
+    if (devtmpfs_id & ERRNO_MASK) plogk("devtmpfs: Register error (%d)\n", devtmpfs_id);
 
-    /* Virtual filesystems that systemd expects to mount. They are all
+    /*
+     * Virtual filesystems that systemd expects to mount. They are all
      * memory-backed and can be backed by tmpfs for the purposes of
      * providing a mount point. Register them as distinct types so
      * `mount -t securityfs` etc succeeds and shows the correct type in
-     * /proc/filesystems and /proc/mounts. */
-    const char *virt_fs[] = {"securityfs", "selinuxfs", "bpf", "bpffs", "debugfs", "tracefs", "hugetlbfs", "mqueue", "fusectl", "configfs", "binfmt_misc", "autofs", "efivarfs", "ramfs", "devpts", "pstore", "cgroup", "nsfs", "overlay", "fuse"};
+     * /proc/filesystems and /proc/mounts.
+     */
+    const char *virt_fs[] = {"securityfs",  "selinuxfs", "bpf",      "bpffs", "debugfs", "tracefs", "hugetlbfs", "mqueue", "fusectl", "configfs",
+                             "binfmt_misc", "autofs",    "efivarfs", "ramfs", "devpts",  "pstore",  "cgroup",    "nsfs",   "overlay", "fuse"};
     for (size_t i = 0; i < sizeof(virt_fs) / sizeof(virt_fs[0]); i++) {
         int id = vfs_regist_fs_flags(virt_fs[i], &tmpfs_callbacks, VFS_FS_NODEV);
-        if (id & ERRNO_MASK) plogk("tmpfs: alias %s register failed\n", virt_fs[i]);
+        if (id & ERRNO_MASK) plogk("tmpfs: alias %s register failed (%d)\n", virt_fs[i], id);
     }
 }
 
@@ -726,6 +721,20 @@ int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_op
     handle->node_type = node_type;
     node->type        = node_type;
     node->flags |= VFS_NODE_NOCACHE;
+    return EOK;
+}
+
+/* Detach device operations from a tmpfs file node, leaving the context to the caller. */
+int tmpfs_unbind_device(vfs_node_t node)
+{
+    tmpfs_file_t *handle;
+
+    if (!node || !node->handle) return -EINVAL;
+    handle            = node->handle;
+    handle->device    = (tmpfs_device_ops_t) {0};
+    handle->node_type = file_none;
+    node->type        = file_none;
+    node->flags &= ~VFS_NODE_NOCACHE;
     return EOK;
 }
 

@@ -17,6 +17,8 @@
 #include <mem/buddy.h>
 #include <sync/spin_lock.h>
 
+_Static_assert(CONFIG_FRAME_PCP_HIGH >= CONFIG_FRAME_PCP_BATCH, "per-CPU frame cache must hold one full drain batch");
+
 typedef struct {
         buddy_allocator_t buddy;
         size_t            frame_count;
@@ -30,7 +32,7 @@ typedef struct {
         size_t   total_frames;
         size_t   free_frames;
         size_t   metadata_frames;
-        size_t   free_blocks[BUDDY_MAX_ORDER + 1];
+        size_t   free_blocks[CONFIG_BUDDY_MAX_ORDER + 1];
         unsigned max_order;
 } frame_stats_t;
 
@@ -42,9 +44,6 @@ void init_frame(void);
 
 /* Allocate memory frames */
 uint64_t alloc_frames(size_t count);
-
-/* Allocate frames without entering swap reclaim from a locked caller. */
-uint64_t alloc_frames_noreclaim(size_t count);
 
 /* Reclaim pages under the frame allocator's recursion guard. */
 int frame_reclaim_pages(size_t target);

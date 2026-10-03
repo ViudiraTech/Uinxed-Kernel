@@ -11,19 +11,21 @@
 #ifndef INCLUDE_VIRTGPU_DRV_H_
 #define INCLUDE_VIRTGPU_DRV_H_
 
-#include <drivers/bus/pci.h>
 #include <drivers/bus/virtpci.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_print.h>
+#include <drivers/gpu/drm/virtio/virtgpu_format.h>
+#include <drivers/gpu/drm/virtio/virtgpu_gem.h>
+#include <drivers/gpu/drm/virtio/virtgpu_kms.h>
+#include <drivers/gpu/drm/virtio/virtgpu_vq.h>
 #include <kernel/errno.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
-#include <process/task.h>
-#include <sync/spin_lock.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <process/sched.h>
+#include <process/uaccess.h>
+#include <sync/mutex.h>
 
 /* VirtIO GPU feature bits */
 
@@ -33,8 +35,109 @@
 #define VIRTIO_GPU_F_RESOURCE_BLOB 3
 #define VIRTIO_GPU_F_CONTEXT_INIT  4
 
-/* VirtIO GPU protocol: command types (8-bit) */
+/* VirtIO GPU pixel formats (byte-order in memory, little-endian) */
 
+#define VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM 1
+#define VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM 2
+#define VIRTIO_GPU_FORMAT_A8R8G8B8_UNORM 3
+#define VIRTIO_GPU_FORMAT_X8R8G8B8_UNORM 4
+#define VIRTIO_GPU_FORMAT_B5G6R5_UNORM   7
+#define VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM 67
+#define VIRTIO_GPU_FORMAT_X8B8G8R8_UNORM 68
+#define VIRTIO_GPU_FORMAT_A8B8G8R8_UNORM 121
+#define VIRTIO_GPU_FORMAT_R8G8B8X8_UNORM 134
+
+#define VIRTIO_GPU_FLAG_FENCE         (1U << 0)
+#define VIRTIO_GPU_FLAG_INFO_RING_IDX (1U << 1)
+
+/* Blob memory types */
+#define VIRTIO_GPU_BLOB_MEM_GUEST        1
+#define VIRTIO_GPU_BLOB_MEM_HOST3D       2
+#define VIRTIO_GPU_BLOB_MEM_HOST3D_GUEST 3
+
+/* Blob flags */
+#define VIRTIO_GPU_BLOB_FLAG_USE_MAPPABLE     (1 << 0)
+#define VIRTIO_GPU_BLOB_FLAG_USE_SHAREABLE    (1 << 1)
+#define VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE (1 << 2)
+
+/* DRM UAPI ioctl codes. */
+
+#define DRM_VIRTGPU_MAP                  0x01
+#define DRM_VIRTGPU_EXECBUFFER           0x02
+#define DRM_VIRTGPU_GETPARAM             0x03
+#define DRM_VIRTGPU_RESOURCE_CREATE      0x04
+#define DRM_VIRTGPU_RESOURCE_INFO        0x05
+#define DRM_VIRTGPU_TRANSFER_FROM_HOST   0x06
+#define DRM_VIRTGPU_TRANSFER_TO_HOST     0x07
+#define DRM_VIRTGPU_WAIT                 0x08
+#define DRM_VIRTGPU_GET_CAPS             0x09
+#define DRM_VIRTGPU_RESOURCE_CREATE_BLOB 0x0a
+#define DRM_VIRTGPU_CONTEXT_INIT         0x0b
+
+#define DRM_IOCTL_VIRTGPU_MAP                  DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_MAP, struct drm_virtgpu_map)
+#define DRM_IOCTL_VIRTGPU_EXECBUFFER           DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_EXECBUFFER, struct drm_virtgpu_execbuffer)
+#define DRM_IOCTL_VIRTGPU_GETPARAM             DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_GETPARAM, struct drm_virtgpu_getparam)
+#define DRM_IOCTL_VIRTGPU_RESOURCE_CREATE      DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_CREATE, struct drm_virtgpu_resource_create)
+#define DRM_IOCTL_VIRTGPU_RESOURCE_INFO        DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_INFO, struct drm_virtgpu_resource_info)
+#define DRM_IOCTL_VIRTGPU_TRANSFER_FROM_HOST   DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_TRANSFER_FROM_HOST, struct drm_virtgpu_3d_transfer)
+#define DRM_IOCTL_VIRTGPU_TRANSFER_TO_HOST     DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_TRANSFER_TO_HOST, struct drm_virtgpu_3d_transfer)
+#define DRM_IOCTL_VIRTGPU_WAIT                 DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_WAIT, struct drm_virtgpu_3d_wait)
+#define DRM_IOCTL_VIRTGPU_GET_CAPS             DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_GET_CAPS, struct drm_virtgpu_get_caps)
+#define DRM_IOCTL_VIRTGPU_RESOURCE_CREATE_BLOB DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_CREATE_BLOB, struct drm_virtgpu_resource_create_blob)
+#define DRM_IOCTL_VIRTGPU_CONTEXT_INIT         DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_CONTEXT_INIT, struct drm_virtgpu_context_init)
+
+/* Param IDs */
+#define DRM_VIRTGPU_PARAM_3D_FEATURES          1
+#define DRM_VIRTGPU_PARAM_CAPSET_QUERY_FIX     2
+#define DRM_VIRTGPU_PARAM_RESOURCE_BLOB        3
+#define DRM_VIRTGPU_PARAM_HOST_VISIBLE         4
+#define DRM_VIRTGPU_PARAM_CROSS_DEVICE         5
+#define DRM_VIRTGPU_PARAM_CONTEXT_INIT         6
+#define DRM_VIRTGPU_PARAM_SUPPORTED_CAPSET_IDs 7
+#define DRM_VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME  8
+#define DRM_VIRTGPU_PARAM_BLOB_ALIGNMENT       9
+
+#define VIRTGPU_EXECBUF_FENCE_FD_IN  0x01
+#define VIRTGPU_EXECBUF_FENCE_FD_OUT 0x02
+#define VIRTGPU_EXECBUF_RING_IDX     0x04
+#define VIRTGPU_EXECBUF_FLAGS        (VIRTGPU_EXECBUF_FENCE_FD_IN | VIRTGPU_EXECBUF_FENCE_FD_OUT | VIRTGPU_EXECBUF_RING_IDX)
+
+#define VIRTGPU_EXECBUF_SYNCOBJ_RESET 0x01
+
+#define VIRTGPU_WAIT_NOWAIT 0x01
+
+#define DRM_VIRTGPU_BLOB_FLAG_HINT_DEFER_MAPPING 0x0001
+
+#define VIRTGPU_CONTEXT_PARAM_CAPSET_ID       0x0001
+#define VIRTGPU_CONTEXT_PARAM_NUM_RINGS       0x0002
+#define VIRTGPU_CONTEXT_PARAM_POLL_RINGS_MASK 0x0003
+#define VIRTGPU_CONTEXT_PARAM_DEBUG_NAME      0x0004
+
+#define VIRTGPU_EVENT_FENCE_SIGNALED 0x90000000
+
+/* Capset IDs (matches virgl/drm virtgpu) */
+#define VIRTGPU_CAPSET_VIRGL            1
+#define VIRTGPU_CAPSET_VIRGL2           2
+#define VIRTGPU_CAPSET_GFXSTREAM_VULKAN 3
+#define VIRTGPU_CAPSET_VENUS            4
+#define VIRTGPU_CAPSET_CROSS_DOMAIN     5
+#define VIRTGPU_CAPSET_DRM              6
+
+/* Per-context blob flags (kernel internal) */
+#define VIRTGPU_CONTEXT_INIT_CAPSET_ID_MASK  0xff
+#define VIRTGPU_CONTEXT_INIT_CAPSET_ID_SHIFT 0
+
+/* Maximum resource ID managed by host */
+#define VIRTGPU_RESOURCE_ID_INVALID 0
+
+#define VIRTGPU_MAX_CONTEXT_RINGS 64
+#define VIRTGPU_DEBUG_NAME_MAX    64
+
+/* Largest command batch submitted to the control queue in one kick. */
+#define VIRTGPU_DIRTY_MAX_RECTS 16
+#define VIRTGPU_CTRLQ_MAX_BATCH (VIRTGPU_DIRTY_MAX_RECTS + 1)
+
+/* VirtIO GPU protocol: command types (8-bit) */
 enum virtio_gpu_ctrl_type {
     /* 2D commands */
     VIRTIO_GPU_CMD_GET_DISPLAY_INFO        = 0x0100,
@@ -83,21 +186,6 @@ enum virtio_gpu_ctrl_type {
     VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER   = 0x1205,
 };
 
-/* VirtIO GPU pixel formats (byte-order in memory, little-endian) */
-
-#define VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM 1
-#define VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM 2
-#define VIRTIO_GPU_FORMAT_A8R8G8B8_UNORM 3
-#define VIRTIO_GPU_FORMAT_X8R8G8B8_UNORM 4
-#define VIRTIO_GPU_FORMAT_B5G6R5_UNORM   7
-#define VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM 67
-#define VIRTIO_GPU_FORMAT_X8B8G8R8_UNORM 68
-#define VIRTIO_GPU_FORMAT_A8B8G8R8_UNORM 121
-#define VIRTIO_GPU_FORMAT_R8G8B8X8_UNORM 134
-
-#define VIRTIO_GPU_FLAG_FENCE         (1U << 0)
-#define VIRTIO_GPU_FLAG_INFO_RING_IDX (1U << 1)
-
 /* VirtIO GPU protocol structures (wire format, little-endian) */
 
 struct virtio_gpu_ctrl_hdr {
@@ -116,10 +204,7 @@ struct virtio_gpu_config {
         uint32_t num_capsets;
 };
 
-/*
- * One synchronous control-queue request.  Multiple requests can be
- * published together and completed after a single device notification.
- */
+/* One synchronous control-queue request.  Multiple requests can be published together and completed after a single device notification. */
 struct virtgpu_vq_command {
         void *cmd;
         int   cmd_size;
@@ -345,53 +430,6 @@ struct virtio_gpu_resp_map_info {
         uint32_t                   padding;
 };
 
-/* Blob memory types */
-#define VIRTIO_GPU_BLOB_MEM_GUEST        1
-#define VIRTIO_GPU_BLOB_MEM_HOST3D       2
-#define VIRTIO_GPU_BLOB_MEM_HOST3D_GUEST 3
-
-/* Blob flags */
-#define VIRTIO_GPU_BLOB_FLAG_USE_MAPPABLE     (1 << 0)
-#define VIRTIO_GPU_BLOB_FLAG_USE_SHAREABLE    (1 << 1)
-#define VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE (1 << 2)
-
-/* DRM UAPI ioctl codes. */
-
-#define DRM_VIRTGPU_MAP                  0x01
-#define DRM_VIRTGPU_EXECBUFFER           0x02
-#define DRM_VIRTGPU_GETPARAM             0x03
-#define DRM_VIRTGPU_RESOURCE_CREATE      0x04
-#define DRM_VIRTGPU_RESOURCE_INFO        0x05
-#define DRM_VIRTGPU_TRANSFER_FROM_HOST   0x06
-#define DRM_VIRTGPU_TRANSFER_TO_HOST     0x07
-#define DRM_VIRTGPU_WAIT                 0x08
-#define DRM_VIRTGPU_GET_CAPS             0x09
-#define DRM_VIRTGPU_RESOURCE_CREATE_BLOB 0x0a
-#define DRM_VIRTGPU_CONTEXT_INIT         0x0b
-
-#define DRM_IOCTL_VIRTGPU_MAP                  DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_MAP, struct drm_virtgpu_map)
-#define DRM_IOCTL_VIRTGPU_EXECBUFFER           DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_EXECBUFFER, struct drm_virtgpu_execbuffer)
-#define DRM_IOCTL_VIRTGPU_GETPARAM             DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_GETPARAM, struct drm_virtgpu_getparam)
-#define DRM_IOCTL_VIRTGPU_RESOURCE_CREATE      DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_CREATE, struct drm_virtgpu_resource_create)
-#define DRM_IOCTL_VIRTGPU_RESOURCE_INFO        DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_INFO, struct drm_virtgpu_resource_info)
-#define DRM_IOCTL_VIRTGPU_TRANSFER_FROM_HOST   DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_TRANSFER_FROM_HOST, struct drm_virtgpu_3d_transfer)
-#define DRM_IOCTL_VIRTGPU_TRANSFER_TO_HOST     DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_TRANSFER_TO_HOST, struct drm_virtgpu_3d_transfer)
-#define DRM_IOCTL_VIRTGPU_WAIT                 DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_WAIT, struct drm_virtgpu_3d_wait)
-#define DRM_IOCTL_VIRTGPU_GET_CAPS             DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_GET_CAPS, struct drm_virtgpu_get_caps)
-#define DRM_IOCTL_VIRTGPU_RESOURCE_CREATE_BLOB DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_RESOURCE_CREATE_BLOB, struct drm_virtgpu_resource_create_blob)
-#define DRM_IOCTL_VIRTGPU_CONTEXT_INIT         DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_CONTEXT_INIT, struct drm_virtgpu_context_init)
-
-/* Param IDs */
-#define DRM_VIRTGPU_PARAM_3D_FEATURES          1
-#define DRM_VIRTGPU_PARAM_CAPSET_QUERY_FIX     2
-#define DRM_VIRTGPU_PARAM_RESOURCE_BLOB        3
-#define DRM_VIRTGPU_PARAM_HOST_VISIBLE         4
-#define DRM_VIRTGPU_PARAM_CROSS_DEVICE         5
-#define DRM_VIRTGPU_PARAM_CONTEXT_INIT         6
-#define DRM_VIRTGPU_PARAM_SUPPORTED_CAPSET_IDs 7
-#define DRM_VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME  8
-#define DRM_VIRTGPU_PARAM_BLOB_ALIGNMENT       9
-
 /* DRM UAPI structs (fixed-width for x86-64 compat) */
 
 struct drm_virtgpu_map {
@@ -437,14 +475,6 @@ struct drm_virtgpu_resource_create {
         uint32_t stride;
 };
 
-#define VIRTGPU_EXECBUF_FENCE_FD_IN  0x01
-#define VIRTGPU_EXECBUF_FENCE_FD_OUT 0x02
-#define VIRTGPU_EXECBUF_RING_IDX     0x04
-#define VIRTGPU_EXECBUF_FLAGS        (VIRTGPU_EXECBUF_FENCE_FD_IN | VIRTGPU_EXECBUF_FENCE_FD_OUT | VIRTGPU_EXECBUF_RING_IDX)
-
-#define VIRTGPU_EXECBUF_SYNCOBJ_RESET 0x01
-#define VIRTGPU_EXECBUF_SYNCOBJ_FLAGS VIRTGPU_EXECBUF_SYNCOBJ_RESET
-
 struct drm_virtgpu_execbuffer_syncobj {
         uint32_t handle;
         uint32_t flags;
@@ -479,8 +509,6 @@ struct drm_virtgpu_3d_wait {
         uint32_t flags;
 };
 
-#define VIRTGPU_WAIT_NOWAIT 0x01
-
 struct drm_virtgpu_get_caps {
         uint32_t cap_set_id;
         uint32_t cap_set_ver;
@@ -503,13 +531,6 @@ struct drm_virtgpu_resource_create_blob {
         uint32_t pad2;
 };
 
-#define DRM_VIRTGPU_BLOB_FLAG_HINT_DEFER_MAPPING 0x0001
-
-#define VIRTGPU_CONTEXT_PARAM_CAPSET_ID       0x0001
-#define VIRTGPU_CONTEXT_PARAM_NUM_RINGS       0x0002
-#define VIRTGPU_CONTEXT_PARAM_POLL_RINGS_MASK 0x0003
-#define VIRTGPU_CONTEXT_PARAM_DEBUG_NAME      0x0004
-
 struct drm_virtgpu_context_set_param {
         uint64_t param;
         uint64_t value;
@@ -520,32 +541,6 @@ struct drm_virtgpu_context_init {
         uint32_t pad;
         uint64_t ctx_set_params;
 };
-
-#define VIRTGPU_EVENT_FENCE_SIGNALED 0x90000000
-
-/* Internal resource / object types */
-
-/* Capset IDs (matches virgl/drm virtgpu) */
-#define VIRTGPU_CAPSET_VIRGL            1
-#define VIRTGPU_CAPSET_VIRGL2           2
-#define VIRTGPU_CAPSET_GFXSTREAM_VULKAN 3
-#define VIRTGPU_CAPSET_VENUS            4
-#define VIRTGPU_CAPSET_CROSS_DOMAIN     5
-#define VIRTGPU_CAPSET_DRM              6
-
-/* Per-context blob flags (kernel internal) */
-#define VIRTGPU_CONTEXT_INIT_CAPSET_ID_MASK  0xff
-#define VIRTGPU_CONTEXT_INIT_CAPSET_ID_SHIFT 0
-
-/* Maximum resource ID managed by host */
-#define VIRTGPU_RESOURCE_ID_INVALID 0
-
-#define VIRTGPU_MAX_CONTEXT_RINGS 64
-#define VIRTGPU_DEBUG_NAME_MAX    64
-
-/* Largest command batch submitted to the control queue in one kick. */
-#define VIRTGPU_DIRTY_MAX_RECTS 16
-#define VIRTGPU_CTRLQ_MAX_BATCH (VIRTGPU_DIRTY_MAX_RECTS + 1)
 
 struct virtio_gpu_fpriv {
         uint32_t   ctx_id;
@@ -633,15 +628,13 @@ struct virtio_gpu_device {
         /* Virtqueues: ctrlq (0), cursorq (1) */
         struct vp_virtqueue ctrlq;
         struct vp_virtqueue cursorq;
-        volatile int        ctrlq_cmd_busy; // sleepable gates for synchronous commands
-        volatile int        cursorq_cmd_busy;
-        wait_queue_t        ctrlq_cmd_wait;
-        wait_queue_t        cursorq_cmd_wait;
+        mutex_t             ctrlq_cmd_lock; // sleepable gates for synchronous commands
+        mutex_t             cursorq_cmd_lock;
         wait_queue_t        ctrlq_complete_wait;
         wait_queue_t        cursorq_complete_wait;
         int                 irq_vector;
         bool                irq_enabled;
-        bool                msix_enabled;
+        pci_irq_state_t     irq_state;
 
         /* Reusable DMA staging buffers; serialised by the command gates. */
         uint64_t ctrlq_dma_cmd_phys[VIRTGPU_CTRLQ_MAX_BATCH];
@@ -690,11 +683,11 @@ struct virtio_gpu_device {
         struct drm_connector     *kms_connector;
 };
 
-/* Function prototypes (defined across the virtgpu_*.c files) */
+/* Framebuffer functions provided by the KMS driver. */
+extern const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
-/* gpu.c - driver init / ioctls */
-int                virtio_gpu_driver_init(void);
-struct drm_device *virtio_gpu_dev_alloc(struct virtio_gpu_device *vgdev);
+/* virtgpu.c - driver init / ioctls */
+int virtio_gpu_driver_init(void);
 
 /* virtgpu_vq.c - virtqueue helpers */
 int  virtgpu_vq_init(struct virtio_gpu_device *vgdev);
@@ -717,21 +710,53 @@ int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct
 int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rect, uint64_t offset);
 int virtgpu_cmd_update_2d_rects(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rects, const uint64_t *offsets, uint32_t count,
                                 const struct virtio_gpu_rect *flush_rect);
+
+/* VirtIO GPU cmd update scanout 2d. */
 int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, uint32_t width, uint32_t height, bool set_scanout);
+
+/* VirtIO GPU cmd transfer 3d. */
 int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id, const struct drm_virtgpu_3d_transfer *xf, bool to_host);
+
+/* VirtIO GPU cmd resource flush. */
 int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, struct virtio_gpu_rect *rect);
+
+/* VirtIO GPU cmd set scanout. */
 int virtgpu_cmd_set_scanout(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj);
+
+/* VirtIO GPU cmd set scanout blob. */
 int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj);
+
+/* VirtIO GPU cmd update cursor. */
 int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, struct virtio_gpu_object *obj, int32_t x, int32_t y, int32_t hot_x, int32_t hot_y);
+
+/* VirtIO GPU cmd move cursor. */
 int virtgpu_cmd_move_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, int32_t x, int32_t y);
+
+/* VirtIO GPU cmd ctx create. */
 int virtgpu_cmd_ctx_create(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t context_init, const char *debug_name, uint32_t name_len);
+
+/* VirtIO GPU cmd ctx destroy. */
 int virtgpu_cmd_ctx_destroy(struct virtio_gpu_device *vgdev, uint32_t ctx_id);
+
+/* VirtIO GPU cmd ctx attach resource. */
 int virtgpu_cmd_ctx_attach_resource(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t resource_id);
+
+/* VirtIO GPU cmd ctx detach resource. */
 int virtgpu_cmd_ctx_detach_resource(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t resource_id);
+
+/* VirtIO GPU object attach context. */
 int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id);
+
+/* VirtIO GPU object detach context. */
 int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id);
+
+/* VirtIO GPU cmd submit 3d. */
 int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx, const void *cmd, uint32_t size, struct virtio_gpu_fence *fence);
+
+/* VirtIO GPU cmd get capset info. */
 int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, uint32_t *capset_id, uint32_t *max_version, uint32_t *max_size);
+
+/* VirtIO GPU cmd get capset. */
 int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, uint32_t version, void *data, uint32_t max_size);
 
 /* virtgpu_gem.c - GEM management */
@@ -750,50 +775,14 @@ void *virtio_gpu_get_device(void);
 /* virtgpu_kms.c - KMS display pipeline */
 int  virtgpu_kms_init(struct virtio_gpu_device *vgdev);
 void virtgpu_kms_fini(struct virtio_gpu_device *vgdev);
-int  virtgpu_kms_get_modes(struct drm_connector *connector);
 
-/* DRM fourcc - VirtIO GPU format translation */
-
-/*
- * Convert a DRM fourcc pixel format to the corresponding VirtIO GPU
- * format constant.  On little-endian x86 the byte-order-in-memory
- * names used by the VirtIO spec map as follows:
- *
- *   DRM_FORMAT_XRGB8888 -> VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM  (2)
- *   DRM_FORMAT_ARGB8888 -> VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM  (1)
- * Scanout only exposes the two VirtIO GPU 2D plane formats.  Other
- * formats need a negotiated 3D path and must not be silently reinterpreted.
- *
- * Returns the VirtIO GPU format code, or 0 if unsupported.
- */
-static inline uint32_t virtgpu_drm_format_to_virtio(uint32_t drm_fourcc)
-{
-    switch (drm_fourcc) {
-        case DRM_FORMAT_XRGB8888 :
-            return VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM;
-        case DRM_FORMAT_ARGB8888 :
-            return VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM;
-        default :
-            return 0;
-    }
-}
+/* DRM fourcc -> VirtIO GPU format constant; 0 if unsupported. */
+uint32_t virtgpu_drm_format_to_virtio(uint32_t drm_fourcc);
 
 /* Resource ID management */
-static inline uint32_t virtgpu_resource_id_alloc(struct virtio_gpu_device *vgdev)
-{
-    uint32_t id;
-
-    spin_lock(&vgdev->resource_idr_lock);
-    id = vgdev->next_resource_id++;
-    if (id == VIRTGPU_RESOURCE_ID_INVALID) id = vgdev->next_resource_id++;
-    spin_unlock(&vgdev->resource_idr_lock);
-    return id;
-}
+uint32_t virtgpu_resource_id_alloc(struct virtio_gpu_device *vgdev);
 
 /* Page-flip helper used by the KMS atomic commit path. */
 int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *fb, struct drm_framebuffer *old_fb);
-
-/* Framebuffer functions provided by the KMS driver. */
-extern const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
 #endif // INCLUDE_VIRTGPU_DRV_H_

@@ -8,7 +8,6 @@
  *
  */
 
-#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <net/core/endian.h>
@@ -16,6 +15,8 @@
 #include <net/ipv4/arp.h>
 #include <net/ipv4/ipv4.h>
 #include <net/ipv6/ipv6.h>
+
+#if CONFIG_NET
 
 const uint8_t ethernet_broadcast_address[ETH_ADDRESS_LEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
@@ -31,7 +32,7 @@ int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *fr
 {
     if (!data || !frame || length < ETH_HEADER_LEN) return -EBADMSG;
     const uint8_t *bytes = data;
-    frame->ether_type    = net_read_be16(bytes + 12);
+    frame->ether_type    = load_be16(bytes + 12);
     frame->payload       = bytes + ETH_HEADER_LEN;
     frame->payload_len   = length - ETH_HEADER_LEN;
     return 0;
@@ -45,7 +46,7 @@ int ethernet_input(net_device_t *device, net_pbuf_t *packet)
         return -EBADMSG;
     }
     const uint8_t *header = packet->data;
-    uint16_t       type   = net_read_be16(header + 12);
+    uint16_t       type   = load_be16(header + 12);
     if (!ethernet_address_valid(header + ETH_ADDRESS_LEN) || (header[ETH_ADDRESS_LEN] & 1U)
         || (!(device->flags & NETDEV_F_PROMISC) && memcmp(header, device->address, ETH_ADDRESS_LEN) != 0 && memcmp(header, ethernet_broadcast_address, ETH_ADDRESS_LEN) != 0
             && !(header[0] == 0x33 && header[1] == 0x33))) {
@@ -66,11 +67,14 @@ int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t dest
     if (!device || !packet || !destination || !ethernet_address_valid(device->address) || !ethernet_address_valid(destination)) return -EINVAL;
     uint8_t *header = net_pbuf_push(packet, ETH_HEADER_LEN);
     if (!header) {
-        plogk("ethernet: %s: Output header push failed (%d bytes)\n", device->name, ETH_HEADER_LEN);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("ethernet: %s: Output header push failed (%d bytes)\n", device->name, ETH_HEADER_LEN);
         return -ENOBUFS;
     }
     memcpy(header, destination, ETH_ADDRESS_LEN);
     memcpy(header + 6, device->address, ETH_ADDRESS_LEN);
-    net_write_be16(header + 12, type);
+    store_be16(header + 12, type);
     return netdev_tx(device, packet);
 }
+
+#endif

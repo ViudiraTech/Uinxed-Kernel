@@ -14,9 +14,6 @@
 #include <libs/std/stdint.h>
 
 /* Replace only caller-selected status bits, preserving access and driver flags. */
-static inline uint64_t process_file_status_flags_merge(uint64_t current, uint64_t mask, uint64_t requested)
-{
-    return (current & ~mask) | (requested & mask);
-}
+uint64_t process_file_status_flags_merge(uint64_t current, uint64_t mask, uint64_t requested);
 
 #endif // INCLUDE_FILE_STATUS_H_

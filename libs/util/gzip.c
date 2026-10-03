@@ -11,23 +11,14 @@
 #include <arch/fpu.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/util/gzip.h>
+#include <libs/std/string.h>
+#include <libs/util/byteorder.h>
 #include <mem/alloc.h>
+
 #define DEFLATE_MAX_BITS    15
 #define DEFLATE_MAX_SYMBOLS 288
 
 typedef unsigned char gzip_v16u __attribute__((__vector_size__(16)));
-
-/*
- * SSE2 16-byte copy (movdqu load + store).  Only ever called while a
- * kernel_fpu_begin()/end() section is active.
- */
-__attribute__((target("sse2"))) static void gzip_copy16(uint8_t *dst, const uint8_t *src)
-{
-    gzip_v16u v;
-    __builtin_memcpy(&v, src, 16);
-    __builtin_memcpy(dst, &v, 16);
-}
 
 typedef struct {
         const uint8_t *data;
@@ -58,10 +49,12 @@ static const uint8_t distance_extra[30] = {
     0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
 };
 
-/* Read a little-endian 32-bit value. */
-static uint32_t load_le32(const uint8_t *data)
+/* SSE2 16-byte copy (movdqu load + store).  Only ever called while a kernel_fpu_begin()/end() section is active. */
+__attribute__((target("sse2"))) static void gzip_copy16(uint8_t *dst, const uint8_t *src)
 {
-    return (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
+    gzip_v16u v;
+    memcpy(&v, src, 16);
+    memcpy(dst, &v, 16);
 }
 
 /* Read count bits from the deflate stream, MSB-first per block. */
@@ -234,10 +227,11 @@ static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *outp
             if (*output_offset + literal_count + 1 > output_capacity) return -EOVERFLOW;
             literals[literal_count++] = (uint8_t)symbol;
             if (literal_count == 16) {
-                if (kernel_sse_available())
+                if (kernel_sse_available()) {
                     gzip_copy16(output + *output_offset, literals);
-                else
-                    __builtin_memcpy(output + *output_offset, literals, 16);
+                } else {
+                    memcpy(output + *output_offset, literals, 16);
+                }
                 *output_offset += 16;
                 literal_count = 0;
             }
@@ -277,7 +271,7 @@ static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *outp
         size_t src = *output_offset - distance;
         if (distance >= length) {
             /* Non-overlapping match: bulk copy. */
-            __builtin_memcpy(output + *output_offset, output + src, length);
+            memcpy(output + *output_offset, output + src, length);
             *output_offset += length;
         } else {
             /* Overlapping match: byte-at-a-time, LZ77 semantics. */
@@ -361,15 +355,13 @@ static int skip_zero_terminated_field(const uint8_t *input, size_t limit, size_t
     return EOK;
 }
 
+/* Gzip decompress. */
 int gzip_decompress(const uint8_t *input, size_t input_size, uint8_t **output, size_t *output_size)
 {
-    if (!input || !output || !output_size || input_size < 18) {
-        plogk("gzip: Invalid arguments (input %p, output %p, output_size %p, size %zu)\n", input, output, output_size, input_size);
-        return -EINVAL;
-    }
+    if (!input || !output || !output_size || input_size < 18) return -EINVAL;
+
     *output      = 0;
     *output_size = 0;
-
     if (input[0] != 0x1f || input[1] != 0x8b || input[2] != 8 || (input[3] & 0xe0)) {
         plogk("gzip: Bad magic/header (0x%02x 0x%02x 0x%02x, flags 0x%02x)\n", input[0], input[1], input[2], input[3]);
         return -EINVAL;
@@ -410,18 +402,15 @@ int gzip_decompress(const uint8_t *input, size_t input_size, uint8_t **output, s
         plogk("gzip: No deflate data in stream (offset %zu, trailer %zu)\n", offset, trailer);
         return -EINVAL;
     }
-
     size_t expected_size = load_le32(input + input_size - 4);
-    if (expected_size > (size_t)32 * 1024 * 1024) {
-        plogk("gzip: ISIZE %zu exceeds 32MB limit.\n", expected_size);
-        return -EFBIG;
-    }
+
+    if (expected_size > (size_t)32 * 1024 * 1024) return -EFBIG;
     uint8_t *result = malloc(expected_size ? expected_size : 1);
+
     if (!result) {
         plogk("gzip: Out of memory allocating %zu bytes for output.\n", expected_size);
         return -ENOMEM;
     }
-
     size_t actual_size = 0;
     int    status      = inflate_data(input + offset, trailer - offset, result, expected_size, &actual_size);
     if (status != EOK || actual_size != expected_size || gzip_crc32(result, actual_size) != load_le32(input + trailer)) {

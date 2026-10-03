@@ -9,21 +9,15 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
 #include <drivers/gpu/drm/drm_init.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_DRM
 
 /*
  * Global count of CRTCs with vblank enabled; lets drm_vblank_tick early-return
@@ -48,14 +42,11 @@ int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
     struct drm_vblank_crtc *vblank;
     unsigned int            i;
 
-    if (!dev || num_crtcs == 0) {
-        DRM_ERROR("Vblank_init with invalid args (dev=%p, num_crtcs=%u), returning -EINVAL\n", dev, num_crtcs);
-        return -EINVAL;
-    }
+    if (!dev || num_crtcs == 0) return -EINVAL;
 
     vblank = malloc(sizeof(*vblank) * num_crtcs);
     if (!vblank) {
-        DRM_ERROR("Vblank_init: array allocation failed (num_crtcs=%u), returning -ENOMEM\n", num_crtcs);
+        DRM_ERROR("Vblank_init: array allocation failed (num_crtcs=%u)\n", num_crtcs);
         return -ENOMEM;
     }
     memset(vblank, 0, sizeof(*vblank) * num_crtcs);
@@ -92,19 +83,20 @@ uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        DRM_ERROR("Vblank_count with invalid crtc (crtc=%p), returning 0\n", crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_count with invalid crtc (crtc=%p), returning 0\n", crtc);
         return 0;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        DRM_ERROR("Vblank_count: crtc index %d out of range (num_crtc=%d), returning 0\n", crtc->index, dev->num_crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_count: crtc index %d out of range (num_crtc=%d), returning 0\n", crtc->index, dev->num_crtc);
         return 0;
     }
 
     vblank = &dev->vblank_array[crtc->index];
-
     return vblank->count;
 }
 
@@ -114,18 +106,10 @@ int drm_crtc_vblank_get(struct drm_crtc *crtc)
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
 
-    if (!crtc || !crtc->dev) {
-        DRM_ERROR("Vblank_get with invalid crtc (crtc=%p), returning -EINVAL\n", crtc);
-        return -EINVAL;
-    }
-
+    if (!crtc || !crtc->dev) return -EINVAL;
     dev = crtc->dev;
 
-    if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        DRM_ERROR("Vblank_get: crtc index %d out of range (num_crtc=%d), returning -EINVAL\n", crtc->index, dev->num_crtc);
-        return -EINVAL;
-    }
-
+    if (crtc->index < 0 || crtc->index >= dev->num_crtc) return -EINVAL;
     vblank = &dev->vblank_array[crtc->index];
 
     spin_lock(&vblank->lock);
@@ -143,14 +127,16 @@ void drm_crtc_vblank_put(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        DRM_ERROR("Vblank_put with invalid crtc (crtc=%p)\n", crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_put with invalid crtc (crtc=%p)\n", crtc);
         return;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        DRM_ERROR("Vblank_put: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_put: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
         return;
     }
 
@@ -168,19 +154,19 @@ void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev || !e) {
-        DRM_ERROR("Arm_vblank_event with invalid args (crtc=%p, e=%p)\n", crtc, e);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Arm_vblank_event with invalid args (crtc=%p, e=%p)\n", crtc, e);
         return;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        DRM_ERROR("Arm_vblank_event: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Arm_vblank_event: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
         return;
     }
-
     vblank = &dev->vblank_array[crtc->index];
-
     spin_lock(&vblank->lock);
 
     e->pipe      = crtc->index;
@@ -225,12 +211,14 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
     uint64_t                timestamp;
 
     if (!e || !e->dev) {
-        DRM_ERROR("Send_vblank_event with invalid args (e=%p, dev=%p)\n", e, e ? e->dev : NULL);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Send_vblank_event with invalid args (e=%p, dev=%p)\n", e, e ? e->dev : NULL);
         return;
     }
     if (!crtc) crtc = e->crtc;
     if (!crtc || crtc->index < 0 || crtc->index >= e->dev->num_crtc) {
-        DRM_ERROR("Send_vblank_event: crtc invalid (crtc=%p, index=%d, num_crtc=%d), dropping event.\n", crtc, crtc ? crtc->index : -1, e->dev->num_crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Send_vblank_event: crtc invalid (index=%d, num_crtc=%d), dropping event.\n", crtc ? crtc->index : -1, e->dev->num_crtc);
         if (e->vblank_ref && e->crtc) {
             drm_crtc_vblank_put(e->crtc);
             e->vblank_ref = false;
@@ -262,14 +250,16 @@ void drm_crtc_vblank_off(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        DRM_ERROR("Vblank_off with invalid crtc (crtc=%p)\n", crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_off with invalid crtc (crtc=%p)\n", crtc);
         return;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        DRM_ERROR("Vblank_off: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_off: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
         return;
     }
 
@@ -298,14 +288,16 @@ void drm_crtc_vblank_on(struct drm_crtc *crtc)
     uint64_t                period_ns;
 
     if (!crtc || !crtc->dev) {
-        DRM_ERROR("Vblank_on with invalid crtc (crtc=%p)\n", crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_on with invalid crtc (crtc=%p)\n", crtc);
         return;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        DRM_ERROR("Vblank_on: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_on: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
         return;
     }
 
@@ -353,12 +345,11 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
     struct drm_crtc_helper_funcs     *helpers;
 
     if (!dev || (int)pipe >= dev->num_crtc) {
-        DRM_ERROR("Handle_vblank with invalid pipe (dev=%p, pipe=%u, num_crtc=%d)\n", dev, pipe, dev ? dev->num_crtc : -1);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Handle_vblank with invalid pipe (dev=%p, pipe=%u, num_crtc=%d)\n", dev, pipe, dev ? dev->num_crtc : -1);
         return;
     }
-
     vblank = &dev->vblank_array[pipe];
-
     spin_lock(&vblank->lock);
 
     vblank->count++;
@@ -401,13 +392,13 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
     }
 }
 
-/* Timer-driven vblank tick used to emulate vblank interrupts. */
+/* Timer-driven vblank tick emulating vblank interrupts. */
 void drm_vblank_tick(void)
 {
     uint64_t           now;
     uint64_t           next       = UINT64_MAX;
     uint64_t           generation = __atomic_load_n(&drm_vblank_generation, __ATOMIC_ACQUIRE);
-    struct drm_device *devs[DRM_MAX_DEVICES];
+    struct drm_device *devs[CONFIG_DRM_MAX_DEVICES];
     int                ndev;
 
     /*
@@ -417,7 +408,7 @@ void drm_vblank_tick(void)
     if (!__atomic_load_n(&drm_vblank_enabled_total, __ATOMIC_ACQUIRE)) return;
 
     now  = timer_monotonic_ns();
-    ndev = drm_device_list_collect(devs, DRM_MAX_DEVICES);
+    ndev = drm_device_list_collect(devs, CONFIG_DRM_MAX_DEVICES);
 
     /*
      * Service every registered device, not just the first: each GPU owns a
@@ -454,12 +445,13 @@ void drm_vblank_tick(void)
     }
 
     spin_lock(&drm_vblank_enabled_lock);
-    if (!drm_vblank_enabled_total)
+    if (!drm_vblank_enabled_total) {
         __atomic_store_n(&drm_vblank_next_ns, UINT64_MAX, __ATOMIC_RELEASE);
-    else if (__atomic_load_n(&drm_vblank_generation, __ATOMIC_ACQUIRE) != generation)
+    } else if (__atomic_load_n(&drm_vblank_generation, __ATOMIC_ACQUIRE) != generation) {
         __atomic_store_n(&drm_vblank_next_ns, 0, __ATOMIC_RELEASE);
-    else
+    } else {
         __atomic_store_n(&drm_vblank_next_ns, next, __ATOMIC_RELEASE);
+    }
     spin_unlock(&drm_vblank_enabled_lock);
 }
 
@@ -474,34 +466,19 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     uint32_t                current;
     uint32_t                allowed;
 
-    if (!dev || !vblwait) {
-        DRM_ERROR("WAIT_VBLANK with invalid args (dev=%p, vblwait=%p), returning -EINVAL\n", dev, vblwait);
-        return -EINVAL;
-    }
+    if (!dev || !vblwait) return -EINVAL;
     flags   = vblwait->request.type;
     allowed = _DRM_VBLANK_TYPES_MASK | _DRM_VBLANK_FLAGS_MASK | _DRM_VBLANK_HIGH_CRTC_MASK;
-    if (flags & ~allowed) {
-        DRM_ERROR("WAIT_VBLANK: unsupported flags 0x%x, returning -EINVAL\n", flags);
-        return -EINVAL;
-    }
-    if (flags & (_DRM_VBLANK_SIGNAL | _DRM_VBLANK_FLIP)) {
-        DRM_ERROR("WAIT_VBLANK: SIGNAL/FLIP not supported (flags=0x%x), returning -EINVAL\n", flags);
-        return -EINVAL;
-    }
+    if (flags & ~allowed) return -EINVAL;
+    if (flags & (_DRM_VBLANK_SIGNAL | _DRM_VBLANK_FLIP)) return -EINVAL;
 
     pipe = (flags & _DRM_VBLANK_HIGH_CRTC_MASK) >> _DRM_VBLANK_HIGH_CRTC_SHIFT;
     if ((flags & _DRM_VBLANK_SECONDARY) && !pipe) pipe = 1;
 
-    if (pipe >= (unsigned int)dev->num_crtc) {
-        DRM_ERROR("WAIT_VBLANK: pipe %u out of range (num_crtc=%d), returning -EINVAL\n", pipe, dev->num_crtc);
-        return -EINVAL;
-    }
+    if (pipe >= (unsigned int)dev->num_crtc) return -EINVAL;
 
     vblank = &dev->vblank_array[pipe];
-    if (!vblank->crtc) {
-        DRM_ERROR("WAIT_VBLANK: no CRTC bound to pipe %u, returning -EINVAL\n", pipe);
-        return -EINVAL;
-    }
+    if (!vblank->crtc) return -EINVAL;
 
     spin_lock(&vblank->lock);
     current = vblank->count;
@@ -515,7 +492,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 
         e = malloc(sizeof(*e));
         if (!e) {
-            DRM_ERROR("WAIT_VBLANK: event allocation failed, returning -ENOMEM\n");
+            DRM_ERROR("WAIT_VBLANK: event allocation failed.\n");
             return -ENOMEM;
         }
         memset(e, 0, sizeof(*e));
@@ -533,7 +510,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         if (drm_crtc_vblank_get(e->crtc)) {
             uint32_t crtc_id = e->crtc->base.id;
             free(e);
-            DRM_ERROR("WAIT_VBLANK: vblank get failed for crtc %u, returning -EINVAL\n", crtc_id);
+            DRM_ERROR("WAIT_VBLANK: vblank get failed for crtc %u\n", crtc_id);
             return -EINVAL;
         }
         e->vblank_ref = true;
@@ -555,7 +532,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     }
 
     if (drm_crtc_vblank_get(vblank->crtc)) {
-        DRM_ERROR("WAIT_VBLANK: vblank get failed for pipe %u, returning -EINVAL\n", pipe);
+        DRM_ERROR("WAIT_VBLANK: vblank get failed for pipe %u\n", pipe);
         return -EINVAL;
     }
     for (;;) {
@@ -565,16 +542,10 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             spin_unlock(&vblank->lock);
             break;
         }
-        process_t *proc = process_current();
-        if (proc) {
-            spin_lock(&proc->signal.lock);
-            bool interrupted = signal_has_interrupting_pending(&proc->signal);
-            spin_unlock(&proc->signal.lock);
-            if (interrupted) {
-                spin_unlock(&vblank->lock);
-                drm_crtc_vblank_put(vblank->crtc);
-                return -ERESTARTSYS;
-            }
+        if (signal_has_interrupting_pending_current()) {
+            spin_unlock(&vblank->lock);
+            drm_crtc_vblank_put(vblank->crtc);
+            return -ERESTARTSYS;
         }
         wait_queue_prepare(&vblank->wait);
         spin_unlock(&vblank->lock);
@@ -593,7 +564,8 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_priv)
 {
     if (!dev || !file_priv || !dev->vblank_array) {
-        DRM_ERROR("Vblank_cancel_pending with invalid args (dev=%p, file_priv=%p)\n", dev, file_priv);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) DRM_ERROR("Vblank_cancel_pending with invalid args.\n");
         return;
     }
 
@@ -655,3 +627,5 @@ void drm_vblank_cleanup(struct drm_device *dev)
     dev->vblank_array = NULL;
     dev->num_crtc     = 0;
 }
+
+#endif

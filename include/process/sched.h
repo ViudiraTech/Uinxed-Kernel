@@ -11,22 +11,11 @@
 #ifndef INCLUDE_SCHED_H_
 #define INCLUDE_SCHED_H_
 
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/util/rbtree.h>
 #include <process/kthread.h>
-#include <process/task.h>
-#include <sync/spin_lock.h>
 
-/* EEVDF constants */
-
-#define SCHED_NICE_0_LOAD 1024ULL
-
-/*
- * Scheduling topology.  Domains are stored from the closest sharing level
- * outwards and use the hardware topology exported by arch/smp.
- */
-#define SCHED_DOMAIN_MAX_LEVELS 3
+#define SCHED_NICE_0_LOAD 1024ULL // Weight of a nice-0 task (EEVDF)
 
 typedef enum {
     SCHED_DOMAIN_SMT = 0,
@@ -55,7 +44,7 @@ typedef struct {
 typedef struct {
         uint8_t        nr_domains;
         uint8_t        reserved[7];
-        sched_domain_t domains[SCHED_DOMAIN_MAX_LEVELS];
+        sched_domain_t domains[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
 } sched_domain_cpu_t;
 
 /* Per-CPU EEVDF runqueue */
@@ -73,7 +62,7 @@ typedef struct {
         uint64_t         nr_migrations;   // tasks migrated into/out of this rq
         uint64_t         nr_steals;       // tasks pulled while this CPU was idle
         uint64_t         nr_wakeups;      // wakeups targeted at this rq
-        uint64_t         last_domain_balance[SCHED_DOMAIN_MAX_LEVELS];
+        uint64_t         last_domain_balance[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
         uint64_t         user_ticks;
         uint64_t         system_ticks;
         uint64_t         idle_ticks;
@@ -137,9 +126,6 @@ int task_stop(task_t *task);
 
 /* Account one scheduler tick and preempt the current task if needed */
 void sched_tick(bool user_mode);
-
-/* Honor a pending local wakeup preemption at a safe kernel return point */
-void sched_maybe_preempt(void);
 
 /* Return the scheduler tick count */
 uint64_t sched_ticks(void);

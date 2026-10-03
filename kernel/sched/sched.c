@@ -10,52 +10,18 @@
 
 #include <arch/common.h>
 #include <arch/fpu.h>
-#include <arch/gdt.h>
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/debug/debug.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/list/intrusive_list.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <libs/util/rbtree.h>
 #include <mem/heap.h>
 #include <mem/page.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
-#include <sync/spin_lock.h>
 
-/*
- * Build system may pre-define these via -D in the Makefile.
- * The #ifndef guards ensure the command-line value takes precedence.
- */
-#ifndef SCHED_LOAD_BALANCE_INTERVAL
-#    define SCHED_LOAD_BALANCE_INTERVAL 8
-#endif
-#ifndef SCHED_BASE_SLICE
-#    define SCHED_BASE_SLICE 2ULL
-#endif
-#ifndef SCHED_LATENCY
-#    define SCHED_LATENCY 8ULL
-#endif
-#ifndef SCHED_MIN_GRANULARITY
-#    define SCHED_MIN_GRANULARITY 1ULL
-#endif
-#ifndef SCHED_WAKEUP_GRANULARITY
-#    define SCHED_WAKEUP_GRANULARITY 0ULL
-#endif
-#ifndef SCHED_BALANCE_BATCH
-#    define SCHED_BALANCE_BATCH 4U
-#endif
-#ifndef SCHED_MIGRATION_COOLDOWN
-#    define SCHED_MIGRATION_COOLDOWN 4ULL
-#endif
 #ifndef SCHED_AFFINITY_BONUS
 #    define SCHED_AFFINITY_BONUS (SCHED_NICE_0_LOAD / 4ULL)
 #endif
@@ -110,16 +76,14 @@ __attribute__((naked)) void context_switch(task_context_t *prev __attribute__((u
 /* Return the task whose scheduler-list node is given */
 static task_t *sched_node_to_task(ilist_node_t *node)
 {
-    return (task_t *)((uint8_t *)node - offsetof(task_t, sched_node));
+    return container_of(node, task_t, sched_node);
 }
 
 /* Return the task whose timer-list node is given */
 static task_t *timer_node_to_task(ilist_node_t *node)
 {
-    return (task_t *)((uint8_t *)node - offsetof(task_t, timer_node));
+    return container_of(node, task_t, timer_node);
 }
-
-/* EEVDF core: virtual-time arithmetic */
 
 /* Convert wall-clock delta to virtual-time delta for a given weight */
 static uint64_t calc_delta_fair(uint64_t delta, task_t *task)
@@ -156,7 +120,7 @@ static uint64_t avg_vruntime(eevdf_rq_t *rq)
     if (!load) return rq->min_vruntime;
 
     /*
-     * Match Linux EEVDF's left-biased division.  C truncates a negative
+     * Match EEVDF's left-biased division.  C truncates a negative
      * numerator toward zero, which can place V one unit to the right and make
      * the entity at the real weighted average appear ineligible.  Under a
      * busy desktop runqueue that rounding error can repeatedly select the
@@ -166,21 +130,17 @@ static uint64_t avg_vruntime(eevdf_rq_t *rq)
     return add_signed_vruntime(rq->min_vruntime, average / (int64_t)load);
 }
 
-/*
- * Scale the base slice by the number of runnable tasks to stay within
- * the scheduling latency period.  Ensures each task gets at least
- * min_granularity.
- */
+/* Scale the base slice by the number of runnable tasks to stay within the scheduling latency period.  Ensures each task gets at least min_granularity. */
 static uint64_t calc_effective_slice(eevdf_rq_t *rq)
 {
     uint64_t nr = rq->nr_running;
 
     if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle) nr++;
-    if (nr <= 1) return SCHED_BASE_SLICE;
+    if (nr <= 1) return CONFIG_SCHED_BASE_SLICE;
 
-    uint64_t slice = SCHED_LATENCY / nr;
-    if (slice < SCHED_MIN_GRANULARITY) slice = SCHED_MIN_GRANULARITY;
-    if (slice > SCHED_BASE_SLICE) slice = SCHED_BASE_SLICE;
+    uint64_t slice = CONFIG_SCHED_LATENCY / nr;
+    if (slice < CONFIG_SCHED_MIN_GRANULARITY) slice = CONFIG_SCHED_MIN_GRANULARITY;
+    if (slice > CONFIG_SCHED_BASE_SLICE) slice = CONFIG_SCHED_BASE_SLICE;
     return slice;
 }
 
@@ -215,8 +175,6 @@ static int entity_eligible(eevdf_rq_t *rq, task_t *task)
     return entity_eligible_vruntime(rq, task->vruntime);
 }
 
-/* EEVDF core: RB-tree comparison and augmentation */
-
 /* Compare two rb_nodes by deadline, vruntime, then the unique PID. */
 static int entity_less(const rb_node_t *a, const rb_node_t *b)
 {
@@ -228,14 +186,11 @@ static int entity_less(const rb_node_t *a, const rb_node_t *b)
     return ta->pid < tb->pid;
 }
 
-/*
- * Check whether candidate is "significantly" better than curr.
- * Uses wakeup_granularity to prevent preemption ping-pong.
- */
+/* Check whether candidate is "significantly" better than curr. Uses wakeup_granularity to prevent preemption ping-pong. */
 static int entity_before(task_t *cand, task_t *curr)
 {
     if (entity_less(&cand->run_node, &curr->run_node)) {
-        uint64_t gran = calc_delta_fair(SCHED_WAKEUP_GRANULARITY, cand);
+        uint64_t gran = calc_delta_fair(CONFIG_SCHED_WAKEUP_GRANULARITY, cand);
         if ((int64_t)(cand->deadline + gran) < (int64_t)curr->deadline) return 1;
     }
     return 0;
@@ -256,11 +211,10 @@ static void update_min_vruntime(rb_node_t *node, void *data)
 }
 
 /*
- * rq->avg_vruntime is stored relative to rq->min_vruntime.  Moving the
- * origin therefore requires rebasing the weighted sum.  The old code merely
- * assigned min_vruntime in update_curr(); the accumulated error grew on every
- * timer tick and eventually placed newly forked/woken tasks thousands of
- * ticks ahead of the active desktop tasks.
+ * rq->avg_vruntime is stored relative to rq->min_vruntime, so moving the origin
+ * requires rebasing the weighted sum.  Without the rebase the accumulated error
+ * grows on every timer tick and eventually places newly forked/woken tasks
+ * thousands of ticks ahead of the active tasks.
  */
 static void advance_min_vruntime(eevdf_rq_t *rq)
 {
@@ -277,8 +231,6 @@ static void advance_min_vruntime(eevdf_rq_t *rq)
     rq->avg_vruntime -= (int64_t)delta * (int64_t)rq->avg_load;
     rq->min_vruntime = candidate;
 }
-
-/* EEVDF core: avg_vruntime / avg_load bookkeeping */
 
 /* Add a task's vruntime contribution to the runqueue */
 static void avg_vruntime_add(eevdf_rq_t *rq, task_t *task)
@@ -331,10 +283,7 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
     uint64_t slice  = calc_effective_slice(rq);
     uint64_t vslice = calc_delta_fair(slice, task);
 
-    /*
-     * PLACE_LAG: adjust vruntime based on stored vlag.
-     * Scale the stored lag to account for the changed load.
-     */
+    /* PLACE_LAG: adjust vruntime based on stored vlag. Scale the stored lag to account for the changed load. */
     uint64_t load = rq->avg_load;
     if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle) load += rq->curr->weight;
     if (load) {
@@ -343,7 +292,7 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
         if (new_load > load) lag = lag * (int64_t)new_load / (int64_t)load;
 
         /*
-         * Sleeping credit/debt is bounded just as it is in Linux EEVDF.
+         * Sleeping credit/debt is bounded just as in EEVDF.
          * This also prevents a stale value surviving a CPU migration from
          * pushing an otherwise runnable task arbitrarily far into the future.
          */
@@ -370,11 +319,8 @@ static bool enqueue_entity(eevdf_rq_t *rq, task_t *task)
      * never let a late wakeup resurrect a task that has already exited.
      */
     if (!task || task->state != TASK_READY) {
-        static uint64_t last_log;
-        if (task && scheduler.ticks - last_log >= 1000) {
-            plogk("sched: Refusing to enqueue task %llu (%s) in state %u\n", task->pid, task->name, task->state);
-            last_log = scheduler.ticks;
-        }
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sched: Refusing to enqueue task %llu (%s) in state %u\n", task->pid, task->name, task->state);
         return false;
     }
 
@@ -386,16 +332,17 @@ static bool enqueue_entity(eevdf_rq_t *rq, task_t *task)
      * already-completed wakeup idempotent.
      */
     if (task->on_rq) {
-        if (task->rq_cpu != rq_cpu)
-            plogk("sched: task %llu (%s) already belongs to rq%u, refused insertion into rq%u\n", task->pid, task->name, task->rq_cpu, rq_cpu);
+        if (task->rq_cpu != rq_cpu) {
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("sched: task %llu (%s) already belongs to rq%u, refused insertion into rq%u\n", task->pid, task->name, task->rq_cpu, rq_cpu);
+        }
         return false;
     }
 
-    if (rb_insert_augmented(&rq->timeline, &task->run_node, entity_less, update_min_vruntime, NULL)) {
+    if (rb_insert_augmented(&rq->timeline, &task->run_node, entity_less, update_min_vruntime, NULL))
         panic("sched: refused corrupt/double RB insertion for task %llu (%s) on rq%u", task->pid, task->name, rq_cpu);
-    }
     avg_vruntime_add(rq, task);
-    task->on_rq = true;
+    task->on_rq  = true;
     task->rq_cpu = rq_cpu;
     __atomic_add_fetch(&rq->nr_running, 1, __ATOMIC_RELAXED);
     return true;
@@ -410,10 +357,8 @@ static bool dequeue_entity(eevdf_rq_t *rq, task_t *task)
         plogk("sched: task %llu (%s) belongs to rq%u, refused removal from rq%u\n", task->pid, task->name, task->rq_cpu, rq_cpu);
         return false;
     }
-    if (rb_erase_augmented(&rq->timeline, &task->run_node, update_min_vruntime, NULL)) {
-        panic("sched: refused detached/wrong-tree RB erase for task %llu (%s) from rq%u", task->pid, task->name, rq_cpu);
-    }
-    task->on_rq = false;
+    if (rb_erase_augmented(&rq->timeline, &task->run_node, update_min_vruntime, NULL)) panic("sched: refused detached/wrong-tree RB erase for task %llu (%s) from rq%u", task->pid, task->name, rq_cpu);
+    task->on_rq  = false;
     task->rq_cpu = UINT32_MAX;
     avg_vruntime_sub(rq, task);
     if (__atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED)) __atomic_sub_fetch(&rq->nr_running, 1, __ATOMIC_RELAXED);
@@ -423,13 +368,10 @@ static bool dequeue_entity(eevdf_rq_t *rq, task_t *task)
 /*
  * EEVDF core: pick_eevdf - select the next task to run
  *
- * Strategy:
- * 1. If only one task is runnable, return it directly.
- * 2. Check the cached leftmost (earliest deadline).
- * If eligible, it wins.
- * 3. Otherwise, traverse the rbtree, using the min_vruntime
- * augmentation to skip subtrees that contain no eligible
- * entities.
+ * Strategy: return the only runnable task directly; otherwise test the
+ * cached leftmost (earliest deadline) and take it when eligible; otherwise
+ * traverse the rbtree, using the min_vruntime augmentation to skip subtrees
+ * that contain no eligible entities.
  */
 static task_t *pick_eevdf(eevdf_rq_t *rq)
 {
@@ -505,9 +447,9 @@ static void update_tss_stack(task_t *task)
     if (!task) return;
 
     if (task->process && task->process->kernel_stack) {
-        set_kernel_stack((uint64_t)(task->process->kernel_stack + PROCESS_KERNEL_STACK));
+        set_kernel_stack((uint64_t)(task->process->kernel_stack + CONFIG_PROCESS_KERNEL_STACK));
     } else if (task->kernel_stack) {
-        set_kernel_stack((uint64_t)(task->kernel_stack + TASK_KERNEL_STACK));
+        set_kernel_stack((uint64_t)(task->kernel_stack + CONFIG_PROCESS_KERNEL_STACK));
     }
 }
 
@@ -526,11 +468,8 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
      * triple-fault the CPU.  Refuse it and log instead.
      */
     if (!task->context.rsp) {
-        static uint64_t last_log;
-        if (scheduler.ticks - last_log >= 1000) {
-            plogk("sched: refusing to enqueue task %llu (%s) with no kernel stack.\n", task->pid, task->name);
-            last_log = scheduler.ticks;
-        }
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sched: refusing to enqueue task %llu (%s) with no kernel stack.\n", task->pid, task->name);
         return;
     }
 
@@ -556,7 +495,7 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
      * or pointer and list membership silently diverge.
      */
     task->cpu_id = cpu_id;
-    bool queued = enqueue_entity(rq, task);
+    bool queued  = enqueue_entity(rq, task);
 
     /*
      * A local wakeup has no reschedule IPI to force a scheduling point.  Mark
@@ -565,8 +504,7 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
      * thread waiting for the next periodic tick.
      */
     task_t *curr = rq->curr;
-    if (queued && (curr == rq->idle || (curr && curr->state == TASK_RUNNING && entity_eligible(rq, task) && entity_before(task, curr))))
-        __atomic_store_n(&rq->need_resched, 1, __ATOMIC_RELEASE);
+    if (queued && (curr == rq->idle || (curr && curr->state == TASK_RUNNING && entity_eligible(rq, task) && entity_before(task, curr)))) __atomic_store_n(&rq->need_resched, 1, __ATOMIC_RELEASE);
     spin_unlock(&rq->lock);
 }
 
@@ -594,15 +532,11 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
     if (task->state == TASK_READY || task->state == TASK_RUNNING) return;
     if (task->state == TASK_STOPPED || task->state == TASK_IDLE || task->state == TASK_ZOMBIE) {
         {
-            static uint64_t last_log;
-            if (scheduler.ticks - last_log >= 1000) {
-                plogk("sched: Rejected wake of task %llu (%s) in state %u\n", task->pid, task->name, task->state);
-                last_log = scheduler.ticks;
-            }
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("sched: Rejected wake of task %llu (%s) in state %u\n", task->pid, task->name, task->state);
         }
         return;
     }
-
     if (remove_linked_node && ilist_remove(&task->sched_node)) panic("sched: corrupt sleep-queue node on wake (task %llu %s)", task->pid, task->name);
     if (task->process && __atomic_load_n(&task->process->signal.group_stopped, __ATOMIC_ACQUIRE)) {
         task->state     = TASK_STOPPED;
@@ -694,9 +628,9 @@ static void insert_sleep_deadline_locked(task_t *task)
             position = position->next;
         }
         if (!ilist_insert_before(position, &task->sched_node)) return;
-
-        if (attempt > 0 || !ilist_is_linked(&task->sched_node)) { panic("sched: sleep-queue insert rejected (task %llu %s) - ring corrupt.", task->pid, task->name); }
-        plogk("sched: stale sleep-queue link on task %llu (%s); recovering.\n", task->pid, task->name);
+        if (attempt > 0 || !ilist_is_linked(&task->sched_node)) panic("sched: sleep-queue insert rejected (task %llu %s) - ring corrupt.", task->pid, task->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sched: stale sleep-queue link on task %llu (%s); recovering.\n", task->pid, task->name);
         (void)ilist_remove(&task->sched_node);
         task->wait_queue = NULL;
     }
@@ -714,9 +648,9 @@ static void insert_timer_deadline_locked(task_t *task)
             position = position->next;
         }
         if (!ilist_insert_before(position, &task->timer_node)) return;
-
-        if (attempt > 0 || !ilist_is_linked(&task->timer_node)) { panic("sched: timer-queue insert rejected (task %llu %s) - ring corrupt.", task->pid, task->name); }
-        plogk("sched: stale timer-queue link on task %llu (%s); recovering.\n", task->pid, task->name);
+        if (attempt > 0 || !ilist_is_linked(&task->timer_node)) panic("sched: timer-queue insert rejected (task %llu %s) - ring corrupt.", task->pid, task->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sched: stale timer-queue link on task %llu (%s); recovering.\n", task->pid, task->name);
         (void)ilist_remove(&task->timer_node);
     }
 }
@@ -729,8 +663,6 @@ static void sleep_task(task_t *task, uint64_t wake_tick)
     task->wait_queue = NULL;
     insert_sleep_deadline_locked(task);
 }
-
-/* Load balancing */
 
 /* Check whether a CPU belongs to the scheduler domain at the given topology level. */
 static int sched_domain_level_contains(uint32_t anchor, uint8_t level, uint32_t cpu)
@@ -795,7 +727,7 @@ static uint16_t sched_domain_span_weight(uint32_t anchor, uint8_t level)
 static void sched_domain_add(uint32_t cpu, uint8_t level, uint16_t flags, uint32_t interval)
 {
     sched_domain_cpu_t *topology = &cpu_sched_domains[cpu];
-    if (topology->nr_domains >= SCHED_DOMAIN_MAX_LEVELS) return;
+    if (topology->nr_domains >= CONFIG_SCHED_DOMAIN_MAX_LEVELS) return;
 
     sched_domain_t *domain   = &topology->domains[topology->nr_domains++];
     domain->level            = level;
@@ -820,24 +752,20 @@ static void sched_domain_build(void)
             sched_domain_add(cpu, SCHED_DOMAIN_SMT,
                              SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC | SCHED_DOMAIN_WAKE_AFFINE | SCHED_DOMAIN_SHARE_CAPACITY
                                  | SCHED_DOMAIN_SHARE_CACHE,
-                             SCHED_LOAD_BALANCE_INTERVAL > 2 ? SCHED_LOAD_BALANCE_INTERVAL / 4 : 1);
+                             CONFIG_SCHED_LOAD_BALANCE_INTERVAL > 2 ? CONFIG_SCHED_LOAD_BALANCE_INTERVAL / 4 : 1);
             widest = core_span;
         }
         if (package_span > widest) {
             sched_domain_add(cpu, SCHED_DOMAIN_PACKAGE, SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC | SCHED_DOMAIN_WAKE_AFFINE | SCHED_DOMAIN_SHARE_CACHE,
-                             SCHED_LOAD_BALANCE_INTERVAL);
+                             CONFIG_SCHED_LOAD_BALANCE_INTERVAL);
             widest = package_span;
         }
-        if (cpu_scheduler_count > widest) {
-            sched_domain_add(cpu, SCHED_DOMAIN_SYSTEM, SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC, SCHED_LOAD_BALANCE_INTERVAL * 4U);
-        }
+        if (cpu_scheduler_count > widest)
+            sched_domain_add(cpu, SCHED_DOMAIN_SYSTEM, SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC, CONFIG_SCHED_LOAD_BALANCE_INTERVAL * 4U);
     }
 }
 
-/*
- * Number of runnable entities including the currently executing non-idle task.
- * Read locklessly (relaxed atomics) for the cross-CPU balancer.
- */
+/* Number of runnable entities including the currently executing non-idle task. Read locklessly (relaxed atomics) for the cross-CPU balancer. */
 static uint64_t rq_task_count(const eevdf_rq_t *rq)
 {
     uint64_t count = __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED);
@@ -897,17 +825,19 @@ static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev
 
     /* Preserve cache locality without packing runnable work onto one SMT core. */
     if (cpu != prev_cpu) {
-        if (cpu_topology_same_core(cpu, prev_cpu))
+        if (cpu_topology_same_core(cpu, prev_cpu)) {
             score += SCHED_NICE_0_LOAD / 4ULL;
-        else if (cpu_topology_same_package(cpu, prev_cpu))
+        } else if (cpu_topology_same_package(cpu, prev_cpu)) {
             score += SCHED_NICE_0_LOAD / 16ULL;
+        }
+
         /* different package: no locality bonus */
     }
 
     /* WF_SYNC-like hint: the waker may block/yield soon, so stacking is a bit cheaper. */
     uint32_t this_cpu = get_current_cpu_id();
     if (sync && cpu == this_cpu && score >= SCHED_SYNC_WAKE_BONUS) score -= SCHED_SYNC_WAKE_BONUS;
-    if (task && cpu != prev_cpu && scheduler.ticks - task->last_migrate_tick < SCHED_MIGRATION_COOLDOWN) score += SCHED_NICE_0_LOAD / 2ULL;
+    if (task && cpu != prev_cpu && scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN) score += SCHED_NICE_0_LOAD / 2ULL;
 
     return score;
 }
@@ -935,7 +865,7 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
     if (!cpu_rqs[prev_cpu].online) prev_cpu = this_cpu;
 
     /*
-     * Linux WF_SYNC means the waker expects to schedule away shortly.  Keep
+     * WF_SYNC means the waker expects to schedule away shortly.  Keep
      * the wakee on its previous CPU instead of load-balancing it here: pipe
      * producer/consumer pairs use sync wakes for every full/empty transition,
      * and migrating either end turns a small transfer into an IPI plus cold
@@ -943,7 +873,6 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
      * idle search below.
      */
     if (sync) return prev_cpu;
-
     if (rq_is_idle_cpu(prev_cpu)) return prev_cpu;
 
     uint32_t            start    = __atomic_fetch_add(&next_task_cpu, 1, __ATOMIC_RELAXED) % cpu_scheduler_count;
@@ -1027,7 +956,7 @@ static int has_ready_task(void)
     return __atomic_load_n(&local_rq()->nr_running, __ATOMIC_RELAXED) > 0;
 }
 
-/* In-order predecessor helper used to scan low-urgency EEVDF candidates. */
+/* In-order predecessor helper for low-urgency EEVDF candidates. */
 static rb_node_t *rb_prev_local(rb_node_t *node)
 {
     if (!node) return NULL;
@@ -1054,7 +983,7 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     unsigned int scanned = 0;
     while (node && scanned++ < 8) {
         task_t *task = rb_entry(node, task_t, run_node);
-        bool    hot  = scheduler.ticks - task->last_migrate_tick < SCHED_MIGRATION_COOLDOWN;
+        bool    hot  = scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN;
         if (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2) return task;
         node = rb_prev_local(node);
     }
@@ -1115,7 +1044,7 @@ static task_t *migrate_one_locked(uint32_t src_cpu, uint32_t dst_cpu, bool newly
 }
 
 /*
- * New-idle work stealing: pull exactly one task.  Like Linux newidle_balance,
+ * New-idle work stealing: pull exactly one task.  Like newidle_balance,
  * the critical path is deliberately bounded so going idle never turns into a
  * long O(N*tasks) scan.
  */
@@ -1157,7 +1086,7 @@ static task_t *rebalance_domains_locked(uint32_t dst_cpu)
 
     sched_domain_cpu_t *topology = &cpu_sched_domains[dst_cpu];
     task_t             *first    = NULL;
-    unsigned int        budget   = SCHED_BALANCE_BATCH;
+    unsigned int        budget   = CONFIG_SCHED_BALANCE_BATCH;
     for (uint8_t index = 0; index < topology->nr_domains && budget; index++) {
         sched_domain_t *domain = &topology->domains[index];
         if (!(domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC) || scheduler.ticks - cpu_rqs[dst_cpu].last_domain_balance[index] < domain->balance_interval) continue;
@@ -1202,6 +1131,7 @@ static void wake_sleeping_tasks(void)
         task_t       *task = timer_node_to_task(node);
 
         if (task->wake_tick > scheduler.ticks) break;
+
         /*
          * finish_wait_locked() drops both the timer entry and the wait-queue
          * entry; the explicit removal here is what makes the loop terminate.
@@ -1213,7 +1143,7 @@ static void wake_sleeping_tasks(void)
 }
 
 /* Per-CPU idle loop: halt until an interrupt, then yield to real work */
-static void idle_thread(void *arg)
+__attribute__((noreturn)) static void idle_thread(void *arg)
 {
     (void)arg;
     while (1) {
@@ -1249,16 +1179,16 @@ static task_t *idle_task_alloc(uint32_t cpu_id)
     ilist_init(&idle->cgroup_node);
     (void)snprintf(idle->name, sizeof(idle->name), "swapper/%u", cpu_id);
 
-    idle->kernel_stack = malloc(TASK_KERNEL_STACK);
+    idle->kernel_stack = malloc(CONFIG_PROCESS_KERNEL_STACK);
     if (!idle->kernel_stack) {
         free(idle);
         return NULL;
     }
 
-    uint64_t *stack      = (uint64_t *)ALIGN_DOWN((uint64_t)(idle->kernel_stack + TASK_KERNEL_STACK), 16ULL);
+    uint64_t *stack      = (uint64_t *)ALIGN_DOWN((uint64_t)(idle->kernel_stack + CONFIG_PROCESS_KERNEL_STACK), 16ULL);
     *(--stack)           = (uint64_t)idle_thread;
     idle->context.rsp    = (uint64_t)stack;
-    idle->context.rdi    = (uint64_t)(uintptr_t)NULL; // NOLINT(bugprone-casting-through-void)
+    idle->context.rdi    = 0;
     idle->context.rflags = 0x202;
     return idle;
 }
@@ -1342,12 +1272,12 @@ void sched_ap_online(uint32_t cpu_id)
 }
 
 /* Enter the scheduler loop on an application processor */
-void sched_ap_start(uint32_t cpu_id)
+__attribute__((noreturn)) void sched_ap_start(uint32_t cpu_id)
 {
-    while (!cpu_rqs || !cpu_scheduler_count) __asm__ volatile("pause");
+    while (!cpu_rqs || !cpu_scheduler_count) cpu_relax();
     if (cpu_id == 0 || cpu_id >= cpu_scheduler_count) krn_halt();
 
-    while (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
+    while (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) cpu_relax();
     __atomic_store_n(&cpu_rqs[cpu_id].curr, &ap_boot_tasks[cpu_id], __ATOMIC_RELAXED);
     percpu_gs_set_current(&ap_boot_tasks[cpu_id]);
     sched_yield();
@@ -1401,7 +1331,7 @@ uint32_t sched_cpu_count(void)
 /* task_set_cpu - migrate a task to a different CPU */
 int task_set_cpu(task_t *task, uint32_t cpu_id)
 {
-    if (!task || cpu_id >= cpu_scheduler_count) return 1;
+    if (!task || cpu_id >= cpu_scheduler_count) return -EINVAL;
 
     spin_lock(&scheduler.lock);
     uint32_t old_cpu = task->cpu_id;
@@ -1418,7 +1348,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
     if (task->state == TASK_RUNNING || task->state == TASK_IDLE || task->state == TASK_ZOMBIE || __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
         spin_unlock(&src->lock);
         spin_unlock(&scheduler.lock);
-        return 1;
+        return -EINVAL;
     }
 
     bool was_queued = false;
@@ -1427,7 +1357,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
             spin_unlock(&src->lock);
             spin_unlock(&scheduler.lock);
             plogk("sched: migration refused for task %llu (%s): cpu_id=%u rq_cpu=%u\n", task->pid, task->name, old_cpu, task->rq_cpu);
-            return 1;
+            return -EINVAL;
         }
         task->vlag = (int64_t)(avg_vruntime(src) - task->vruntime);
         was_queued = dequeue_entity(src, task);
@@ -1463,7 +1393,7 @@ static void sched_switch(bool voluntary)
     if (prev && prev->state == TASK_RUNNING && prev != rq->idle) {
         /*
          * sched_yield() must actually yield when another entity is queued.
-         * As in Linux EEVDF, an eligible yielding entity forfeits the rest of
+         * As in EEVDF, an eligible yielding entity forfeits the rest of
          * its current request.  Without this, a GLib/Xorg retry loop can
          * enqueue itself with the same earliest deadline and be selected
          * again immediately, consuming a CPU while starving its peer.
@@ -1479,14 +1409,12 @@ static void sched_switch(bool voluntary)
 
     /*
      * Going idle: pull one task immediately instead of waiting for CPU 0's
-     * periodic pass.  Drop the rq lock first so scheduler.lock stays outer,
-     * steal, then re-lock.  Keep scheduler.lock held until the destination rq
-     * is locked again: otherwise a second CPU can immediately steal the task
-     * we just pulled, leaving the raw `stolen` pointer detached from this rq.
-     * Selecting that stale pointer used to run one task on two CPUs and was a
-     * direct source of disappearing processes/tree corruption under OpenRC's
-     * fork/wake load.  Interrupts stay off across the whole gap so a tick
-     * cannot charge the just-blocked task while prev is no longer runnable.
+     * periodic pass.  Drop the rq lock first so scheduler.lock stays outer, steal,
+     * then re-lock.  scheduler.lock stays held until the destination rq is locked
+     * again: otherwise a second CPU can immediately steal the task just pulled,
+     * leaving the raw `stolen` pointer detached from this rq and running one task
+     * on two CPUs.  Interrupts stay off across the whole gap so a tick cannot
+     * charge the just-blocked task while prev is no longer runnable.
      */
     if (next == rq->idle && rq->nr_running == 0) {
         /* Keep IRQs disabled while rq->curr is between scheduling states. */
@@ -1499,10 +1427,7 @@ static void sched_switch(bool voluntary)
     }
 
     if (prev == next) {
-        /*
-         * A remote wake may have queued this CPU's current task between
-         * committing a block and entering the scheduler.
-         */
+        /* A remote wake may have queued this CPU's current task between committing a block and entering the scheduler. */
         if (next && next != rq->idle && next->state == TASK_READY) {
             if (!dequeue_entity(rq, next)) panic("sched: selected READY task %llu (%s) is absent from its runqueue", next->pid, next->name);
             next->state      = TASK_RUNNING;
@@ -1513,10 +1438,7 @@ static void sched_switch(bool voluntary)
         return;
     }
 
-    /*
-     * Advance min_vruntime when going idle so that tasks waking up
-     * later don't get a huge vruntime windfall.
-     */
+    /* Advance min_vruntime when going idle so that tasks waking up later don't get a huge vruntime windfall. */
     if (next == rq->idle && rq->nr_running == 0) {
         uint64_t avg = avg_vruntime(rq);
         if ((int64_t)(avg - rq->min_vruntime) > 0) rq->min_vruntime = avg;
@@ -1553,23 +1475,20 @@ static void sched_switch(bool voluntary)
     advance_min_vruntime(rq);
     update_tss_stack(next);
 
-    /*
-     * Retaining CR3 preserves the TLB when switching between threads in
-     * the same address space (and for kernel threads).
-     */
+    /* Retaining CR3 preserves the TLB when switching between threads in the same address space (and for kernel threads). */
     if (!prev || prev->page_directory != next->page_directory) switch_page_directory(next->page_directory);
     rq->context_switches++;
     if (prev && prev != rq->idle) {
-        if (voluntary)
+        if (voluntary) {
             prev->voluntary_switches++;
-        else
+        } else {
             prev->involuntary_switches++;
+        }
     }
 
     /*
-     * Release the runqueue without reopening the timer-interrupt window.
-     * The old code restored IF here and disabled it again afterwards; a tick
-     * in that gap could enter sched_switch() after rq->curr had changed but
+     * Release the runqueue without reopening the timer-interrupt window: restoring
+     * IF here would let a tick enter sched_switch() after rq->curr had changed but
      * before the CPU had changed stacks.
      */
     spin_unlock_irqrestore(&rq->lock, entry_rflags & ~(1ULL << 9));
@@ -1589,10 +1508,11 @@ static void sched_switch(bool voluntary)
     context_switch(&prev->context, &next->context, &prev->on_cpu);
 
     /* Restore the IRQ state of the call site when this task is scheduled in. */
-    if (entry_rflags & (1ULL << 9))
+    if (entry_rflags & (1ULL << 9)) {
         enable_intr();
-    else
+    } else {
         disable_intr();
+    }
 }
 
 /* Yield the current task to the scheduler */
@@ -1602,7 +1522,7 @@ void sched_yield(void)
 }
 
 /* sched_start - launch the scheduler on the BSP */
-void sched_start(void)
+__attribute__((noreturn)) void sched_start(void)
 {
     disable_intr();
     local_current()->state = TASK_IDLE;
@@ -1656,12 +1576,11 @@ void task_block(void)
     task_t     *curr = local_current();
 
     /*
-     * Consume a wakeup that completed while we were between
-     * wait_queue_prepare() and this block request.  A waker running on
-     * another CPU may have removed us from the queue and recorded the wake
-     * reason while our state was still TASK_RUNNING; blocking unconditionally
-     * here would discard that wakeup forever (lost-wakeup deadlock, e.g. a
-     * PI futex handed to us by its previous owner).
+     * Consume a wakeup that completed between wait_queue_prepare() and this block
+     * request.  A waker on another CPU may have removed the task from the queue
+     * and recorded the wake reason while its state was still TASK_RUNNING;
+     * blocking unconditionally here would discard that wakeup forever
+     * (lost-wakeup deadlock, e.g. a PI futex handed over by its previous owner).
      */
     if (!curr->wait_queue && curr->wake_reason != TASK_WAKE_NONE) {
         curr->wake_reason = TASK_WAKE_NONE;
@@ -1683,7 +1602,7 @@ void task_block(void)
 /* task_wakeup - wake a blocked or sleeping task */
 int task_wakeup(task_t *task)
 {
-    if (!task) return 1;
+    if (!task) return -EINVAL;
 
     spin_lock(&scheduler.lock);
     place_waking_task_locked(task, false);
@@ -1702,7 +1621,7 @@ int task_wakeup(task_t *task)
     return 0;
 }
 
-/* Resume a stopped task, reporting whether it was actually continued */
+/* Resume a stopped task; 1 when it was not continued, 0 when it was */
 int task_continue(task_t *task)
 {
     if (!task) return 1;
@@ -1714,12 +1633,11 @@ int task_continue(task_t *task)
         eevdf_rq_t *rq  = &cpu_rqs[cpu];
 
         /*
-         * on_cpu remains set until context_switch() has stopped using the
-         * previous task's stack.  It therefore cannot tell whether @task is
-         * still rq->curr.  In the switch-out window the old test changed the
-         * task to RUNNING without enqueueing it, losing it forever.  rq->curr
-         * is the ownership test; if it already points elsewhere, queue the
-         * stopped task while holding the same rq lock used by sched_switch().
+         * on_cpu remains set until context_switch() has stopped using the previous
+         * task's stack, so it cannot tell whether @task is still rq->curr.  Changing the
+         * task to RUNNING without enqueueing it in that window would lose it.  rq->curr
+         * is the ownership test; if it already points elsewhere, queue the stopped task
+         * while holding the same rq lock used by sched_switch().
          */
         spin_lock(&rq->lock);
         if (rq->curr == task && __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
@@ -1748,7 +1666,7 @@ int task_continue(task_t *task)
 /* Stop a task without leaving a READY entity behind in its runqueue tree. */
 int task_stop(task_t *task)
 {
-    if (!task) return 1;
+    if (!task) return -EINVAL;
 
     spin_lock(&scheduler.lock);
     bool stopped = task->state == TASK_READY || task->state == TASK_RUNNING;
@@ -1764,8 +1682,6 @@ int task_stop(task_t *task)
     if (stopped) request_cpu_reschedule(target_cpu);
     return stopped ? 0 : 1;
 }
-
-/* Wait queue implementation */
 
 /* Initialize a wait queue */
 void wait_queue_init(wait_queue_t *queue)
@@ -1813,16 +1729,15 @@ void wait_queue_prepare(wait_queue_t *queue)
 
     if (curr->wait_queue || ilist_is_linked(&curr->sched_node)) {
         /*
-         * A task is somehow still in a wait queue while preparing a fresh
-         * wait - the previous prepare never completed (no sleep/cancel/wake),
-         * or a wake failed to detach it.  This used to be a panic (seen on
-         * Xorg's epoll_wait re-entry), but a stale membership is recoverable:
-         * detach whatever is linked, clear the state, and let this prepare
-         * run clean.
+         * A task is somehow still in a wait queue while preparing a fresh wait - the
+         * previous prepare never completed (no sleep/cancel/wake), or a wake failed to
+         * detach it.  A stale membership is recoverable: detach whatever is linked,
+         * clear the state, and let this prepare run clean.
          */
         bool had_wakeup = curr->wake_reason != TASK_WAKE_NONE;
-        plogk("sched: stale wait state on task %llu (%s) queue=%p state=%d wake_reason=%d; recovering%s\n", (unsigned long long)curr->pid, curr->name, (void *)curr->wait_queue, (int)curr->state,
-              (int)curr->wake_reason, had_wakeup ? " (pending wakeup)" : "");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit))
+            plogk("sched: stale wait state on task %llu (%s) state=%d wake_reason=%d; recovering%s\n", curr->pid, curr->name, curr->state, curr->wake_reason, had_wakeup ? " (pending wakeup)" : "");
         if (ilist_is_linked(&curr->sched_node)) (void)ilist_remove(&curr->sched_node);
         curr->wait_queue = NULL;
         if (had_wakeup) {
@@ -1834,7 +1749,7 @@ void wait_queue_prepare(wait_queue_t *queue)
              * storm seen on tty input.  Keeping the durable reason until the
              * commit step also prevents this wakeup from being discarded.
              */
-            curr->wake_tick   = 0;
+            curr->wake_tick = 0;
             spin_unlock(&scheduler.lock);
             return;
         }
@@ -1858,10 +1773,7 @@ void wait_queue_prepare(wait_queue_t *queue)
     spin_unlock(&scheduler.lock);
 }
 
-/*
- * Commit a prepared wait: context-switch away from the current task.
- * Must be paired with a preceding wait_queue_prepare().
- */
+/* Commit a prepared wait: context-switch away from the current task. Must be paired with a preceding wait_queue_prepare(). */
 void wait_queue_sleep(void)
 {
     task_t *curr  = local_current();
@@ -1878,7 +1790,7 @@ void wait_queue_sleep(void)
         curr->state = TASK_BLOCKED;
         sleep       = 1;
     } else {
-        plogk("sched: wait_queue_sleep without a prepared wait (task %llu %s)\n", curr->pid, curr->name);
+        plogk_once("sched: wait_queue_sleep without a prepared wait (task %llu %s)\n", curr->pid, curr->name);
     }
     spin_unlock(&scheduler.lock);
 
@@ -1890,11 +1802,11 @@ void wait_queue_sleep(void)
  *
  * Only valid between wait_queue_prepare() and the actual block.  Because a
  * concurrent requeue (futex FUTEX_REQUEUE paths) may legally have moved the
- * prepared task to another queue under scheduler.lock, the cancellation
- * operates on whichever queue currently holds the node - @queue identifies
- * what the caller believes it prepared on, not where the node must be.
- * Cancelling after the block has committed or after a waker finished the
- * wait is reported: it cannot happen in a correct protocol.
+ * prepared task to another queue under scheduler.lock, the cancellation acts on
+ * whichever queue currently holds the node - @queue identifies what the caller
+ * believes it prepared on, not where the node must be.  Cancelling after the
+ * block has committed or after a waker finished the wait is reported: it cannot
+ * happen in a correct protocol.
  */
 void wait_queue_cancel(wait_queue_t *queue)
 {
@@ -1904,7 +1816,7 @@ void wait_queue_cancel(wait_queue_t *queue)
     spin_lock(&scheduler.lock);
 
     if (!curr->wait_queue) {
-        /* Already cancelled, or a waker/timeout removed us first. */
+        /* Already cancelled, or a waker/timeout removed the node first. */
         spin_unlock(&scheduler.lock);
         return;
     }
@@ -1914,7 +1826,6 @@ void wait_queue_cancel(wait_queue_t *queue)
         plogk("sched: cancel of committed wait on task %llu (%s)\n", curr->pid, curr->name);
         return;
     }
-
     if (ilist_remove(&curr->sched_node)) panic("sched: cancel found unlinked wait node (task %llu %s)", curr->pid, curr->name);
     curr->wait_queue = NULL;
 
@@ -1924,7 +1835,7 @@ void wait_queue_cancel(wait_queue_t *queue)
 /*
  * Two-phase wait with timeout.
  * Must be paired with a preceding wait_queue_prepare().
- * The caller must hold the external lock during prepare() and release
+ * The caller must hold the external lock during wait_queue_prepare() and release
  * it before calling this function.
  *
  * Returns 0 if woken normally, -ETIMEDOUT if the deadline expired.
@@ -1960,12 +1871,10 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
     } else if (curr->wake_reason == TASK_WAKE_NONE) {
         /*
          * Commit on WHICHEVER queue currently holds the node.  A concurrent
-         * FUTEX_REQUEUE may legally have moved us after prepare(); bailing
-         * out here used to strand the task RUNNING-but-still-linked on the
-         * destination queue - later wakes popped the phantom node and
-         * stomped a running task's wake state, and the victim's next
-         * unconditional sleep hit a linked sched_node ("sleep-queue insert
-         * rejected").  Blocking here also restores proper semantics: a
+         * FUTEX_REQUEUE may legally have moved the node after wait_queue_prepare();
+         * bailing out here would strand the task RUNNING-but-still-linked on the
+         * destination queue, where later wakes pop the phantom node and stomp a
+         * running task's wake state.  Blocking here also restores proper semantics: a
          * requeued waiter sleeps until its target is woken or it times out.
          */
         if (deadline_ticks <= scheduler.ticks) {
@@ -2016,7 +1925,7 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
     return task;
 }
 
-/* Wake one task, using a Linux WF_SYNC-like placement hint. */
+/* Wake one task, using a WF_SYNC-like placement hint. */
 task_t *wait_queue_wake_one_sync(wait_queue_t *queue)
 {
     if (!queue) return NULL;
@@ -2063,10 +1972,11 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
         place_waking_task_locked(task, false);
         finish_wait_locked(task, TASK_WAKE_NORMAL);
         if (task->cpu_id != this_cpu) {
-            if (task->cpu_id < 64)
+            if (task->cpu_id < 64) {
                 remote_cpus |= 1ULL << task->cpu_id;
-            else
+            } else {
                 broadcast = true;
+            }
         }
         count++;
     }
@@ -2094,14 +2004,12 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
  * With a high-resolution clocksource (invariant TSC or HPET) the tick count is
  * DERIVED from timer_monotonic_ns() instead of counting interrupts: any CPU
  * that reaches this point can pull the base forward, and the try-lock makes
- * concurrent callers collapse into one.  A stalled CPU therefore can no longer
- * freeze every timeout in the system (futex/poll/nanosleep deadlines all read
- * scheduler.ticks), and missed ticks self-correct on the next pass.  This
- * mirrors Linux's separation of clocksource-driven timekeeping from the
- * per-CPU clock-event device.
+ * concurrent callers collapse into one.  A stalled CPU therefore cannot freeze
+ * every timeout in the system (futex/poll/nanosleep deadlines all read
+ * scheduler.ticks), and missed ticks self-correct on the next pass.
  *
  * Without a high-res source the monotonic read degenerates to scheduler ticks
- * themselves, so fall back to the historical CPU0-owned +1-per-IRQ scheme.
+ * themselves, so fall back to the CPU0-owned +1-per-IRQ scheme.
  */
 static void sched_advance_global_ticks(void)
 {
@@ -2161,7 +2069,7 @@ void sched_tick(bool user_mode)
         curr->time_slice++;
         update_curr(rq, 1);
         update_deadline(rq, curr);
-        if ((requested || curr->time_slice >= SCHED_MIN_GRANULARITY) && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0) preempt = pick_eevdf(rq) != curr;
+        if ((requested || curr->time_slice >= CONFIG_SCHED_MIN_GRANULARITY) && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0) preempt = pick_eevdf(rq) != curr;
     }
     spin_unlock(&rq->lock);
 
@@ -2178,8 +2086,8 @@ void sched_tick(bool user_mode)
     }
 
     /*
-     * sched_tick() already charged this millisecond.  Reusing the ordinary
-     * yield accounting here used to charge every timer preemption twice.
+     * sched_tick() already charged this millisecond; the ordinary yield accounting
+     * would charge every timer preemption twice.
      */
     if (preempt) sched_switch(false);
 }
@@ -2209,7 +2117,7 @@ uint64_t sched_ticks(void)
 }
 
 /* task_exit - terminate the current task */
-void task_exit(void)
+__attribute__((noreturn)) void task_exit(void)
 {
     disable_intr();
     spin_lock(&scheduler.lock);

@@ -1,7 +1,7 @@
 /*
  *
  *      input_event.h
- *      Linux-compatible input event subsystem header
+ *      Input event subsystem header
  *
  *      2026/7/22 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -11,16 +11,8 @@
 #ifndef INCLUDE_INPUT_EVENT_H_
 #define INCLUDE_INPUT_EVENT_H_
 
+#include <kernel/ioctl.h>
 #include <libs/std/stdint.h>
-
-/* Event structure */
-typedef struct {
-        uint64_t sec;  // seconds
-        uint64_t usec; // microseconds
-        uint16_t type;
-        uint16_t code;
-        int32_t  value;
-} input_event_t;
 
 #define EV_VERSION 0x010001
 
@@ -809,46 +801,12 @@ typedef struct {
 #define MT_TOOL_DIAL   0x0a
 #define MT_TOOL_MAX    0x0f
 
-/* Device IDs */
-typedef struct {
-        uint16_t bustype;
-        uint16_t vendor;
-        uint16_t product;
-        uint16_t version;
-} input_id_t;
-
 #define ID_BUS     0
 #define ID_VENDOR  1
 #define ID_PRODUCT 2
 #define ID_VERSION 3
 
-/* Absolute axis description */
-typedef struct {
-        int32_t value;
-        int32_t minimum;
-        int32_t maximum;
-        int32_t fuzz;
-        int32_t flat;
-        int32_t resolution;
-} input_absinfo_t;
-
-/* Keymap entry */
-typedef struct {
-        uint8_t  flags;
-        uint8_t  len;
-        uint16_t index;
-        uint32_t keycode;
-        uint8_t  scancode[32];
-} input_keymap_entry_t;
-
 #define INPUT_KEYMAP_BY_INDEX (1 << 0)
-
-/* Device event mask */
-typedef struct {
-        uint32_t type;
-        uint32_t codes_size;
-        uint64_t codes_ptr;
-} input_mask_t;
 
 /* Force feedback */
 #define FF_RUMBLE     0x50
@@ -868,80 +826,6 @@ typedef struct {
 #define FF_STATUS_STOPPED 0x00
 #define FF_STATUS_PLAYING 0x01
 
-/* Force feedback effect structures */
-typedef struct {
-        uint16_t delay;
-        uint16_t length;
-} ff_replay_t;
-
-typedef struct {
-        uint16_t button;
-        uint16_t interval;
-} ff_trigger_t;
-
-typedef struct {
-        uint16_t attack_length;
-        uint16_t attack_level;
-        uint16_t fade_length;
-        uint16_t fade_level;
-} ff_envelope_t;
-
-typedef struct {
-        int16_t       level;
-        ff_envelope_t envelope;
-} ff_constant_effect_t;
-
-typedef struct {
-        int16_t       start_level;
-        int16_t       end_level;
-        ff_envelope_t envelope;
-} ff_ramp_effect_t;
-
-typedef struct {
-        uint16_t right_saturation;
-        uint16_t left_saturation;
-
-        int16_t right_coeff;
-        int16_t left_coeff;
-
-        uint16_t deadband;
-        int16_t  center;
-} ff_condition_effect_t;
-
-typedef struct {
-        uint16_t waveform;
-        uint16_t period;
-        int16_t  magnitude;
-        int16_t  offset;
-        uint16_t phase;
-
-        ff_envelope_t envelope;
-
-        uint32_t custom_len;
-        int16_t *custom_data;
-} ff_periodic_effect_t;
-
-typedef struct {
-        uint16_t strong_magnitude;
-        uint16_t weak_magnitude;
-} ff_rumble_effect_t;
-
-typedef struct {
-        uint16_t     type;
-        int16_t      id;
-        uint16_t     direction;
-        ff_trigger_t trigger;
-        ff_replay_t  replay;
-
-        union {
-                ff_constant_effect_t  constant;
-                ff_ramp_effect_t      ramp;
-                ff_periodic_effect_t  periodic;
-                ff_condition_effect_t condition[2]; // One for each axis
-                ff_rumble_effect_t    rumble;
-        } u;
-} ff_effect_t;
-
 /* Repeat settings */
 #define REP_DELAY  0x00
 #define REP_PERIOD 0x01
@@ -958,60 +842,6 @@ typedef struct {
 #define INPUT_PROP_ACCELEROMETER  0x06 // has accelerometer
 #define INPUT_PROP_MAX            0x1f
 #define INPUT_PROP_CNT            (INPUT_PROP_MAX + 1)
-
-/* IOC macros */
-#ifndef _IOC_NRBITS
-#    define _IOC_NRBITS 8
-#endif
-#ifndef _IOC_TYPEBITS
-#    define _IOC_TYPEBITS 8
-#endif
-#ifndef _IOC_SIZEBITS
-#    define _IOC_SIZEBITS 14
-#endif
-#ifndef _IOC_DIRBITS
-#    define _IOC_DIRBITS 2
-#endif
-
-#ifndef _IOC_NRSHIFT
-#    define _IOC_NRSHIFT 0
-#endif
-#ifndef _IOC_TYPESHIFT
-#    define _IOC_TYPESHIFT (_IOC_NRSHIFT + _IOC_NRBITS)
-#endif
-#ifndef _IOC_SIZESHIFT
-#    define _IOC_SIZESHIFT (_IOC_TYPESHIFT + _IOC_TYPEBITS)
-#endif
-#ifndef _IOC_DIRSHIFT
-#    define _IOC_DIRSHIFT (_IOC_SIZESHIFT + _IOC_SIZEBITS)
-#endif
-
-#ifndef _IOC_NONE
-#    define _IOC_NONE 0U
-#endif
-#ifndef _IOC_WRITE
-#    define _IOC_WRITE 1U
-#endif
-#ifndef _IOC_READ
-#    define _IOC_READ 2U
-#endif
-
-#ifndef _IOC
-#    define _IOC(dir, type, nr, size) (((dir) << _IOC_DIRSHIFT) | ((type) << _IOC_TYPESHIFT) | ((nr) << _IOC_NRSHIFT) | ((size) << _IOC_SIZESHIFT))
-#endif
-
-#ifndef _IO
-#    define _IO(type, nr) _IOC(_IOC_NONE, (type), (nr), 0)
-#endif
-#ifndef _IOR
-#    define _IOR(type, nr, size) _IOC(_IOC_READ, (type), (nr), sizeof(size))
-#endif
-#ifndef _IOW
-#    define _IOW(type, nr, size) _IOC(_IOC_WRITE, (type), (nr), sizeof(size))
-#endif
-#ifndef _IOWR
-#    define _IOWR(type, nr, size) _IOC(_IOC_READ | _IOC_WRITE, (type), (nr), sizeof(size))
-#endif
 
 /* EVIOC ioctl definitions */
 #define EVIOCGVERSION    _IOR('E', 0x01, int32_t)
@@ -1049,5 +879,149 @@ typedef struct {
 #define EVIOCGMASK    _IOR('E', 0x92, input_mask_t)
 #define EVIOCSMASK    _IOW('E', 0x93, input_mask_t)
 #define EVIOCSCLOCKID _IOW('E', 0xa0, int32_t)
+
+/* Event structure */
+typedef struct {
+        uint64_t sec;  // seconds
+        uint64_t usec; // microseconds
+        uint16_t type;
+        uint16_t code;
+        int32_t  value;
+} input_event_t;
+
+_Static_assert(sizeof(input_event_t) == 24, "Linux input_event ABI size");
+
+/* Device IDs */
+typedef struct {
+        uint16_t bustype;
+        uint16_t vendor;
+        uint16_t product;
+        uint16_t version;
+} input_id_t;
+
+_Static_assert(sizeof(input_id_t) == 8, "Linux input_id ABI size");
+
+/* Absolute axis description */
+typedef struct {
+        int32_t value;
+        int32_t minimum;
+        int32_t maximum;
+        int32_t fuzz;
+        int32_t flat;
+        int32_t resolution;
+} input_absinfo_t;
+
+_Static_assert(sizeof(input_absinfo_t) == 24, "Linux input_absinfo ABI size");
+
+/* Keymap entry */
+typedef struct {
+        uint8_t  flags;
+        uint8_t  len;
+        uint16_t index;
+        uint32_t keycode;
+        uint8_t  scancode[32];
+} input_keymap_entry_t;
+
+_Static_assert(sizeof(input_keymap_entry_t) == 40, "Linux input_keymap_entry ABI size");
+
+/* Device event mask */
+typedef struct {
+        uint32_t type;
+        uint32_t codes_size;
+        uint64_t codes_ptr;
+} input_mask_t;
+
+/* Force feedback effect structures */
+typedef struct {
+        uint16_t delay;
+        uint16_t length;
+} ff_replay_t;
+
+_Static_assert(sizeof(ff_replay_t) == 4, "Linux ff_replay ABI size");
+
+typedef struct {
+        uint16_t button;
+        uint16_t interval;
+} ff_trigger_t;
+
+_Static_assert(sizeof(ff_trigger_t) == 4, "Linux ff_trigger ABI size");
+
+typedef struct {
+        uint16_t attack_length;
+        uint16_t attack_level;
+        uint16_t fade_length;
+        uint16_t fade_level;
+} ff_envelope_t;
+
+_Static_assert(sizeof(ff_envelope_t) == 8, "Linux ff_envelope ABI size");
+
+typedef struct {
+        int16_t       level;
+        ff_envelope_t envelope;
+} ff_constant_effect_t;
+
+_Static_assert(sizeof(ff_constant_effect_t) == 10, "Linux ff_constant_effect ABI size");
+
+typedef struct {
+        int16_t       start_level;
+        int16_t       end_level;
+        ff_envelope_t envelope;
+} ff_ramp_effect_t;
+
+_Static_assert(sizeof(ff_ramp_effect_t) == 12, "Linux ff_ramp_effect ABI size");
+
+typedef struct {
+        uint16_t right_saturation;
+        uint16_t left_saturation;
+
+        int16_t right_coeff;
+        int16_t left_coeff;
+
+        uint16_t deadband;
+        int16_t  center;
+} ff_condition_effect_t;
+
+_Static_assert(sizeof(ff_condition_effect_t) == 12, "Linux ff_condition_effect ABI size");
+
+typedef struct {
+        uint16_t waveform;
+        uint16_t period;
+        int16_t  magnitude;
+        int16_t  offset;
+        uint16_t phase;
+
+        ff_envelope_t envelope;
+
+        uint32_t custom_len;
+        int16_t *custom_data;
+} ff_periodic_effect_t;
+
+_Static_assert(sizeof(ff_periodic_effect_t) == 32, "Linux ff_periodic_effect ABI size");
+
+typedef struct {
+        uint16_t strong_magnitude;
+        uint16_t weak_magnitude;
+} ff_rumble_effect_t;
+
+_Static_assert(sizeof(ff_rumble_effect_t) == 4, "Linux ff_rumble_effect ABI size");
+
+typedef struct {
+        uint16_t     type;
+        int16_t      id;
+        uint16_t     direction;
+        ff_trigger_t trigger;
+        ff_replay_t  replay;
+
+        union {
+                ff_constant_effect_t  constant;
+                ff_ramp_effect_t      ramp;
+                ff_periodic_effect_t  periodic;
+                ff_condition_effect_t condition[2]; // One for each axis
+                ff_rumble_effect_t    rumble;
+        } u;
+} ff_effect_t;
+
+/* Crosses the EVIOCSFF / EVIOCGFF ioctl boundary; the union must stay 32 bytes. */
+_Static_assert(sizeof(ff_effect_t) == 48, "Linux ff_effect ABI size");
 
 #endif // INCLUDE_INPUT_EVENT_H_

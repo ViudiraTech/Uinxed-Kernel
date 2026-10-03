@@ -12,9 +12,7 @@
 #define INCLUDE_EVENTFD_H_
 
 #include <fs/core/vfs.h>
-#include <libs/std/stdint.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
 
 #define EFD_SEMAPHORE (1 << 0)
 #define EFD_CLOEXEC   (1 << 19)
@@ -27,6 +25,9 @@ typedef struct eventfd_ctx {
         wait_queue_t wq;
 } eventfd_ctx_t;
 
+/* Get the installed eventfd callback */
+extern vfs_callback_t eventfd_callback_installed;
+
 /* Create a new eventfd file descriptor for the current process */
 int sys_eventfd(unsigned int initval, int flags);
 
@@ -35,8 +36,5 @@ int sys_eventfd2(unsigned int initval, int flags);
 
 /* Initialize the eventfd subsystem */
 void eventfd_init(void);
-
-/* Get the installed eventfd callback */
-extern vfs_callback_t eventfd_callback_installed;
 
 #endif // INCLUDE_EVENTFD_H_

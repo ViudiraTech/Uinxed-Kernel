@@ -12,8 +12,36 @@
 #define INCLUDE_DRM_PRINT_H_
 
 #include <kernel/printk.h>
-#include <libs/std/stdarg.h>
-#include <libs/std/stdint.h>
+
+#define DRM_PRINTK_FMT "drm: "
+
+/* Convenience macros wrapping plogk.  Each one has a _ONCE form that logs only the first time its call site runs. */
+#define DRM_INFO(fmt, ...)      plogk("drm: " fmt, ##__VA_ARGS__)
+#define DRM_INFO_ONCE(fmt, ...) plogk_once("drm: " fmt, ##__VA_ARGS__)
+
+#define DRM_ERROR(fmt, ...)      plogk("drm: [error] " fmt, ##__VA_ARGS__)
+#define DRM_ERROR_ONCE(fmt, ...) plogk_once("drm: [error] " fmt, ##__VA_ARGS__)
+
+#define DRM_DEBUG(fmt, ...)      plogk("drm: [debug] " fmt, ##__VA_ARGS__)
+#define DRM_DEBUG_ONCE(fmt, ...) plogk_once("drm: [debug] " fmt, ##__VA_ARGS__)
+
+#define DRM_DEBUG_KMS(fmt, ...)      plogk("drm: [kms] " fmt, ##__VA_ARGS__)
+#define DRM_DEBUG_KMS_ONCE(fmt, ...) plogk_once("drm: [kms] " fmt, ##__VA_ARGS__)
+
+#define DRM_DEBUG_DRIVER(fmt, ...)      plogk("drm: [drv] " fmt, ##__VA_ARGS__)
+#define DRM_DEBUG_DRIVER_ONCE(fmt, ...) plogk_once("drm: [drv] " fmt, ##__VA_ARGS__)
+
+#define DRM_WARN(fmt, ...)      plogk("drm: [warn] " fmt, ##__VA_ARGS__)
+#define DRM_WARN_ONCE(fmt, ...) plogk_once("drm: [warn] " fmt, ##__VA_ARGS__)
+
+#define DRM_DEV_ERROR(dev, fmt, ...)      drm_dev_printk(dev, "error", fmt, ##__VA_ARGS__)
+#define DRM_DEV_ERROR_ONCE(dev, fmt, ...) ONCE_LOG(drm_dev_printk(dev, "error", fmt, ##__VA_ARGS__))
+
+#define DRM_DEV_INFO(dev, fmt, ...)      drm_dev_printk(dev, "info", fmt, ##__VA_ARGS__)
+#define DRM_DEV_INFO_ONCE(dev, fmt, ...) ONCE_LOG(drm_dev_printk(dev, "info", fmt, ##__VA_ARGS__))
+
+#define DRM_DEV_WARN(dev, fmt, ...)      drm_dev_printk(dev, "warn", fmt, ##__VA_ARGS__)
+#define DRM_DEV_WARN_ONCE(dev, fmt, ...) ONCE_LOG(drm_dev_printk(dev, "warn", fmt, ##__VA_ARGS__))
 
 struct drm_device;
 
@@ -35,29 +63,16 @@ struct drm_printer {
         void *extra;
 };
 
-#define DRM_PRINTK_FMT "drm: "
-
 /* Construct a printk-backed printer. */
 struct drm_printer drm_printk_printer(const char *prefix);
 
 /* Format-agnostic printf through a printer. */
-void drm_vprintf(struct drm_printer *p, const char *fmt, va_list args);
+__attribute__((format(printf, 2, 0))) void drm_vprintf(struct drm_printer *p, const char *fmt, va_list args);
 
 /* printf through a printer. */
-void drm_printf(struct drm_printer *p, const char *fmt, ...);
+__attribute__((format(printf, 2, 3))) void drm_printf(struct drm_printer *p, const char *fmt, ...);
 
 /* Device-level printk helpers. */
-void drm_dev_printk(const struct drm_device *dev, const char *level, const char *fmt, ...);
-
-/* Convenience macros wrapping plogk. */
-#define DRM_INFO(fmt, ...)           plogk("drm: " fmt, ##__VA_ARGS__)
-#define DRM_ERROR(fmt, ...)          plogk("drm: [error] " fmt, ##__VA_ARGS__)
-#define DRM_DEBUG(fmt, ...)          plogk("drm: [debug] " fmt, ##__VA_ARGS__)
-#define DRM_DEBUG_KMS(fmt, ...)      plogk("drm: [kms] " fmt, ##__VA_ARGS__)
-#define DRM_DEBUG_DRIVER(fmt, ...)   plogk("drm: [drv] " fmt, ##__VA_ARGS__)
-#define DRM_WARN(fmt, ...)           plogk("drm: [warn] " fmt, ##__VA_ARGS__)
-#define DRM_DEV_ERROR(dev, fmt, ...) drm_dev_printk(dev, "error", fmt, ##__VA_ARGS__)
-#define DRM_DEV_INFO(dev, fmt, ...)  drm_dev_printk(dev, "info", fmt, ##__VA_ARGS__)
-#define DRM_DEV_WARN(dev, fmt, ...)  drm_dev_printk(dev, "warn", fmt, ##__VA_ARGS__)
+__attribute__((format(printf, 3, 4))) void drm_dev_printk(const struct drm_device *dev, const char *level, const char *fmt, ...);
 
 #endif // INCLUDE_DRM_PRINT_H_

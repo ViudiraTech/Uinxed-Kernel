@@ -9,17 +9,15 @@
  */
 
 #define UINXED_MODULE_CORE
+
 #include <drivers/base/device.h>
-#include <fs/core/vfs.h>
 #include <kernel/module/module.h>
-#include <kernel/printk.h>
-#include <libs/kobject/kobject.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/page.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_MODULES
 
 EXPORT_SYMBOL(printk);
 EXPORT_SYMBOL(snprintf);
@@ -105,3 +103,5 @@ EXPORT_SYMBOL_GPL(page_map_to);
 EXPORT_SYMBOL_GPL(page_map_new_to);
 EXPORT_SYMBOL_GPL(page_unmap);
 EXPORT_SYMBOL_GPL(get_kernel_pagedir);
+
+#endif

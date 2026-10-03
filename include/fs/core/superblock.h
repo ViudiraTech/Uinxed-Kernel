@@ -31,6 +31,8 @@ typedef struct superblock_disk {
         char     volume_name[SUPERBLOCK_NAME_LENGTH];
 } __attribute__((packed)) superblock_disk_t;
 
+_Static_assert(sizeof(superblock_disk_t) == 72, "Uinxed superblock on-disk size");
+
 /* Validate the on-disk superblock fields. */
 int superblock_valid(const superblock_disk_t *sb);
 

@@ -8,29 +8,21 @@
  *
  */
 
+#include <arch/common.h>
 #include <drivers/base/device.h>
-#include <drivers/block/core/blockdev.h>
 #include <drivers/usb/class/storage/usb_storage.h>
 #include <drivers/usb/core/usb.h>
-#include <fs/core/vfs.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/sysfs/block_sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <sync/spin_lock.h>
 
-#define USB_MSC_SUBCLASS_SCSI 0x06
-#define USB_MSC_PROTOCOL_BOT  0x50
-#define USB_MSC_REQ_RESET     0xff
-#define USB_MSC_REQ_MAX_LUN   0xfe
+#if CONFIG_USB_STORAGE && CONFIG_USB
 
-#define USB_MSC_MAX_LUNS  16
-#define USB_MSC_MAX_DISKS 256
-#define USB_MSC_IO_CHUNK  4096
-#define USB_MSC_MAJOR     8
+#    define USB_MSC_MAX_LUNS 16
+#    define USB_MSC_IO_CHUNK 4096
+#    define USB_MSC_MAJOR    8
 
 typedef struct usb_storage_device usb_storage_device_t;
 
@@ -55,31 +47,19 @@ typedef struct usb_storage_device {
         usb_storage_lun_t luns[USB_MSC_MAX_LUNS];
         uint32_t          next_tag;
         volatile uint32_t references;
-        volatile bool     io_busy;
+        raw_spinlock_t    io_lock;
         volatile bool     connected;
         uint8_t           lun_count;
 } usb_storage_device_t;
 
 static int        usb_storage_type = -1;
-static bool       usb_storage_disk_ids[USB_MSC_MAX_DISKS];
+static bool       usb_storage_disk_ids[CONFIG_USB_MSC_MAX_DISKS];
 static spinlock_t usb_storage_disk_lock;
 
 /* Read a big-endian 64-bit value from a SCSI response. */
 static uint64_t usb_scsi_be64(const uint8_t *data)
 {
     return (uint64_t)usb_scsi_be32(data) << 32 | usb_scsi_be32(data + 4);
-}
-
-/* Spin until this storage device is exclusively owned by a command. */
-static void usb_storage_lock(usb_storage_device_t *storage)
-{
-    while (__atomic_test_and_set(&storage->io_busy, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
-}
-
-/* Release the exclusive command lock. */
-static void usb_storage_unlock(usb_storage_device_t *storage)
-{
-    __atomic_clear(&storage->io_busy, __ATOMIC_RELEASE);
 }
 
 /* Transfer one bulk message, reporting the actual byte count. */
@@ -178,13 +158,13 @@ static int usb_storage_command(usb_storage_lun_t *lun, const void *command, uint
 {
     usb_storage_device_t *storage = lun->storage;
     if (!__atomic_load_n(&storage->connected, __ATOMIC_ACQUIRE)) return -ENODEV;
-    usb_storage_lock(storage);
+    raw_spin_lock(&storage->io_lock);
     if (!storage->connected) {
-        usb_storage_unlock(storage);
+        raw_spin_unlock(&storage->io_lock);
         return -ENODEV;
     }
     int status = usb_storage_command_locked(storage, lun->lun, command, command_length, data, data_length, input);
-    usb_storage_unlock(storage);
+    raw_spin_unlock(&storage->io_lock);
     return status;
 }
 
@@ -333,7 +313,7 @@ static struct blockdev_ops usb_storage_ops = {
 static int usb_storage_allocate_name(char *name, size_t size, uint16_t *disk_index)
 {
     spin_lock(&usb_storage_disk_lock);
-    for (uint16_t index = 0; index < USB_MSC_MAX_DISKS; index++) {
+    for (uint16_t index = 0; index < CONFIG_USB_MSC_MAX_DISKS; index++) {
         if (usb_storage_disk_ids[index] || blockdev_format_disk_name(name, size, index) != EOK) continue;
         char path[32];
         (void)snprintf(path, sizeof(path), "/dev/%s", name);
@@ -354,7 +334,7 @@ static int usb_storage_allocate_name(char *name, size_t size, uint16_t *disk_ind
 /* Release a claimed disk index. */
 static void usb_storage_release_name(uint16_t index)
 {
-    if (index >= USB_MSC_MAX_DISKS) return;
+    if (index >= CONFIG_USB_MSC_MAX_DISKS) return;
     spin_lock(&usb_storage_disk_lock);
     usb_storage_disk_ids[index] = false;
     spin_unlock(&usb_storage_disk_lock);
@@ -374,8 +354,8 @@ static int usb_storage_register_lun(usb_storage_lun_t *lun)
     lun->blockdev.sector_count = lun->sector_count;
     lun->blockdev.read_only    = lun->read_only;
     (void)snprintf(path, sizeof(path), "/dev/%s", lun->name);
-    uint64_t devt = MKDEV(USB_MSC_MAJOR, (uint32_t)lun->disk_index * 16);
-    status        = devtmpfs_register_block_device(path, &lun->blockdev, devt, devt, true, false, &lun->devtmpfs);
+    dev_t devt = MKDEV(USB_MSC_MAJOR, (uint32_t)lun->disk_index * 16);
+    status     = devtmpfs_register_block_device(path, &lun->blockdev, devt, devt, true, false, &lun->devtmpfs);
     if (status != EOK) goto fail_name;
     status = block_sysfs_register_device(lun->name, &lun->blockdev, true, &lun->sysfs);
     if (status != EOK) goto fail_devtmpfs;
@@ -401,13 +381,13 @@ static void usb_storage_unregister_lun(usb_storage_lun_t *lun)
     lun->registered = false;
 }
 
-/* Probe a bulk-only mass-storage interface and register its LUNs. */
+/* Bind a USB mass-storage interface to the bulk-only transport. */
 int usb_storage_probe(usb_interface_t *interface)
 {
-#if CONFIG_USB_STORAGE
     if (!interface || interface->driver_data || interface->descriptor.interface_class != USB_CLASS_MASS_STORAGE || interface->descriptor.interface_subclass != USB_MSC_SUBCLASS_SCSI
-        || interface->descriptor.interface_protocol != USB_MSC_PROTOCOL_BOT)
+        || interface->descriptor.interface_protocol != USB_MSC_PROTOCOL_BOT) {
         return -ENODEV;
+    }
     usb_endpoint_t *bulk_in  = usb_find_endpoint(interface, USB_ENDPOINT_XFER_BULK, true);
     usb_endpoint_t *bulk_out = usb_find_endpoint(interface, USB_ENDPOINT_XFER_BULK, false);
     if (!bulk_in || !bulk_out) return -ENODEV;
@@ -426,8 +406,9 @@ int usb_storage_probe(usb_interface_t *interface)
     uint8_t max_lun = 0;
     if (usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_MAX_LUN, 0, interface->descriptor.interface_number, &max_lun, sizeof(max_lun),
                         USB_CTRL_TIMEOUT_MS)
-        != EOK)
+        != EOK) {
         max_lun = 0;
+    }
     if (max_lun >= USB_MSC_MAX_LUNS) max_lun = USB_MSC_MAX_LUNS - 1;
     for (uint8_t index = 0; index <= max_lun; index++) {
         usb_storage_lun_t *lun = &storage->luns[index];
@@ -450,25 +431,19 @@ int usb_storage_probe(usb_interface_t *interface)
     }
     interface->driver_data = storage;
     return EOK;
-#else
-    (void)interface;
-    return -ENOSYS;
-#endif
 }
 
 /* Disconnect: mark offline, unregister LUNs, and release the device. */
 void usb_storage_disconnect(usb_interface_t *interface)
 {
-#if CONFIG_USB_STORAGE
     usb_storage_device_t *storage = interface ? interface->driver_data : NULL;
     if (!storage) return;
     __atomic_store_n(&storage->connected, false, __ATOMIC_RELEASE);
-    usb_storage_lock(storage);
-    usb_storage_unlock(storage);
+    raw_spin_lock(&storage->io_lock);
+    raw_spin_unlock(&storage->io_lock);
     interface->driver_data = NULL;
     for (size_t i = 0; i < USB_MSC_MAX_LUNS; i++) usb_storage_unregister_lun(&storage->luns[i]);
     if (__atomic_sub_fetch(&storage->references, 1, __ATOMIC_ACQ_REL) == 0) free(storage);
-#else
-    (void)interface;
-#endif
 }
+
+#endif

@@ -11,22 +11,9 @@
 #ifndef INCLUDE_SMP_H_
 #define INCLUDE_SMP_H_
 
-#include <arch/common.h>
 #include <arch/gdt.h>
 #include <arch/tss.h>
 #include <boot/limine.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-
-#define KERNEL_STACK_SIZE 0x10000 // 64 KiB
-
-#ifndef CPU_MAX_COUNT
-#    define CPU_MAX_COUNT 0
-#endif
-
-typedef uint8_t kernel_stack_t[KERNEL_STACK_SIZE];
-
-struct task;
 
 #define SYSCALL_CPU_USER_RSP_OFFSET   0
 #define SYSCALL_CPU_KERNEL_RSP_OFFSET 8
@@ -51,37 +38,11 @@ _Static_assert(offsetof(syscall_cpu_state_t, kernel_rsp) == SYSCALL_CPU_KERNEL_R
 _Static_assert(offsetof(syscall_cpu_state_t, current) == SYSCALL_CPU_CURRENT_OFFSET, "syscall current offset");
 _Static_assert(offsetof(syscall_cpu_state_t, cpu_id) == SYSCALL_CPU_ID_OFFSET, "syscall CPU ID offset");
 
-/* Read the current task from the GS-relative per-CPU window (one load) */
-static inline struct task *percpu_gs_current(void)
-{
-    struct task *t;
-    __asm__("movq %%gs:%c1, %0" : "=r"(t) : "i"(SYSCALL_CPU_CURRENT_OFFSET) : "memory");
-    return t;
-}
+/* Forward declaration used by the per-CPU task pointers below. */
+struct task;
 
-/* Store the current task into the GS-relative per-CPU window */
-static inline void percpu_gs_set_current(struct task *t)
-{
-    __asm__("movq %0, %%gs:%c1" : : "r"(t), "i"(SYSCALL_CPU_CURRENT_OFFSET) : "memory");
-}
-
-/* Read the logical CPU number without the serializing RDTSCP instruction. */
-static inline uint32_t percpu_gs_cpu_id(void)
-{
-    uint32_t cpu_id;
-    __asm__("movl %%gs:%c1, %0" : "=r"(cpu_id) : "i"(SYSCALL_CPU_ID_OFFSET) : "memory");
-    return cpu_id;
-}
-
-/*
- * Park the current task's user GS base in KERNEL_GS_BASE.  In kernel mode the
- * hidden GS base is the per-CPU window, so the user GS lives in KERNEL_GS_BASE
- * and the return-to-user swapgs restores it.
- */
-static inline void set_user_gs_base(uint64_t user_gs_base)
-{
-    wrmsr(0xC0000102, user_gs_base);
-}
+/* Per-CPU idle kernel stack; tied to CONFIG_PROCESS_KERNEL_STACK (config.h). */
+typedef uint8_t kernel_stack_t[CONFIG_PROCESS_KERNEL_STACK];
 
 /* Per-CPU floating-point state (see <arch/fpu.h>) */
 typedef struct {
@@ -105,6 +66,22 @@ typedef struct cpu_processor {
         syscall_cpu_state_t syscall;
         fpu_percpu_t        fpu;
 } cpu_processor_t;
+
+/* Read the current task from the GS-relative per-CPU window (one load) */
+struct task *percpu_gs_current(void);
+
+/* Store the current task into the GS-relative per-CPU window */
+void percpu_gs_set_current(struct task *t);
+
+/* Read the logical CPU number without the serializing RDTSCP instruction. */
+uint32_t percpu_gs_cpu_id(void);
+
+/*
+ * Park the current task's user GS base in KERNEL_GS_BASE.  In kernel mode the
+ * hidden GS base is the per-CPU window, so the user GS lives in KERNEL_GS_BASE
+ * and the return-to-user swapgs restores it.
+ */
+void set_user_gs_base(uint64_t user_gs_base);
 
 /* Send an IPI to all CPUs */
 void send_ipi_all(uint8_t vector);
@@ -139,7 +116,7 @@ int                    cpu_topology_same_package(uint32_t first, uint32_t second
 cpu_processor_t *get_current_cpu(void);
 
 /* Multi-core boot entry */
-void ap_entry(struct limine_smp_info *info);
+__attribute__((noreturn)) void ap_entry(struct limine_smp_info *info);
 
 /* Initializing Symmetric Multi-Processing */
 void smp_init(void);

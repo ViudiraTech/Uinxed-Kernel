@@ -1,7 +1,7 @@
 /*
  *
  *      serial_core.h
- *      UART serial core (Linux drivers/tty/serial/serial_core.c analog)
+ *      UART serial core
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -13,13 +13,8 @@
 
 #include <drivers/tty/tty_core.h>
 #include <drivers/tty/tty_driver.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
-#include <sync/spin_lock.h>
 
-#define UART_MAX_PORTS   4
-#define UART_RX_BUF_SIZE 256
-#define UART_TX_BUF_SIZE 8192
+#define UART_MAX_PORTS 4
 
 typedef struct uart_port uart_port_t;
 
@@ -40,7 +35,7 @@ struct uart_port {
 
         tty_core_t  tty_core; // line discipline for /dev/ttyS<number>
         tty_core_t *tty;      // == &tty_core
-        uint8_t     rx_buf[UART_RX_BUF_SIZE];
+        uint8_t     rx_buf[CONFIG_UART_RX_BUF_SIZE];
         size_t      rx_head;
         size_t      rx_tail;
         size_t      rx_count;
@@ -51,7 +46,7 @@ struct uart_port {
          * a userspace logger must never busy-wait for every character while
          * holding interrupts off on the only vCPU.
          */
-        uint8_t tx_buf[UART_TX_BUF_SIZE];
+        uint8_t tx_buf[CONFIG_UART_TX_BUF_SIZE];
         size_t  tx_head;
         size_t  tx_tail;
         size_t  tx_count;

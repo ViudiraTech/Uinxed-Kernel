@@ -11,13 +11,13 @@
 #ifndef INCLUDE_IPV6_H_
 #define INCLUDE_IPV6_H_
 
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>
 
-#define IPV6_ADDRESS_LEN      16U
-#define IPV6_HEADER_LEN       40U
-#define IPV6_MIN_MTU          1280U
-#define IPV6_REASSEMBLY_SLOTS 4U
+#define IPV6_ADDRESS_LEN 16U
+#define IPV6_HEADER_LEN  40U
+#define IPV6_MIN_MTU     1280U
 
 #define IPV6_NEXT_HOP_BY_HOP 0U
 #define IPV6_NEXT_TCP        6U
@@ -82,7 +82,15 @@ void ipv6_solicited_node(const ipv6_address_t *address, ipv6_address_t *multicas
 void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6]);
 
 /* IPv6 input, output, and routing. */
-int  ipv6_input(net_device_t *device, net_pbuf_t *packet);
+#if CONFIG_INET && CONFIG_NET
+int ipv6_input(net_device_t *device, net_pbuf_t *packet);
+#else
+static inline int ipv6_input(net_device_t *, net_pbuf_t *)
+{
+    return -EPROTONOSUPPORT;
+}
+#endif
+
 int  ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit, net_pbuf_t *packet);
 int  ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop);
 int  ipv6_set_transport_handler(uint8_t protocol, ipv6_transport_input_t handler);

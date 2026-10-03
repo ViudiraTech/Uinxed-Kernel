@@ -62,10 +62,18 @@ char *strdup(const char *s);
 /* String equality check */
 int streq(const char *s1, const char *s2);
 
+/* Equality check of a length-bounded buffer against a token, ignoring trailing whitespace. */
+int streq_trimmed(const char *buf, size_t count, const char *token);
+
 /* String splitting */
 char *strtok(char *str, const char *delim);
 
 /* String to long integer */
 int64_t strtol(const char *str, char **endptr, int base);
+
+/* Builtin dispatch for the calls above; string.c opts out with __LIBS_STD_STRING_INTERNAL. */
+#ifndef __LIBS_STD_STRING_INTERNAL
+#    include <libs/std/string_builtin.h>
+#endif
 
 #endif // INCLUDE_STRING_H_

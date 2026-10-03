@@ -8,12 +8,15 @@
  *
  */
 
+#include <arch/common.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/string.h>
+#include <libs/util/overflow.h>
 #include <mem/heap.h>
 #include <mem/pagecache.h>
+#include <sync/spin_lock.h>
 
 /*
  * Overview
@@ -24,17 +27,14 @@
  */
 
 #define PAGECACHE_HASH_MIN_BITS 6U
-#define PAGECACHE_HASH_MAX_BITS 12U
 #define PAGECACHE_HASH_MIN_SIZE (1U << PAGECACHE_HASH_MIN_BITS)
-#define PAGECACHE_HASH_MAX_SIZE (1U << PAGECACHE_HASH_MAX_BITS)
+#define PAGECACHE_HASH_MAX_SIZE (1U << CONFIG_PAGECACHE_HASH_MAX_BITS)
 #define PAGECACHE_HASH_LOAD     4U
 #define PAGECACHE_READAHEAD_MIN 2U
-#define PAGECACHE_READAHEAD_MAX 16U
 
 /* Keep direct reclaim latency bounded for page faults and desktop redraws. */
 #define PAGECACHE_RECLAIM_MIN_SCAN      4096U
 #define PAGECACHE_RECLAIM_SCAN_PER_PAGE 32U
-#define PAGECACHE_RECLAIM_MAX_WRITEBACK 4U
 
 #define PC_PAGE_UPTODATE   (1U << 0)
 #define PC_PAGE_DIRTY      (1U << 1)
@@ -46,9 +46,8 @@
 #define PC_PAGE_READAHEAD  (1U << 7)
 #define PC_PAGE_WAS_DIRTY  (1U << 8)
 
-typedef struct {
-        volatile uint32_t value;
-} pc_lock_t;
+/* Top bit of a mapping's error sequence, set once a descriptor has taken the error. */
+#define PC_WB_ERR_REPORTED 0x80000000U
 
 typedef struct pagecache_page {
         pagecache_mapping_t *mapping;
@@ -60,7 +59,7 @@ typedef struct pagecache_page {
         void                *data;
         volatile uint32_t    flags;
         volatile uint32_t    references;
-        pc_lock_t            lock;
+        raw_spinlock_t       lock;
 } pagecache_page_t;
 
 typedef struct pagecache_mapping {
@@ -69,9 +68,10 @@ typedef struct pagecache_mapping {
         pagecache_page_t    *inline_buckets[PAGECACHE_HASH_MIN_SIZE];
         pagecache_page_t   **buckets;
         size_t               bucket_count;
-        pc_lock_t            lock;
+        raw_spinlock_t       lock;
         volatile uint64_t    size;
-        volatile int         error;
+        volatile int         error;  // code of the most recent I/O error
+        volatile uint32_t    wb_err; // sequence of the I/O errors, top bit set once one has been reported
         uint32_t             flags;
         size_t               pages;
         pagecache_mapping_t *global_prev;
@@ -86,7 +86,7 @@ typedef struct pagecache_mapping {
 } pagecache_mapping_t;
 
 typedef struct {
-        pc_lock_t             lock;
+        raw_spinlock_t        lock;
         pagecache_allocator_t allocator;
         pagecache_page_t     *lru_head;
         pagecache_page_t     *lru_tail;
@@ -98,38 +98,8 @@ typedef struct {
 
 static pagecache_state_t pagecache;
 
-/* Pause to yield the cache line under lock contention. */
-static inline void pc_relax(void)
-{
-#if defined(__x86_64__) || defined(__i386__)
-    __asm__ volatile("pause" ::: "memory");
-#else
-    __asm__ volatile("" ::: "memory");
-#endif
-}
-
-/* Acquire a pagecache lock, spinning until available. */
-static void pc_lock(pc_lock_t *lock)
-{
-    while (__atomic_exchange_n(&lock->value, 1, __ATOMIC_ACQUIRE))
-        while (__atomic_load_n(&lock->value, __ATOMIC_RELAXED)) pc_relax();
-}
-
-/* Try to acquire a pagecache lock without blocking. */
-static int pc_trylock(pc_lock_t *lock)
-{
-    uint32_t expected = 0;
-    return __atomic_compare_exchange_n(&lock->value, &expected, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
-}
-
-/* Release a pagecache lock. */
-static void pc_unlock(pc_lock_t *lock)
-{
-    __atomic_store_n(&lock->value, 0, __ATOMIC_RELEASE);
-}
-
 /* Hash a page index into a bucket of the given (power-of-two) table. */
-static inline size_t pc_hash(uint64_t index, size_t bucket_count)
+static size_t pc_hash(uint64_t index, size_t bucket_count)
 {
     index ^= index >> 33;
     index *= 0xff51afd7ed558ccdULL;
@@ -138,13 +108,13 @@ static inline size_t pc_hash(uint64_t index, size_t bucket_count)
 }
 
 /* Atomically increment a statistics counter. */
-static inline void pc_stat_inc(uint64_t *value)
+static void pc_stat_inc(uint64_t *value)
 {
     __atomic_add_fetch(value, 1, __ATOMIC_RELAXED);
 }
 
 /* Atomically decrement a statistics counter. */
-static inline void pc_stat_dec(uint64_t *value)
+static void pc_stat_dec(uint64_t *value)
 {
     __atomic_sub_fetch(value, 1, __ATOMIC_RELAXED);
 }
@@ -152,14 +122,16 @@ static inline void pc_stat_dec(uint64_t *value)
 /* Unlink a page from the global LRU list. */
 static void pc_lru_remove_locked(pagecache_page_t *page)
 {
-    if (page->lru_prev)
+    if (page->lru_prev) {
         page->lru_prev->lru_next = page->lru_next;
-    else
+    } else {
         pagecache.lru_head = page->lru_next;
-    if (page->lru_next)
+    }
+    if (page->lru_next) {
         page->lru_next->lru_prev = page->lru_prev;
-    else
+    } else {
         pagecache.lru_tail = page->lru_prev;
+    }
     page->lru_prev = page->lru_next = NULL;
 }
 
@@ -197,8 +169,8 @@ static void pc_touch(pagecache_page_t *page)
         return;
     }
 
-    pc_lock(&page->lock);
-    pc_lock(&pagecache.lock);
+    raw_spin_lock(&page->lock);
+    raw_spin_lock(&pagecache.lock);
     if (!(page->flags & PC_PAGE_EVICTING)) {
         if (page->flags & PC_PAGE_READAHEAD) {
             page->flags &= ~PC_PAGE_READAHEAD;
@@ -219,8 +191,8 @@ static void pc_touch(pagecache_page_t *page)
             pc_lru_add_head_locked(page);
         }
     }
-    pc_unlock(&pagecache.lock);
-    pc_unlock(&page->lock);
+    raw_spin_unlock(&pagecache.lock);
+    raw_spin_unlock(&page->lock);
 }
 
 /* Look up a non-evicting page by index under the mapping lock. */
@@ -242,7 +214,7 @@ static void pc_grow_hash_locked(pagecache_mapping_t *mapping)
 
     size_t new_count = mapping->bucket_count << 1;
     if (new_count > PAGECACHE_HASH_MAX_SIZE) new_count = PAGECACHE_HASH_MAX_SIZE;
-    pagecache_page_t **new_buckets = calloc(new_count, sizeof(*new_buckets)); // NOLINT(bugprone-sizeof-expression)
+    pagecache_page_t **new_buckets = calloc(new_count, sizeof(pagecache_page_t *));
     if (!new_buckets) return;
 
     for (size_t i = 0; i < mapping->bucket_count; i++) {
@@ -267,15 +239,17 @@ static void pc_free_page(pagecache_page_t *page)
     if (page->flags & PC_PAGE_READAHEAD) pc_stat_dec(&pagecache.stats.readahead_pages);
     if (page->flags & PC_PAGE_DIRTY) pc_stat_dec(&pagecache.stats.dirty);
     if (page->flags & PC_PAGE_WRITEBACK) pc_stat_dec(&pagecache.stats.writeback);
-    if (page->flags & PC_PAGE_ACTIVE)
+    if (page->flags & PC_PAGE_ACTIVE) {
         pc_stat_dec(&pagecache.stats.active);
-    else
+    } else {
         pc_stat_dec(&pagecache.stats.inactive);
+    }
     pc_stat_dec(&pagecache.stats.pages);
-    if (page->flags & PC_PAGE_WAS_DIRTY)
+    if (page->flags & PC_PAGE_WAS_DIRTY) {
         pc_stat_inc(&pagecache.stats.dirty_evicted);
-    else
+    } else {
         pc_stat_inc(&pagecache.stats.clean_evicted);
+    }
     pagecache.allocator.free(page->data, page->physical);
     free(page);
 }
@@ -284,21 +258,35 @@ static void pc_free_page(pagecache_page_t *page)
 static int pc_unlink_page(pagecache_page_t *page)
 {
     pagecache_mapping_t *mapping = page->mapping;
-    pc_lock(&mapping->lock);
+    raw_spin_lock(&mapping->lock);
     pagecache_page_t **link = &mapping->buckets[pc_hash(page->index, mapping->bucket_count)];
     while (*link && *link != page) link = &(*link)->hash_next;
     if (*link != page) {
-        pc_unlock(&mapping->lock);
+        raw_spin_unlock(&mapping->lock);
         return -ENOENT;
     }
     *link = page->hash_next;
     mapping->pages--;
-    pc_unlock(&mapping->lock);
+    raw_spin_unlock(&mapping->lock);
 
-    pc_lock(&pagecache.lock);
+    raw_spin_lock(&pagecache.lock);
     pc_lru_remove_locked(page);
-    pc_unlock(&pagecache.lock);
+    raw_spin_unlock(&pagecache.lock);
     return EOK;
+}
+
+/* Record an I/O error against the mapping, dating it for the descriptors open at the time. */
+static void pc_wb_err_set(pagecache_mapping_t *mapping, int error)
+{
+    __atomic_store_n(&mapping->error, error, __ATOMIC_RELEASE);
+
+    uint32_t seq = __atomic_load_n(&mapping->wb_err, __ATOMIC_RELAXED);
+    for (;;) {
+        /* The bit clears for an unreported error; sequence 0 stays reserved for "no error". */
+        uint32_t next = ((seq & ~PC_WB_ERR_REPORTED) + 1) & ~PC_WB_ERR_REPORTED;
+        if (!next) next = 1;
+        if (__atomic_compare_exchange_n(&mapping->wb_err, &seq, next, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) return;
+    }
 }
 
 /* Read a page's backing data into memory unless already uptodate. */
@@ -307,7 +295,8 @@ static int pc_load_locked(pagecache_page_t *page)
     pagecache_mapping_t *mapping = page->mapping;
     if (page->flags & PC_PAGE_UPTODATE) return EOK;
     if (!mapping->ops.read) {
-        plogk("pagecache: Load of page %llu on mapping %p with no read op.\n", (unsigned long long)page->index, mapping);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pagecache: Load of page %llu on mapping %p with no read op.\n", page->index, mapping);
         return -EIO;
     }
 
@@ -319,9 +308,10 @@ static int pc_load_locked(pagecache_page_t *page)
     int64_t result = count ? mapping->ops.read(mapping->context, page->data, start, count) : 0;
     pc_stat_inc(&pagecache.stats.reads);
     if (result < 0) {
-        plogk("pagecache: Read failed (page %llu, offset %llu, count %zu): %lld\n", (unsigned long long)page->index, (unsigned long long)start, count, (long long)result);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pagecache: Read failed (page %llu, offset %llu, count %zu): %lld\n", page->index, start, count, result);
         page->flags |= PC_PAGE_ERROR;
-        __atomic_store_n(&mapping->error, (int)result, __ATOMIC_RELEASE);
+        pc_wb_err_set(mapping, (int)result);
         return (int)result;
     }
     if ((uint64_t)result > count) result = (int64_t)count;
@@ -337,7 +327,8 @@ static int pc_writeback_page_locked(pagecache_page_t *page)
     pagecache_mapping_t *mapping = page->mapping;
     if (!(page->flags & PC_PAGE_DIRTY)) return EOK;
     if (!mapping->ops.write) {
-        plogk("pagecache: Writeback of dirty page %llu on mapping %p with no write op.\n", (unsigned long long)page->index, mapping);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pagecache: Writeback of dirty page %llu on mapping %p with no write op.\n", page->index, mapping);
         return -EROFS;
     }
 
@@ -353,10 +344,11 @@ static int pc_writeback_page_locked(pagecache_page_t *page)
     page->flags &= ~PC_PAGE_WRITEBACK;
     pc_stat_dec(&pagecache.stats.writeback);
     if (result < 0 || (size_t)result != count) {
-        plogk("pagecache: Writeback failed for page %llu (offset %llu, count %zu, result %lld)\n", (unsigned long long)page->index, (unsigned long long)start, count, (long long)result);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pagecache: Writeback failed for page %llu (offset %llu, count %zu, result %lld)\n", page->index, start, count, result);
         int error = result < 0 ? (int)result : -EIO;
         page->flags |= PC_PAGE_ERROR;
-        __atomic_store_n(&mapping->error, error, __ATOMIC_RELEASE);
+        pc_wb_err_set(mapping, error);
         pc_stat_inc(&pagecache.stats.writeback_errors);
         return error;
     }
@@ -395,12 +387,14 @@ void pagecache_shutdown(void)
 pagecache_mapping_t *pagecache_mapping_create(void *context, const pagecache_ops_t *ops, uint64_t size, uint32_t flags)
 {
     if (!ops || !ops->read || !__atomic_load_n(&pagecache.initialized, __ATOMIC_ACQUIRE)) {
-        plogk("pagecache: Mapping create with invalid ops or uninitialized cache.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pagecache: Mapping create with invalid ops or uninitialized cache.\n");
         return NULL;
     }
     pagecache_mapping_t *mapping = calloc(1, sizeof(*mapping));
     if (!mapping) {
-        plogk("pagecache: Mapping alloc failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pagecache: Mapping alloc failed.\n");
         return NULL;
     }
     mapping->context      = context;
@@ -410,11 +404,11 @@ pagecache_mapping_t *pagecache_mapping_create(void *context, const pagecache_ops
     mapping->size         = size;
     mapping->flags        = flags;
     mapping->references   = 1;
-    pc_lock(&pagecache.lock);
+    raw_spin_lock(&pagecache.lock);
     mapping->global_next = pagecache.mappings;
     if (pagecache.mappings) pagecache.mappings->global_prev = mapping;
     pagecache.mappings = mapping;
-    pc_unlock(&pagecache.lock);
+    raw_spin_unlock(&pagecache.lock);
     return mapping;
 }
 
@@ -422,16 +416,17 @@ pagecache_mapping_t *pagecache_mapping_create(void *context, const pagecache_ops
 void pagecache_mapping_destroy(pagecache_mapping_t *mapping)
 {
     if (!mapping) return;
-    pc_lock(&pagecache.lock);
+    raw_spin_lock(&pagecache.lock);
     mapping->dying = 1;
-    if (mapping->global_prev)
+    if (mapping->global_prev) {
         mapping->global_prev->global_next = mapping->global_next;
-    else
+    } else {
         pagecache.mappings = mapping->global_next;
+    }
     if (mapping->global_next) mapping->global_next->global_prev = mapping->global_prev;
-    pc_unlock(&pagecache.lock);
-    while (__atomic_load_n(&mapping->references, __ATOMIC_ACQUIRE) != 1) pc_relax();
-    (void)pagecache_writeback(mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC | PAGECACHE_WB_KEEP_ERROR);
+    raw_spin_unlock(&pagecache.lock);
+    while (__atomic_load_n(&mapping->references, __ATOMIC_ACQUIRE) != 1) cpu_relax();
+    (void)pagecache_writeback(mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC);
     (void)pagecache_invalidate(mapping, 0, UINT64_MAX, PAGECACHE_INVALIDATE_DISCARD_DIRTY);
     if (mapping->buckets != mapping->inline_buckets) free(mapping->buckets);
     free(mapping);
@@ -441,29 +436,31 @@ void pagecache_mapping_destroy(pagecache_mapping_t *mapping)
 static pagecache_page_t *pc_get_page(pagecache_mapping_t *mapping, uint64_t index, int create, int accessed, int reclaim)
 {
     if (!mapping) return NULL;
-    pc_lock(&mapping->lock);
+    raw_spin_lock(&mapping->lock);
     pagecache_page_t *page = pc_find_locked(mapping, index);
     if (page) {
         __atomic_add_fetch(&page->references, 1, __ATOMIC_ACQ_REL);
-        pc_unlock(&mapping->lock);
+        raw_spin_unlock(&mapping->lock);
         pc_stat_inc(&pagecache.stats.hits);
         if (accessed) pc_touch(page);
         return page;
     }
-    pc_unlock(&mapping->lock);
+    raw_spin_unlock(&mapping->lock);
     if (!create) return NULL;
 
     if (__atomic_load_n(&pagecache.stats.pages, __ATOMIC_RELAXED) >= pagecache.max_pages)
         if (!reclaim || !pagecache_reclaim(1)) return NULL;
     page = calloc(1, sizeof(*page));
     if (!page) {
-        plogk("pagecache: Page struct alloc failed (mapping %p, index %llu)\n", mapping, (unsigned long long)index);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pagecache: Page struct alloc failed (mapping %p, index %llu)\n", mapping, index);
         return NULL;
     }
     page->data = pagecache.allocator.alloc(&page->physical);
     if (!page->data && reclaim && pagecache_reclaim(PAGECACHE_READAHEAD_MIN)) page->data = pagecache.allocator.alloc(&page->physical);
     if (!page->data) {
-        plogk("pagecache: Page data alloc failed (mapping %p, index %llu)\n", mapping, (unsigned long long)index);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("pagecache: Page data alloc failed (mapping %p, index %llu)\n", mapping, index);
         free(page);
         return NULL;
     }
@@ -472,11 +469,11 @@ static pagecache_page_t *pc_get_page(pagecache_mapping_t *mapping, uint64_t inde
     page->references = 1;
     page->flags      = accessed ? PC_PAGE_REFERENCED : PC_PAGE_READAHEAD;
 
-    pc_lock(&mapping->lock);
+    raw_spin_lock(&mapping->lock);
     pagecache_page_t *existing = pc_find_locked(mapping, index);
     if (existing) {
         __atomic_add_fetch(&existing->references, 1, __ATOMIC_ACQ_REL);
-        pc_unlock(&mapping->lock);
+        raw_spin_unlock(&mapping->lock);
         pagecache.allocator.free(page->data, page->physical);
         free(page);
         pc_stat_inc(&pagecache.stats.hits);
@@ -488,14 +485,15 @@ static pagecache_page_t *pc_get_page(pagecache_mapping_t *mapping, uint64_t inde
     page->hash_next          = mapping->buckets[bucket];
     mapping->buckets[bucket] = page;
     mapping->pages++;
-    pc_unlock(&mapping->lock);
+    raw_spin_unlock(&mapping->lock);
 
-    pc_lock(&pagecache.lock);
-    if (accessed)
+    raw_spin_lock(&pagecache.lock);
+    if (accessed) {
         pc_lru_add_head_locked(page);
-    else
+    } else {
         pc_lru_add_tail_locked(page);
-    pc_unlock(&pagecache.lock);
+    }
+    raw_spin_unlock(&pagecache.lock);
     pc_stat_inc(&pagecache.stats.pages);
     pc_stat_inc(&pagecache.stats.inactive);
     if (!accessed) pc_stat_inc(&pagecache.stats.readahead_pages);
@@ -520,15 +518,15 @@ void pagecache_put_page(pagecache_page_t *page)
 int pagecache_lock_page(pagecache_page_t *page, int populate)
 {
     if (!page) return -EINVAL;
-    pc_lock(&page->lock);
+    raw_spin_lock(&page->lock);
     if (page->flags & PC_PAGE_EVICTING) {
-        pc_unlock(&page->lock);
+        raw_spin_unlock(&page->lock);
         return -ENOENT;
     }
     if (populate) {
         int result = pc_load_locked(page);
         if (result) {
-            pc_unlock(&page->lock);
+            raw_spin_unlock(&page->lock);
             return result;
         }
     }
@@ -538,7 +536,7 @@ int pagecache_lock_page(pagecache_page_t *page, int populate)
 /* Unlock a page cache page. */
 void pagecache_unlock_page(pagecache_page_t *page)
 {
-    if (page) pc_unlock(&page->lock);
+    if (page) raw_spin_unlock(&page->lock);
 }
 
 /* Return the in-memory buffer of a page cache page. */
@@ -574,7 +572,7 @@ void pagecache_mark_dirty(pagecache_page_t *page)
 static int pc_readahead_pages(pagecache_mapping_t *mapping, uint64_t first, uint32_t count, int strict)
 {
     uint64_t size       = __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE);
-    uint64_t file_pages = size / PAGECACHE_PAGE_SIZE + (size % PAGECACHE_PAGE_SIZE != 0);
+    uint64_t file_pages = (size / PAGECACHE_PAGE_SIZE) + (size % PAGECACHE_PAGE_SIZE != 0);
     if (!file_pages || first >= file_pages) return EOK;
     uint64_t available = file_pages - first;
     if ((uint64_t)count > available) count = (uint32_t)available;
@@ -596,19 +594,20 @@ static void pc_adaptive_readahead(pagecache_mapping_t *mapping, uint64_t first, 
     uint64_t prefetch_first = 0;
     uint32_t prefetch_count = 0;
 
-    pc_lock(&mapping->lock);
+    raw_spin_lock(&mapping->lock);
     int sequential = mapping->readahead_valid && mapping->readahead_last != UINT64_MAX && first == mapping->readahead_last + 1;
     if (!sequential) {
         mapping->readahead_window = 1;
         mapping->readahead_end    = last;
     } else if (last >= mapping->readahead_end) {
         uint32_t window = mapping->readahead_window;
-        if (window < PAGECACHE_READAHEAD_MIN)
+        if (window < PAGECACHE_READAHEAD_MIN) {
             window = PAGECACHE_READAHEAD_MIN;
-        else if (window < PAGECACHE_READAHEAD_MAX / 2)
+        } else if (window < CONFIG_PAGECACHE_READAHEAD_MAX / 2) {
             window *= 2;
-        else
-            window = PAGECACHE_READAHEAD_MAX;
+        } else {
+            window = CONFIG_PAGECACHE_READAHEAD_MAX;
+        }
         mapping->readahead_window = window;
         prefetch_first            = last + 1;
         prefetch_count            = window;
@@ -622,7 +621,7 @@ static void pc_adaptive_readahead(pagecache_mapping_t *mapping, uint64_t first, 
     }
     mapping->readahead_last  = last;
     mapping->readahead_valid = 1;
-    pc_unlock(&mapping->lock);
+    raw_spin_unlock(&mapping->lock);
 
     if (prefetch_count && last != UINT64_MAX) (void)pc_readahead_pages(mapping, prefetch_first, prefetch_count, 0);
 }
@@ -678,9 +677,9 @@ int64_t pagecache_write(pagecache_mapping_t *mapping, const void *buffer, uint64
     if (!mapping->ops.write) return -EROFS;
     if (!size) return 0;
     if (offset > UINT64_MAX - size) return -EFBIG;
-    pc_lock(&mapping->lock);
+    raw_spin_lock(&mapping->lock);
     mapping->readahead_valid = 0;
-    pc_unlock(&mapping->lock);
+    raw_spin_unlock(&mapping->lock);
 
     size_t done = 0;
     while (done < size) {
@@ -692,7 +691,7 @@ int64_t pagecache_write(pagecache_mapping_t *mapping, const void *buffer, uint64
         pagecache_page_t *page = pagecache_get_page(mapping, index, 1);
         if (!page) return done ? (int64_t)done : -ENOMEM;
 
-        pc_lock(&page->lock);
+        raw_spin_lock(&page->lock);
         uint64_t old_size   = __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE);
         uint64_t page_start = index * PAGECACHE_PAGE_SIZE;
         int      result     = EOK;
@@ -712,7 +711,7 @@ int64_t pagecache_write(pagecache_mapping_t *mapping, const void *buffer, uint64
             pagecache_mark_dirty(page);
             pc_extend_size(mapping, page_offset + count);
         }
-        pc_unlock(&page->lock);
+        raw_spin_unlock(&page->lock);
         pagecache_put_page(page);
         if (result) return done ? (int64_t)done : result;
         done += count;
@@ -724,7 +723,7 @@ int64_t pagecache_write(pagecache_mapping_t *mapping, const void *buffer, uint64
 static void pc_sort_sift_down(pagecache_page_t **pages, size_t root, size_t count)
 {
     for (;;) {
-        size_t child = root * 2 + 1;
+        size_t child = (root * 2) + 1;
         if (child >= count) return;
         if (child + 1 < count && pages[child]->index < pages[child + 1]->index) child++;
         if (pages[root]->index >= pages[child]->index) return;
@@ -756,7 +755,7 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
 {
     if (!mapping) return -EINVAL;
     if (end < start) return EOK;
-    pc_lock(&mapping->lock);
+    raw_spin_lock(&mapping->lock);
     size_t capacity = 0;
     for (size_t i = 0; i < mapping->bucket_count; i++) {
         for (pagecache_page_t *page = mapping->buckets[i]; page; page = page->hash_next) {
@@ -767,28 +766,26 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
         }
     }
     if (!capacity) {
-        pc_unlock(&mapping->lock);
-        int result = mapping->ops.sync && (flags & PAGECACHE_WB_SYNC) ? mapping->ops.sync(mapping->context) : EOK;
-        if (!result && !(flags & PAGECACHE_WB_KEEP_ERROR)) __atomic_store_n(&mapping->error, 0, __ATOMIC_RELEASE);
-        return result;
+        raw_spin_unlock(&mapping->lock);
+        return mapping->ops.sync && (flags & PAGECACHE_WB_SYNC) ? mapping->ops.sync(mapping->context) : EOK;
     }
 
     size_t slots = capacity;
     size_t bytes;
-    if (__builtin_mul_overflow(slots, sizeof(pagecache_page_t *), &bytes)) {
+    if (mul_overflow(slots, sizeof(pagecache_page_t *), &bytes)) {
         plogk("pagecache: Writeback slots overflow %zu\n", slots);
-        pc_unlock(&mapping->lock);
+        raw_spin_unlock(&mapping->lock);
         return -EOVERFLOW;
     }
     if (slots > 1000000) {
         plogk("pagecache: Writeback slots %zu exceeds limit\n", slots);
-        pc_unlock(&mapping->lock);
+        raw_spin_unlock(&mapping->lock);
         return -EFBIG;
     }
-    pagecache_page_t **pages = (pagecache_page_t **)malloc(bytes); // NOLINT(bugprone-sizeof-expression)
+    pagecache_page_t **pages = (pagecache_page_t **)malloc(bytes);
     if (!pages) {
         plogk("pagecache: Writeback array alloc failed for %zu dirty pages.\n", slots);
-        pc_unlock(&mapping->lock);
+        raw_spin_unlock(&mapping->lock);
         return -ENOMEM;
     }
     size_t count = 0;
@@ -803,21 +800,20 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
             }
         }
     }
-    pc_unlock(&mapping->lock);
+    raw_spin_unlock(&mapping->lock);
 
     pc_sort_pages(pages, count);
 
     int first_error = EOK;
     for (size_t i = 0; i < count; i++) {
-        pc_lock(&pages[i]->lock);
+        raw_spin_lock(&pages[i]->lock);
         int result = pc_writeback_page_locked(pages[i]);
-        pc_unlock(&pages[i]->lock);
+        raw_spin_unlock(&pages[i]->lock);
         pagecache_put_page(pages[i]);
         if (result && !first_error) first_error = result;
     }
     free((void *)pages);
     if (!first_error && mapping->ops.sync && (flags & PAGECACHE_WB_SYNC)) first_error = mapping->ops.sync(mapping->context);
-    if (!first_error && !(flags & PAGECACHE_WB_KEEP_ERROR)) __atomic_store_n(&mapping->error, 0, __ATOMIC_RELEASE);
     return first_error;
 }
 
@@ -825,15 +821,15 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
 int pagecache_writeback_all(uint32_t flags)
 {
     int first_error = EOK;
-    pc_lock(&pagecache.lock);
+    raw_spin_lock(&pagecache.lock);
     size_t count = 0;
     for (pagecache_mapping_t *mapping = pagecache.mappings; mapping; mapping = mapping->global_next)
         if (!mapping->dying) count++;
     size_t                slots    = count ? count : 1;
-    pagecache_mapping_t **mappings = (pagecache_mapping_t **)malloc(slots * sizeof(*mappings)); // NOLINT(bugprone-sizeof-expression)
+    pagecache_mapping_t **mappings = (pagecache_mapping_t **)malloc(slots * sizeof(pagecache_mapping_t *));
     if (!mappings) {
         plogk("pagecache: Writeback_all array alloc failed for %zu mappings.\n", count);
-        pc_unlock(&pagecache.lock);
+        raw_spin_unlock(&pagecache.lock);
         return -ENOMEM;
     }
     size_t used = 0;
@@ -842,7 +838,7 @@ int pagecache_writeback_all(uint32_t flags)
         __atomic_add_fetch(&mapping->references, 1, __ATOMIC_ACQ_REL);
         mappings[used++] = mapping;
     }
-    pc_unlock(&pagecache.lock);
+    raw_spin_unlock(&pagecache.lock);
 
     for (size_t i = 0; i < used; i++) {
         int result = pagecache_writeback(mappings[i], 0, UINT64_MAX, flags);
@@ -861,7 +857,7 @@ int pagecache_invalidate(pagecache_mapping_t *mapping, uint64_t start, uint64_t 
     if (__atomic_load_n(&mapping->pins, __ATOMIC_ACQUIRE) && !(flags & PAGECACHE_INVALIDATE_DISCARD_DIRTY)) return -EBUSY;
     for (;;) {
         pagecache_page_t *victim = NULL;
-        pc_lock(&mapping->lock);
+        raw_spin_lock(&mapping->lock);
         for (size_t i = 0; i < mapping->bucket_count && !victim; i++) {
             for (pagecache_page_t *page = mapping->buckets[i]; page; page = page->hash_next) {
                 uint64_t page_start = page->index * PAGECACHE_PAGE_SIZE;
@@ -873,24 +869,24 @@ int pagecache_invalidate(pagecache_mapping_t *mapping, uint64_t start, uint64_t 
                 }
             }
         }
-        pc_unlock(&mapping->lock);
+        raw_spin_unlock(&mapping->lock);
         if (!victim) return EOK;
 
-        pc_lock(&victim->lock);
+        raw_spin_lock(&victim->lock);
         if ((victim->flags & PC_PAGE_DIRTY) && !(flags & PAGECACHE_INVALIDATE_DISCARD_DIRTY)) {
-            pc_unlock(&victim->lock);
+            raw_spin_unlock(&victim->lock);
             pagecache_put_page(victim);
             return -EBUSY;
         }
         victim->flags |= PC_PAGE_EVICTING;
         if (pc_unlink_page(victim)) {
             victim->flags &= ~PC_PAGE_EVICTING;
-            pc_unlock(&victim->lock);
+            raw_spin_unlock(&victim->lock);
             pagecache_put_page(victim);
             continue;
         }
-        pc_unlock(&victim->lock);
-        while (__atomic_load_n(&victim->references, __ATOMIC_ACQUIRE) != 1) pc_relax();
+        raw_spin_unlock(&victim->lock);
+        while (__atomic_load_n(&victim->references, __ATOMIC_ACQUIRE) != 1) cpu_relax();
         pagecache_put_page(victim);
         pc_free_page(victim);
     }
@@ -903,7 +899,7 @@ int pagecache_evict(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, 
     if ((flags & PAGECACHE_EVICT_WRITEBACK) && (flags & PAGECACHE_EVICT_DISCARD_DIRTY)) return -EINVAL;
 
     int dirty = 0;
-    pc_lock(&mapping->lock);
+    raw_spin_lock(&mapping->lock);
     for (size_t i = 0; i < mapping->bucket_count && !dirty; i++) {
         for (pagecache_page_t *page = mapping->buckets[i]; page; page = page->hash_next) {
             uint64_t page_start = page->index * PAGECACHE_PAGE_SIZE;
@@ -914,11 +910,11 @@ int pagecache_evict(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, 
             }
         }
     }
-    pc_unlock(&mapping->lock);
+    raw_spin_unlock(&mapping->lock);
 
     if (dirty && !(flags & (PAGECACHE_EVICT_WRITEBACK | PAGECACHE_EVICT_DISCARD_DIRTY))) return -EBUSY;
     if (dirty && (flags & PAGECACHE_EVICT_WRITEBACK)) {
-        int result = pagecache_writeback(mapping, start, end, PAGECACHE_WB_SYNC | PAGECACHE_WB_KEEP_ERROR);
+        int result = pagecache_writeback(mapping, start, end, PAGECACHE_WB_SYNC);
         if (result) return result;
     }
     uint32_t invalidate = (flags & PAGECACHE_EVICT_DISCARD_DIRTY) ? PAGECACHE_INVALIDATE_DISCARD_DIRTY : 0;
@@ -931,9 +927,9 @@ int pagecache_truncate(pagecache_mapping_t *mapping, uint64_t size)
     if (!mapping || !mapping->ops.resize) return -EOPNOTSUPP;
     uint64_t old_size = __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE);
     if (size == old_size) return EOK;
-    pc_lock(&mapping->lock);
+    raw_spin_lock(&mapping->lock);
     mapping->readahead_valid = 0;
-    pc_unlock(&mapping->lock);
+    raw_spin_unlock(&mapping->lock);
     int result = mapping->ops.resize(mapping->context, size);
     if (result) return result;
     __atomic_store_n(&mapping->size, size, __ATOMIC_RELEASE);
@@ -944,9 +940,9 @@ int pagecache_truncate(pagecache_mapping_t *mapping, uint64_t size)
         if (size % PAGECACHE_PAGE_SIZE) {
             pagecache_page_t *page = pagecache_get_page(mapping, size / PAGECACHE_PAGE_SIZE, 0);
             if (page) {
-                pc_lock(&page->lock);
-                memset((char *)page->data + size % PAGECACHE_PAGE_SIZE, 0, PAGECACHE_PAGE_SIZE - size % PAGECACHE_PAGE_SIZE);
-                pc_unlock(&page->lock);
+                raw_spin_lock(&page->lock);
+                memset((char *)page->data + (size % PAGECACHE_PAGE_SIZE), 0, PAGECACHE_PAGE_SIZE - (size % PAGECACHE_PAGE_SIZE));
+                raw_spin_unlock(&page->lock);
                 pagecache_put_page(page);
             }
         }
@@ -960,10 +956,28 @@ uint64_t pagecache_size(const pagecache_mapping_t *mapping)
     return mapping ? __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE) : 0;
 }
 
-/* Return the sticky I/O error recorded on a mapping. */
-int pagecache_mapping_error(pagecache_mapping_t *mapping)
+/* Mark a descriptor takes at open; an error nobody has taken yet stays available to it. */
+uint32_t pagecache_wb_err_sample(pagecache_mapping_t *mapping)
 {
-    return mapping ? __atomic_load_n(&mapping->error, __ATOMIC_ACQUIRE) : -EINVAL;
+    if (!mapping) return 0;
+    uint32_t seq = __atomic_load_n(&mapping->wb_err, __ATOMIC_ACQUIRE);
+    return (seq & PC_WB_ERR_REPORTED) ? seq : 0;
+}
+
+/* Report the error recorded since the mark and move the mark past it. */
+int pagecache_wb_err_check(pagecache_mapping_t *mapping, uint32_t *sample)
+{
+    if (!mapping || !sample) return 0;
+
+    uint32_t seq = __atomic_load_n(&mapping->wb_err, __ATOMIC_ACQUIRE);
+    if (!seq || seq == *sample) return 0;
+
+    uint32_t reported = seq | PC_WB_ERR_REPORTED;
+    __atomic_compare_exchange_n(&mapping->wb_err, &seq, reported, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+    *sample = reported;
+
+    int error = __atomic_load_n(&mapping->error, __ATOMIC_ACQUIRE);
+    return error ? error : -EIO;
 }
 
 /* Pin a mapping so its pages are not reclaimed. */
@@ -987,7 +1001,7 @@ int pagecache_readahead(pagecache_mapping_t *mapping, uint64_t offset, size_t si
     uint64_t last  = (offset + size - 1) / PAGECACHE_PAGE_SIZE;
     while (first <= last) {
         uint64_t remaining = last - first + 1;
-        uint32_t window    = remaining > PAGECACHE_READAHEAD_MAX ? PAGECACHE_READAHEAD_MAX : (uint32_t)remaining;
+        uint32_t window    = remaining > CONFIG_PAGECACHE_READAHEAD_MAX ? CONFIG_PAGECACHE_READAHEAD_MAX : (uint32_t)remaining;
         int      result    = pc_readahead_pages(mapping, first, window, 1);
         if (result) return result;
         if (remaining <= window) break;
@@ -1012,16 +1026,16 @@ size_t pagecache_reclaim(size_t target)
     while (reclaimed < target && scanned < scan_budget) {
         pagecache_page_t *victim = NULL;
         pagecache_page_t *dirty  = NULL;
-        pc_lock(&pagecache.lock);
+        raw_spin_lock(&pagecache.lock);
         pagecache_page_t *previous = NULL;
         for (pagecache_page_t *page = pagecache.lru_tail; page && scanned < scan_budget; page = previous) {
             previous = page->lru_prev;
             scanned++;
             if ((page->mapping->flags & PAGECACHE_MAPPING_UNEVICTABLE) || __atomic_load_n(&page->mapping->pins, __ATOMIC_ACQUIRE)) continue;
             if (__atomic_load_n(&page->references, __ATOMIC_ACQUIRE)) continue;
-            if (!pc_trylock(&page->lock)) continue;
+            if (!raw_spin_trylock(&page->lock)) continue;
             if (page->flags & (PC_PAGE_WRITEBACK | PC_PAGE_EVICTING)) {
-                pc_unlock(&page->lock);
+                raw_spin_unlock(&page->lock);
                 continue;
             }
 
@@ -1044,7 +1058,7 @@ size_t pagecache_reclaim(size_t target)
                     pc_lru_remove_locked(page);
                     pc_lru_add_head_locked(page);
                 }
-                pc_unlock(&page->lock);
+                raw_spin_unlock(&page->lock);
                 continue;
             }
             if (page->flags & PC_PAGE_ACTIVE) {
@@ -1055,7 +1069,7 @@ size_t pagecache_reclaim(size_t target)
                     pc_lru_remove_locked(page);
                     pc_lru_add_head_locked(page);
                 }
-                pc_unlock(&page->lock);
+                raw_spin_unlock(&page->lock);
                 continue;
             }
 
@@ -1068,40 +1082,41 @@ size_t pagecache_reclaim(size_t target)
             __atomic_fetch_or(&page->flags, PC_PAGE_EVICTING, __ATOMIC_RELEASE);
             if (__atomic_load_n(&page->references, __ATOMIC_ACQUIRE)) {
                 __atomic_fetch_and(&page->flags, ~PC_PAGE_EVICTING, __ATOMIC_RELEASE);
-                pc_unlock(&page->lock);
+                raw_spin_unlock(&page->lock);
                 continue;
             }
             if (page->flags & PC_PAGE_DIRTY) {
                 __atomic_fetch_and(&page->flags, ~PC_PAGE_EVICTING, __ATOMIC_RELEASE);
-                if (!dirty)
+                if (!dirty) {
                     dirty = page;
-                else
-                    pc_unlock(&page->lock);
+                } else {
+                    raw_spin_unlock(&page->lock);
+                }
                 continue;
             }
             victim = page;
             break;
         }
-        pc_unlock(&pagecache.lock);
+        raw_spin_unlock(&pagecache.lock);
         if (!victim && dirty) {
-            if (!unlimited && writeback >= PAGECACHE_RECLAIM_MAX_WRITEBACK) {
-                pc_unlock(&dirty->lock);
+            if (!unlimited && writeback >= CONFIG_PAGECACHE_RECLAIM_MAX_WRITEBACK) {
+                raw_spin_unlock(&dirty->lock);
                 break;
             }
             int result = pc_writeback_page_locked(dirty);
-            pc_unlock(&dirty->lock);
+            raw_spin_unlock(&dirty->lock);
             if (result) break;
             writeback++;
             continue;
         }
-        if (dirty) pc_unlock(&dirty->lock);
+        if (dirty) raw_spin_unlock(&dirty->lock);
         if (!victim) break;
         if (pc_unlink_page(victim)) {
             victim->flags &= ~PC_PAGE_EVICTING;
-            pc_unlock(&victim->lock);
+            raw_spin_unlock(&victim->lock);
             continue;
         }
-        pc_unlock(&victim->lock);
+        raw_spin_unlock(&victim->lock);
         pc_free_page(victim);
         reclaimed++;
         pc_stat_inc(&pagecache.stats.reclaimed);

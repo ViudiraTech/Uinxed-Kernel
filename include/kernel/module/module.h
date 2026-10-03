@@ -11,117 +11,18 @@
 #ifndef INCLUDE_MODULE_H_
 #define INCLUDE_MODULE_H_
 
+#include <kernel/errno.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define MODULE_NAME_LEN                64
-#define MODULE_PARAM_MAX               4096
 #define MODULE_INIT_IGNORE_MODVERSIONS 0x0001U
 #define MODULE_INIT_IGNORE_VERMAGIC    0x0002U
 #define MODULE_INIT_COMPRESSED_FILE    0x0004U
 #define MODULE_DELETE_NONBLOCK         0x0800U
 #define MODULE_DELETE_FORCE            0x0200U
 
-enum module_state {
-    MODULE_STATE_UNFORMED,
-    MODULE_STATE_COMING,
-    MODULE_STATE_LIVE,
-    MODULE_STATE_GOING,
-};
-
-enum module_taint {
-    MODULE_TAINT_PROPRIETARY = 1U << 0,
-    MODULE_TAINT_FORCED      = 1U << 1,
-    MODULE_TAINT_UNSIGNED    = 1U << 2,
-    MODULE_TAINT_OUT_OF_TREE = 1U << 3,
-};
-
-struct module {
-        char              name[MODULE_NAME_LEN];
-        enum module_state state;
-        volatile uint32_t refcount;
-        uint32_t          taints;
-        size_t            core_size;
-        size_t            init_size;
-        void             *loader_private;
-};
-
-struct kernel_symbol {
-        uintptr_t   value;
-        const char *name;
-        const char *namespace_name;
-        uint32_t    flags;
-        uint32_t    crc;
-};
-
 #define KERNEL_SYMBOL_GPL_ONLY (1U << 0)
-
-enum module_param_type {
-    MODULE_PARAM_BYTE,
-    MODULE_PARAM_SHORT,
-    MODULE_PARAM_USHORT,
-    MODULE_PARAM_INT,
-    MODULE_PARAM_UINT,
-    MODULE_PARAM_LONG,
-    MODULE_PARAM_ULONG,
-    MODULE_PARAM_BOOL,
-    MODULE_PARAM_CHARP,
-};
-
-struct kernel_param {
-        const char            *name;
-        void                  *arg;
-        enum module_param_type type;
-        uint16_t               perm;
-};
-
-typedef int (*module_signature_verifier_t)(const void *image, size_t image_size, const void *signature, size_t signature_size);
-
-/* Bring up the registry and /sys/module integration. */
-void module_subsystem_init(void);
-
-/* Load and unload module images. All failures are negative errno values. */
-int module_load(const void *image, size_t size, const char *params, unsigned int flags, const char *name_hint);
-int module_unload(const char *name, unsigned int flags);
-
-/* Runtime ownership. A successful get must be paired with module_put(). */
-int            try_module_get(struct module *module);
-void           __module_get(struct module *module);
-void           module_put(struct module *module);
-uint32_t       module_refcount(const struct module *module);
-struct module *module_find_get(const char *name);
-
-/* Sysfs presentation helpers. */
-const char *module_state_name(enum module_state state);
-const char *module_version(const struct module *module);
-const char *module_srcversion(const struct module *module);
-
-/* Section (address/name) iteration for /sys/module/<name>/sections/. */
-size_t      module_section_count(const struct module *module);
-const char *module_section_name(const struct module *module, size_t index);
-uintptr_t   module_section_address(const struct module *module, size_t index);
-
-/* Parameter iteration for /sys/module/<name>/parameters/. */
-size_t      module_param_count(const struct module *module);
-const char *module_param_name(const struct module *module, size_t index);
-int         module_param_value(const struct module *module, size_t index, char *buf, size_t size);
-
-/* Holder (dependent module) iteration for /sys/module/<name>/holders/. */
-struct kobject;
-size_t          module_holder_count(const struct module *module);
-struct module  *module_holder(const struct module *module, size_t index);
-struct kobject *module_sysfs_object(const struct module *module);
-
-/* Resolve an exported symbol and pin its owner until module_symbol_put(). */
-void *module_symbol_get(const char *name, struct module **owner);
-void  module_symbol_put(struct module *owner);
-
-/* Generate Linux-compatible /proc/modules content. */
-size_t module_format_proc(char *buffer, size_t size);
-
-/* Install a platform signature verifier before loading signed modules. */
-int module_set_signature_verifier(module_signature_verifier_t verifier);
 
 #define __MODULE_JOIN_INNER(a, b) a##b
 #define __MODULE_JOIN(a, b)       __MODULE_JOIN_INNER(a, b)
@@ -129,6 +30,12 @@ int module_set_signature_verifier(module_signature_verifier_t verifier);
 #define __MODULE_STRING(x)        __MODULE_STRING_INNER(x)
 #define __module_used             __attribute__((used))
 #define __module_section(name)    __attribute__((section(name)))
+
+/* Exported-symbol ABI revision; bump it when an exported signature or a shared struct layout changes. */
+#define MODULE_EXPORT_ABI 1
+
+/* Version magic a module must carry to load into this build. */
+#define VERMAGIC_STRING KERNEL_VERSION "-eabi" __MODULE_STRING(MODULE_EXPORT_ABI)
 
 #define __MODULE_INFO(tag, info, counter) static const char __MODULE_JOIN(__modinfo_, counter)[] __module_used __module_section(".modinfo") = #tag "=" info
 #define MODULE_INFO(tag, info)            __MODULE_INFO(tag, info, __COUNTER__)
@@ -173,10 +80,129 @@ int module_set_signature_verifier(module_signature_verifier_t verifier);
 #define module_init(function) int init_module(void) __attribute__((alias(#function)))
 #define module_exit(function) void cleanup_module(void) __attribute__((alias(#function)))
 
+enum module_state {
+    MODULE_STATE_UNFORMED,
+    MODULE_STATE_COMING,
+    MODULE_STATE_LIVE,
+    MODULE_STATE_GOING,
+};
+
+enum module_taint {
+    MODULE_TAINT_PROPRIETARY = 1U << 0,
+    MODULE_TAINT_FORCED      = 1U << 1,
+    MODULE_TAINT_UNSIGNED    = 1U << 2,
+    MODULE_TAINT_OUT_OF_TREE = 1U << 3,
+};
+
+struct module {
+        char              name[CONFIG_MODULE_NAME_LEN];
+        enum module_state state;
+        volatile uint32_t refcount;
+        uint32_t          taints;
+        size_t            core_size;
+        size_t            init_size;
+        void             *loader_private;
+};
+
+struct kernel_symbol {
+        uintptr_t   value;
+        const char *name;
+        const char *namespace_name;
+        uint32_t    flags;
+        uint32_t    crc;
+};
+
+enum module_param_type {
+    MODULE_PARAM_BYTE,
+    MODULE_PARAM_SHORT,
+    MODULE_PARAM_USHORT,
+    MODULE_PARAM_INT,
+    MODULE_PARAM_UINT,
+    MODULE_PARAM_LONG,
+    MODULE_PARAM_ULONG,
+    MODULE_PARAM_BOOL,
+    MODULE_PARAM_CHARP,
+};
+
+struct kernel_param {
+        const char            *name;
+        void                  *arg;
+        enum module_param_type type;
+        uint16_t               perm;
+};
+
+typedef int (*module_signature_verifier_t)(const void *image, size_t image_size, const void *signature, size_t signature_size);
+
+/* Holder (dependent module) iteration for /sys/module/<name>/holders/. */
+struct kobject;
+
 #ifndef UINXED_MODULE_CORE
 __attribute__((weak, used, section(".gnu.linkonce.this_module"))) struct module __this_module;
 #    define THIS_MODULE (&__this_module)
-static const char __module_vermagic[] __module_used __module_section(".modinfo") = "vermagic=" KERNEL_VERSION;
+static const char __module_vermagic[] __module_used __module_section(".modinfo") = "vermagic=" VERMAGIC_STRING;
 #endif
+
+#if CONFIG_MODULES
+
+/* Bring up the registry and /sys/module integration. */
+void module_subsystem_init(void);
+
+/* Load and unload module images. All failures are negative errno values. */
+int module_load(const void *image, size_t size, const char *params, unsigned int flags, const char *name_hint);
+int module_unload(const char *name, unsigned int flags);
+
+#else
+static inline void module_subsystem_init(void) {}
+static inline int  module_load(const void *, size_t, const char *, unsigned int, const char *)
+{
+    return -ENOSYS;
+}
+static inline int module_unload(const char *, unsigned int)
+{
+    return -ENOSYS;
+}
+#endif
+
+/* Runtime ownership. A successful get must be paired with module_put(). */
+int            try_module_get(struct module *module);
+void           __module_get(struct module *module);
+void           module_put(struct module *module);
+uint32_t       module_refcount(const struct module *module);
+struct module *module_find_get(const char *name);
+
+/* Sysfs presentation helpers. */
+const char *module_state_name(enum module_state state);
+const char *module_version(const struct module *module);
+const char *module_srcversion(const struct module *module);
+
+/* Section (address/name) iteration for /sys/module/<name>/sections/. */
+size_t      module_section_count(const struct module *module);
+const char *module_section_name(const struct module *module, size_t index);
+uintptr_t   module_section_address(const struct module *module, size_t index);
+
+/* Parameter iteration for /sys/module/<name>/parameters/. */
+size_t          module_param_count(const struct module *module);
+const char     *module_param_name(const struct module *module, size_t index);
+int             module_param_value(const struct module *module, size_t index, char *buf, size_t size);
+size_t          module_holder_count(const struct module *module);
+struct module  *module_holder(const struct module *module, size_t index);
+struct kobject *module_sysfs_object(const struct module *module);
+
+/* Resolve an exported symbol and pin its owner until module_symbol_put(). */
+void *module_symbol_get(const char *name, struct module **owner);
+void  module_symbol_put(struct module *owner);
+
+/* Generate /proc/modules content. */
+#if CONFIG_MODULES
+size_t module_format_proc(char *buffer, size_t size);
+#else
+static inline size_t module_format_proc(char *, size_t)
+{
+    return 0;
+}
+#endif
+
+/* Install a platform signature verifier before loading signed modules. */
+int module_set_signature_verifier(module_signature_verifier_t verifier);
 
 #endif // INCLUDE_MODULE_H_

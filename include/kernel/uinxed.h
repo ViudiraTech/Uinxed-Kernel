@@ -11,12 +11,36 @@
 #ifndef INCLUDE_UINXED_H_
 #define INCLUDE_UINXED_H_
 
+/*
+ * Version format: major.minor.patch[-alpha.N|-beta.N|-rc.N]
+ *
+ * Carry rule: incrementing a higher component resets all lower components to 0.
+ *   Major++ -> Minor = 0, Patch = 0
+ *   Minor++ -> Patch = 0
+ *
+ * Major: Increments on breaking changes (API incompatible, architectural refactoring), major updates, or historic releases.
+ * Minor: Increments on new features or significant improvements.
+ * Patch: Increments on bug fixes, performance optimizations, or security patches.
+ *
+ * Prerelease identifiers (optional):
+ *   alpha.N  Initial development: features unstable, updates aggressive, APIs may change freely.
+ *   beta.N   Stabilization: bug fixes, refinements, performance tuning; feature set frozen.
+ *   rc.N     Release candidate: final polish before release; only critical fixes accepted.
+ *   (none)   Final release.
+ *
+ * Rules:
+ *   Alpha/Beta -> No tag, no Release (may exist on master as regular commits).
+ *   RC         -> Tag + Pre-release for testing.
+ *   Final      -> Tag + Release, promoted from the last verified RC, keep forever.
+ */
+
 #define BUILD_DATE     __DATE__
 #define BUILD_TIME     __TIME__
 #define KERNEL_NAME    "Uinxed"
-#define KERNEL_VERSION "0.4.0"
+#define KERNEL_VERSION "1.0.0-alpha.1"
 
 /* Compiler judgment */
+
 #if defined(__clang__)
 #    define COMPILER_NAME    "clang"
 #    define STRINGIFY(x)     #x

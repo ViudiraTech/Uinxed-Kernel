@@ -10,23 +10,11 @@
 
 #include <drivers/block/core/partition.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdlib.h>
+#include <kernel/vsprintf.h>
 #include <libs/std/string.h>
+#include <libs/util/bitops.h>
+#include <libs/util/byteorder.h>
 #include <mem/heap.h>
-
-#define MBR_SIGNATURE_OFFSET 510
-#define MBR_DISK_ID_OFFSET   440
-#define MBR_PARTITION_OFFSET 446
-#define MBR_PARTITION_SIZE   16
-#define MBR_PARTITION_COUNT  4
-#define MBR_PROTECTIVE_TYPE  0xEE
-#define GPT_HEADER_SIZE      92
-#define GPT_PRIMARY_LBA      1
-#define GPT_NAME_CODE_UNITS  36
-#define GPT_READ_ONLY        (1ULL << 60)
-#define GPT_SIGNATURE        "EFI PART"
-#define GPT_REVISION_1_0     0x00010000U
 
 /*
  * GPT on-disk layout summary
@@ -50,39 +38,7 @@ typedef struct gpt_location {
         bool     valid;
 } gpt_location_t;
 
-/*
- * Little-endian access helpers
- * Partition tables and GPT headers are stored in little-endian byte
- * order regardless of the host, so all fields are decoded through
- * these helpers.
- */
-static uint16_t load_le16(const void *pointer)
-{
-    const uint8_t *bytes = pointer;
-    return (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8);
-}
-
-static uint32_t load_le32(const void *pointer)
-{
-    const uint8_t *bytes = pointer;
-    return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
-}
-
-static uint64_t load_le64(const void *pointer)
-{
-    const uint8_t *bytes = pointer;
-    return (uint64_t)load_le32(bytes) | ((uint64_t)load_le32(bytes + 4) << 32);
-}
-
-static void store_le32(void *pointer, uint32_t value)
-{
-    uint8_t *bytes = pointer;
-    bytes[0]       = (uint8_t)value;
-    bytes[1]       = (uint8_t)(value >> 8);
-    bytes[2]       = (uint8_t)(value >> 16);
-    bytes[3]       = (uint8_t)(value >> 24);
-}
-
+/* Guid is zero. */
 static bool guid_is_zero(const uint8_t guid[16])
 {
     uint8_t value = 0;
@@ -97,11 +53,7 @@ static bool range_valid(uint64_t start, uint64_t count, uint64_t limit)
     return count != 0 && start < limit && count <= limit - start;
 }
 
-static bool is_power_of_two(uint32_t value)
-{
-    return value && !(value & (value - 1));
-}
-
+/* Mbr is extended. */
 static bool mbr_is_extended(uint8_t type)
 {
     return type == 0x05 || type == 0x0F || type == 0x85;
@@ -127,6 +79,7 @@ static int read_disk_bytes(const blockdev_device_t *device, uint64_t byte_offset
 
         if (copy_size > size) copy_size = size;
         status = read_sector(device, lba, scratch);
+
         if (status != EOK) return status;
         memcpy(output, scratch + sector_offset, copy_size);
         output += copy_size;
@@ -159,6 +112,7 @@ static int disk_crc32(const blockdev_device_t *device, uint64_t byte_offset, uin
 
         if ((uint64_t)count > size) count = (size_t)size;
         status = read_sector(device, lba, scratch);
+
         if (status != EOK) return status;
         crc = crc32_update(crc, scratch + sector_offset, count);
         byte_offset += count;
@@ -178,9 +132,8 @@ static int disk_crc32(const blockdev_device_t *device, uint64_t byte_offset, uin
 /* Add a partition to the table, rejecting duplicates, overlaps and overflows. */
 static int table_add(partition_table_t *table, const partition_info_t *partition)
 {
-    if (partition->number > PARTITION_MAX_COUNT) return EOK;
-    if (table->count >= PARTITION_MAX_COUNT) return -ENOSPC;
-
+    if (partition->number > CONFIG_PARTITION_MAX_COUNT) return EOK;
+    if (table->count >= CONFIG_PARTITION_MAX_COUNT) return -ENOSPC;
     for (size_t i = 0; i < table->count; i++) {
         const partition_info_t *other = &table->partitions[i];
 
@@ -189,6 +142,7 @@ static int table_add(partition_table_t *table, const partition_info_t *partition
         if (other->extended || partition->extended) continue;
         if (partition->start_lba < other->start_lba + other->sector_count && other->start_lba < partition->start_lba + partition->sector_count) return -EINVAL;
     }
+
     table->partitions[table->count++] = *partition;
     return EOK;
 }
@@ -201,6 +155,7 @@ static int validate_mbr_entry(const uint8_t *entry, uint64_t disk_sectors, uint6
     if (status != 0 && status != 0x80) return -EINVAL;
     *start = load_le32(entry + 8);
     *count = load_le32(entry + 12);
+
     if (!entry[4] && !*count) return EOK;
     if (!entry[4] || !range_valid(*start, *count, disk_sectors)) return -EINVAL;
     return EOK;
@@ -210,25 +165,25 @@ static int validate_mbr_entry(const uint8_t *entry, uint64_t disk_sectors, uint6
 static int parse_ebr_chain(const blockdev_device_t *device, partition_table_t *table, uint64_t extended_start, uint64_t extended_count, uint32_t *next_number, uint8_t *sector)
 {
     uint64_t current = extended_start;
-    uint64_t visited[PARTITION_MAX_COUNT];
+    uint64_t visited[CONFIG_PARTITION_MAX_COUNT];
     size_t   visited_count = 0;
 
     while (1) {
         const uint8_t *link = NULL;
         int            status;
 
-        if (*next_number > PARTITION_MAX_COUNT) return EOK;
+        if (*next_number > CONFIG_PARTITION_MAX_COUNT) return EOK;
         for (size_t i = 0; i < visited_count; i++)
             if (visited[i] == current) return -ELOOP;
-        if (visited_count >= PARTITION_MAX_COUNT) return -ELOOP;
-        visited[visited_count++] = current;
+        if (visited_count >= CONFIG_PARTITION_MAX_COUNT) return -ELOOP;
 
-        status = read_sector(device, current, sector);
+        visited[visited_count++] = current;
+        status                   = read_sector(device, current, sector);
+
         if (status != EOK) return status;
         if (sector[MBR_SIGNATURE_OFFSET] != 0x55 || sector[MBR_SIGNATURE_OFFSET + 1] != 0xAA) return -EBADMSG;
-
         for (unsigned int slot = 0; slot < MBR_PARTITION_COUNT; slot++) {
-            const uint8_t *entry = sector + MBR_PARTITION_OFFSET + (size_t)slot * MBR_PARTITION_SIZE;
+            const uint8_t *entry = sector + MBR_PARTITION_OFFSET + ((size_t)slot * MBR_PARTITION_SIZE);
             uint64_t       relative_start;
             uint64_t       count;
             uint8_t        type = entry[4];
@@ -237,8 +192,8 @@ static int parse_ebr_chain(const blockdev_device_t *device, partition_table_t *t
             if (entry[0] != 0 && entry[0] != 0x80) return -EINVAL;
             relative_start = load_le32(entry + 8);
             count          = load_le32(entry + 12);
-            if (!type || !count) return -EINVAL;
 
+            if (!type || !count) return -EINVAL;
             if (mbr_is_extended(type)) {
                 if (link) return -EINVAL;
                 link = entry;
@@ -247,6 +202,7 @@ static int parse_ebr_chain(const blockdev_device_t *device, partition_table_t *t
 
             if (relative_start > UINT64_MAX - current) return -EOVERFLOW;
             uint64_t absolute_start = current + relative_start;
+
             if (!range_valid(absolute_start, count, device->sector_count)) return -EINVAL;
             if (absolute_start < extended_start || absolute_start - extended_start >= extended_count || count > extended_count - (absolute_start - extended_start)) return -EINVAL;
 
@@ -284,7 +240,7 @@ static int parse_mbr(const blockdev_device_t *device, partition_table_t *table, 
     table->mbr_disk_signature = load_le32(mbr + MBR_DISK_ID_OFFSET);
 
     for (unsigned int slot = 0; slot < MBR_PARTITION_COUNT; slot++) {
-        const uint8_t *entry = mbr + MBR_PARTITION_OFFSET + (size_t)slot * MBR_PARTITION_SIZE;
+        const uint8_t *entry = mbr + MBR_PARTITION_OFFSET + ((size_t)slot * MBR_PARTITION_SIZE);
         uint64_t       start;
         uint64_t       count;
         uint8_t        type = entry[4];
@@ -304,6 +260,7 @@ static int parse_mbr(const blockdev_device_t *device, partition_table_t *table, 
         if (mbr_is_extended(type)) {
             uint64_t bytes         = device->sector_size > 1024 ? device->sector_size : 1024;
             partition.sector_count = bytes / device->sector_size;
+
             if (partition.sector_count > count) partition.sector_count = count;
             partition.extended               = true;
             extended_start[extended_entries] = start;
@@ -333,16 +290,19 @@ static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_
 
     memset(location, 0, sizeof(*location));
     status = read_sector(device, header_lba, sector);
+
     if (status != EOK) return status;
     if (memcmp(sector, GPT_SIGNATURE, 8) != 0) return -EBADMSG;
     if (load_le32(sector + 8) != GPT_REVISION_1_0 || load_le32(sector + 20) != 0) return -EINVAL;
 
     uint32_t header_size = load_le32(sector + 12);
     if (header_size < GPT_HEADER_SIZE || header_size > device->sector_size) return -EINVAL;
+
     stored_crc = load_le32(sector + 16);
     store_le32(sector + 16, 0);
     computed_crc = crc32_update(UINT32_MAX, sector, header_size) ^ UINT32_MAX;
     store_le32(sector + 16, stored_crc);
+
     if (stored_crc != computed_crc) return -EBADMSG;
     for (uint32_t i = header_size; i < device->sector_size; i++)
         if (sector[i] != 0) return -EINVAL;
@@ -363,6 +323,7 @@ static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_
     if (location->entry_count > UINT64_MAX / location->entry_size) return -EOVERFLOW;
     location->entries_bytes = (uint64_t)location->entry_count * location->entry_size;
     entry_blocks            = location->entries_bytes / device->sector_size + (location->entries_bytes % device->sector_size != 0);
+
     if (!entry_blocks || location->entries_lba >= device->sector_count || entry_blocks > device->sector_count - location->entries_lba) return -EINVAL;
     table_end = location->entries_lba + entry_blocks;
 
@@ -374,9 +335,11 @@ static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_
 
     uint64_t byte_offset = location->entries_lba * (uint64_t)device->sector_size;
     status               = disk_crc32(device, byte_offset, location->entries_bytes, &computed_crc, scratch);
+
     if (status != EOK) return status;
     if (computed_crc != location->entries_crc) return -EBADMSG;
     location->valid = true;
+
     return EOK;
 }
 
@@ -406,6 +369,7 @@ static size_t append_utf8(char *output, size_t capacity, size_t used, uint32_t c
         count      = 4;
     }
     if (count >= capacity - used) return used;
+
     memcpy(output + used, encoded, count);
     return used + count;
 }
@@ -416,15 +380,15 @@ static void gpt_name_to_utf8(const uint8_t *input, char output[PARTITION_NAME_SI
     size_t used = 0;
 
     for (size_t i = 0; i < GPT_NAME_CODE_UNITS; i++) {
-        uint32_t codepoint = load_le16(input + i * 2);
+        uint32_t codepoint = load_le16(input + (i * 2));
 
         if (!codepoint) break;
         if (codepoint >= 0xD800 && codepoint <= 0xDBFF) {
             if (++i < GPT_NAME_CODE_UNITS) {
-                uint32_t low = load_le16(input + i * 2);
-                if (low >= 0xDC00 && low <= 0xDFFF)
+                uint32_t low = load_le16(input + (i * 2));
+                if (low >= 0xDC00 && low <= 0xDFFF) {
                     codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
-                else {
+                } else {
                     codepoint = 0xFFFD;
                     i--;
                 }
@@ -450,13 +414,14 @@ static bool gpt_locations_match(const gpt_location_t *primary, const gpt_locatio
 /* Parse the partition-entry array described by a validated GPT header */
 static int parse_gpt_entries(const blockdev_device_t *device, partition_table_t *table, const gpt_location_t *location, uint8_t *scratch)
 {
-    uint8_t entry[128];
+    uint8_t  entry[128];
+    uint32_t exposed_count = location->entry_count < CONFIG_PARTITION_MAX_COUNT ? location->entry_count : CONFIG_PARTITION_MAX_COUNT;
 
-    uint32_t exposed_count = location->entry_count < PARTITION_MAX_COUNT ? location->entry_count : PARTITION_MAX_COUNT;
     for (uint32_t index = 0; index < exposed_count; index++) {
         if ((uint64_t)index > (UINT64_MAX - location->entries_lba * device->sector_size) / location->entry_size) return -EOVERFLOW;
-        uint64_t offset = location->entries_lba * (uint64_t)device->sector_size + (uint64_t)index * location->entry_size;
+        uint64_t offset = (location->entries_lba * (uint64_t)device->sector_size) + ((uint64_t)index * location->entry_size);
         int      status = read_disk_bytes(device, offset, entry, sizeof(entry), scratch);
+
         if (status != EOK) return status;
         if (guid_is_zero(entry)) continue;
         if (guid_is_zero(entry + 16)) return -EINVAL;
@@ -481,6 +446,7 @@ static int parse_gpt_entries(const blockdev_device_t *device, partition_table_t 
     return EOK;
 }
 
+/* Format guid. */
 static int format_guid(const uint8_t guid[16], char *buffer, size_t size)
 {
     if (size < PARTITION_UUID_STRING_SIZE) return -ENOSPC;
@@ -499,21 +465,24 @@ int partition_scan(const blockdev_device_t *device, partition_table_t *table)
 {
     gpt_location_t primary;
     gpt_location_t backup;
-    uint8_t       *sector;
-    uint8_t       *scratch;
-    bool           protective   = false;
-    bool           legacy_entry = false;
-    int            primary_status;
-    int            backup_status;
-    int            status;
+
+    uint8_t *sector;
+    uint8_t *scratch;
+    bool     protective   = false;
+    bool     legacy_entry = false;
+    int      primary_status;
+    int      backup_status;
+    int      status;
 
     if (!device || !table || device->sector_count < 1 || device->sector_size < 512 || !is_power_of_two(device->sector_size)) return -EINVAL;
-    if (device->sector_count > UINT64_MAX / device->sector_size) return -EOVERFLOW;
+    if (!blockdev_geometry_valid(device)) return -EOVERFLOW;
     memset(table, 0, sizeof(*table));
-    table->partitions = calloc(PARTITION_MAX_COUNT, sizeof(partition_info_t));
+    table->partitions = calloc(CONFIG_PARTITION_MAX_COUNT, sizeof(partition_info_t));
+
     if (!table->partitions) return -ENOMEM;
     sector  = malloc(device->sector_size);
     scratch = malloc(device->sector_size);
+
     if (!sector || !scratch) {
         free(sector);
         free(scratch);
@@ -529,7 +498,7 @@ int partition_scan(const blockdev_device_t *device, partition_table_t *table)
     }
 
     for (unsigned int slot = 0; slot < MBR_PARTITION_COUNT; slot++) {
-        const uint8_t *entry = sector + MBR_PARTITION_OFFSET + (size_t)slot * MBR_PARTITION_SIZE;
+        const uint8_t *entry = sector + MBR_PARTITION_OFFSET + ((size_t)slot * MBR_PARTITION_SIZE);
         if (entry[4] == MBR_PROTECTIVE_TYPE && load_le32(entry + 8) == GPT_PRIMARY_LBA) protective = true;
         if (entry[4] != 0 && entry[4] != MBR_PROTECTIVE_TYPE) legacy_entry = true;
     }
@@ -549,6 +518,7 @@ int partition_scan(const blockdev_device_t *device, partition_table_t *table)
     }
     primary_status = validate_gpt_header(device, GPT_PRIMARY_LBA, &primary, sector, scratch);
     backup_status  = validate_gpt_header(device, device->sector_count - 1, &backup, sector, scratch);
+
     if (primary_status != EOK && backup_status != EOK) {
         status = primary_status == -EIO || backup_status == -EIO ? -EIO : -EBADMSG;
         goto fail;
@@ -559,19 +529,23 @@ int partition_scan(const blockdev_device_t *device, partition_table_t *table)
         table->degraded = backup_status != EOK || !gpt_locations_match(&primary, &backup);
         memcpy(table->disk_guid, primary.disk_guid, 16);
         status = parse_gpt_entries(device, table, &primary, scratch);
+
         if (status == EOK) goto success;
         if (backup_status != EOK) goto fail;
 
         table->count    = 0;
         table->degraded = true;
-        memset(table->partitions, 0, PARTITION_MAX_COUNT * sizeof(*table->partitions));
+
+        memset(table->partitions, 0, CONFIG_PARTITION_MAX_COUNT * sizeof(*table->partitions));
         memcpy(table->disk_guid, backup.disk_guid, 16);
+
         status = parse_gpt_entries(device, table, &backup, scratch);
         if (status != EOK) goto fail;
     } else {
         table->degraded = true;
         memcpy(table->disk_guid, backup.disk_guid, 16);
         status = parse_gpt_entries(device, table, &backup, scratch);
+
         if (status != EOK) goto fail;
     }
 success:
@@ -609,6 +583,7 @@ int partition_format_uuid(const partition_table_t *table, const partition_info_t
     if (table->type == PARTITION_TABLE_GPT) return format_guid(partition->unique_guid, buffer, size);
     if (table->type != PARTITION_TABLE_MBR) return -EINVAL;
     if (size < 12) return -ENOSPC;
+
     (void)snprintf(buffer, size, "%08x-%02x", table->mbr_disk_signature, partition->number);
     return EOK;
 }

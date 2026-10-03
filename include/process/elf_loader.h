@@ -12,14 +12,12 @@
 #define INCLUDE_ELF_LOADER_H_
 
 #include <kernel/module/elf.h>
-#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
+
+#define MUSL_INTERPRETER_PATH "/lib/ld-musl-x86_64.so.1"
 
 struct process;
 struct vfs_node;
-
-#define MUSL_INTERPRETER_PATH "/lib/ld-musl-x86_64.so.1"
 
 typedef struct {
         Elf64_Addr base_addr;

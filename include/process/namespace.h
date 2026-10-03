@@ -1,78 +1,69 @@
 /*
  *
  *      namespace.h
- *      Linux-compatible Namespace Architecture
+ *      Namespace Architecture
  *
  *      2026/8/27 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
-#ifndef INCLUDE_PROCESS_NAMESPACE_H_
-#define INCLUDE_PROCESS_NAMESPACE_H_
+#ifndef INCLUDE_NAMESPACE_H_
+#define INCLUDE_NAMESPACE_H_
 
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/stdbool.h>
+#include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
+#include <syscall/syscall.h>
+
+#define UID_GID_MAP_MAX 5 // Max entries in a uid/gid map
 
 struct task;
 struct process;
 struct cgroup;
 
-/* Namespace clone / unshare flags */
-#define CLONE_NEWNS      0x00020000ULL /* Mount namespace */
-#define CLONE_NEWCGROUP  0x02000000ULL /* Cgroup namespace */
-#define CLONE_NEWUTS     0x04000000ULL /* UTS namespace */
-#define CLONE_NEWIPC     0x08000000ULL /* IPC namespace */
-#define CLONE_NEWUSER    0x10000000ULL /* User namespace */
-#define CLONE_NEWPID     0x20000000ULL /* PID namespace */
-#define CLONE_NEWNET     0x40000000ULL /* Network namespace */
-
-/* 1. UTS Namespace */
-typedef struct uts_namespace {
-        char       nodename[65];
-        char       domainname[65];
+/* Refcount and lock shared by every namespace. */
+typedef struct ns_common {
         uint32_t   refcount;
         spinlock_t lock;
+} ns_common_t;
+
+/* UTS Namespace */
+typedef struct uts_namespace {
+        char        nodename[65];
+        char        domainname[65];
+        ns_common_t ns;
 } uts_namespace_t;
 
-/* 2. IPC Namespace */
+/* IPC Namespace */
 typedef struct ipc_namespace {
-        uint32_t   refcount;
-        spinlock_t lock;
-        void      *sysv_ids;
+        ns_common_t ns;
+        void       *sysv_ids;
 } ipc_namespace_t;
 
-/* 3. Mount Namespace */
+/* Mount Namespace */
 typedef struct mnt_namespace {
-        uint64_t   id;
-        uint32_t   refcount;
-        spinlock_t lock;
-        void      *root_mount;
+        uint64_t    id;
+        ns_common_t ns;
+        void       *root_mount;
 } mnt_namespace_t;
 
-/* 4. PID Namespace */
+/* PID Namespace */
 typedef struct pid_namespace {
-        uint64_t               level;
-        struct pid_namespace  *parent;
-        uint64_t               pid_max;
-        uint64_t               next_pid;
-        uint32_t               refcount;
-        spinlock_t             lock;
-        struct process        *child_reaper;
-        bool                   dead;
+        uint64_t              level;
+        struct pid_namespace *parent;
+        uint64_t              pid_max;
+        uint64_t              next_pid;
+        ns_common_t           ns;
+        struct process       *child_reaper;
+        bool                  dead;
 } pid_namespace_t;
 
-/* 5. Network Namespace */
+/* Network Namespace */
 typedef struct net_namespace {
-        uint32_t   refcount;
-        spinlock_t lock;
-        void      *loopback_dev;
+        ns_common_t ns;
+        void       *loopback_dev;
 } net_namespace_t;
-
-/* 6. User Namespace */
-#define UID_GID_MAP_MAX 5
 
 typedef struct uid_gid_extent {
         uint32_t first;
@@ -89,15 +80,13 @@ typedef struct user_namespace {
         uint32_t               gid_extent_count;
         uid_gid_extent_t       gid_map[UID_GID_MAP_MAX];
         bool                   setgroups_allowed;
-        uint32_t               refcount;
-        spinlock_t             lock;
+        ns_common_t            ns;
 } user_namespace_t;
 
-/* 7. Cgroup Namespace */
+/* Cgroup Namespace */
 typedef struct cgroup_namespace {
         struct cgroup *root_cgroup;
-        uint32_t       refcount;
-        spinlock_t     lock;
+        ns_common_t    ns;
 } cgroup_namespace_t;
 
 /* Namespace Proxy grouping all 7 namespaces */
@@ -109,21 +98,23 @@ typedef struct nsproxy {
         net_namespace_t    *net_ns;
         user_namespace_t   *user_ns;
         cgroup_namespace_t *cgroup_ns;
-        uint32_t            refcount;
-        spinlock_t          lock;
+        ns_common_t         ns;
 } nsproxy_t;
 
-extern nsproxy_t init_nsproxy;
-extern uts_namespace_t init_uts_ns;
-extern ipc_namespace_t init_ipc_ns;
-extern mnt_namespace_t init_mnt_ns;
-extern pid_namespace_t init_pid_ns;
-extern net_namespace_t init_net_ns;
-extern user_namespace_t init_user_ns;
+extern nsproxy_t          init_nsproxy;
+extern uts_namespace_t    init_uts_ns;
+extern ipc_namespace_t    init_ipc_ns;
+extern mnt_namespace_t    init_mnt_ns;
+extern pid_namespace_t    init_pid_ns;
+extern net_namespace_t    init_net_ns;
+extern user_namespace_t   init_user_ns;
 extern cgroup_namespace_t init_cgroup_ns;
 
 /* Initialize namespace subsystem */
 void namespace_init(void);
+
+/* Return the UTS namespace of the current process, or the initial one outside process context */
+uts_namespace_t *uts_namespace_current(void);
 
 /* Allocate an init nsproxy */
 nsproxy_t *nsproxy_get(nsproxy_t *ns);
@@ -160,4 +151,4 @@ void              user_ns_put(user_namespace_t *ns);
 cgroup_namespace_t *cgroup_ns_get(cgroup_namespace_t *ns);
 void                cgroup_ns_put(cgroup_namespace_t *ns);
 
-#endif // INCLUDE_PROCESS_NAMESPACE_H_
+#endif // INCLUDE_NAMESPACE_H_

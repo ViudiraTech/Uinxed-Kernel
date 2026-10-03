@@ -12,125 +12,41 @@
 #include <arch/idt.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/net/ethernet/realtek/rtl8139.h>
-#include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
+#include <libs/util/byteorder.h>
 #include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
 #include <net/core/netdev.h>
-#include <net/core/pbuf.h>
 #include <process/sched.h>
-#include <process/task.h>
-#include <sync/spin_lock.h>
 
-#define RTL8139_MAX_DEVICES       8
-#define RTL8139_TX_COUNT          4 // four hardware transmit descriptors
-#define RTL8139_RX_BUF_IDX        2 // RCR receive ring length: 32K + 16
-#define RTL8139_RX_BUF_SIZE       (8192u << RTL8139_RX_BUF_IDX)
-#define RTL8139_RX_BUF_FRAMES     ((RTL8139_RX_BUF_SIZE + 16 + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE)
-#define RTL8139_MAX_FRAME_SIZE    (RTL8139_MTU + 18)
-#define RTL8139_CRC_LEN           4  // RX frame length reported by the chip includes CRC
-#define RTL8139_ETH_ZLEN          60 // minimum frame octets without CRC; chip has no auto-pad
-#define RTL8139_WORK_BUDGET       64
-#define RTL8139_TX_RECLAIM_BUDGET RTL8139_TX_COUNT
-#define RTL8139_RESET_POLL        1000
+#if CONFIG_RTL8139 && CONFIG_NET
 
-/*
- * Register map (RTL8139D datasheet Rev 1.11).
- * The classic RTL8139 exposes these registers through PCI I/O space.
- */
-#define RTL8139_REG_IDR0    0x00 // MAC address, bytes 0-5
-#define RTL8139_REG_MAR0    0x08 // multicast address filter
-#define RTL8139_REG_TSD0    0x10 // transmit status, descriptor 0-3
-#define RTL8139_REG_TSAD0   0x20 // transmit start address, descriptor 0-3
-#define RTL8139_REG_RBSTART 0x30 // receive buffer start address
-#define RTL8139_REG_CR      0x37 // command register (byte)
-#define RTL8139_REG_CAPR    0x38 // current address of packet read (word)
-#define RTL8139_REG_CBR     0x3a // current buffer address (word, read-only)
-#define RTL8139_REG_IMR     0x3c // interrupt mask register (word)
-#define RTL8139_REG_ISR     0x3e // interrupt status register (word, W1C)
-#define RTL8139_REG_TCR     0x40 // transmit configuration register
-#define RTL8139_REG_RCR     0x44 // receive configuration register
-#define RTL8139_REG_9346CR  0x50 // 93C46 command register (byte)
-#define RTL8139_REG_BMSR    0x64 // basic mode status register (word)
+#    define RTL8139_MAX_DEVICES       8
+#    define RTL8139_TX_COUNT          4 // four hardware transmit descriptors
+#    define RTL8139_RX_BUF_IDX        2 // RCR receive ring length: 32K + 16
+#    define RTL8139_RX_BUF_SIZE       (8192u << RTL8139_RX_BUF_IDX)
+#    define RTL8139_RX_BUF_FRAMES     ((RTL8139_RX_BUF_SIZE + 16 + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE)
+#    define RTL8139_MAX_FRAME_SIZE    (RTL8139_MTU + 18)
+#    define RTL8139_CRC_LEN           4  // RX frame length reported by the chip includes CRC
+#    define RTL8139_ETH_ZLEN          60 // minimum frame octets without CRC; chip has no auto-pad
+#    define RTL8139_WORK_BUDGET       64
+#    define RTL8139_TX_RECLAIM_BUDGET RTL8139_TX_COUNT
+#    define RTL8139_RESET_POLL        1000
 
-/* Command register (0x37) */
-#define RTL8139_CR_BUFE  (1u << 0) // receive buffer empty
-#define RTL8139_CR_TE    (1u << 2) // transmitter enable
-#define RTL8139_CR_RE    (1u << 3) // receiver enable
-#define RTL8139_CR_RESET (1u << 4) // software reset
+#    define RTL8139_INT_MASK      (RTL8139_ISR_ROK | RTL8139_ISR_RER | RTL8139_ISR_TOK | RTL8139_ISR_TER | RTL8139_ISR_RXOVW | RTL8139_ISR_PUN | RTL8139_ISR_FOVW)
+#    define RTL8139_RX_INT_MASK   (RTL8139_ISR_ROK | RTL8139_ISR_RER | RTL8139_ISR_RXOVW | RTL8139_ISR_FOVW)
+#    define RTL8139_WORK_INITIAL  (RTL8139_ISR_ROK | RTL8139_ISR_TOK)
+#    define RTL8139_RX_ERROR_MASK (RTL8139_RX_FAE | RTL8139_RX_CRC | RTL8139_RX_LONG | RTL8139_RX_RUNT | RTL8139_RX_ISE)
 
-/* Interrupt mask / status (0x3c/0x3e) */
-#define RTL8139_ISR_ROK   (1u << 0) // receive OK
-#define RTL8139_ISR_RER   (1u << 1) // receive error
-#define RTL8139_ISR_TOK   (1u << 2) // transmit OK
-#define RTL8139_ISR_TER   (1u << 3) // transmit error
-#define RTL8139_ISR_RXOVW (1u << 4) // receive buffer overflow
-#define RTL8139_ISR_PUN   (1u << 5) // packet underrun / link change
-#define RTL8139_ISR_FOVW  (1u << 6) // receive FIFO overflow
-
-#define RTL8139_INT_MASK     (RTL8139_ISR_ROK | RTL8139_ISR_RER | RTL8139_ISR_TOK | RTL8139_ISR_TER | RTL8139_ISR_RXOVW | RTL8139_ISR_PUN | RTL8139_ISR_FOVW)
-#define RTL8139_RX_INT_MASK  (RTL8139_ISR_ROK | RTL8139_ISR_RER | RTL8139_ISR_RXOVW | RTL8139_ISR_FOVW)
-#define RTL8139_WORK_INITIAL (RTL8139_ISR_ROK | RTL8139_ISR_TOK)
-
-/* Transmit configuration (0x40) */
-#define RTL8139_TCR_IFG_NORMAL (3u << 24) // standard interframe gap
-#define RTL8139_TCR_MXDMA      6u         // 1024-byte DMA bursts
-
-/* Receive configuration (0x44) */
-#define RTL8139_RCR_APM   (1u << 1) // accept physical match
-#define RTL8139_RCR_AM    (1u << 2) // accept multicast
-#define RTL8139_RCR_AB    (1u << 3) // accept broadcast
-#define RTL8139_RCR_RXFTH 4u        // 256-byte RX FIFO threshold
-#define RTL8139_RCR_MXDMA 6u        // 1024-byte DMA bursts
-
-/* 93C46 command register (0x50) */
-#define RTL8139_9346_UNLOCK 0xc0
-#define RTL8139_9346_LOCK   0x00
-
-/* Basic mode status register (0x64) */
-#define RTL8139_BMSR_LINK (1u << 2) // valid link established
-
-/* Transmit status descriptor (TSD) bits */
-#define RTL8139_TX_LEN_MASK 0x1fff
-#define RTL8139_TX_OWN      (1u << 13) // 1 = DMA complete, descriptor available
-#define RTL8139_TX_TUN      (1u << 14) // transmit FIFO underrun
-#define RTL8139_TX_TOK      (1u << 15) // transmit OK
-#define RTL8139_TX_OWC      (1u << 29) // out of window collision
-#define RTL8139_TX_TABT     (1u << 30) // transmit aborted
-#define RTL8139_TX_ERTXTH   8u         // early transmit threshold: 8 * 32 = 256 bytes
-
-/* Receive packet header status bits (written before each RX frame) */
-#define RTL8139_RX_ROK        (1u << 0) // receive OK
-#define RTL8139_RX_FAE        (1u << 1) // frame alignment error
-#define RTL8139_RX_CRC        (1u << 2) // CRC error
-#define RTL8139_RX_LONG       (1u << 3) // frame exceeds 4K bytes
-#define RTL8139_RX_RUNT       (1u << 4) // runt packet
-#define RTL8139_RX_ISE        (1u << 5) // invalid symbol error
-#define RTL8139_RX_ERROR_MASK (RTL8139_RX_FAE | RTL8139_RX_CRC | RTL8139_RX_LONG | RTL8139_RX_RUNT | RTL8139_RX_ISE)
-
-/*
- * Device IDs that use the classic RTL8139 transmit-descriptor and
- * receive-ring register layout.
- */
+/* Device IDs that use the classic RTL8139 transmit-descriptor and receive-ring register layout. */
 typedef struct {
         uint16_t vendor;
         uint16_t device;
 } rtl8139_id_t;
-
-static const rtl8139_id_t rtl8139_ids[] = {
-    {0x10ec, 0x8129}, // RTL8129
-    {0x10ec, 0x8139}, // RTL8139 / RTL8139D
-    {0x10ec, 0x8138}, // RTL8139B
-    {0x1113, 0x1211}, // Accton EN-1207D / SMC1211TX
-    {0x1186, 0x1300}, // D-Link DFE-538TX
-    {0x018a, 0x0106}, // LevelOne FPC-0106Tx
-    {0x021b, 0x8139}, // Compaq HNE-300
-};
 
 typedef struct rtl8139_device {
         pci_device_cache_t    *pci;
@@ -138,10 +54,8 @@ typedef struct rtl8139_device {
         uint16_t               device_id;
         uint16_t               saved_command;
         uint8_t                mac[6];
-        uint8_t                irq;
-        int                    vector;
+        pci_irq_state_t        irq_state;
         int                    using_legacy;
-        int                    using_direct_legacy;
         int                    running;
         int                    stopping;
         int                    link_up;
@@ -168,6 +82,16 @@ typedef struct rtl8139_device {
         struct rtl8139_device *next;
 } rtl8139_device_t;
 
+static const rtl8139_id_t rtl8139_ids[] = {
+    {RTL8139_VENDOR_REALTEK, 0x8129}, // RTL8129
+    {RTL8139_VENDOR_REALTEK, 0x8139}, // RTL8139 / RTL8139D
+    {RTL8139_VENDOR_REALTEK, 0x8138}, // RTL8139B
+    {0x1113,                 0x1211}, // Accton EN-1207D / SMC1211TX
+    {0x1186,                 0x1300}, // D-Link DFE-538TX
+    {0x018a,                 0x0106}, // LevelOne FPC-0106Tx
+    {0x021b,                 0x8139}, // Compaq HNE-300
+};
+
 static rtl8139_device_t *rtl8139_devices;
 static size_t            rtl8139_device_count;
 static rtl8139_device_t *rtl8139_irq_slots[RTL8139_MAX_DEVICES];
@@ -175,43 +99,43 @@ static spinlock_t        rtl8139_irq_lock;
 static int               rtl8139_scheduler_ready;
 
 /* Read an 8-bit I/O register. */
-static inline uint8_t rtl8139_read8(const rtl8139_device_t *device, uint32_t reg)
+static uint8_t rtl8139_read8(const rtl8139_device_t *device, uint32_t reg)
 {
     return inb((uint16_t)(device->ioaddr + reg));
 }
 
 /* Read a 16-bit I/O register. */
-static inline uint16_t rtl8139_read16(const rtl8139_device_t *device, uint32_t reg)
+static uint16_t rtl8139_read16(const rtl8139_device_t *device, uint32_t reg)
 {
     return inw((uint16_t)(device->ioaddr + reg));
 }
 
 /* Read a 32-bit I/O register. */
-static inline uint32_t rtl8139_read32(const rtl8139_device_t *device, uint32_t reg)
+static uint32_t rtl8139_read32(const rtl8139_device_t *device, uint32_t reg)
 {
     return inl((uint16_t)(device->ioaddr + reg));
 }
 
 /* Write an 8-bit I/O register. */
-static inline void rtl8139_write8(rtl8139_device_t *device, uint32_t reg, uint8_t value)
+static void rtl8139_write8(rtl8139_device_t *device, uint32_t reg, uint8_t value)
 {
     outb((uint16_t)(device->ioaddr + reg), value);
 }
 
 /* Write a 16-bit I/O register. */
-static inline void rtl8139_write16(rtl8139_device_t *device, uint32_t reg, uint16_t value)
+static void rtl8139_write16(rtl8139_device_t *device, uint32_t reg, uint16_t value)
 {
     outw((uint16_t)(device->ioaddr + reg), value);
 }
 
 /* Write a 32-bit I/O register. */
-static inline void rtl8139_write32(rtl8139_device_t *device, uint32_t reg, uint32_t value)
+static void rtl8139_write32(rtl8139_device_t *device, uint32_t reg, uint32_t value)
 {
     outl((uint16_t)(device->ioaddr + reg), value);
 }
 
 /* Force a previous I/O write to complete by reading back the command register. */
-static inline void rtl8139_write_flush(rtl8139_device_t *device)
+static void rtl8139_write_flush(rtl8139_device_t *device)
 {
     (void)rtl8139_read8(device, RTL8139_REG_CR);
 }
@@ -241,7 +165,7 @@ static int rtl8139_get_ioaddr(rtl8139_device_t *device)
 {
     uint32_t port = pci_get_port_base(device->pci);
     if (!port || port > 0xffff) {
-        plogk("rtl8139: %04x:%04x: No usable I/O port BAR.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8139: %04x:%04x: No usable I/O port BAR.\n", device->pci->vendor_id, device->pci->device_id);
         return -ENODEV;
     }
     device->ioaddr = (uint16_t)port;
@@ -253,6 +177,7 @@ static int rtl8139_reset(rtl8139_device_t *device)
 {
     rtl8139_write8(device, RTL8139_REG_CR, RTL8139_CR_RESET);
     rtl8139_write_flush(device);
+
     /*
      * The RTL8139 clears the reset bit once the reset completes, but some
      * implementations (e.g. QEMU) keep the bit asserted indefinitely, so
@@ -260,7 +185,7 @@ static int rtl8139_reset(rtl8139_device_t *device)
      */
     for (uint32_t i = 0; i < RTL8139_RESET_POLL; i++)
         if (!(rtl8139_read8(device, RTL8139_REG_CR) & RTL8139_CR_RESET)) return 0;
-    plogk("rtl8139: %04x:%04x: Reset bit did not clear, continuing.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8139: %04x:%04x: Reset bit did not clear, continuing.\n", device->pci->vendor_id, device->pci->device_id);
     return 0;
 }
 
@@ -269,7 +194,7 @@ static void rtl8139_read_mac(rtl8139_device_t *device)
 {
     for (size_t i = 0; i < 6; i++) device->mac[i] = rtl8139_read8(device, RTL8139_REG_IDR0 + (uint32_t)i);
     if (!rtl8139_valid_mac(device->mac)) {
-        plogk("rtl8139: %04x:%04x: Invalid MAC address, using fallback.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8139: %04x:%04x: Invalid MAC address, using fallback.\n", device->pci->vendor_id, device->pci->device_id);
         for (size_t i = 0; i < 6; i++) device->mac[i] = i;
         device->mac[0] &= ~1u; // ensure a unicast, locally administered address
         device->mac[0] |= 2u;
@@ -293,7 +218,7 @@ static int rtl8139_alloc_dma(rtl8139_device_t *device)
 {
     device->rx_ring_phys = alloc_frames(RTL8139_RX_BUF_FRAMES);
     if (!device->rx_ring_phys) {
-        plogk("rtl8139: %04x:%04x: RX ring allocation failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8139: %04x:%04x: RX ring allocation failed.\n", device->pci->vendor_id, device->pci->device_id);
         return -ENOMEM;
     }
     device->rx_ring = (volatile uint8_t *)phys_to_virt(device->rx_ring_phys);
@@ -302,7 +227,7 @@ static int rtl8139_alloc_dma(rtl8139_device_t *device)
     for (size_t i = 0; i < RTL8139_TX_COUNT; i++) {
         device->tx_buffer_phys[i] = alloc_frames(1);
         if (!device->tx_buffer_phys[i]) {
-            plogk("rtl8139: %04x:%04x: TX buffer allocation failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+            plogk("rtl8139: %04x:%04x: TX buffer allocation failed.\n", device->pci->vendor_id, device->pci->device_id);
             return -ENOMEM;
         }
     }
@@ -321,8 +246,8 @@ static void rtl8139_program_hw(rtl8139_device_t *device)
     rtl8139_write8(device, RTL8139_REG_9346CR, RTL8139_9346_UNLOCK);
 
     /* IDR0-5 are written with 4-byte accesses. */
-    rtl8139_write32(device, RTL8139_REG_IDR0, (uint32_t)(device->mac[0] | (device->mac[1] << 8) | (device->mac[2] << 16) | (device->mac[3] << 24)));
-    rtl8139_write32(device, RTL8139_REG_IDR0 + 4, (uint32_t)(device->mac[4] | (device->mac[5] << 8)));
+    rtl8139_write32(device, RTL8139_REG_IDR0, load_le32(device->mac));
+    rtl8139_write32(device, RTL8139_REG_IDR0 + 4, load_le16(&device->mac[4]));
 
     /* Receive ring base address (dword-aligned). */
     rtl8139_write32(device, RTL8139_REG_RBSTART, (uint32_t)device->rx_ring_phys);
@@ -355,10 +280,11 @@ static void rtl8139_update_link(rtl8139_device_t *device)
     device->stats.link_changes++;
     if (device->netdev_registered) {
         spin_lock(&device->netdev.lock);
-        if (up && (device->netdev.flags & NETDEV_F_UP))
+        if (up && (device->netdev.flags & NETDEV_F_UP)) {
             device->netdev.flags |= NETDEV_F_RUNNING;
-        else
+        } else {
             device->netdev.flags &= ~NETDEV_F_RUNNING;
+        }
         spin_unlock(&device->netdev.lock);
     }
 }
@@ -369,13 +295,14 @@ static size_t rtl8139_tx_reclaim_locked(rtl8139_device_t *device, size_t budget)
     size_t reclaimed = 0;
 
     while (device->tx_used && reclaimed < budget) {
-        uint32_t t = rtl8139_read32(device, RTL8139_REG_TSD0 + (uint32_t)device->tx_clean * 4);
+        uint32_t t = rtl8139_read32(device, RTL8139_REG_TSD0 + ((uint32_t)device->tx_clean * 4));
         if (!(t & RTL8139_TX_OWN)) break;
-        if (t & RTL8139_TX_TOK)
+        if (t & RTL8139_TX_TOK) {
             device->stats.tx_packets++;
-        else {
+        } else {
             device->stats.tx_errors++;
-            plogk("rtl8139: %s: TX descriptor error (status=%#x)\n", device->netdev.name, (unsigned)t);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("rtl8139: %s: TX descriptor error (status=%#x)\n", device->netdev.name, t);
         }
         device->tx_clean = (device->tx_clean + 1) % RTL8139_TX_COUNT;
         device->tx_used--;
@@ -402,7 +329,7 @@ static int rtl8139_rx_ready(rtl8139_device_t *device)
 /* True when the oldest used TX descriptor has been completed. */
 static int rtl8139_tx_ready_locked(rtl8139_device_t *device)
 {
-    return device->tx_used && (rtl8139_read32(device, RTL8139_REG_TSD0 + (uint32_t)device->tx_clean * 4) & RTL8139_TX_OWN);
+    return device->tx_used && (rtl8139_read32(device, RTL8139_REG_TSD0 + ((uint32_t)device->tx_clean * 4)) & RTL8139_TX_OWN);
 }
 
 /* Locked wrapper around rtl8139_tx_ready_locked(). */
@@ -450,6 +377,16 @@ static const netdev_ops_t rtl8139_netdev_ops = {
     .set_mtu = rtl8139_net_set_mtu,
 };
 
+/* Generate the IDT interrupt wrapper for one IRQ slot. */
+#    define RTL8139_IRQ_WRAPPERS(n)                                                     \
+        INTERRUPT_BEGIN static void rtl8139_idt_interrupt_##n(interrupt_frame_t *frame) \
+        {                                                                               \
+            irq_enter_gs(frame);                                                        \
+            rtl8139_interrupt_slot(n, frame);                                           \
+            irq_leave_gs(frame);                                                        \
+        }                                                                               \
+        INTERRUPT_END
+
 /* Queue one frame on the TX ring and kick the DMA engine. */
 int rtl8139_transmit(rtl8139_device_t *device, const void *packet, size_t length)
 {
@@ -489,8 +426,8 @@ int rtl8139_transmit(rtl8139_device_t *device, const void *packet, size_t length
     device->stats.tx_bytes += length;
 
     /* Fill the start address, then the status to clear OWN and start the DMA. */
-    rtl8139_write32(device, RTL8139_REG_TSAD0 + (uint32_t)idx * 4, (uint32_t)device->tx_buffer_phys[idx]);
-    rtl8139_write32(device, RTL8139_REG_TSD0 + (uint32_t)idx * 4, ((uint32_t)RTL8139_TX_ERTXTH << 16) | (length & RTL8139_TX_LEN_MASK));
+    rtl8139_write32(device, RTL8139_REG_TSAD0 + ((uint32_t)idx * 4), (uint32_t)device->tx_buffer_phys[idx]);
+    rtl8139_write32(device, RTL8139_REG_TSD0 + ((uint32_t)idx * 4), ((uint32_t)RTL8139_TX_ERTXTH << 16) | (length & RTL8139_TX_LEN_MASK));
 
     device->tx_next = (idx + 1) % RTL8139_TX_COUNT;
     device->tx_used++;
@@ -525,11 +462,8 @@ size_t rtl8139_poll(rtl8139_device_t *device, size_t budget)
 
         if (!good) {
             device->stats.rx_errors++;
-            static uint64_t last_log;
-            if (sched_ticks() - last_log >= 1000) {
-                plogk("rtl8139: %s: RX error (status=%#x, length=%u)\n", device->netdev.name, (unsigned)status, (unsigned)length);
-                last_log = sched_ticks();
-            }
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("rtl8139: %s: RX error (status=%#x, length=%u)\n", device->netdev.name, status, length);
         } else if (offset + length > RTL8139_RX_BUF_SIZE) {
             uint32_t first = RTL8139_RX_BUF_SIZE - (offset + RTL8139_CRC_LEN);
             memcpy(frame, (const void *)(device->rx_ring + offset + RTL8139_CRC_LEN), first);
@@ -546,16 +480,13 @@ size_t rtl8139_poll(rtl8139_device_t *device, size_t budget)
             spin_unlock_irqrestore(&device->rx_lock, rflags);
             net_pbuf_t *packet = net_pbuf_from(frame, frame_length, NET_PBUF_HEADROOM);
             if (!packet) {
-                static uint64_t last_log;
-                if (sched_ticks() - last_log >= 1000) {
-                    plogk("rtl8139: %s: RX frame allocation failed.\n", device->netdev.name);
-                    last_log = sched_ticks();
-                }
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("rtl8139: %s: RX frame allocation failed.\n", device->netdev.name);
                 device->stats.rx_dropped++;
             } else {
-                if (netdev_rx(&device->netdev, packet))
+                if (netdev_rx(&device->netdev, packet)) {
                     device->stats.rx_dropped++;
-                else {
+                } else {
                     device->stats.rx_packets++;
                     device->stats.rx_bytes += frame_length;
                 }
@@ -574,19 +505,23 @@ static void rtl8139_process_work(rtl8139_device_t *device, uint32_t cause)
     if (cause & RTL8139_ISR_PUN) rtl8139_update_link(device);
     if (cause & RTL8139_ISR_RER) {
         device->stats.rx_errors++;
-        plogk("rtl8139: %s: Receive error interrupt.\n", device->netdev.name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("rtl8139: %s: Receive error interrupt.\n", device->netdev.name);
     }
     if (cause & (RTL8139_ISR_RXOVW | RTL8139_ISR_FOVW)) {
         device->stats.rx_errors++;
         device->stats.rx_overruns++;
-        plogk("rtl8139: %s: RX buffer/FIFO overflow.\n", device->netdev.name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("rtl8139: %s: RX buffer/FIFO overflow.\n", device->netdev.name);
+
         /* Re-synchronize the ring with the chip's write pointer. */
         device->cur_rx = rtl8139_read16(device, RTL8139_REG_CBR) % RTL8139_RX_BUF_SIZE;
         rtl8139_write16(device, RTL8139_REG_CAPR, (uint16_t)(device->cur_rx - 16));
     }
     if (cause & RTL8139_ISR_TER) {
         device->stats.tx_errors++;
-        plogk("rtl8139: %s: Transmit error interrupt.\n", device->netdev.name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("rtl8139: %s: Transmit error interrupt.\n", device->netdev.name);
     }
     if ((cause & RTL8139_RX_INT_MASK) || rtl8139_rx_ready(device)) (void)rtl8139_poll(device, RTL8139_WORK_BUDGET);
 
@@ -686,10 +621,11 @@ static void rtl8139_interrupt_slot(size_t slot, void *frame)
     (void)frame;
     uint64_t          rflags = spin_lock_irqsave(&rtl8139_irq_lock);
     rtl8139_device_t *device = rtl8139_irq_slots[slot];
-    if (device && !device->stopping)
+    if (device && !device->stopping) {
         device->irq_active++;
-    else
+    } else {
         device = NULL;
+    }
     spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
 
     if (device) {
@@ -701,20 +637,6 @@ static void rtl8139_interrupt_slot(size_t slot, void *frame)
     send_eoi();
 }
 
-/* Generate the legacy and IDT interrupt wrappers for one IRQ slot. */
-#define RTL8139_IRQ_WRAPPERS(n)                                                     \
-    static void rtl8139_legacy_interrupt_##n(void *frame)                           \
-    {                                                                               \
-        rtl8139_interrupt_slot(n, frame);                                           \
-    }                                                                               \
-    INTERRUPT_BEGIN static void rtl8139_idt_interrupt_##n(interrupt_frame_t *frame) \
-    {                                                                               \
-        irq_enter_gs(frame);                                                        \
-        rtl8139_interrupt_slot(n, frame);                                           \
-        irq_leave_gs(frame);                                                        \
-    }                                                                               \
-    INTERRUPT_END
-
 RTL8139_IRQ_WRAPPERS(0)
 RTL8139_IRQ_WRAPPERS(1)
 RTL8139_IRQ_WRAPPERS(2)
@@ -723,11 +645,6 @@ RTL8139_IRQ_WRAPPERS(4)
 RTL8139_IRQ_WRAPPERS(5)
 RTL8139_IRQ_WRAPPERS(6)
 RTL8139_IRQ_WRAPPERS(7)
-
-static const net_irq_handler_fn rtl8139_legacy_irq_handlers[RTL8139_MAX_DEVICES] = {
-    rtl8139_legacy_interrupt_0, rtl8139_legacy_interrupt_1, rtl8139_legacy_interrupt_2, rtl8139_legacy_interrupt_3,
-    rtl8139_legacy_interrupt_4, rtl8139_legacy_interrupt_5, rtl8139_legacy_interrupt_6, rtl8139_legacy_interrupt_7,
-};
 
 static void *const rtl8139_idt_irq_handlers[RTL8139_MAX_DEVICES] = {
     (void *)rtl8139_idt_interrupt_0, (void *)rtl8139_idt_interrupt_1, (void *)rtl8139_idt_interrupt_2, (void *)rtl8139_idt_interrupt_3,
@@ -743,7 +660,7 @@ static int rtl8139_setup_interrupt(rtl8139_device_t *device)
         if (!rtl8139_irq_slots[slot]) break;
     if (slot == RTL8139_MAX_DEVICES) {
         spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
-        plogk("rtl8139: %04x:%04x: No free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8139: %04x:%04x: No free IRQ slot.\n", device->pci->vendor_id, device->pci->device_id);
         return -ENOSPC;
     }
     device->irq_slot        = (uint8_t)slot;
@@ -754,30 +671,20 @@ static int rtl8139_setup_interrupt(rtl8139_device_t *device)
      * The RTL8139 is a PCI 2.x-era chip whose config space generally lacks an
      * MSI capability, so MSI is not attempted here and legacy INTx is used.
      */
-    device->irq = (uint8_t)pci_get_irq(device->pci);
-    if (device->irq == 0 || device->irq == 0xff) goto fail;
-    if (net_irq_claim_legacy && net_irq_release_legacy) {
-        if (net_irq_claim_legacy(device->irq, rtl8139_legacy_irq_handlers[slot])) goto fail;
-    } else {
-        /*
-         * Some platforms expose only INTx and this kernel may be built
-         * without a shared legacy-IRQ dispatcher. Install an exclusive
-         * fallback route so the device is not rejected before its RX
-         * worker can start.
-         */
-        device->vector = IRQ_0 + device->irq;
-        register_interrupt_handler((uint16_t)device->vector, rtl8139_idt_irq_handlers[slot], 0, 0x8e);
-        ioapic_routing_t routing = {(uint8_t)device->vector, device->irq};
-        ioapic_add(&routing);
-        device->using_direct_legacy = 1;
-    }
+    pci_irq_request_t request = {
+        .modes         = PCI_IRQ_LEGACY,
+        .idt_handler   = rtl8139_idt_irq_handlers[slot],
+        .legacy_base   = IRQ_0,
+        .legacy_ioapic = 1,
+    };
+    if (pci_request_irq(device->pci, &request, &device->irq_state) < 0) goto fail;
     device->using_legacy = 1;
     return 0;
 fail:
     rflags                  = spin_lock_irqsave(&rtl8139_irq_lock);
     rtl8139_irq_slots[slot] = NULL;
     spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
-    plogk("rtl8139: %04x:%04x: Interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8139: %04x:%04x: Interrupt setup failed.\n", device->pci->vendor_id, device->pci->device_id);
     return -ENODEV;
 }
 
@@ -794,22 +701,16 @@ static void rtl8139_release_interrupt(rtl8139_device_t *device)
     rtl8139_irq_slots[device->irq_slot] = NULL;
     spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
 
-    if (device->using_legacy && !device->using_direct_legacy && net_irq_release_legacy) net_irq_release_legacy(device->irq, rtl8139_legacy_irq_handlers[device->irq_slot]);
-    for (;;) {
-        rflags     = spin_lock_irqsave(&rtl8139_irq_lock);
-        int active = device->irq_active != 0;
-        spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
-        if (!active) break;
-        __asm__ volatile("pause" ::: "memory");
-    }
-    device->using_legacy = device->using_direct_legacy = 0;
+    pci_free_irq(device->pci, &device->irq_state);
+    spin_until_zero(&device->irq_active, &rtl8139_irq_lock);
+    device->using_legacy = 0;
 }
 
 /* Pick the first free ethN name not claimed by another device. */
 static int rtl8139_netdev_name(char *name, size_t size)
 {
-    for (unsigned i = 0; i < NETDEV_MAX; i++) {
-        char          candidate[NETDEV_NAME_MAX];
+    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
+        char          candidate[CONFIG_NETDEV_NAME_MAX];
         net_device_t *existing;
         (void)snprintf(candidate, sizeof(candidate), "eth%u", i);
         existing = netdev_get_by_name(candidate);
@@ -853,11 +754,7 @@ static void rtl8139_destroy(rtl8139_device_t *device)
         rtl8139_write_flush(device);
         msleep(10);
     }
-    if (device->pci) {
-        uint16_t command = pci_read_command_status(device->pci) & 0xffff;
-        pci_write_command_status(device->pci, command & ~(1u << 2));
-        (void)pci_read_command_status(device->pci);
-    }
+    if (device->pci) pci_disable_device(device->pci, PCI_CMD_BUSMASTER);
     dma_full_barrier();
     rtl8139_free_dma(device);
     if (device->pci) pci_write_command_status(device->pci, device->saved_command);
@@ -875,22 +772,21 @@ int rtl8139_probe(pci_device_cache_t *pci)
 
     rtl8139_device_t *device = malloc(sizeof(*device));
     if (!device) {
-        plogk("rtl8139: %04x:%04x: Device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
+        plogk("rtl8139: %04x:%04x: Device allocation failed.\n", pci->vendor_id, pci->device_id);
         return -ENOMEM;
     }
     memset(device, 0, sizeof(*device));
     device->pci           = pci;
     device->device_id     = id->device;
-    device->vector        = -1;
     device->saved_command = pci_read_command_status(pci) & 0xffff;
     wait_queue_init(&device->work_wait);
     const char *stage = "I/O port mapping";
 
     /* BAR sizing writes all ones, so memory and I/O decoding must be off. */
-    pci_write_command_status(pci, device->saved_command & ~((1u << 1) | (1u << 2)));
+    pci_write_command_status(pci, device->saved_command & ~(PCI_CMD_MEM | PCI_CMD_BUSMASTER));
     int ret = rtl8139_get_ioaddr(device);
     if (ret) goto fail;
-    pci_write_command_status(pci, device->saved_command | (1u << 1) | (1u << 2));
+    pci_write_command_status(pci, device->saved_command | (PCI_CMD_MEM | PCI_CMD_BUSMASTER));
     stage = "reset";
     ret   = rtl8139_reset(device);
     if (ret) goto fail;
@@ -904,7 +800,7 @@ int rtl8139_probe(pci_device_cache_t *pci)
     ret   = rtl8139_setup_interrupt(device);
     if (ret) goto fail;
 
-    char netdev_name[NETDEV_NAME_MAX];
+    char netdev_name[CONFIG_NETDEV_NAME_MAX];
     stage = "netdev initialization";
     ret   = rtl8139_netdev_name(netdev_name, sizeof(netdev_name));
     if (ret) goto fail;
@@ -951,9 +847,6 @@ fail:
 /* Probe all RTL8139 devices present in the PCI device cache. */
 int rtl8139_init(void)
 {
-#if !CONFIG_RTL8139
-    return 0;
-#endif
     int                  found = 0;
     pci_devices_cache_t *cache = pci_get_devices_cache();
     if (!cache) return -ENODEV;
@@ -967,9 +860,6 @@ int rtl8139_init(void)
 /* Register the worker task of every device for unified creation. */
 int rtl8139_start_workers(void)
 {
-#if !CONFIG_RTL8139
-    return 0;
-#endif
     int started = 0;
     int failed  = 0;
 
@@ -988,7 +878,9 @@ int rtl8139_start_workers(void)
         rtl8139_device_count--;
         rtl8139_destroy(device);
     }
-    return started ? started : (failed ? -ENOMEM : -ENODEV);
+    if (started) return started;
+    if (failed) return -ENOMEM;
+    return -ENODEV;
 }
 
 /* Shut down and destroy every registered device. */
@@ -1031,3 +923,5 @@ rtl8139_device_t *rtl8139_next_device(rtl8139_device_t *device)
 {
     return device ? device->next : NULL;
 }
+
+#endif

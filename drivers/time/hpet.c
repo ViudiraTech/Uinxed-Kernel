@@ -12,7 +12,6 @@
 #include <drivers/firmware/acpi.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stdint.h>
 #include <mem/hhdm.h>
 
 hpet_info_t    *hpet_addr;
@@ -72,7 +71,7 @@ void hpet_init(hpet_t *hpet)
     hpet_addr->main_counter_value = 0;
 
     plogk("hpet: HPET main counter is initialized to 0\n");
-    plogk("hpet: HPET counter period = %lu fs (~%lu ns resolution)\n", hpet_period_fs, hpet_resolution_ns());
+    plogk("hpet: HPET counter period = %llu fs (~%llu ns resolution)\n", hpet_period_fs, hpet_resolution_ns());
 
     hpet_addr->general_configuration |= 1ULL;
     register_interrupt_handler(IRQ_0, (void *)timer_handle, 0, 0x8e);

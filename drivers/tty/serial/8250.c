@@ -14,14 +14,7 @@
 #include <drivers/tty/console.h>
 #include <drivers/tty/serial/8250.h>
 #include <drivers/tty/serial/serial_core.h>
-#include <kernel/debug/ringlog.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
-#include <libs/std/string.h>
-
-log_buffer_t serial_log;
-
-static console_t serial_consoles[UART_MAX_PORTS];
 
 #define UART8250_IER_RX       0x01
 #define UART8250_IER_TX_EMPTY 0x02
@@ -29,6 +22,11 @@ static console_t serial_consoles[UART_MAX_PORTS];
 #define UART8250_LSR_TX_EMPTY 0x20
 #define UART8250_FIFO_SIZE    16
 
+log_buffer_t serial_log;
+
+#if CONFIG_SERIAL
+
+static console_t     serial_consoles[UART_MAX_PORTS];
 static uart_driver_t uart_8250_driver = {
     .name        = "ttyS",
     .major       = 4,
@@ -55,12 +53,23 @@ static void uart8250_shutdown(uart_port_t *port)
     outb(uart8250_base(port) + UART8250_REG_IER, 0x00);
 }
 
+/* Derive the 16550 line-control register value from the kconfig profile. */
+static uint8_t uart8250_lcr(void)
+{
+    uint8_t wl  = (CONFIG_SERIAL_DATA_BITS >= 5 && CONFIG_SERIAL_DATA_BITS <= 8) ? (CONFIG_SERIAL_DATA_BITS - 5) : 3; // word-length bits
+    uint8_t lcr = wl;
+    if (CONFIG_SERIAL_STOP_BITS > 1) lcr |= 0x04; // 2 stop bits
+    if (CONFIG_SERIAL_PARITY != 0) lcr |= 0x08;   // parity enabled
+    if (CONFIG_SERIAL_PARITY == 2) lcr |= 0x10;   // even parity
+    return lcr;
+}
+
 /* Program the baud-rate divisor and line control. */
 static void uart8250_set_termios(uart_port_t *port)
 {
     uint16_t base    = uart8250_base(port);
-    uint16_t divisor = 115200 / SERIAL_BAUD_RATE;
-    uint8_t  lcr     = 0x03; // 8 data bits, no parity, 1 stop bit
+    uint16_t divisor = 115200 / CONFIG_SERIAL_BAUD_RATE;
+    uint8_t  lcr     = uart8250_lcr(); // 8N1 by default
 
     (void)port;
     outb(base + UART8250_REG_LCR, 0x80);
@@ -77,7 +86,7 @@ static void uart8250_tx_chars_locked(uart_port_t *port)
     if (!(inb(base + UART8250_REG_LSR) & UART8250_LSR_TX_EMPTY)) return;
     for (size_t sent = 0; sent < UART8250_FIFO_SIZE && port->tx_count; sent++) {
         outb(base + UART8250_REG_DATA, port->tx_buf[port->tx_tail]);
-        port->tx_tail = (port->tx_tail + 1) % UART_TX_BUF_SIZE;
+        port->tx_tail = (port->tx_tail + 1) % CONFIG_UART_TX_BUF_SIZE;
         port->tx_count--;
     }
 }
@@ -92,18 +101,19 @@ static int uart8250_tx_write(uart_port_t *port, const uint8_t *data, size_t len)
     uint16_t base   = uart8250_base(port);
     size_t   queued = 0;
 
-    while (queued < len && port->tx_count < UART_TX_BUF_SIZE) {
+    while (queued < len && port->tx_count < CONFIG_UART_TX_BUF_SIZE) {
         port->tx_buf[port->tx_head] = data[queued++];
-        port->tx_head               = (port->tx_head + 1) % UART_TX_BUF_SIZE;
+        port->tx_head               = (port->tx_head + 1) % CONFIG_UART_TX_BUF_SIZE;
         port->tx_count++;
     }
     uart8250_tx_chars_locked(port);
 
     uint8_t ier = inb(base + UART8250_REG_IER);
-    if (port->tx_count)
+    if (port->tx_count) {
         ier |= UART8250_IER_TX_EMPTY;
-    else
+    } else {
         ier &= (uint8_t)~UART8250_IER_TX_EMPTY;
+    }
     outb(base + UART8250_REG_IER, ier);
     return (int)queued;
 }
@@ -164,7 +174,7 @@ static tty_core_t *serial_console_get_tty(console_t *c)
 /* Probe a UART base port with a loopback byte test. */
 static int uart8250_detect(uint16_t base)
 {
-    uint16_t divisor = 115200 / SERIAL_BAUD_RATE;
+    uint16_t divisor = 115200 / CONFIG_SERIAL_BAUD_RATE;
 
     outb(base + UART8250_REG_IER, 0x00);
     outb(base + UART8250_REG_LCR, 0x80);
@@ -218,7 +228,7 @@ static void uart8250_service(int line_irq)
                 }
             } else if (reason == 0x04 || reason == 0x0c || reason == 0x06) {
                 /* RX available/timeout/line status: empty the hardware FIFO. */
-                while (received_count < UART8250_FIFO_SIZE && (inb(base + UART8250_REG_LSR) & UART8250_LSR_RX_READY)) received[received_count++] = (uint8_t)inb(base + UART8250_REG_DATA);
+                while (received_count < UART8250_FIFO_SIZE && (inb(base + UART8250_REG_LSR) & UART8250_LSR_RX_READY)) received[received_count++] = inb(base + UART8250_REG_DATA);
             } else {
                 /* Reading MSR acknowledges the otherwise unhandled modem cause. */
                 (void)inb(base + UART8250_REG_MSR);
@@ -256,9 +266,6 @@ INTERRUPT_END
 /* Detect the legacy COM ports and register them with the serial core. */
 void init_serial(void)
 {
-#if !CONFIG_SERIAL
-    return;
-#endif
     static const uint16_t legacy_bases[UART_MAX_PORTS] = {UART8250_BASE1, UART8250_BASE2, UART8250_BASE3, UART8250_BASE4};
     int                   detected                     = 0;
 
@@ -294,18 +301,16 @@ void init_serial(void)
 /* Install IRQ handlers for the legacy COM lines in use. */
 void serial_irq_install(void)
 {
-#if !CONFIG_SERIAL
-    return;
-#endif
     bool need_irq3 = false;
     bool need_irq4 = false;
 
     for (int i = 0; i < UART_MAX_PORTS; i++) {
         if (!uart_8250_driver.ports[i].present) continue;
-        if (uart8250_irq_of(i) == 3)
+        if (uart8250_irq_of(i) == 3) {
             need_irq3 = true;
-        else
+        } else {
             need_irq4 = true;
+        }
     }
     if (need_irq3) register_interrupt_handler(IRQ_3, (void *)uart8250_irq3_handler, 0, 0x8e);
     if (need_irq4) register_interrupt_handler(IRQ_4, (void *)uart8250_irq4_handler, 0, 0x8e);
@@ -317,3 +322,5 @@ int serial_port_present(int index)
     if (index < 0 || index >= UART_MAX_PORTS) return 0;
     return uart_8250_driver.ports[index].present;
 }
+
+#endif

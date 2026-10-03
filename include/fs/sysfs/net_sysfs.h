@@ -12,6 +12,10 @@
 #define INCLUDE_NET_SYSFS_H_
 
 /* Export every registered network device to /sys/class/net/. */
+#if CONFIG_SYSFS && CONFIG_NET
 void net_sysfs_init(void);
+#else
+static inline void net_sysfs_init(void) {}
+#endif
 
 #endif // INCLUDE_NET_SYSFS_H_

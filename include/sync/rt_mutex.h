@@ -11,11 +11,9 @@
 #ifndef INCLUDE_RT_MUTEX_H_
 #define INCLUDE_RT_MUTEX_H_
 
-#include <libs/list/intrusive_list.h>
 #include <libs/std/stdint.h>
 #include <libs/util/rbtree.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
 
 /* Futex word flags for PI mutex */
 #define FUTEX_WAITERS    0x80000000

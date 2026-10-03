@@ -15,7 +15,7 @@
 #include <libs/std/stdint.h>
 #include <process/task.h>
 
-/* Kernel-thread entry function (Linux `threadfn`): returns the exit code. */
+/* Kernel-thread entry function (`threadfn`): returns the exit code. */
 typedef int (*kthread_entry_t)(void *arg);
 
 /* Bootstrap record pushed onto a fresh kernel-thread stack. */
@@ -37,13 +37,18 @@ typedef struct {
         bool            completed;
 } kthread_create_info_t;
 
+/* A kernel worker registered by a subsystem during boot and created later by kernel_workers_start() (called once from init/main.c) once kthreadd is live. */
+typedef struct {
+        const char     *name;
+        kthread_entry_t entry;
+        void           *arg;
+        task_t        **slot; // store the created task here (may be NULL)
+} kernel_worker_t;
+
 /* kthreadd's process bundle (PID 2).  Defined in kernel/process/process.c. */
 extern process_t *kthreadd_process;
 
-/*
- * kthreadd sleeps on this queue while it has no create requests or reaped
- * children to process.  process_exit() wakes it when a kthread child exits.
- */
+/* kthreadd sleeps on this queue while it has no create requests or reaped children to process.  process_exit() wakes it when a kthread child exits. */
 extern wait_queue_t kthreadd_wait;
 
 /* Bootstrap kthreadd (PID 2).  Must be called once, before any kthread_create. */
@@ -75,17 +80,6 @@ __attribute__((noreturn)) void kthread_exit(int exit_code);
 
 /* Return the argument passed to the current kernel thread. */
 void *kthread_data(void);
-
-/*
- * A kernel worker registered by a subsystem during boot and created later by
- * kernel_workers_start() (called once from init/main.c) once kthreadd is live.
- */
-typedef struct {
-        const char     *name;
-        kthread_entry_t entry;
-        void           *arg;
-        task_t        **slot; // store the created task here (may be NULL)
-} kernel_worker_t;
 
 /*
  * Register a kernel worker for creation.  Before kernel_workers_start() this

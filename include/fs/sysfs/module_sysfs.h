@@ -11,13 +11,27 @@
 #ifndef INCLUDE_MODULE_SYSFS_H_
 #define INCLUDE_MODULE_SYSFS_H_
 
-struct module;
-struct kobject;
+#include <libs/kobject/kobject.h>
 
-typedef struct module_sysfs module_sysfs_t;
+struct module;
+struct module_group;
+
+typedef struct module_group module_group_t;
+
+typedef struct module_sysfs {
+        struct kobject  kobj;
+        struct module  *module;
+        module_group_t *sections;
+        module_group_t *parameters;
+        struct kobject *holders;
+} module_sysfs_t;
 
 /* Locate the /sys/module/ kobject. */
+#if CONFIG_MODULES
 void module_sysfs_init(void);
+#else
+static inline void module_sysfs_init(void) {}
+#endif
 
 /* Publish a module under /sys/module/<name>/. */
 int module_sysfs_create(struct module *module, module_sysfs_t **handle);

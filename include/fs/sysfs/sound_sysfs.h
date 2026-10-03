@@ -12,6 +12,10 @@
 #define INCLUDE_SOUND_SYSFS_H_
 
 /* Register the "sound" class and per-card devices (/sys/class/sound/cardN). */
+#if CONFIG_AUDIO
 void sound_sysfs_init(void);
+#else
+static inline void sound_sysfs_init(void) {}
+#endif
 
 #endif // INCLUDE_SOUND_SYSFS_H_

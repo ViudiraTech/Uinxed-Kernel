@@ -12,8 +12,6 @@
 #define INCLUDE_TMPFS_H_
 
 #include <fs/core/vfs.h>
-#include <libs/std/stddef.h>
-#include <sync/spin_lock.h>
 
 /* Forward declaration for callback signatures. */
 typedef struct vfs_node *vfs_node_t;
@@ -38,7 +36,7 @@ typedef vfs_poll_source_t *(*tmpfs_dev_file_poll_source_t)(void *ctx, void *priv
 typedef int (*tmpfs_dev_file_ioctl_t)(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
 typedef void (*tmpfs_dev_destroy_t)(void *ctx);
 
-/* Device operations used to turn a tmpfs node into a device-backed file. */
+/* Device operations that turn a tmpfs node into a device-backed file. */
 typedef struct {
         tmpfs_dev_read_t             read;
         tmpfs_dev_write_t            write;
@@ -138,9 +136,6 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node);
 /* Free resources of a tmpfs file/directory */
 int tmpfs_free(void *handle);
 
-/* No-op stub for legacy VFS callbacks that need no implementation. */
-void tmpfs_dummy(void);
-
 /* Register tmpfs with the VFS layer (initialize tmpfs) */
 void tmpfs_regist(void);
 
@@ -152,6 +147,12 @@ void tmpfs_regist(void);
  * as `file_keyboard | file_stream` for /dev/input/event0.
  */
 int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_ops_t *device);
+
+/*
+ * Detach a callback set bound by tmpfs_bind_device().  The node stops owning
+ * the context, so its teardown leaves the context to the caller.
+ */
+int tmpfs_unbind_device(vfs_node_t node);
 
 /*
  * Change the persistent inode type without replacing tmpfs ownership of its

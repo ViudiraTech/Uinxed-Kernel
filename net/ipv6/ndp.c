@@ -8,9 +8,7 @@
  *
  */
 
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <net/core/endian.h>
 #include <net/core/ethernet.h>
@@ -18,10 +16,9 @@
 #include <net/ipv6/ndp.h>
 #include <process/sched.h>
 
-#define NDP_TICKS_PER_SECOND TIMER_HZ
-#define NDP_REACHABLE_TICKS  ((uint64_t)30U * TIMER_HZ)
-#define NDP_RETRY_TICKS      TIMER_HZ
-#define NDP_MAX_RETRIES      3U
+#if CONFIG_INET && CONFIG_NET
+
+#    define NDP_REACHABLE_TICKS ((uint64_t)30U * CONFIG_TIMER_HZ)
 
 /*
  * NDP (Neighbor Discovery Protocol) resolves IPv6 next-hop addresses to
@@ -29,10 +26,10 @@
  * maintains the neighbor cache with reachability timers and retries.
  */
 
-#define NDP_OPT_SOURCE_LL 1U
-#define NDP_OPT_TARGET_LL 2U
-#define NDP_OPT_PREFIX    3U
-#define NDP_OPT_MTU       5U
+#    define NDP_OPT_SOURCE_LL 1U
+#    define NDP_OPT_TARGET_LL 2U
+#    define NDP_OPT_PREFIX    3U
+#    define NDP_OPT_MTU       5U
 
 typedef enum ndp_state {
     NDP_EMPTY,
@@ -58,8 +55,8 @@ typedef struct ndp_entry {
         ndp_pending_t *tail;
 } ndp_entry_t;
 
-static ndp_entry_t    ndp_cache[NDP_CACHE_CAPACITY];
-static ndp_pending_t  ndp_pending_pool[NDP_PENDING_TOTAL];
+static ndp_entry_t    ndp_cache[CONFIG_NDP_CACHE_CAPACITY];
+static ndp_pending_t  ndp_pending_pool[CONFIG_NDP_PENDING_TOTAL];
 static ndp_pending_t *ndp_pending_free;
 static uint8_t        ndp_pool_initialized;
 static spinlock_t     ndp_lock;
@@ -75,24 +72,26 @@ static int ndp_mac_unicast(const uint8_t mac[6])
 static uint64_t ndp_lifetime(uint64_t now, uint32_t seconds)
 {
     if (seconds == UINT32_MAX) return UINT64_MAX;
-    uint64_t ticks = (uint64_t)seconds * NDP_TICKS_PER_SECOND;
+    uint64_t ticks = (uint64_t)seconds * CONFIG_TIMER_HZ;
     return ticks > UINT64_MAX - now ? UINT64_MAX : now + ticks;
 }
 
+/* NDP (IPv6 Neighbor Discovery) init. */
 void ndp_init(void)
 {
-    for (unsigned i = 0; i < NDP_PENDING_TOTAL; i++) {
+    for (unsigned i = 0; i < CONFIG_NDP_PENDING_TOTAL; i++) {
         ndp_pending_pool[i].next = ndp_pending_free;
         ndp_pending_free         = &ndp_pending_pool[i];
     }
     ndp_pool_initialized = 1;
+    plogk("ndp: NDP cache initialized (pending=%d)\n", CONFIG_NDP_PENDING_TOTAL);
 }
 
 /* Populate the pending-entry free list once (caller holds ndp_lock). */
 static void ndp_pool_init_locked(void)
 {
     if (!ndp_pool_initialized) {
-        for (unsigned i = 0; i < NDP_PENDING_TOTAL; i++) {
+        for (unsigned i = 0; i < CONFIG_NDP_PENDING_TOTAL; i++) {
             ndp_pending_pool[i].next = ndp_pending_free;
             ndp_pending_free         = &ndp_pending_pool[i];
         }
@@ -103,7 +102,7 @@ static void ndp_pool_init_locked(void)
 /* Look up a neighbor cache entry for the device/address pair. */
 static ndp_entry_t *ndp_find_locked(net_device_t *device, const ipv6_address_t *address)
 {
-    for (unsigned i = 0; i < NDP_CACHE_CAPACITY; i++)
+    for (unsigned i = 0; i < CONFIG_NDP_CACHE_CAPACITY; i++)
         if (ndp_cache[i].state != NDP_EMPTY && ndp_cache[i].device == device && ipv6_address_equal(&ndp_cache[i].address, address)) return &ndp_cache[i];
     return NULL;
 }
@@ -127,7 +126,7 @@ static void ndp_drop_pending_locked(ndp_entry_t *entry)
 static ndp_entry_t *ndp_alloc_locked(net_device_t *device, const ipv6_address_t *address, uint64_t now)
 {
     ndp_entry_t *slot = NULL;
-    for (unsigned i = 0; i < NDP_CACHE_CAPACITY; i++) {
+    for (unsigned i = 0; i < CONFIG_NDP_CACHE_CAPACITY; i++) {
         if (ndp_cache[i].state == NDP_EMPTY) {
             slot = &ndp_cache[i];
             break;
@@ -149,13 +148,14 @@ static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ip
     size_t      length = target ? 32U : 16U;
     net_pbuf_t *packet = net_pbuf_alloc(length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("ndp: %s: Message alloc failed (type=%u)\n", device->name, (unsigned)type);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("ndp: %s: Message alloc failed (type=%u)\n", device->name, type);
         return -ENOMEM;
     }
     memset(packet->data, 0, length);
     packet->data[0] = type;
     if (target) {
-        net_write_be32(packet->data + 4, flags);
+        store_be32(packet->data + 4, flags);
         memcpy(packet->data + 8, target->bytes, IPV6_ADDRESS_LEN);
         packet->data[24] = option_type;
         packet->data[25] = 1;
@@ -166,7 +166,7 @@ static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ip
         memcpy(packet->data + 10, device->address, 6);
     }
     uint16_t checksum = net_checksum_ipv6_pseudo(source, destination, IPV6_NEXT_ICMP, packet->data, packet->length);
-    net_write_be16(packet->data + 2, checksum ? checksum : UINT16_MAX);
+    store_be16(packet->data + 2, checksum ? checksum : UINT16_MAX);
     int status = ipv6_output(device, source, destination, IPV6_NEXT_ICMP, 255, packet);
     net_pbuf_free(packet);
     return status;
@@ -228,7 +228,8 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
     if (!entry) entry = ndp_alloc_locked(device, address, now);
     if (entry->pending_count >= NDP_PENDING_PER_ENTRY || !ndp_pending_free) {
         spin_unlock(&ndp_lock);
-        plogk("ndp: %s: Pending pool exhausted for neighbor.\n", device->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("ndp: %s: Pending pool exhausted for neighbor.\n", device->name);
         return -ENOBUFS;
     }
     ndp_pending_t *pending = ndp_pending_free;
@@ -238,20 +239,22 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
         pending->next    = ndp_pending_free;
         ndp_pending_free = pending;
         spin_unlock(&ndp_lock);
-        plogk("ndp: %s: Pending packet clone failed.\n", device->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("ndp: %s: Pending packet clone failed.\n", device->name);
         return -ENOMEM;
     }
     pending->next = NULL;
-    if (entry->tail)
+    if (entry->tail) {
         entry->tail->next = pending;
-    else
+    } else {
         entry->head = pending;
+    }
     entry->tail = pending;
     entry->pending_count++;
     if (entry->state != NDP_INCOMPLETE || !entry->retries) {
         entry->state    = NDP_INCOMPLETE;
         entry->retries  = 1;
-        entry->retry_at = now + NDP_RETRY_TICKS;
+        entry->retry_at = now + CONFIG_TIMER_HZ;
         entry->updated  = now;
         request         = 1;
     }
@@ -336,7 +339,7 @@ static int ndp_neighbor_input(net_device_t *device, const ipv6_info_t *ip, net_p
         if (source_ll) ndp_learn(device, &ip->source, source_ll, sched_ticks());
         return ndp_send(device, &target, &ip->source, ICMPV6_NEIGHBOR_ADVERT, 0x60000000U, &target, NDP_OPT_TARGET_LL);
     }
-    uint32_t flags = net_read_be32(packet->data + 4);
+    uint32_t flags = load_be32(packet->data + 4);
     if (ipv6_address_is_unspecified(&ip->source) || ((flags & 0x40000000U) && ipv6_address_is_multicast(&ip->destination)) || !target_ll || !ndp_mac_unicast(target_ll)) return -EBADMSG;
     ndp_learn(device, &target, target_ll, sched_ticks());
     return 0;
@@ -347,7 +350,7 @@ static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pb
 {
     if (packet->length < 16 || packet->data[1] || !ipv6_address_is_link_local(&ip->source)) return -EBADMSG;
     uint64_t       now             = sched_ticks();
-    uint16_t       router_lifetime = net_read_be16(packet->data + 6);
+    uint16_t       router_lifetime = load_be16(packet->data + 6);
     const uint8_t *options         = packet->data + 16;
     size_t         length          = packet->length - 16;
     const uint8_t *source_ll       = NULL;
@@ -364,8 +367,8 @@ static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pb
             source_ll = options + 2;
         } else if (options[0] == NDP_OPT_PREFIX) {
             if (option_length != 32) return -EBADMSG;
-            uint32_t       valid     = net_read_be32(options + 4);
-            uint32_t       preferred = net_read_be32(options + 8);
+            uint32_t       valid     = load_be32(options + 4);
+            uint32_t       preferred = load_be32(options + 8);
             ipv6_address_t prefix;
             memcpy(prefix.bytes, options + 16, 16);
             if (preferred > valid) return -EBADMSG;
@@ -377,8 +380,8 @@ static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pb
                 have_address    = 1;
             }
         } else if (options[0] == NDP_OPT_MTU) {
-            if (option_length != 8 || net_read_be16(options + 2)) return -EBADMSG;
-            uint32_t mtu = net_read_be32(options + 4);
+            if (option_length != 8 || load_be16(options + 2)) return -EBADMSG;
+            uint32_t mtu = load_be32(options + 4);
             if (mtu >= IPV6_MIN_MTU && mtu <= device->mtu) advertised_mtu = mtu;
         }
         options += option_length;
@@ -409,14 +412,15 @@ int ndp_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || ip->hop_limit != 255 || packet->length < 8) goto bad;
     int status;
-    if (packet->data[0] == ICMPV6_NEIGHBOR_SOLICIT || packet->data[0] == ICMPV6_NEIGHBOR_ADVERT)
+    if (packet->data[0] == ICMPV6_NEIGHBOR_SOLICIT || packet->data[0] == ICMPV6_NEIGHBOR_ADVERT) {
         status = ndp_neighbor_input(device, ip, packet);
-    else if (packet->data[0] == ICMPV6_ROUTER_ADVERT)
+    } else if (packet->data[0] == ICMPV6_ROUTER_ADVERT) {
         status = ndp_router_advert(device, ip, packet);
-    else if (packet->data[0] == ICMPV6_ROUTER_SOLICIT)
+    } else if (packet->data[0] == ICMPV6_ROUTER_SOLICIT) {
         status = packet->length >= 8 && !packet->data[1] ? 0 : -EBADMSG;
-    else
+    } else {
         status = -EBADMSG;
+    }
     net_pbuf_free(packet);
     return status;
 bad:
@@ -428,7 +432,7 @@ bad:
 void ndp_timer(uint64_t now_ticks)
 {
     ipv6_timer(now_ticks);
-    for (unsigned i = 0; i < NDP_CACHE_CAPACITY; i++) {
+    for (unsigned i = 0; i < CONFIG_NDP_CACHE_CAPACITY; i++) {
         net_device_t  *device = NULL;
         ipv6_address_t address;
         spin_lock(&ndp_lock);
@@ -437,13 +441,14 @@ void ndp_timer(uint64_t now_ticks)
         if (entry->state == NDP_REACHABLE && now_ticks - entry->updated >= NDP_REACHABLE_TICKS) {
             memset(entry, 0, sizeof(*entry));
         } else if (entry->state == NDP_INCOMPLETE && now_ticks >= entry->retry_at) {
-            if (entry->retries >= NDP_MAX_RETRIES) {
-                plogk("ndp: %s: Neighbor resolution timed out, dropping pending packets.\n", entry->device ? entry->device->name : "?");
+            if (entry->retries >= CONFIG_NDP_MAX_RETRIES) {
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("ndp: %s: Neighbor resolution timed out, dropping pending packets.\n", entry->device ? entry->device->name : "?");
                 ndp_drop_pending_locked(entry);
                 memset(entry, 0, sizeof(*entry));
             } else {
                 entry->retries++;
-                entry->retry_at = now_ticks + NDP_RETRY_TICKS;
+                entry->retry_at = now_ticks + CONFIG_TIMER_HZ;
                 device          = entry->device;
                 address         = entry->address;
             }
@@ -459,10 +464,12 @@ void ndp_device_removed(net_device_t *device)
     ipv6_device_removed(device);
     spin_lock(&ndp_lock);
     ndp_pool_init_locked();
-    for (unsigned i = 0; i < NDP_CACHE_CAPACITY; i++) {
+    for (unsigned i = 0; i < CONFIG_NDP_CACHE_CAPACITY; i++) {
         if (ndp_cache[i].device != device) continue;
         ndp_drop_pending_locked(&ndp_cache[i]);
         memset(&ndp_cache[i], 0, sizeof(ndp_cache[i]));
     }
     spin_unlock(&ndp_lock);
 }
+
+#endif

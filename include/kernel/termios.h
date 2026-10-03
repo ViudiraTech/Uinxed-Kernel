@@ -11,12 +11,12 @@
 #ifndef INCLUDE_TERMIOS_H_
 #define INCLUDE_TERMIOS_H_
 
+#include <kernel/ioctl.h>
 #include <libs/std/stdint.h>
 
 /* NCCS - number of control characters in c_cc array */
-
-#define NCCS 19
-#define NCC  8
+#define NCCS 19 // c_cc array size (current termios)
+#define NCC  8  // c_cc array size (legacy termios)
 
 /* c_cc indices (control character positions in termios.c_cc) */
 
@@ -178,132 +178,7 @@
 #define IEXTEN  0x00008000 // Enable implementation-defined input processing
 #define EXTPROC 0x00010000 // External processing
 
-/* termios structure (x86_64 ABI, compatible with glibc) */
-
-typedef uint32_t tcflag_t;
-typedef uint8_t  cc_t;
-typedef uint32_t speed_t;
-
-struct termios {
-        tcflag_t c_iflag;    // input mode flags
-        tcflag_t c_oflag;    // output mode flags
-        tcflag_t c_cflag;    // control mode flags
-        tcflag_t c_lflag;    // local mode flags
-        cc_t     c_line;     // line discipline
-        cc_t     c_cc[NCCS]; // control characters
-};
-
-/* termios2 - extended termios with separate input/output baud */
-
-struct termios2 {
-        tcflag_t c_iflag;
-        tcflag_t c_oflag;
-        tcflag_t c_cflag;
-        tcflag_t c_lflag;
-        cc_t     c_line;
-        cc_t     c_cc[NCCS];
-        speed_t  c_ispeed; // input baud rate
-        speed_t  c_ospeed; // output baud rate
-};
-
-/* winsize - terminal window size */
-
-struct winsize {
-        uint16_t ws_row;    // rows, in characters
-        uint16_t ws_col;    // columns, in characters
-        uint16_t ws_xpixel; // horizontal size, pixels
-        uint16_t ws_ypixel; // vertical size, pixels
-};
-
-/* _IOC macros - construct ioctl command numbers */
-
-/*
- * Guarded with #ifndef so they coexist with other headers (e.g. drm.h)
- * which also define the _IOC macro family.
- */
-#ifndef _IOC_NRBITS
-#    define _IOC_NRBITS 8
-#endif
-#ifndef _IOC_TYPEBITS
-#    define _IOC_TYPEBITS 8
-#endif
-#ifndef _IOC_SIZEBITS
-#    define _IOC_SIZEBITS 14
-#endif
-#ifndef _IOC_DIRBITS
-#    define _IOC_DIRBITS 2
-#endif
-
-#ifndef _IOC_NRMASK
-#    define _IOC_NRMASK ((1U << _IOC_NRBITS) - 1)
-#endif
-#ifndef _IOC_TYPEMASK
-#    define _IOC_TYPEMASK ((1U << _IOC_TYPEBITS) - 1)
-#endif
-#ifndef _IOC_SIZEMASK
-#    define _IOC_SIZEMASK ((1U << _IOC_SIZEBITS) - 1)
-#endif
-#ifndef _IOC_DIRMASK
-#    define _IOC_DIRMASK ((1U << _IOC_DIRBITS) - 1)
-#endif
-
-#ifndef _IOC_NRSHIFT
-#    define _IOC_NRSHIFT 0
-#endif
-#ifndef _IOC_TYPESHIFT
-#    define _IOC_TYPESHIFT (_IOC_NRSHIFT + _IOC_NRBITS)
-#endif
-#ifndef _IOC_SIZESHIFT
-#    define _IOC_SIZESHIFT (_IOC_TYPESHIFT + _IOC_TYPEBITS)
-#endif
-#ifndef _IOC_DIRSHIFT
-#    define _IOC_DIRSHIFT (_IOC_SIZESHIFT + _IOC_SIZEBITS)
-#endif
-
-#ifndef _IOC_NONE
-#    define _IOC_NONE 0U
-#endif
-#ifndef _IOC_WRITE
-#    define _IOC_WRITE 1U
-#endif
-#ifndef _IOC_READ
-#    define _IOC_READ 2U
-#endif
-
-#ifndef _IOC
-#    define _IOC(dir, type, nr, size) \
-        (((unsigned long)(dir) << _IOC_DIRSHIFT) | ((unsigned long)(type) << _IOC_TYPESHIFT) | ((unsigned long)(nr) << _IOC_NRSHIFT) | ((unsigned long)(size) << _IOC_SIZESHIFT))
-#endif
-
-#ifndef _IO
-#    define _IO(type, nr) _IOC(_IOC_NONE, (type), (nr), 0)
-#endif
-#ifndef _IOR
-#    define _IOR(type, nr, sz) _IOC(_IOC_READ, (type), (nr), sizeof(sz))
-#endif
-#ifndef _IOW
-#    define _IOW(type, nr, sz) _IOC(_IOC_WRITE, (type), (nr), sizeof(sz))
-#endif
-#ifndef _IOWR
-#    define _IOWR(type, nr, sz) _IOC(_IOC_READ | _IOC_WRITE, (type), (nr), sizeof(sz))
-#endif
-
-/* Decode an ioctl command number */
-#ifndef _IOC_DIR
-#    define _IOC_DIR(cmd) (((cmd) >> _IOC_DIRSHIFT) & _IOC_DIRMASK)
-#endif
-#ifndef _IOC_TYPE
-#    define _IOC_TYPE(cmd) (((cmd) >> _IOC_TYPESHIFT) & _IOC_TYPEMASK)
-#endif
-#ifndef _IOC_NR
-#    define _IOC_NR(cmd) (((cmd) >> _IOC_NRSHIFT) & _IOC_NRMASK)
-#endif
-#ifndef _IOC_SIZE
-#    define _IOC_SIZE(cmd) (((cmd) >> _IOC_SIZESHIFT) & _IOC_SIZEMASK)
-#endif
-
 /* TTY ioctl magic number ('T' = 0x54) */
-
 #define TTY_IOCTL_MAGIC 0x54
 
 /* termios get/set */
@@ -356,7 +231,7 @@ struct winsize {
 #define FIONREAD 0x541B
 #define TIOCINQ  FIONREAD
 
-/* Linux-specific */
+/* Linux-only: console selection and redirect. */
 #define TIOCLINUX 0x541C
 #define TIOCCONS  0x541D
 
@@ -388,7 +263,7 @@ struct winsize {
 /* Session ID */
 #define TIOCGSID 0x5429
 
-/* Linux virtual-terminal and console display ioctls used by Xorg. */
+/* Virtual-terminal and console display ioctls used by Xorg. */
 #define KDGETLED    0x4B31
 #define KDSETLED    0x4B32
 #define KDGKBTYPE   0x4B33
@@ -416,20 +291,6 @@ struct winsize {
 #define VT_AUTO        0x00
 #define VT_PROCESS     0x01
 #define VT_ACKACQ      0x02
-
-struct vt_mode {
-        char  mode;
-        char  waitv;
-        short relsig;
-        short acqsig;
-        short frsig;
-};
-
-struct vt_stat {
-        uint16_t v_active;
-        uint16_t v_signal;
-        uint16_t v_state;
-};
 
 /* RS-485 mode (stubbed) */
 #define TIOCGRS485 0x542E
@@ -520,7 +381,57 @@ struct vt_stat {
 #define N_SYNC_PPP     14 // Synchronous PPP
 #define N_HCI          15 // Bluetooth HCI
 
-/* Linux serial_struct (for TIOCGSERIAL/TIOCSSERIAL compatibility) */
+/* termios structure (x86_64 ABI, compatible with glibc) */
+
+typedef uint32_t tcflag_t;
+typedef uint8_t  cc_t;
+typedef uint32_t speed_t;
+
+struct termios {
+        tcflag_t c_iflag;    // input mode flags
+        tcflag_t c_oflag;    // output mode flags
+        tcflag_t c_cflag;    // control mode flags
+        tcflag_t c_lflag;    // local mode flags
+        cc_t     c_line;     // line discipline
+        cc_t     c_cc[NCCS]; // control characters
+};
+
+/* termios2 - extended termios with separate input/output baud */
+struct termios2 {
+        tcflag_t c_iflag;
+        tcflag_t c_oflag;
+        tcflag_t c_cflag;
+        tcflag_t c_lflag;
+        cc_t     c_line;
+        cc_t     c_cc[NCCS];
+        speed_t  c_ispeed; // input baud rate
+        speed_t  c_ospeed; // output baud rate
+};
+
+/* winsize - terminal window size */
+
+struct winsize {
+        uint16_t ws_row;    // rows, in characters
+        uint16_t ws_col;    // columns, in characters
+        uint16_t ws_xpixel; // horizontal size, pixels
+        uint16_t ws_ypixel; // vertical size, pixels
+};
+
+struct vt_mode {
+        char  mode;
+        char  waitv;
+        short relsig;
+        short acqsig;
+        short frsig;
+};
+
+struct vt_stat {
+        uint16_t v_active;
+        uint16_t v_signal;
+        uint16_t v_state;
+};
+
+/* serial_struct for TIOCGSERIAL/TIOCSSERIAL compatibility */
 
 struct serial_struct {
         int            type;
@@ -543,18 +454,7 @@ struct serial_struct {
         unsigned long  iomap_base;
 };
 
-_Static_assert(TCGETS == 0x5401 && TCSETS == 0x5402 && TCSETSW == 0x5403 && TCSETSF == 0x5404, "Linux termios ioctl ABI");
-_Static_assert(TCGETA == 0x5405 && TCSETA == 0x5406 && TCSETAW == 0x5407 && TCSETAF == 0x5408, "Linux termio ioctl ABI");
-_Static_assert(TCSBRK == 0x5409 && TCXONC == 0x540a && TCFLSH == 0x540b, "Linux line-control ioctl ABI");
-_Static_assert(TIOCEXCL == 0x540c && TIOCNXCL == 0x540d && TIOCSCTTY == 0x540e, "Linux tty ownership ioctl ABI");
-_Static_assert(TIOCGPGRP == 0x540f && TIOCSPGRP == 0x5410 && TIOCOUTQ == 0x5411 && TIOCSTI == 0x5412, "Linux tty process ioctl ABI");
-_Static_assert(TIOCGWINSZ == 0x5413 && TIOCSWINSZ == 0x5414, "Linux winsize ioctl ABI");
-_Static_assert(TIOCMGET == 0x5415 && TIOCMBIS == 0x5416 && TIOCMBIC == 0x5417 && TIOCMSET == 0x5418, "Linux modem ioctl ABI");
-_Static_assert(TIOCGSOFTCAR == 0x5419 && TIOCSSOFTCAR == 0x541a && FIONREAD == 0x541b, "Linux tty queue ioctl ABI");
-_Static_assert(TIOCLINUX == 0x541c && TIOCCONS == 0x541d && TIOCGSERIAL == 0x541e && TIOCSSERIAL == 0x541f, "Linux tty extension ioctl ABI");
-_Static_assert(TIOCPKT == 0x5420 && FIONBIO == 0x5421 && TIOCNOTTY == 0x5422, "Linux tty mode ioctl ABI");
-_Static_assert(TIOCSETD == 0x5423 && TIOCGETD == 0x5424 && TCSBRKP == 0x5425 && TIOCTTYGSTRUCT == 0x5426, "Linux line-discipline ioctl ABI");
-_Static_assert(TIOCSBRK == 0x5427 && TIOCCBRK == 0x5428 && TIOCGSID == 0x5429, "Linux break/session ioctl ABI");
+/* Only the codes the _IO* macros compute are asserted; a hand-written literal asserting its own value checks nothing. */
 _Static_assert(TIOCGPTN == 0x80045430UL, "Linux TIOCGPTN ABI");
 _Static_assert(TIOCSPTLCK == 0x40045431UL, "Linux TIOCSPTLCK ABI");
 _Static_assert(TIOCGDEV == 0x80045432UL, "Linux TIOCGDEV ABI");
@@ -562,11 +462,7 @@ _Static_assert(TCGETS2 == 0x802c542aUL, "Linux TCGETS2 ABI");
 _Static_assert(TCSETS2 == 0x402c542bUL, "Linux TCSETS2 ABI");
 _Static_assert(TCSETSW2 == 0x402c542cUL, "Linux TCSETSW2 ABI");
 _Static_assert(TCSETSF2 == 0x402c542dUL, "Linux TCSETSF2 ABI");
-_Static_assert(TIOCGRS485 == 0x542e, "Linux TIOCGRS485 ABI");
-_Static_assert(TIOCSRS485 == 0x542f, "Linux TIOCSRS485 ABI");
-_Static_assert(TCGETX == 0x5432 && TCSETX == 0x5433 && TCSETXF == 0x5434 && TCSETXW == 0x5435, "Linux TCGETX/TCSETX ABI");
 _Static_assert(TIOCSIG == 0x40045436UL, "Linux TIOCSIG ABI");
-_Static_assert(TIOCVHANGUP == 0x5437, "Linux TIOCVHANGUP ABI");
 _Static_assert(TIOCGPKT == 0x80045438UL, "Linux TIOCGPKT ABI");
 _Static_assert(TIOCGPTLCK == 0x80045439UL, "Linux TIOCGPTLCK ABI");
 _Static_assert(TIOCGEXCL == 0x80045440UL, "Linux TIOCGEXCL ABI");

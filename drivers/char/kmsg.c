@@ -28,8 +28,8 @@ static int64_t kmsg_read(void *ctx, void *private_data, uint64_t flags, void *bu
     (void)size;
 
     /*
-     * The kernel currently exposes printk output through its consoles.  A
-     * nonblocking kmsg reader observes no queued record rather than EOF.
+     * The kernel exposes printk output through its consoles; a nonblocking
+     * kmsg reader observes no queued record rather than EOF.
      */
     return -EAGAIN;
 }
@@ -41,6 +41,7 @@ static int64_t kmsg_write(void *ctx, void *private_data, uint64_t flags, const v
     (void)private_data;
     (void)flags;
     (void)offset;
+
     if (!buffer && size) return -EINVAL;
     if (!size) return 0;
     if (size > 8192) return -EINVAL;
@@ -74,5 +75,5 @@ void kmsgdev_init(void)
         .file_read  = kmsg_read,
         .file_write = kmsg_write,
     };
-    (void)cdev_add("", "kmsg", KMSG_MAJOR, KMSG_MINOR, 1, file_stream, 0600, &ops);
+    if (cdev_add("", "kmsg", KMSG_MAJOR, KMSG_MINOR, 1, file_stream, 0600, &ops) != EOK) plogk("chrdev: Cannot register /dev/kmsg\n");
 }

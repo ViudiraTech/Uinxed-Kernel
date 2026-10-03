@@ -11,12 +11,12 @@
 #ifndef INCLUDE_ARP_H_
 #define INCLUDE_ARP_H_
 
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>
 
-#define ARP_CACHE_CAPACITY    64U
+/* Pending neighbours queued per cache entry. */
 #define ARP_PENDING_PER_ENTRY 64U
-#define ARP_PENDING_TOTAL     256U
 
 typedef struct net_arp_packet {
         uint16_t hardware_type;
@@ -27,6 +27,7 @@ typedef struct net_arp_packet {
 } net_arp_packet_t;
 
 /* ARP packet processing and cache maintenance. */
+#if CONFIG_INET && CONFIG_NET
 void arp_init(void);
 int  net_arp_parse(const void *data, size_t length, net_arp_packet_t *arp);
 int  arp_input(net_device_t *device, net_pbuf_t *packet);
@@ -35,5 +36,14 @@ int  arp_request(net_device_t *device, uint32_t ipv4);
 void arp_learn(net_device_t *device, uint32_t ipv4, const uint8_t address[6], uint64_t now_ticks);
 void arp_timer(uint64_t now_ticks);
 void arp_device_removed(net_device_t *device);
+#else
+static inline void arp_init(void) {}
+static inline int  arp_input(net_device_t *, net_pbuf_t *)
+{
+    return -EPROTONOSUPPORT;
+}
+static inline void arp_timer(uint64_t) {}
+static inline void arp_device_removed(net_device_t *) {}
+#endif
 
 #endif // INCLUDE_ARP_H_

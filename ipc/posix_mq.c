@@ -9,30 +9,21 @@
  */
 
 #include <fs/core/vfs.h>
+#include <fs/core/vfs_stub.h>
 #include <ipc/posix_mq.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
+#include <syscall/fcntl.h>
+#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
-/* Local constants (O_EXCL / O_CLOEXEC not defined in syscall.h) */
-
-#define O_EXCL    0x0080
-#define O_CLOEXEC 0x80000
+#if CONFIG_POSIX_MQ
 
 /* Internal structures */
-
-#define MQ_MAX_QUEUES 64
 
 typedef struct mq_message {
         struct mq_message *next;
@@ -51,7 +42,7 @@ typedef struct mq_des {
 } mq_des_t;
 
 typedef struct mq_queue {
-        char          name[MQ_NAME_MAX];
+        char          name[CONFIG_MQ_NAME_MAX];
         mq_attr_t     attr;
         mq_message_t *head;
         mq_message_t *tail;
@@ -61,6 +52,7 @@ typedef struct mq_queue {
         wait_queue_t  send_wq;
         wait_queue_t  recv_wq;
         spinlock_t    lock;
+
         /* mq_notify */
         sigevent_t notify;
         task_t    *notify_task;
@@ -69,7 +61,7 @@ typedef struct mq_queue {
 
 /* Global queue registry */
 
-static mq_queue_t *mq_registry[MQ_MAX_QUEUES];
+static mq_queue_t *mq_registry[CONFIG_MQ_MAX_QUEUES];
 static spinlock_t  mq_registry_lock;
 static int         mq_fsid = -1;
 
@@ -83,7 +75,7 @@ static void        mq_notify_signal(mq_queue_t *queue);
 /* Find a queue by name in the global registry. */
 static mq_queue_t *mq_queue_lookup(const char *name)
 {
-    for (int i = 0; i < MQ_MAX_QUEUES; i++) {
+    for (int i = 0; i < CONFIG_MQ_MAX_QUEUES; i++) {
         if (mq_registry[i] && strcmp(mq_registry[i]->name, name) == 0) return mq_registry[i];
     }
     return NULL;
@@ -96,26 +88,28 @@ static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr)
     int         slot = -1;
 
     /* Find a free slot */
-    for (int i = 0; i < MQ_MAX_QUEUES; i++) {
+    for (int i = 0; i < CONFIG_MQ_MAX_QUEUES; i++) {
         if (!mq_registry[i]) {
             slot = i;
             break;
         }
     }
     if (slot < 0) {
-        plogk("posix_mq: Queue registry full (max %d)\n", MQ_MAX_QUEUES);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("posix_mq: Queue registry full (max %d)\n", CONFIG_MQ_MAX_QUEUES);
         return NULL;
     }
 
     queue = malloc(sizeof(mq_queue_t));
     if (!queue) {
-        plogk("posix_mq: Queue allocation failed (%s)\n", name ? name : "?");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("posix_mq: Queue allocation failed (%s)\n", name ? name : "?");
         return NULL;
     }
     memset(queue, 0, sizeof(mq_queue_t));
 
-    strncpy(queue->name, name, MQ_NAME_MAX - 1);
-    queue->name[MQ_NAME_MAX - 1] = '\0';
+    strncpy(queue->name, name, CONFIG_MQ_NAME_MAX - 1);
+    queue->name[CONFIG_MQ_NAME_MAX - 1] = '\0';
 
     /* Set default or user-provided attributes */
     if (attr) {
@@ -123,14 +117,14 @@ static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr)
         queue->attr.mq_msgsize = attr->mq_msgsize;
         queue->attr.mq_flags   = 0;
     } else {
-        queue->attr.mq_maxmsg  = MQ_MAXMSG_DEFAULT;
-        queue->attr.mq_msgsize = MQ_MSGSIZE_DEFAULT;
+        queue->attr.mq_maxmsg  = CONFIG_MQ_MAXMSG_DEFAULT;
+        queue->attr.mq_msgsize = CONFIG_MQ_MSGSIZE_DEFAULT;
         queue->attr.mq_flags   = 0;
     }
 
     /* Clamp to valid ranges */
-    if (queue->attr.mq_maxmsg <= 0 || queue->attr.mq_maxmsg > MQ_MAXMSG_MAX) queue->attr.mq_maxmsg = MQ_MAXMSG_DEFAULT;
-    if (queue->attr.mq_msgsize <= 0 || queue->attr.mq_msgsize > MQ_MSGSIZE_MAX) queue->attr.mq_msgsize = MQ_MSGSIZE_DEFAULT;
+    if (queue->attr.mq_maxmsg <= 0 || queue->attr.mq_maxmsg > CONFIG_MQ_MAXMSG_MAX) queue->attr.mq_maxmsg = CONFIG_MQ_MAXMSG_DEFAULT;
+    if (queue->attr.mq_msgsize <= 0 || queue->attr.mq_msgsize > CONFIG_MQ_MSGSIZE_MAX) queue->attr.mq_msgsize = CONFIG_MQ_MSGSIZE_DEFAULT;
 
     queue->attr.mq_curmsgs = 0;
     queue->msg_count       = 0;
@@ -170,7 +164,7 @@ static void mq_queue_destroy(mq_queue_t *queue)
     wait_queue_wake_all(&queue->recv_wq);
 
     /* Remove from registry */
-    for (int i = 0; i < MQ_MAX_QUEUES; i++) {
+    for (int i = 0; i < CONFIG_MQ_MAX_QUEUES; i++) {
         if (mq_registry[i] == queue) {
             mq_registry[i] = NULL;
             break;
@@ -179,8 +173,6 @@ static void mq_queue_destroy(mq_queue_t *queue)
 
     free(queue);
 }
-
-/* Message priority insertion (highest priority first) */
 
 /* Insert a message into the priority-ordered queue (highest first). */
 static void mq_enqueue(mq_queue_t *queue, mq_message_t *msg)
@@ -254,7 +246,7 @@ static void mq_notify_signal(mq_queue_t *queue)
             memset(&info, 0, sizeof(info));
             info.si_signo = queue->notify.sigev_signo;
             info.si_value = queue->notify.sigev_value;
-            signal_send(task->process, queue->notify.sigev_signo, &info);
+            (void)signal_send(task->process, queue->notify.sigev_signo, &info);
         }
     } else {
         /* SIGEV_NONE or unsupported: just mark pending */
@@ -327,9 +319,7 @@ static size_t mq_vfs_read(void *file, void *addr, size_t offset, size_t size)
 
     size_t copy_size = (size < msg->size) ? size : msg->size;
     memcpy(addr, msg->data, copy_size);
-
     free(msg);
-
     wait_queue_wake_all(&queue->send_wq);
 
     return copy_size;
@@ -362,19 +352,18 @@ static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t s
 
     mq_message_t *msg = malloc(sizeof(mq_message_t) + size);
     if (!msg) {
-        plogk("posix_mq: Message allocation failed (queue %s, size %lu)\n", queue->name, (unsigned long)size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("posix_mq: Message allocation failed (queue %s, size %zu)\n", queue->name, size);
         spin_unlock(&queue->lock);
         return (size_t)-1;
     }
 
     msg->prio = 0;
     msg->size = size;
+
     memcpy(msg->data, addr, size);
-
     mq_enqueue(queue, msg);
-
     spin_unlock(&queue->lock);
-
     wait_queue_wake_all(&queue->recv_wq);
 
     /* Notify if registered */
@@ -383,101 +372,30 @@ static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t s
     return size;
 }
 
-/* VFS callback: free (release handle) */
-
-/* Free is handled by mq_vfs_close; nothing to do here. */
-static int mq_vfs_free(void *handle)
+/* Report queue readiness: readable with a message queued, writable with room to spare. */
+static int mq_vfs_poll(void *file, size_t events)
 {
-    (void)handle;
-    return EOK;
-}
+    mq_des_t *des = (mq_des_t *)file;
+    if (!des || !des->queue) return 0;
 
-/* VFS callback stubs */
-static int mq_stub_mount(const char *s, vfs_node_t n)
-{
-    (void)s;
-    (void)n;
-    return -ENOSYS;
-}
+    mq_queue_t *queue = des->queue;
+    spin_lock(&queue->lock);
+    uint32_t queued   = queue->msg_count;
+    uint32_t maximum  = (uint32_t)queue->attr.mq_maxmsg;
+    int      unlinked = queue->unlinked;
+    spin_unlock(&queue->lock);
 
-static void mq_stub_unmount(void *root)
-{
-    (void)root;
+    int revents = 0;
+    if (queued) revents |= POLLIN;
+    if (queued < maximum && !unlinked) revents |= POLLOUT;
+    return revents & (int)events;
 }
-
-static void mq_stub_open(void *parent, const char *name, vfs_node_t node)
-{
-    (void)parent;
-    (void)name;
-    (void)node;
-}
-
-static size_t mq_stub_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
-{
-    (void)node;
-    (void)addr;
-    (void)offset;
-    (void)size;
-    return (size_t)-1;
-}
-
-static int mq_stub_mk(void *parent, const char *name, vfs_node_t node)
-{
-    (void)parent;
-    (void)name;
-    (void)node;
-    return -ENOSYS;
-}
-
-static int mq_stub_stat(void *file, vfs_node_t node)
-{
-    (void)file;
-    (void)node;
-    return -ENOSYS;
-}
-
-static int mq_stub_ioctl(void *file, size_t req, void *arg)
-{
-    (void)file;
-    (void)req;
-    (void)arg;
-    return -ENOSYS;
-}
-
-static vfs_node_t mq_stub_dup(vfs_node_t node)
-{
-    (void)node;
-    return NULL;
-}
-
-static int mq_stub_poll(void *file, size_t events)
-{
-    (void)file;
-    (void)events;
-    return 0;
-}
-
-static int mq_stub_del(void *parent, vfs_node_t node)
-{
-    (void)parent;
-    (void)node;
-    return -ENOSYS;
-}
-
-static int mq_stub_rename(const vfs_rename_context_t *context)
-{
-    (void)context;
-    return -ENOSYS;
-}
-
-/* VFS node creation for mq descriptor */
 
 /* Install a message-queue descriptor as a VFS file in the current process. */
 static int mq_des_install(mq_des_t *des)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-
     if (mq_fsid < 0) return -ENOSYS;
 
     vfs_node_t node = vfs_node_alloc(NULL, "[posix_mq]");
@@ -502,9 +420,8 @@ static int mq_des_install(mq_des_t *des)
 /* Syscall: mq_open */
 int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
 {
-    char name_buf[MQ_NAME_MAX];
+    char name_buf[CONFIG_MQ_NAME_MAX];
     int  ret;
-
     (void)mode;
 
     if (!name) return -EFAULT;
@@ -514,7 +431,7 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
 
     /* Validate name: must start with '/' */
     if (name_buf[0] != '/') return -EINVAL;
-    if (strlen(name_buf) >= MQ_NAME_MAX) return -ENAMETOOLONG;
+    if (strlen(name_buf) >= CONFIG_MQ_NAME_MAX) return -ENAMETOOLONG;
 
     mq_attr_t kernel_attr;
     int       creating = (oflag & O_CREAT);
@@ -522,9 +439,7 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
     if (creating && attr) {
         if (copy_from_user(&kernel_attr, attr, sizeof(mq_attr_t))) return -EFAULT;
     }
-
     spin_lock(&mq_registry_lock);
-
     mq_queue_t *queue = mq_queue_lookup(name_buf);
 
     if (queue) {
@@ -556,7 +471,8 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
     /* Allocate descriptor */
     mq_des_t *des = malloc(sizeof(mq_des_t));
     if (!des) {
-        plogk("posix_mq: Descriptor allocation failed (%s)\n", queue->name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("posix_mq: Descriptor allocation failed (%s)\n", queue->name);
         spin_lock(&mq_registry_lock);
         spin_lock(&queue->lock);
         queue->refcount--;
@@ -599,12 +515,10 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
 /* Syscall: mq_unlink */
 int64_t sys_mq_unlink(const char *name)
 {
-    char name_buf[MQ_NAME_MAX];
+    char name_buf[CONFIG_MQ_NAME_MAX];
 
     if (!name) return -EFAULT;
-
     if (strncpy_from_user(name_buf, name, sizeof(name_buf)) < 0) return -EFAULT;
-
     if (name_buf[0] != '/') return -EINVAL;
 
     spin_lock(&mq_registry_lock);
@@ -630,8 +544,6 @@ int64_t sys_mq_unlink(const char *name)
     return EOK;
 }
 
-/* Look up mq_des from fd */
-
 /* Resolve a message-queue descriptor from an fd in the current process. */
 static mq_des_t *mq_fd_lookup(int mqdes, int *err)
 {
@@ -641,7 +553,7 @@ static mq_des_t *mq_fd_lookup(int mqdes, int *err)
         return NULL;
     }
 
-    if (mqdes < 0 || mqdes >= PROCESS_MAX_FD) {
+    if (mqdes < 0 || mqdes >= CONFIG_PROCESS_MAX_FD) {
         *err = -EBADF;
         return NULL;
     }
@@ -681,7 +593,7 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
     if (!des) return err;
 
     /* Validate priority */
-    if (msg_prio > (uint32_t)MQ_PRIO_MAX) return -EINVAL;
+    if (msg_prio > (uint32_t)CONFIG_MQ_PRIO_MAX) return -EINVAL;
 
     mq_queue_t *queue = des->queue;
     if (!queue) return -EBADF;
@@ -733,7 +645,8 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
     /* Allocate and populate message */
     mq_message_t *msg = malloc(sizeof(mq_message_t) + msg_len);
     if (!msg) {
-        plogk("posix_mq: Timedsend message allocation failed (queue %s, size %lu)\n", queue->name, (unsigned long)msg_len);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("posix_mq: Timedsend message allocation failed (queue %s, size %zu)\n", queue->name, msg_len);
         spin_unlock(&queue->lock);
         return -ENOMEM;
     }
@@ -745,9 +658,7 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
         free(msg);
         return -EFAULT;
     }
-
     mq_enqueue(queue, msg);
-
     spin_unlock(&queue->lock);
 
     /* Wake up a blocked receiver */
@@ -821,9 +732,7 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
      * condition is cleared.
      */
     queue->notify_pending = 0;
-
     spin_unlock(&queue->lock);
-
     if (!msg) return -EAGAIN;
 
     /* Copy message data to user */
@@ -945,10 +854,9 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
     if (newattr) {
         mq_attr_t nattr;
         spin_unlock(&queue->lock);
-
         if (copy_from_user(&nattr, newattr, sizeof(mq_attr_t))) return -EFAULT;
-
         spin_lock(&des->lock);
+
         /* Only mq_flags (O_NONBLOCK) can be changed */
         if (nattr.mq_flags & O_NONBLOCK) {
             des->flags |= O_NONBLOCK;
@@ -964,7 +872,6 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
 /* Initialization */
 void posix_mq_init(void)
 {
-#if CONFIG_POSIX_MQ
     /* Initialize registry */
     memset(mq_registry, 0, sizeof(mq_registry));
 
@@ -976,32 +883,32 @@ void posix_mq_init(void)
     }
     memset(cb, 0, sizeof(struct vfs_callback));
 
-    cb->mount    = mq_stub_mount;
-    cb->unmount  = mq_stub_unmount;
-    cb->open     = mq_stub_open;
+    /* Message-queue descriptors free in mq_vfs_close and implement no namespace operation. */
+    cb->unmount  = vfs_stub_unmount;
+    cb->open     = vfs_stub_open;
     cb->close    = mq_vfs_close;
     cb->read     = mq_vfs_read;
     cb->write    = mq_vfs_write;
-    cb->readlink = mq_stub_readlink;
-    cb->mkdir    = mq_stub_mk;
-    cb->mkfile   = mq_stub_mk;
-    cb->link     = mq_stub_mk;
-    cb->symlink  = mq_stub_mk;
-    cb->stat     = mq_stub_stat;
-    cb->ioctl    = mq_stub_ioctl;
-    cb->dup      = mq_stub_dup;
-    cb->poll     = mq_stub_poll;
-    cb->free     = mq_vfs_free;
-    cb->delete   = mq_stub_del;
-    cb->rename   = mq_stub_rename;
+    cb->readlink = vfs_stub_readlink;
+    cb->mkdir    = vfs_stub_mk;
+    cb->mkfile   = vfs_stub_mk;
+    cb->link     = vfs_stub_mk;
+    cb->symlink  = vfs_stub_mk;
+    cb->ioctl    = vfs_stub_ioctl;
+    cb->dup      = vfs_stub_dup;
+    cb->poll     = mq_vfs_poll;
+    cb->free     = vfs_stub_free;
+    cb->delete   = vfs_stub_del;
+    cb->rename   = vfs_stub_rename;
 
-    mq_fsid = vfs_regist(cb);
+    mq_fsid = vfs_regist_fs("posix_mq", cb);
     if (mq_fsid < 0) {
         plogk("posix_mq: Failed to register VFS callback (err=%d)\n", mq_fsid);
         free(cb);
         return;
     }
 
-    plogk("posix_mq: POSIX message queues registered (fsid=%d, max_queues=%d)\n", mq_fsid, MQ_MAX_QUEUES);
-#endif
+    plogk("posix_mq: POSIX message queues registered (fsid=%d, max_queues=%d)\n", mq_fsid, CONFIG_MQ_MAX_QUEUES);
 }
+
+#endif

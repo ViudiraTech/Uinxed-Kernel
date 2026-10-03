@@ -12,8 +12,6 @@
 #define INCLUDE_MEMFD_H_
 
 #include <fs/core/vfs.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <process/process.h>
 
 #define MFD_CLOEXEC       0x0001U
@@ -29,7 +27,9 @@
 #define FALLOC_FL_ZERO_RANGE 0x10U
 
 /* Subsystem lifecycle and the memfd_create syscall. */
-void    memfd_init(void);
+void memfd_init(void);
+
+/* System call handler for `memfd_create`. */
 int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
 
 /* Sealing, resize, and fallocate on memfd-backed nodes. */

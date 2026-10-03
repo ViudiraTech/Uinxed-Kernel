@@ -1,7 +1,7 @@
 /*
  *
  *      vt.c
- *      Virtual console driver (Linux drivers/tty/vt/vt.c analog)
+ *      Virtual console driver
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -9,71 +9,53 @@
  */
 
 #include <drivers/gpu/fbdev/fbcon.h>
-#include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/console.h>
-#include <drivers/tty/serial/serial_core.h>
-#include <drivers/tty/tty.h>
-#include <drivers/tty/tty_core.h>
 #include <drivers/tty/tty_driver.h>
-#include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
-#include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
-#include <process/sched.h>
-#include <process/task.h>
-#include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 
 tty_device_t  boot_tty     = {0, 0};
 tty_device_t *boot_tty_ptr = 0;
 
-#define TTY_VGA_QUEUE_SIZE ((size_t)TTY_BUF_SIZE * 8)
-
-#ifndef CONFIG_VT
-#    define CONFIG_VT 1
-#endif
-#ifndef CONFIG_VT_COUNT
-#    define CONFIG_VT_COUNT 8
-#endif
-#define VT_TTY_COUNT CONFIG_VT_COUNT
-
-static char           tty_buff[TTY_BUF_SIZE]            = {0};
-static volatile char *tty_buff_ptr                      = tty_buff;
-static char           tty_vga_queue[TTY_VGA_QUEUE_SIZE] = {0};
-static char           tty_vga_flush_buf[TTY_BUF_SIZE]   = {0};
-static size_t         tty_vga_head                      = 0;
-static size_t         tty_vga_tail                      = 0;
-static uint64_t       tty_vga_dropped                   = 0;
+static char           tty_buff[CONFIG_TTY_BUF_SIZE]          = {0};
+static volatile char *tty_buff_ptr                           = tty_buff;
+static char           tty_vga_queue[CONFIG_TTY_BUF_SIZE * 8] = {0};
+static char           tty_vga_flush_buf[CONFIG_TTY_BUF_SIZE] = {0};
+static size_t         tty_vga_head                           = 0;
+static size_t         tty_vga_tail                           = 0;
+static uint64_t       tty_vga_dropped                        = 0;
 static tty_core_t     console_tty;
+
 #if CONFIG_VT
-static tty_core_t virtual_ttys[VT_TTY_COUNT - 2];
+static tty_core_t virtual_ttys[CONFIG_VT_COUNT - 2];
 #endif
+
 static bool       console_tty_ready;
 static spinlock_t console_tty_init_lock;
 static spinlock_t console_emit_lock;
 
+/* tty0 and tty1 alias VT 1.  The remaining advertised terminals must nevertheless keep independent line-discipline and job-control state. */
 #if CONFIG_VT
-/*
- * tty0 and tty1 alias VT 1.  The remaining advertised terminals must
- * nevertheless keep independent line-discipline and job-control state.
- */
-static tty_file_endpoint_t vt_endpoints[VT_TTY_COUNT - 1];
+static tty_file_endpoint_t vt_endpoints[CONFIG_VT_COUNT - 1];
 #endif
+
+static spinlock_t tty_flush_spinlock = {
+    .lock   = 0,
+    .rflags = 0,
+};
 
 /* Queue one output byte, dropping the oldest byte on overflow. */
 static void tty_vga_queue_push(char ch)
 {
-    size_t next = (tty_vga_head + 1) % TTY_VGA_QUEUE_SIZE;
+    size_t next = (tty_vga_head + 1) % ((size_t)CONFIG_TTY_BUF_SIZE * 8);
 
     if (next == tty_vga_tail) {
         /* Never recurse into printk while tty_flush_spinlock is held. */
         __atomic_add_fetch(&tty_vga_dropped, 1, __ATOMIC_RELAXED);
-        tty_vga_tail = (tty_vga_tail + 1) % TTY_VGA_QUEUE_SIZE;
+        tty_vga_tail = (tty_vga_tail + 1) % ((size_t)CONFIG_TTY_BUF_SIZE * 8);
     }
     tty_vga_queue[tty_vga_head] = ch;
     tty_vga_head                = next;
@@ -82,7 +64,7 @@ static void tty_vga_queue_push(char ch)
 /* Number of queued VGA output bytes. */
 static size_t tty_vga_queue_used(void)
 {
-    return (tty_vga_head + TTY_VGA_QUEUE_SIZE - tty_vga_tail) % TTY_VGA_QUEUE_SIZE;
+    return (tty_vga_head + ((size_t)CONFIG_TTY_BUF_SIZE * 8) - tty_vga_tail) % ((size_t)CONFIG_TTY_BUF_SIZE * 8);
 }
 
 /* Drain the queued output through fbcon; caller holds the flush lock. */
@@ -92,19 +74,14 @@ static void tty_vga_flush_locked(void)
 
     if (tty_vga_tail == tty_vga_head) return;
     if (!fbcon_is_ready()) return;
-    while (tty_vga_tail != tty_vga_head && out < TTY_BUF_SIZE - 1) {
+    while (tty_vga_tail != tty_vga_head && out < CONFIG_TTY_BUF_SIZE - 1) {
         tty_vga_flush_buf[out++] = tty_vga_queue[tty_vga_tail];
-        tty_vga_tail             = (tty_vga_tail + 1) % TTY_VGA_QUEUE_SIZE;
+        tty_vga_tail             = (tty_vga_tail + 1) % ((size_t)CONFIG_TTY_BUF_SIZE * 8);
     }
 
     tty_vga_flush_buf[out] = '\0';
     fbcon_ansi_write((const uint8_t *)tty_vga_flush_buf, out);
 }
-
-spinlock_t tty_flush_spinlock = {
-    .lock   = 0,
-    .rflags = 0,
-};
 
 writer tty_writer = {
     .data    = 0,
@@ -163,7 +140,7 @@ void tty_deferred_flush(void)
     /* Reporting outside the console lock avoids the overflow self-deadlock. */
     if (fbcon_is_ready()) {
         uint64_t dropped = __atomic_exchange_n(&tty_vga_dropped, 0, __ATOMIC_RELAXED);
-        if (dropped) plogk("tty: VGA output queue dropped %llu byte%s.\n", (unsigned long long)dropped, dropped == 1 ? "" : "s");
+        if (dropped) plogk("tty: VGA output queue dropped %llu bytes.\n", dropped);
     }
 }
 
@@ -183,7 +160,7 @@ static void tty_buff_add(const char ch)
     spin_lock(&tty_flush_spinlock);
     *tty_buff_ptr++ = ch;
 
-    if (ch == '\n' || (size_t)(tty_buff_ptr - tty_buff) >= TTY_BUF_SIZE - 1) {
+    if (ch == '\n' || (size_t)(tty_buff_ptr - tty_buff) >= CONFIG_TTY_BUF_SIZE - 1) {
         *tty_buff_ptr = '\0';
         console_write_all((const uint8_t *)tty_buff, (size_t)((const char *)tty_buff_ptr - tty_buff));
         tty_buff_ptr = tty_buff;
@@ -228,7 +205,7 @@ static int console_emit(void *context, const uint8_t *data, size_t size, uint64_
     }
     for (size_t i = 0; i < size; i++) {
         tty_vga_queue_push((char)data[i]);
-        if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_vga_flush_locked();
+        if (tty_vga_queue_used() >= CONFIG_TTY_BUF_SIZE) tty_vga_flush_locked();
     }
 
     /*
@@ -259,8 +236,10 @@ static void vt_input_init(void)
         spin_unlock(&console_tty_init_lock);
         return;
     }
-    static const tty_core_ops_t console_operations  = {.emit = console_emit, .event = NULL};
+    static const tty_core_ops_t console_operations = {.emit = console_emit, .event = NULL};
+#if CONFIG_VT
     static const tty_core_ops_t inactive_operations = {.emit = inactive_vt_emit, .event = NULL};
+#endif
     tty_core_init(&console_tty, &console_operations, NULL);
     tty_core_mark_virtual_console(&console_tty);
 #if CONFIG_VT
@@ -386,7 +365,7 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
     (void)pressed;
 }
 
-#endif // CONFIG_VT
+#endif
 
 /* Legacy device read: read from the console tty core. */
 size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size)
@@ -422,8 +401,6 @@ int tty_console_acquire(struct process *proc, uint64_t flags)
 
 #if CONFIG_VT
 
-/* Virtual console tty driver (major 4, tty0-ttyN) */
-
 /* Map a ttyN index to a virtual-console slot (tty0/tty1 share VT 1). */
 static int vt_slot_for_index(int index)
 {
@@ -436,7 +413,7 @@ static int vt_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **p
     int slot;
     (void)drv;
     vt_input_init();
-    if (index < 0 || index >= VT_TTY_COUNT) return -ENXIO;
+    if (index < 0 || index >= CONFIG_VT_COUNT) return -ENXIO;
     slot = vt_slot_for_index(index);
     tty_core_auto_acquire(vt_endpoints[slot].core, flags);
     *private_data = &vt_endpoints[slot];
@@ -494,7 +471,7 @@ static tty_driver_t vt_tty_driver = {
     .name        = "tty",
     .major       = 4,
     .minor_start = 0,
-    .num         = VT_TTY_COUNT,
+    .num         = CONFIG_VT_COUNT,
     .node_type   = file_stream,
     .open        = vt_driver_open,
     .release     = vt_driver_release,
@@ -504,9 +481,7 @@ static tty_driver_t vt_tty_driver = {
     .poll        = vt_driver_poll,
 };
 
-#endif // CONFIG_VT
-
-/* Auxiliary tty driver (major 5: /dev/tty, /dev/console) */
+#endif
 
 /* Open /dev/tty (controlling tty) or /dev/console. */
 static int aux_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **private_data)
@@ -606,14 +581,12 @@ static tty_driver_t aux_tty_driver = {
     .poll        = aux_driver_poll,
 };
 
-/* Console drivers (output through the framebuffer console) */
-
 /* Console write: queue output to the framebuffer console. */
 static void vga_console_write(console_t *c, const uint8_t *buf, size_t len)
 {
     /*
      * Queue the bytes and drain the queue to the framebuffer console once
-     * TTY_BUF_SIZE bytes have accumulated.  The rolling drain keeps boot
+     * CONFIG_TTY_BUF_SIZE bytes have accumulated.  The rolling drain keeps boot
      * output flowing even before the scheduler timer starts, and prevents
      * the queue from overflowing during heavy init (an overflow while the
      * tty lock is held would recurse back into printk).  The hand-off is
@@ -626,7 +599,7 @@ static void vga_console_write(console_t *c, const uint8_t *buf, size_t len)
     if (console_tty_ready && tty_core_graphics_mode(&console_tty)) return;
     for (size_t i = 0; i < len; i++) {
         tty_vga_queue_push((char)buf[i]);
-        if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_vga_flush_locked();
+        if (tty_vga_queue_used() >= CONFIG_TTY_BUF_SIZE) tty_vga_flush_locked();
     }
 }
 
@@ -662,14 +635,14 @@ void vt_console_init(void)
 void vt_driver_init(void)
 {
 #if CONFIG_VT
-    (void)tty_register_driver(&vt_tty_driver);
-    for (int i = 0; i < VT_TTY_COUNT; i++) {
+    if (tty_register_driver(&vt_tty_driver) != EOK) plogk("tty: Cannot register the virtual terminal driver.\n");
+    for (int i = 0; i < CONFIG_VT_COUNT; i++) {
         char name[16];
         (void)snprintf(name, sizeof(name), "tty%d", i);
-        (void)tty_register_device(&vt_tty_driver, i, name);
+        if (tty_register_device(&vt_tty_driver, i, name) != EOK) plogk("tty: Cannot register /dev/%s\n", name);
     }
 #endif
-    (void)tty_register_driver(&aux_tty_driver);
-    (void)tty_register_device(&aux_tty_driver, 0, "tty");
-    (void)tty_register_device(&aux_tty_driver, 1, "console");
+    if (tty_register_driver(&aux_tty_driver) != EOK) plogk("tty: Cannot register the auxiliary tty driver.\n");
+    if (tty_register_device(&aux_tty_driver, 0, "tty") != EOK) plogk("tty: Cannot register /dev/tty\n");
+    if (tty_register_device(&aux_tty_driver, 1, "console") != EOK) plogk("tty: Cannot register /dev/console\n");
 }

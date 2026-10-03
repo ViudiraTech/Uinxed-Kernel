@@ -11,10 +11,9 @@
 #ifndef INCLUDE_VFS_H_
 #define INCLUDE_VFS_H_
 
+#include <kernel/kdev_t.h>
 #include <libs/list/circular_list.h>
-#include <libs/list/intrusive_list.h>
 #include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
@@ -40,13 +39,24 @@
 #define MOUNT_FLAG_NODEV  (1ULL << 2)
 #define MOUNT_FLAG_NOEXEC (1ULL << 3)
 
+#define VFS_RENAME_NOREPLACE (1U << 0)
+
+/* A single pathname component holds at most 255 bytes. */
+#define VFS_NAME_MAX 255
+
+#define VFS_ACCESS_R 4
+#define VFS_ACCESS_W 2
+#define VFS_ACCESS_X 1
+
+#define VFS_SET_TIME_ATIME    (1U << 0)
+#define VFS_SET_TIME_MTIME    (1U << 1)
+#define VFS_SET_TIME_EXPLICIT (1U << 2)
+
 typedef struct vfs_node             *vfs_node_t;
 typedef struct vfs_inode             vfs_inode_t;
 typedef struct pagecache_mapping     pagecache_mapping_t;
 typedef struct vfs_poll_subscription vfs_poll_subscription_t;
 struct process;
-
-#define VFS_RENAME_NOREPLACE (1U << 0)
 
 /*
  * A rename is one filesystem operation, not a delete followed by a move.
@@ -78,10 +88,8 @@ typedef struct vfs_poll_source {
         vfs_poll_subscription_t *subscribers;
         bool                     closed;
 } vfs_poll_source_t;
-struct vm_area; // forward declaration for vfs_file_mmap_t
 
-/* Linux filesystems expose at most 255 bytes in a single pathname component. */
-#define VFS_NAME_MAX 255
+struct vm_area; // forward declaration for vfs_file_mmap_t
 
 typedef struct vfs_dirent {
         char     name[VFS_NAME_MAX + 1];
@@ -150,7 +158,8 @@ enum {
 };
 
 enum {
-    VFS_FS_NODEV = 1U << 0, // filesystem has no block-device backing
+    VFS_FS_NODEV        = 1U << 0, // filesystem has no block-device backing
+    VFS_FS_DEVICE_NODES = 1U << 1, // filesystem can host device nodes
 };
 
 typedef struct vfs_callback {
@@ -189,8 +198,6 @@ typedef struct vfs_callback {
         vfs_chmod_t                 chmod;                 // Validate a permission-mode change
 } *vfs_callback_t;
 
-extern vfs_callback_t fs_callbacks[];
-
 typedef struct vfs_node {
         vfs_node_t           parent;       // Parent directory
         vfs_node_t           linkto;       // Node pointed to by the symbolic link
@@ -219,26 +226,27 @@ typedef struct vfs_node {
         int                  is_mount;     // Whether it is a mount point
         uint64_t             mount_id;     // Stable namespace mount identifier
         char                *mount_source; // Informational source shown by procfs
-        uint64_t             dev;          // Device number
-        uint64_t             rdev;         // Real device number
+        dev_t                dev;          // Device number
+        dev_t                rdev;         // Real device number
         vfs_poll_source_t    poll_source;
         uint32_t             inotify_watch_count; // Direct inotify watches; avoids global scans for ordinary I/O
         pagecache_mapping_t *mapping;             // Unified cache for regular-file contents
+
         /* dcache index state; protected by the dcache bucket lock. */
         vfs_node_t dcache_next;
         uint64_t   dcache_hash;
         uint64_t   dcache_generation;
         bool       dcache_hashed;
+
         /* Unique mount-scoped inode identity and its alias-list links. */
         vfs_inode_t *cache_inode;
         vfs_node_t   inode_alias_prev;
         vfs_node_t   inode_alias_next;
 } *vfs_node_t;
 
+extern vfs_callback_t      fs_callbacks[];
 extern struct vfs_callback vfs_empty_callback;
 extern vfs_node_t          rootdir;
-
-#define VFS_PATH_MAX 4096
 
 /* Allocate a new vfs node with the given parent and name */
 vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name);
@@ -249,10 +257,7 @@ vfs_node_t get_rootdir(void);
 /* Set the root directory node of the Virtual File System (VFS) */
 void set_rootdir(vfs_node_t node);
 
-/*
- * Search a directory during a filesystem callback.  The caller must already
- * serialize namespace mutation; the returned node is borrowed, not retained.
- */
+/* Search a directory during a filesystem callback.  The caller must already serialize namespace mutation; the returned node is borrowed, not retained. */
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name);
 
 /* Update a file or directory, ensuring it is open and ready */
@@ -269,29 +274,27 @@ vfs_node_t vfs_open_nofollow_checked(const char *str, int *error);
 /* Build a normalized absolute path from an absolute base and a pathname. */
 int vfs_resolve_path(const char *base, const char *path, char *resolved, size_t size);
 
+/* Split an absolute path into a parent path copy and an optional leaf name pointer. */
+int vfs_split_parent(const char *path, char *parent, size_t size, const char **leaf);
+
+/* Open the parent directory of an absolute path, or NULL when there is none. */
+vfs_node_t vfs_open_parent_of(const char *path);
+
 /* Return the absolute namespace path of a node. */
 int vfs_node_path(vfs_node_t node, char *path, size_t size);
 
 /* Retain an already resolved node without consulting the namespace. */
 vfs_node_t vfs_node_retain(vfs_node_t node);
 
-#define VFS_ACCESS_R 4
-#define VFS_ACCESS_W 2
-#define VFS_ACCESS_X 1
-
 /* Check file access permissions against the current process */
 int vfs_access_check(vfs_node_t node, uint32_t access_mask);
 int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, struct process *proc);
 
-/* Change a file's mode or ownership using Linux permission semantics. */
+/* Change a file's mode or ownership using permission semantics. */
 int vfs_chmod_process(vfs_node_t node, uint16_t mode, struct process *proc);
 int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, struct process *proc);
 
-#define VFS_SET_TIME_ATIME    (1U << 0)
-#define VFS_SET_TIME_MTIME    (1U << 1)
-#define VFS_SET_TIME_EXPLICIT (1U << 2)
-
-/* Change atime/mtime and advance ctime using Linux ownership rules. */
+/* Change atime/mtime and advance ctime using ownership rules. */
 int vfs_set_times_process(vfs_node_t node, int64_t atime, int64_t mtime, uint32_t flags, struct process *proc);
 
 /* Create a new directory at the specified path */
@@ -342,6 +345,44 @@ size_t vfs_format_filesystems(char *buffer, size_t capacity);
 /* Return the stable userspace filesystem type registered for an fsid. */
 const char *vfs_filesystem_name(uint16_t fsid);
 
+/* statfs(2) f_type values, reported for the filesystem type they belong to. */
+#define TMPFS_MAGIC         0x01021994
+#define SYSFS_MAGIC         0x62656572
+#define PROC_SUPER_MAGIC    0x00009fa0
+#define CGROUP_SUPER_MAGIC  0x0027e0eb
+#define CGROUP2_SUPER_MAGIC 0x63677270
+#define ISOFS_SUPER_MAGIC   0x00009660
+#define EXT4_SUPER_MAGIC    0x0000ef53
+#define MSDOS_SUPER_MAGIC   0x00004d44
+#define NTFS_SB_MAGIC       0x5346544e
+#define SOCKFS_MAGIC        0x534f434b
+#define PIPEFS_MAGIC        0x50495045
+#define ANON_INODE_FS_MAGIC 0x09041934
+#define PID_FS_MAGIC        0x50494446
+
+/* Magics of the filesystem types this kernel aliases onto tmpfs. */
+#define SECURITYFS_MAGIC      0x73636673
+#define SELINUX_MAGIC         0xf97cff8c
+#define BPF_FS_MAGIC          0xcafe4a11
+#define DEBUGFS_MAGIC         0x64626720
+#define TRACEFS_MAGIC         0x74726163
+#define HUGETLBFS_MAGIC       0x958458f6
+#define MQUEUE_MAGIC          0x19800202
+#define FUSE_CTL_SUPER_MAGIC  0x65735543
+#define CONFIGFS_MAGIC        0x62656570
+#define BINFMTFS_MAGIC        0x42494e4d
+#define AUTOFS_SUPER_MAGIC    0x0187
+#define EFIVARFS_MAGIC        0xde5e81e4
+#define RAMFS_MAGIC           0x858458f6
+#define DEVPTS_SUPER_MAGIC    0x1cd1
+#define PSTOREFS_MAGIC        0x6165676C
+#define NSFS_MAGIC            0x6e736673
+#define OVERLAYFS_SUPER_MAGIC 0x794c7630
+#define FUSE_SUPER_MAGIC      0x65735546
+
+/* Return the statfs f_type of a registered filesystem, 0 when it has none. */
+uint32_t vfs_filesystem_magic(uint16_t fsid);
+
 /* Mount a file system to a directory */
 int vfs_mount(const char *src, vfs_node_t node);
 
@@ -351,7 +392,7 @@ int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node);
 /* Unmount a file system from a directory */
 int vfs_umount(const char *path);
 
-/* Format the current namespace in Linux /proc/mounts or mountinfo syntax. */
+/* Format the current namespace in /proc/mounts or mountinfo syntax. */
 size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo);
 
 /* Read data from a file node into the provided memory buffer */
@@ -364,7 +405,7 @@ size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize);
 size_t vfs_write(vfs_node_t file, const void *addr, size_t offset, size_t size);
 
 /* Flush cached contents, truncate a regular file, or invalidate cached data. */
-int  vfs_fsync(vfs_node_t file, int data_only);
+int  vfs_fsync(vfs_node_t file, uint32_t *wb_err, int data_only);
 int  vfs_writeback_range(vfs_node_t file, uint64_t start, uint64_t end, int data_only);
 int  vfs_sync_all(void);
 int  vfs_truncate(vfs_node_t file, uint64_t size);
@@ -375,6 +416,12 @@ int  vfs_cache_mapping_pin(vfs_node_t file);
 void vfs_cache_mapping_unpin(vfs_node_t file);
 int  vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *physical);
 int  vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end);
+
+/* Writeback error mark a descriptor takes when it opens this node. */
+uint32_t vfs_wb_err_sample(vfs_node_t node);
+
+/* Report a writeback error no descriptor has taken yet. */
+int vfs_wb_err_claim(vfs_node_t node);
 
 /* Per-open operations, falling back to the legacy node callbacks. */
 int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
@@ -389,14 +436,33 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
  * authorized at open time.  Credentials are not re-evaluated so inherited
  * descriptors keep working across setuid (su) and exec.
  */
-int64_t            vfs_file_read_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
-int64_t            vfs_file_write_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
-int64_t            vfs_file_read_user_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
-int64_t            vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
-int                vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
-int                vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
-int                vfs_mount_is_readonly(vfs_node_t node);
-void               vfs_file_descriptor_close(vfs_node_t file, void *private_data);
+int64_t vfs_file_read_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+
+/* VFS operation: file write granted. */
+int64_t vfs_file_write_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+
+/* VFS operation: file read user granted. */
+int64_t vfs_file_read_user_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
+
+/* VFS operation: file write user granted. */
+int64_t vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+
+/* VFS operation: file ioctl. */
+int vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
+
+/* VFS operation: file poll. */
+int vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
+
+/* VFS operation: mount is readonly. */
+int vfs_mount_is_readonly(vfs_node_t node);
+
+/* VFS operation: the node's filesystem can host device nodes. */
+bool vfs_node_supports_device_nodes(vfs_node_t node);
+
+/* VFS operation: file descriptor close. */
+void vfs_file_descriptor_close(vfs_node_t file, void *private_data);
+
+/* VFS operation: file poll source. */
 vfs_poll_source_t *vfs_file_poll_source(vfs_node_t file, void *private_data);
 
 /* Readiness-notification subscriptions on a node or a raw poll source. */
@@ -429,9 +495,6 @@ int vfs_ioctl(vfs_node_t device, size_t options, void *arg);
 
 /* Listen for actionable events on one or more file descriptors */
 int vfs_poll(vfs_node_t node, size_t event);
-
-/* Memory-map a device or file into the process address space */
-void *vfs_mmap(vfs_node_t node, size_t offset, size_t size, int flags);
 
 /* Free all child nodes of a VFS node */
 void vfs_free_child(vfs_node_t vfs);

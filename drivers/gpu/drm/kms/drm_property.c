@@ -9,33 +9,17 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 
-#define DRM_PROPERTY_BLOB_MAX_SIZE (16u * 1024u * 1024u)
+#if CONFIG_DRM
 
-/* Internal helpers exported by drm_mode_object.c */
+#    define DRM_PROPERTY_BLOB_MAX_SIZE (16u * 1024u * 1024u)
 
-/* Allocate a mode-object ID and init the header; see drm_mode_object.c. */
-
-/* Decrement refcount under lock; return true iff it reached zero. */
-
-/* Forward declaration: defined later in this file. */
-void drm_property_destroy(struct drm_device *dev, struct drm_property *property);
-
-/*
- * Allocate one enum entry, link it into @prop->enum_list, and record its
- * value at @index in @prop->values. Returns 0 on success or -ENOMEM.
- */
+/* Allocate one enum entry, link it into @prop->enum_list, and record its value at @index in @prop->values. Returns 0 on success or -ENOMEM. */
 static int drm_property_add_enum(struct drm_property *prop, int index, uint64_t value, const char *name)
 {
     struct drm_property_enum *e;
@@ -80,10 +64,7 @@ struct drm_property *drm_property_create(struct drm_device *dev, uint32_t flags,
 {
     struct drm_property *prop;
 
-    if (!dev || !name || num_values < 0) {
-        DRM_ERROR("Create with invalid args (dev=%p, name=%p, num_values=%d)\n", dev, name, num_values);
-        return NULL;
-    }
+    if (!dev || !name || num_values < 0) return NULL;
 
     prop = malloc(sizeof(*prop));
     if (!prop) {
@@ -132,10 +113,7 @@ struct drm_property *drm_property_create_range(struct drm_device *dev, uint32_t 
 {
     struct drm_property *prop;
 
-    if (!dev || !name) {
-        DRM_ERROR("Create_range with invalid args (dev=%p, name=%p)\n", dev, name);
-        return NULL;
-    }
+    if (!dev || !name) return NULL;
 
     prop = drm_property_create(dev, DRM_MODE_PROP_RANGE | flags, name, 2);
     if (!prop) return NULL;
@@ -155,10 +133,7 @@ struct drm_property *drm_property_create_enum(struct drm_device *dev, uint32_t f
     struct drm_property *prop;
     int                  i;
 
-    if (!dev || !name) {
-        DRM_ERROR("Create_enum with invalid args (dev=%p, name=%p)\n", dev, name);
-        return NULL;
-    }
+    if (!dev || !name) return NULL;
     if (num_enums < 0) {
         DRM_ERROR("Create_enum %s: negative num_enums (%d)\n", name, num_enums);
         return NULL;
@@ -192,10 +167,7 @@ struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_
     struct drm_property *prop;
     int                  i, j;
 
-    if (!dev || !name) {
-        DRM_ERROR("Create_bitmask with invalid args (dev=%p, name=%p)\n", dev, name);
-        return NULL;
-    }
+    if (!dev || !name) return NULL;
     if (num_enums < 0) {
         DRM_ERROR("Create_bitmask %s: negative num_enums (%d)\n", name, num_enums);
         return NULL;
@@ -234,14 +206,8 @@ struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const
     struct drm_property_blob *blob;
     void                     *buf = NULL;
 
-    if (!dev) {
-        DRM_ERROR("Create_blob with NULL device.\n");
-        return NULL;
-    }
-    if (length > 0 && !data) {
-        DRM_ERROR("Create_blob with NULL data (length=%zu)\n", length);
-        return NULL;
-    }
+    if (!dev) return NULL;
+    if (length > 0 && !data) return NULL;
 
     blob = malloc(sizeof(*blob));
     if (!blob) {
@@ -314,27 +280,18 @@ void drm_property_blob_put(struct drm_property_blob *blob)
     free(blob);
 }
 
-/*
- * Look up a blob by userspace ID. Returns the blob with an extra reference
- * (the caller must drm_property_blob_put it) or NULL if not found.
- */
+/* Look up a blob by userspace ID. Returns the blob with an extra reference (the caller must drm_property_blob_put it) or NULL if not found. */
 struct drm_property_blob *drm_property_lookup_blob(struct drm_device *dev, uint32_t id)
 {
     struct drm_mode_object *obj;
 
-    if (!dev) {
-        DRM_ERROR("Lookup_blob with NULL device.\n");
-        return NULL;
-    }
+    if (!dev) return NULL;
     obj = drm_mode_object_find(dev, NULL, id, DRM_MODE_OBJECT_BLOB);
     if (!obj) return NULL;
     return container_of(obj, struct drm_property_blob, base);
 }
 
-/*
- * Return a property blob to userspace. A zero length is the normal size
- * query; otherwise the supplied buffer must hold the whole immutable blob.
- */
+/* Return a property blob to userspace. A zero length is the normal size query; otherwise the supplied buffer must hold the whole immutable blob. */
 int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_blob *req = data;
@@ -343,20 +300,12 @@ int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *
     int                       ret = 0;
 
     (void)file_priv;
-    if (!dev || !req) {
-        DRM_ERROR("GETBLOB with invalid args (dev=%p, req=%p)\n", dev, req);
-        return -EINVAL;
-    }
+    if (!dev || !req) return -EINVAL;
 
     blob = drm_property_lookup_blob(dev, req->blob_id);
-    if (!blob) {
-        DRM_ERROR("GETBLOB: blob %u not found, returning -ENOENT\n", req->blob_id);
-        return -ENOENT;
-    }
+    if (!blob) return -ENOENT;
     if (blob->length > UINT32_MAX) {
-        size_t blob_length = blob->length;
         drm_property_blob_put(blob);
-        DRM_ERROR("GETBLOB: blob %u too large (%zu bytes), returning -E2BIG\n", req->blob_id, blob_length);
         return -E2BIG;
     }
 
@@ -364,10 +313,8 @@ int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *
     req->length = (uint32_t)blob->length;
     if (capacity) {
         if (capacity < blob->length) {
-            DRM_ERROR("GETBLOB: buffer too small for blob %u (capacity=%u, length=%zu), returning -EINVAL.\n", req->blob_id, capacity, blob->length);
             ret = -EINVAL;
         } else if (!req->data || copy_to_user((void *)(uintptr_t)req->data, blob->data, blob->length)) {
-            DRM_ERROR("GETBLOB: copy_to_user failed for blob %u, returning -EFAULT\n", req->blob_id);
             ret = -EFAULT;
         }
     }
@@ -376,33 +323,23 @@ int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *
     return ret;
 }
 
-/*
- * Create an immutable userspace-owned blob. Its initial object reference is
- * owned by this drm_file until DESTROYPROPBLOB or file close.
- */
+/* Create an immutable userspace-owned blob. Its initial object reference is owned by this drm_file until DESTROYPROPBLOB or file close. */
 int drm_mode_createblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_create_blob *req = data;
     struct drm_property_blob    *blob;
     void                        *payload;
 
-    if (!dev || !req || !file_priv) {
-        DRM_ERROR("CREATEBLOB with invalid args (dev=%p, req=%p, file_priv=%p), returning -EINVAL\n", dev, req, file_priv);
-        return -EINVAL;
-    }
-    if (!req->length || !req->data || req->length > DRM_PROPERTY_BLOB_MAX_SIZE) {
-        DRM_ERROR("CREATEBLOB: invalid length/data (length=%u, data=%p), returning -EINVAL\n", req->length, req->data);
-        return -EINVAL;
-    }
+    if (!dev || !req || !file_priv) return -EINVAL;
+    if (!req->length || !req->data || req->length > DRM_PROPERTY_BLOB_MAX_SIZE) return -EINVAL;
 
     payload = malloc(req->length);
     if (!payload) {
-        DRM_ERROR("CREATEBLOB: payload allocation failed (length=%u), returning -ENOMEM\n", req->length);
+        DRM_ERROR("CREATEBLOB: payload allocation failed (length=%u)\n", req->length);
         return -ENOMEM;
     }
     if (copy_from_user(payload, (const void *)(uintptr_t)req->data, req->length)) {
         free(payload);
-        DRM_ERROR("CREATEBLOB: copy_from_user failed, returning -EFAULT\n");
         return -EFAULT;
     }
 
@@ -425,10 +362,7 @@ int drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_fi
     ilist_node_t                 *node;
 
     (void)dev;
-    if (!req || !file_priv) {
-        DRM_ERROR("DESTROYBLOB with invalid args (req=%p, file_priv=%p)\n", req, file_priv);
-        return -EINVAL;
-    }
+    if (!req || !file_priv) return -EINVAL;
 
     spin_lock(&file_priv->table_lock);
     for (node = file_priv->blobs_head.next; node && node != &file_priv->blobs_head; node = node->next) {
@@ -441,10 +375,7 @@ int drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_fi
     }
     spin_unlock(&file_priv->table_lock);
 
-    if (!blob) {
-        DRM_ERROR("DESTROYBLOB: blob %u not owned by this file, returning -ENOENT\n", req->blob_id);
-        return -ENOENT;
-    }
+    if (!blob) return -ENOENT;
     drm_property_blob_put(blob);
     return 0;
 }
@@ -475,9 +406,6 @@ void drm_property_destroy(struct drm_device *dev, struct drm_property *property)
     free(property);
 }
 
-/* Forward declaration */
-struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
-
 /* Handle DRM_IOCTL_MODE_GETPROPERTY. */
 int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -486,16 +414,10 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
 
     (void)file_priv;
 
-    if (!dev || !prop_req) {
-        DRM_ERROR("GETPROPERTY with invalid args (dev=%p, prop_req=%p)\n", dev, prop_req);
-        return -EINVAL;
-    }
+    if (!dev || !prop_req) return -EINVAL;
 
     prop = drm_property_find(dev, NULL, prop_req->prop_id);
-    if (!prop) {
-        DRM_ERROR("GETPROPERTY: property %u not found, returning -ENOENT\n", prop_req->prop_id);
-        return -ENOENT;
-    }
+    if (!prop) return -ENOENT;
 
     uint32_t user_values = prop_req->count_values;
     uint32_t user_enums  = prop_req->count_enum_blobs;
@@ -521,7 +443,6 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
         uint32_t count = user_values < prop->num_values ? user_values : prop->num_values;
         if (!prop_req->values_ptr || copy_to_user((void *)(uintptr_t)prop_req->values_ptr, prop->values, (size_t)count * sizeof(*prop->values))) {
             drm_mode_object_put(&prop->base);
-            DRM_ERROR("GETPROPERTY: values copy_to_user failed for property %u, returning -EFAULT\n", prop_req->prop_id);
             return -EFAULT;
         }
     }
@@ -531,7 +452,7 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
         ilist_node_t                  *node    = prop->enum_list.next;
         if (!entries) {
             drm_mode_object_put(&prop->base);
-            DRM_ERROR("GETPROPERTY: enum entries allocation failed (count=%u), returning -ENOMEM\n", count);
+            DRM_ERROR("GETPROPERTY: enum entries allocation failed (count=%u)\n", count);
             return -ENOMEM;
         }
         for (uint32_t i = 0; i < count; i++, node = node->next) {
@@ -542,7 +463,6 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
         if (!prop_req->enum_blob_ptr || copy_to_user((void *)(uintptr_t)prop_req->enum_blob_ptr, entries, (size_t)count * sizeof(*entries))) {
             free(entries);
             drm_mode_object_put(&prop->base);
-            DRM_ERROR("GETPROPERTY: enum copy_to_user failed for property %u, returning -EFAULT\n", prop_req->prop_id);
             return -EFAULT;
         }
         free(entries);
@@ -561,11 +481,10 @@ struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *
 {
     struct drm_mode_object *obj;
 
-    if (!dev) {
-        DRM_ERROR("Find with NULL device.\n");
-        return NULL;
-    }
+    if (!dev) return NULL;
     obj = drm_mode_object_find(dev, file_priv, id, DRM_MODE_OBJECT_PROPERTY);
     if (!obj) return NULL;
     return container_of(obj, struct drm_property, base);
 }
+
+#endif

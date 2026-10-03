@@ -11,8 +11,6 @@
 #ifndef INCLUDE_DRM_FOURCC_H_
 #define INCLUDE_DRM_FOURCC_H_
 
-#include <drivers/gpu/drm/drm.h>
-
 #define fourcc_code(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
 
 #define DRM_FORMAT_BIG_ENDIAN 0x80000000U

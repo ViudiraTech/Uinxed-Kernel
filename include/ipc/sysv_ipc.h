@@ -11,6 +11,7 @@
 #ifndef INCLUDE_SYSV_IPC_H_
 #define INCLUDE_SYSV_IPC_H_
 
+#include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
@@ -45,8 +46,8 @@ typedef struct ipc_perm {
 } ipc_perm_t;
 
 _Static_assert(sizeof(ipc_perm_t) == 48, "Linux x86_64 ipc64_perm ABI size");
-_Static_assert(__builtin_offsetof(ipc_perm_t, mode) == 20, "Linux x86_64 ipc64_perm.mode offset");
-_Static_assert(__builtin_offsetof(ipc_perm_t, seq) == 24, "Linux x86_64 ipc64_perm.seq offset");
+_Static_assert(offsetof(ipc_perm_t, mode) == 20, "Linux x86_64 ipc64_perm.mode offset");
+_Static_assert(offsetof(ipc_perm_t, seq) == 24, "Linux x86_64 ipc64_perm.seq offset");
 
 /* Semaphores */
 
@@ -83,19 +84,6 @@ typedef struct semid_ds {
 
 _Static_assert(sizeof(semid_ds_t) == 104, "Linux x86_64 semid64_ds ABI size");
 
-typedef struct seminfo {
-        int32_t semmap;
-        int32_t semmni;
-        int32_t semmns;
-        int32_t semmnu;
-        int32_t semmsl;
-        int32_t semopm;
-        int32_t semume;
-        int32_t semusz;
-        int32_t semvmx;
-        int32_t semaem;
-} seminfo_t;
-
 /* Shared memory */
 
 #define SHM_RDONLY 0x1000
@@ -113,6 +101,19 @@ typedef struct seminfo {
 
 #define SHM_SIZE_MAX 0x100000000ULL
 
+typedef struct seminfo {
+        int32_t semmap;
+        int32_t semmni;
+        int32_t semmns;
+        int32_t semmnu;
+        int32_t semmsl;
+        int32_t semopm;
+        int32_t semume;
+        int32_t semusz;
+        int32_t semvmx;
+        int32_t semaem;
+} seminfo_t;
+
 typedef struct shmid_ds {
         ipc_perm_t shm_perm;
         size_t     shm_segsz;
@@ -127,8 +128,8 @@ typedef struct shmid_ds {
 } shmid_ds_t;
 
 _Static_assert(sizeof(shmid_ds_t) == 112, "Linux x86_64 shmid64_ds ABI size");
-_Static_assert(__builtin_offsetof(shmid_ds_t, shm_segsz) == 48, "Linux x86_64 shmid64_ds.shm_segsz offset");
-_Static_assert(__builtin_offsetof(shmid_ds_t, shm_nattch) == 88, "Linux x86_64 shmid64_ds.shm_nattch offset");
+_Static_assert(offsetof(shmid_ds_t, shm_segsz) == 48, "Linux x86_64 shmid64_ds.shm_segsz offset");
+_Static_assert(offsetof(shmid_ds_t, shm_nattch) == 88, "Linux x86_64 shmid64_ds.shm_nattch offset");
 
 typedef struct shminfo {
         uint64_t shmmax;
@@ -154,7 +155,6 @@ _Static_assert(sizeof(shminfo_t) == 72, "Linux x86_64 shminfo64 ABI size");
 #define MSG_INFO 12
 #define MSG_MNGR 13
 
-#define MSGMAX 8192
 #define MSGMNB 16384
 #define MSGMNI 32000
 
@@ -193,6 +193,10 @@ typedef struct msginfo {
         int32_t msgseg;
 } msginfo_t;
 
+struct process;
+
+#if CONFIG_SYSVIPC
+
 /* Semaphore operations. */
 int64_t sys_semget(key_t key, int nsems, int semflg);
 int64_t sys_semop(int semid, sembuf_t *sops, size_t nsops);
@@ -215,12 +219,68 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);
 int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgflg);
 int64_t sys_msgctl(int msqid, int cmd, void *buf);
 
-struct process;
-
 /* Release a process's SEM_UNDO adjustments (called on process exit). */
 void sysv_sem_undo_release(struct process *proc);
 
 /* Initialize the System V IPC subsystem. */
 void sysv_ipc_init(void);
+
+#else
+static inline int64_t sys_semget(key_t, int, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_semop(int, sembuf_t *, size_t)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_semtimedop(int, sembuf_t *, size_t, const void *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_semctl(int, int, int, uint64_t)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_shmget(key_t, size_t, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_shmat(int, const void *, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_shmdt(const void *)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_shmctl(int, int, void *)
+{
+    return -ENOSYS;
+}
+static inline int sysv_shm_vma_get(void *, uint32_t)
+{
+    return 0;
+}
+static inline void    sysv_shm_vma_put(void *, uint32_t) {}
+static inline int64_t sys_msgget(key_t, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_msgsnd(int, const void *, size_t, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_msgrcv(int, void *, size_t, int64_t, int)
+{
+    return -ENOSYS;
+}
+static inline int64_t sys_msgctl(int, int, void *)
+{
+    return -ENOSYS;
+}
+static inline void sysv_sem_undo_release(struct process *) {}
+static inline void sysv_ipc_init(void) {}
+#endif
 
 #endif // INCLUDE_SYSV_IPC_H_

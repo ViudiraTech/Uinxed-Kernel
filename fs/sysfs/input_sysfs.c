@@ -10,8 +10,8 @@
 
 #include <drivers/base/device.h>
 #include <fs/sysfs/input_sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+
+#if CONFIG_INPUT_EVDEV
 
 static bool input_class_ready;
 
@@ -229,6 +229,13 @@ static struct attribute_group input_capability_group = {
     .attrs = input_capability_attributes,
 };
 
+static const struct attribute_group *input_dev_groups[] = {
+    &input_compat_group,
+    &input_id_group,
+    &input_capability_group,
+    NULL,
+};
+
 /* Emit input device uevent environment variables. */
 static int input_device_uevent(struct device *device, struct kobj_uevent_env *env)
 {
@@ -237,6 +244,7 @@ static int input_device_uevent(struct device *device, struct kobj_uevent_env *en
     input_dev_t *input = evdev->input_dev;
     int          ret   = add_uevent_var(env, "PRODUCT=%x/%x/%x/%x", input->id.bustype, input->id.vendor, input->id.product, input->id.version);
     if (ret) return ret;
+
     /*
      * libinput consumes these standard udev properties.  The generic
      * input_id builtin cannot infer them reliably from this kernel's compact
@@ -266,19 +274,12 @@ static int input_device_uevent(struct device *device, struct kobj_uevent_env *en
     return EOK;
 }
 
-static const struct attribute_group *input_dev_groups[] = {
-    &input_compat_group,
-    &input_id_group,
-    &input_capability_group,
-    NULL,
-};
-
 static struct class input_class = {.name = "input", .dev_uevent = input_device_uevent, .dev_groups = input_dev_groups};
 
 /* Register the input class and publish every evdev device. */
 void input_sysfs_init(void)
 {
-#if CONFIG_INPUT_EVDEV
+#    if CONFIG_SYSFS
     int result;
     int devices = 0;
 
@@ -289,13 +290,13 @@ void input_sysfs_init(void)
         return;
     }
     input_class_ready = true;
-    for (int minor = 0; minor < EVDEV_MAX_DEVICES; minor++) {
+    for (int minor = 0; minor < CONFIG_EVDEV_MAX_DEVICES; minor++) {
         evdev_t *evdev = evdev_find_by_minor(minor);
         if (!evdev) continue;
         if (input_sysfs_register_evdev(evdev) == EOK) devices++;
     }
     plogk("input_sysfs: exported %d input device(s) to /sys/class/input\n", devices);
-#endif
+#    endif
 }
 
 /* Publish an evdev device as inputN with an eventN child. */
@@ -309,9 +310,10 @@ int input_sysfs_register_evdev(evdev_t *evdev)
     if (!evdev) return -EINVAL;
     if (evdev->sysfs_device) return EOK;
     if (!input_class_ready) return EOK;
+
     /*
-     * Linux exposes an inputN device containing the identity/capability
-     * files and an eventN child containing the character-device number.
+     * An inputN device contains the identity/capability files and an
+     * eventN child containing the character-device number.
      * libudev resolves /sys/dev/char/13:* back to eventN, while input_id
      * walks through eventN/device to inputN.  Reproducing that topology is
      * required by libinput's syspath safety check.
@@ -344,3 +346,5 @@ void input_sysfs_unregister_evdev(evdev_t *evdev)
     if (device) device_unregister(device);
     evdev->sysfs_input_device = NULL;
 }
+
+#endif

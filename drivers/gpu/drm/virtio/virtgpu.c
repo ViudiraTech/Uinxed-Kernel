@@ -9,47 +9,55 @@
  */
 
 #include <arch/common.h>
-#include <drivers/bus/pci.h>
 #include <drivers/bus/virtpci.h>
-#include <drivers/gpu/drm/drm.h>
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_init.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
-#include <drivers/gpu/drm/virtio/virtgpu_format.h>
-#include <drivers/gpu/drm/virtio/virtgpu_gem.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/frame.h>
-#include <mem/heap.h>
-#include <process/uaccess.h>
 
-/* Ioctl implementation prototypes */
+#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Probed device singleton, kept driver-private so the DRM core stays generic. */
-static struct virtio_gpu_device *virtio_gpu_probed_device;
-
-static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_resource_info(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_transfer_from_host(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_transfer_to_host(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct drm_file *file_priv);
-static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips);
+static struct virtio_gpu_device   *virtio_gpu_probed_device;
 const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
+/* VirtIO GPU ioctl map. */
+static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl execbuffer. */
+static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl getparam. */
+static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl resource create. */
+static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl resource info. */
+static int virtgpu_ioctl_resource_info(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl transfer from host. */
+static int virtgpu_ioctl_transfer_from_host(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl transfer to host. */
+static int virtgpu_ioctl_transfer_to_host(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl wait. */
+static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl get caps. */
+static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl resource create blob. */
+static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU ioctl context init. */
+static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* VirtIO GPU dirty fb. */
+static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips);
+
+/* VirtIO GPU rects touch. */
 static bool virtgpu_rects_touch(const struct virtio_gpu_rect *a, const struct virtio_gpu_rect *b)
 {
     uint64_t ax2 = (uint64_t)a->x + a->width;
@@ -59,6 +67,7 @@ static bool virtgpu_rects_touch(const struct virtio_gpu_rect *a, const struct vi
     return a->x <= bx2 && b->x <= ax2 && a->y <= by2 && b->y <= ay2;
 }
 
+/* VirtIO GPU rect union. */
 static void virtgpu_rect_union(struct virtio_gpu_rect *dst, const struct virtio_gpu_rect *src)
 {
     uint32_t x1 = MIN(dst->x, src->x);
@@ -69,7 +78,6 @@ static void virtgpu_rect_union(struct virtio_gpu_rect *dst, const struct virtio_
 }
 
 /* DRM ioctl table */
-
 static const struct drm_ioctl_desc virtgpu_ioctls[] = {
     {DRM_IOCTL_VIRTGPU_MAP,                  virtgpu_ioctl_map,                  DRM_AUTH},
     {DRM_IOCTL_VIRTGPU_EXECBUFFER,           virtgpu_ioctl_execbuffer,           DRM_AUTH},
@@ -84,9 +92,7 @@ static const struct drm_ioctl_desc virtgpu_ioctls[] = {
     {DRM_IOCTL_VIRTGPU_CONTEXT_INIT,         virtgpu_ioctl_context_init,         DRM_AUTH},
 };
 
-#define VIRTGPU_NUM_IOCTLS (sizeof(virtgpu_ioctls) / sizeof(virtgpu_ioctls[0]))
-
-/* Driver callback implementations */
+#    define VIRTGPU_NUM_IOCTLS (sizeof(virtgpu_ioctls) / sizeof(virtgpu_ioctls[0]))
 
 /* Open a file: allocate per-file state and assign a context id. */
 static int virtgpu_open(struct drm_device *dev, struct drm_file *file)
@@ -130,17 +136,25 @@ static int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio
         uint32_t nlen = vfpriv->explicit_debug_name ? (uint32_t)strlen(vfpriv->debug_name) : 0;
         ret           = virtgpu_cmd_ctx_create(vgdev, vfpriv->ctx_id, vfpriv->context_init, vfpriv->explicit_debug_name ? vfpriv->debug_name : NULL, nlen);
 
-        /*
-         * Publish under the lock; a concurrent creator that raced us either
-         * succeeded (its create is the one that won) or failed against an
-         * already-created context, which is success for us too.
-         */
+        /* Publish under the lock; a racing creator either won or hit an existing context, both success. */
         spin_lock(&vfpriv->context_lock);
         if (!ret && !vfpriv->context_created) vfpriv->context_created = true;
         if (ret && vfpriv->context_created) ret = 0;
         spin_unlock(&vfpriv->context_lock);
     }
     return ret;
+}
+
+/* Resource ID management */
+uint32_t virtgpu_resource_id_alloc(struct virtio_gpu_device *vgdev)
+{
+    uint32_t id;
+
+    spin_lock(&vgdev->resource_idr_lock);
+    id = vgdev->next_resource_id++;
+    if (id == VIRTGPU_RESOURCE_ID_INVALID) id = vgdev->next_resource_id++;
+    spin_unlock(&vgdev->resource_idr_lock);
+    return id;
 }
 
 /* Bind a resource to a context, tracking the attachment locally. */
@@ -168,7 +182,7 @@ int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio
     if (!ret) {
         spin_lock(&obj->context_lock);
 
-        /* Re-check under the lock: a racing thread may have attached the same ctx_id while we were waiting on the host. */
+        /* Re-check under the lock: a racing thread may have attached the same ctx_id. */
         for (struct virtio_gpu_context_attachment *cur = obj->context_attachments; cur; cur = cur->next) {
             if (cur->ctx_id == ctx_id) {
                 spin_unlock(&obj->context_lock);
@@ -212,9 +226,9 @@ int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio
      * Re-scan: a concurrent detach of the same ctx_id may have removed this
      * attachment while the host command ran.  Only unlink+free if the node
      * found in the first scan is still the one at this position; otherwise
-     * the other detach owns the free and releasing the stale pointer here would double-free it.
-     * The attachment list is short (typically 1-2 contexts per object), so
-     * the O(n) re-scan is cheap.
+     * the other detach owns the free, and releasing the stale pointer here
+     * would double-free it.  The attachment list is short (typically 1-2
+     * contexts per object), so the O(n) re-scan is cheap.
      */
     link = &obj->context_attachments;
     while (*link && (*link)->ctx_id != ctx_id) link = &(*link)->next;
@@ -235,7 +249,6 @@ static void virtgpu_postclose(struct drm_device *dev, struct drm_file *file)
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
     /* Release any contexts owned by this file */
-
     if (file->driver_priv) {
         struct virtio_gpu_fpriv *vfpriv = (struct virtio_gpu_fpriv *)file->driver_priv;
         ilist_node_t            *node;
@@ -270,6 +283,7 @@ static void virtgpu_release(struct drm_device *dev)
         for (uint32_t i = 0; i < vgdev->num_capsets; i++) free(vgdev->capsets[i].data);
         virtgpu_kms_fini(vgdev);
         drm_vblank_cleanup(dev);
+
         /*
          * drm_mode_config_cleanup() frees the crtc/plane/connector states
          * and unlinks every KMS object from the mode_config lists; only the
@@ -291,7 +305,6 @@ static void virtgpu_release(struct drm_device *dev)
 }
 
 /* DRM driver descriptor */
-
 static struct drm_driver virtgpu_drm_driver = {
     .name            = "virtio_gpu",
     .desc            = "virtio GPU",
@@ -328,8 +341,8 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
     uint64_t                  offsets[VIRTGPU_DIRTY_MAX_RECTS];
     struct virtio_gpu_rect    flush_rect = {0};
     uint32_t                  rect_count = 0;
-    uint32_t                  first = 0;
-    bool                      collapsed = false;
+    uint32_t                  first      = 0;
+    bool                      collapsed  = false;
 
     (void)file_priv;
     (void)color;
@@ -343,9 +356,7 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
      * onto the scanout, so avoid wasting host bandwidth here.
      */
     if (obj != vgdev->current_scanout_obj) return 0;
-
     if (!virtgpu_2d_formats_compatible(obj->format, fb->format)) return -EINVAL;
-
     if (!num_clips) {
         rects[0]   = (struct virtio_gpu_rect) {0, 0, fb->width, fb->height};
         flush_rect = rects[0];
@@ -358,10 +369,11 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
             if (clip->x1 == clip->x2 || clip->y1 == clip->y2) continue;
 
             struct virtio_gpu_rect damage = {clip->x1, clip->y1, clip->x2 - clip->x1, clip->y2 - clip->y1};
-            if (!flush_rect.width)
+            if (!flush_rect.width) {
                 flush_rect = damage;
-            else
+            } else {
                 virtgpu_rect_union(&flush_rect, &damage);
+            }
 
             if (collapsed) continue;
             bool merged = false;
@@ -372,10 +384,11 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
                 break;
             }
             if (!merged) {
-                if (rect_count < VIRTGPU_DIRTY_MAX_RECTS)
+                if (rect_count < VIRTGPU_DIRTY_MAX_RECTS) {
                     rects[rect_count++] = damage;
-                else
+                } else {
                     collapsed = true;
+                }
             }
         }
         if (!flush_rect.width || !flush_rect.height) return 0;
@@ -385,9 +398,11 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
         }
     }
 
-    /* Blob scanouts share guest backing directly with the host.  They were
+    /*
+     * Blob scanouts share guest backing directly with the host.  They were
      * created with RESOURCE_CREATE_BLOB, so TRANSFER_TO_HOST_2D is invalid;
-     * only advertise the damaged range with RESOURCE_FLUSH. */
+     * only advertise the damaged range with RESOURCE_FLUSH.
+     */
     if (obj->created_blob) return virtgpu_cmd_resource_flush(vgdev, obj, &flush_rect);
 
     for (uint32_t i = 0; i < rect_count; i++) offsets[i] = fb->offsets[0] + (uint64_t)rects[i].y * obj->stride + (uint64_t)rects[i].x * sizeof(uint32_t);
@@ -433,8 +448,7 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
     void                          *cmd_buf = NULL;
     int                            ret;
 
-    if (!vgdev->has_virgl) return -ENOSYS;
-
+    if (!vgdev->has_virgl) return -EOPNOTSUPP;
     if (!vfpriv) return -EINVAL;
     if (!args->size || args->size > 65536 || (args->size & 3) || !args->command) return -EINVAL;
 
@@ -454,7 +468,7 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
 
     if (args->num_bo_handles) {
         handles = calloc((size_t)args->num_bo_handles, sizeof(*handles));
-        bos     = calloc((size_t)args->num_bo_handles, sizeof(*bos)); // NOLINT(bugprone-sizeof-expression)
+        bos     = calloc((size_t)args->num_bo_handles, sizeof(struct drm_gem_object *));
         if (!handles || !bos) {
             ret = -ENOMEM;
             goto out;
@@ -482,10 +496,7 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
         goto out;
     }
 
-    /*
-     * Copy command buffer from userspace (in this kernel, userspace
-     * pointers are accessible directly).
-     */
+    /* Copy command buffer from userspace (in this kernel, userspace pointers are accessible directly). */
     if (copy_from_user(cmd_buf, (const void *)(uintptr_t)args->command, args->size)) {
         free(cmd_buf);
         cmd_buf = NULL;
@@ -577,13 +588,19 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     if (!obj) return -ENOMEM;
 
     obj->hw_res_handle = virtgpu_resource_id_alloc(vgdev);
-    obj->format        = vgdev->has_virgl ? args->format : (args->format == VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM ? DRM_FORMAT_ARGB8888 : DRM_FORMAT_XRGB8888);
-    obj->width         = args->width;
-    obj->height        = args->height;
-    obj->stride        = args->width * 4;
-    obj->depth         = args->depth;
-    obj->ctx_id        = vgdev->has_virgl ? vfpriv->ctx_id : 0;
-    obj->created_3d    = vgdev->has_virgl;
+    if (vgdev->has_virgl) {
+        obj->format = args->format;
+    } else if (args->format == VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM) {
+        obj->format = DRM_FORMAT_ARGB8888;
+    } else {
+        obj->format = DRM_FORMAT_XRGB8888;
+    }
+    obj->width      = args->width;
+    obj->height     = args->height;
+    obj->stride     = args->width * 4;
+    obj->depth      = args->depth;
+    obj->ctx_id     = vgdev->has_virgl ? vfpriv->ctx_id : 0;
+    obj->created_3d = vgdev->has_virgl;
 
     ret = vgdev->has_virgl ? virtgpu_cmd_create_resource_3d(vgdev, obj, args) : virtgpu_cmd_create_resource_2d(vgdev, obj);
     if (ret) {
@@ -608,7 +625,6 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     args->bo_handle  = handle;
     args->res_handle = obj->hw_res_handle;
     args->size       = (uint32_t)size;
-    plogk("virtgpu: 3D resource created: handle=%u, res_id=%u, %ux%ux%u fmt=0x%x\n", handle, obj->hw_res_handle, args->width, args->height, args->depth, args->format);
     drm_gem_object_put(&obj->base);
     return 0;
 }
@@ -623,7 +639,7 @@ static int virtgpu_ioctl_resource_info(struct drm_device *dev, void *data, struc
     obj = drm_gem_object_lookup(file_priv, args->bo_handle);
     if (!obj) return -ENOENT;
 
-    args->size       = (uint32_t)obj->size;
+    args->size       = obj->size;
     args->res_handle = ((struct virtio_gpu_object *)obj)->hw_res_handle;
     args->blob_mem   = ((struct virtio_gpu_object *)obj)->blob_mem;
 
@@ -641,7 +657,8 @@ static int virtgpu_ioctl_transfer_from_host(struct drm_device *dev, void *data, 
     struct virtio_gpu_fpriv        *vfpriv = (struct virtio_gpu_fpriv *)file_priv->driver_priv;
     int                             ret;
 
-    if (!vgdev->has_virgl || !vfpriv) return -ENOSYS;
+    if (!vfpriv) return -EINVAL;
+    if (!vgdev->has_virgl) return -EOPNOTSUPP;
     ret = virtgpu_ensure_context(vgdev, vfpriv);
     if (ret) return ret;
 
@@ -743,7 +760,7 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
 
     (void)file_priv;
 
-    if (!vgdev->num_capsets) return -ENOSYS;
+    if (!vgdev->num_capsets) return -EOPNOTSUPP;
     if (!args->addr || !args->size || args->pad) return -EINVAL;
 
     for (uint32_t i = 0; i < vgdev->num_capsets; i++) {
@@ -792,7 +809,7 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
         return -ENOMEM;
     }
 
-    /* Copy out under the lock so the cached buffer cannot be freed/replaced by a racing ioctl while we read it. */
+    /* Copy out under the lock so the cached buffer cannot be freed or replaced concurrently. */
     memcpy(user_copy, caps_data, copy_size);
     spin_unlock(&vgdev->capset_lock);
     ret = copy_to_user((void *)(uintptr_t)args->addr, user_copy, copy_size) ? -EFAULT : 0;
@@ -879,7 +896,6 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
 
     args->bo_handle  = handle;
     args->res_handle = obj->hw_res_handle;
-    plogk("virtgpu: Blob resource created: handle=%u, res_id=%u, size=%llu, mem=%u flags=0x%x\n", handle, obj->hw_res_handle, args->size, args->blob_mem, args->blob_flags);
     drm_gem_object_put(&obj->base);
     return 0;
 }
@@ -951,15 +967,44 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
     /* The host command sleeps on the response; it must not run under a spinlock (IRQs masked) or the single-CPU target deadlocks. */
     ret = virtgpu_cmd_ctx_create(vgdev, vfpriv->ctx_id, context_init, seen_name ? vfpriv->debug_name : NULL, seen_name ? (uint32_t)strlen(vfpriv->debug_name) : 0);
 
-    /* Publish under the lock; a racing creator that won sets the flag and turns our failure (context already exists at the host) into success. */
+    /* Publish under the lock; a racing creator that won sets the flag. */
     spin_lock(&vfpriv->context_lock);
     if (!ret && !vfpriv->context_created) vfpriv->context_created = true;
     if (ret && vfpriv->context_created) ret = 0;
     spin_unlock(&vfpriv->context_lock);
     if (ret) return ret;
 
-    plogk("virtgpu: Context created: ctx_id=%u capset=%u rings=%u\n", vfpriv->ctx_id, context_init, num_rings);
     return 0;
+}
+
+/*
+ * DRM fourcc -> VirtIO GPU format constant.  The spec's B8G8R8X8/B8G8R8A8
+ * byte-order names are the little-endian x86 images of XRGB8888/ARGB8888;
+ * scanout exposes only those two 2D formats and must not silently
+ * reinterpret anything else.  Returns 0 if unsupported.
+ */
+uint32_t virtgpu_drm_format_to_virtio(uint32_t drm_fourcc)
+{
+    switch (drm_fourcc) {
+        case DRM_FORMAT_XRGB8888 :
+            return VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM;
+        case DRM_FORMAT_ARGB8888 :
+            return VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM;
+        default :
+            return 0;
+    }
+}
+
+/*
+ * XRGB8888 and ARGB8888 have the same byte and colour-channel layout; only
+ * the meaning of the high byte differs.  A final scanout is opaque, so a 2D
+ * XRGB resource can safely back an ARGB framebuffer view (and vice versa).
+ */
+bool virtgpu_2d_formats_compatible(uint32_t resource_format, uint32_t framebuffer_format)
+{
+    if (resource_format == framebuffer_format) return true;
+
+    return (resource_format == DRM_FORMAT_XRGB8888 && framebuffer_format == DRM_FORMAT_ARGB8888) || (resource_format == DRM_FORMAT_ARGB8888 && framebuffer_format == DRM_FORMAT_XRGB8888);
 }
 
 /* Page-flip: switch scanout to a new framebuffer (called from KMS) */
@@ -1000,10 +1045,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
          */
         if (fb->width > obj->width || fb->height > obj->height || fb->pitches[0] != obj->stride || fb->offsets[0] || !virtgpu_2d_formats_compatible(obj->format, fb->format)) return -EINVAL;
 
-        /*
-         * Submit the full flip as one ordered batch and avoid rebinding an
-         * object that is already the active scanout.
-         */
+        /* Submit the full flip as one ordered batch and avoid rebinding an object that is already the active scanout. */
         bool layout_changed = !vgdev->current_scanout_obj || vgdev->current_scanout_width != fb->width || vgdev->current_scanout_height != fb->height || vgdev->current_scanout_stride != fb->pitches[0]
                               || vgdev->current_scanout_offset != fb->offsets[0];
         ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, fb->width, fb->height, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
@@ -1090,10 +1132,8 @@ int virtio_gpu_driver_init(void)
 
     vgdev->resource_idr_lock.lock = 0;
     vgdev->context_idr_lock.lock  = 0;
-    vgdev->ctrlq_cmd_busy         = 0;
-    vgdev->cursorq_cmd_busy       = 0;
-    wait_queue_init(&vgdev->ctrlq_cmd_wait);
-    wait_queue_init(&vgdev->cursorq_cmd_wait);
+    mutex_init(&vgdev->ctrlq_cmd_lock);
+    mutex_init(&vgdev->cursorq_cmd_lock);
     wait_queue_init(&vgdev->ctrlq_complete_wait);
     wait_queue_init(&vgdev->cursorq_complete_wait);
     vgdev->irq_vector       = -1;
@@ -1170,13 +1210,14 @@ int virtio_gpu_driver_init(void)
 
     /*
      * Initialise the GPU first (display info, EDID, KMS pipeline and the
-     * initial modeset) and only then publish the device to the DRM core,
-     * like Linux: the boot log shows the virtio-gpu info before the
+     * initial modeset) and only then publish the device to the DRM core.
+     * The boot log shows the virtio-gpu info before the
      * "drm: Initialized virtio_gpu" banner.
      */
     ret = virtgpu_kms_init(vgdev);
     if (ret) {
         DRM_ERROR("KMS init failed: %d (continuing with render only)\n", ret);
+
         /* Non-fatal - render node still works */
     }
 
@@ -1199,25 +1240,13 @@ int virtio_gpu_driver_init(void)
     return 0;
 }
 
-/* Initialisation hook - called from kernel init */
-
-/*
- * GPU probe callback, registered as "virtio_gpu" with the GPU driver bus
- * and driven by gpu_drivers_probe().  Returns 0 if a device was attached.
- */
+/* GPU probe callback, registered as "virtio_gpu" with the GPU driver bus and driven by gpu_drivers_probe().  Returns 0 if a device was attached. */
 int virtio_gpu_probe(void)
 {
-#if CONFIG_VIRTIO_GPU
     return virtio_gpu_driver_init();
-#else
-    return -ENODEV;
-#endif
 }
 
-/*
- * Return the probed virtio-gpu device, or NULL if no device was found.
- * This is driver-private state; the DRM core itself never needs it.
- */
+/* Return the probed virtio-gpu device, or NULL if no device was found. This is driver-private state; the DRM core itself never needs it. */
 void *virtio_gpu_get_device(void)
 {
     return virtio_gpu_probed_device;
@@ -1228,3 +1257,5 @@ void virtio_gpu_module_exit(void)
 {
     /* No-op: device lifecycle is managed by the DRM release callback. */
 }
+
+#endif

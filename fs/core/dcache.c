@@ -9,13 +9,12 @@
 
 #include <fs/core/dcache.h>
 #include <fs/core/vfs.h>
-#include <libs/std/stdbool.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <sync/spin_lock.h>
 
-#define VFS_DCACHE_BUCKETS      1024U
-#define VFS_DCACHE_MAX_NEGATIVE 4096U
+#define DCACHE_INC(field) ((void)__atomic_add_fetch(&dcache_stats.field, 1, __ATOMIC_RELAXED))
+#define DCACHE_DEC(field) ((void)__atomic_sub_fetch(&dcache_stats.field, 1, __ATOMIC_RELAXED))
+#define DCACHE_TICK()     __atomic_add_fetch(&dcache_clock, 1, __ATOMIC_RELAXED)
 
 typedef struct vfs_negative_dentry {
         struct vfs_negative_dentry *next;
@@ -32,14 +31,11 @@ typedef struct vfs_dcache_bucket {
         vfs_negative_dentry_t *negative;
 } vfs_dcache_bucket_t;
 
-static vfs_dcache_bucket_t dcache_buckets[VFS_DCACHE_BUCKETS];
+static vfs_dcache_bucket_t dcache_buckets[CONFIG_VFS_DCACHE_BUCKETS];
 static vfs_dcache_stats_t  dcache_stats;
 static uint64_t            dcache_clock;
 
-#define DCACHE_INC(field) ((void)__atomic_add_fetch(&dcache_stats.field, 1, __ATOMIC_RELAXED))
-#define DCACHE_DEC(field) ((void)__atomic_sub_fetch(&dcache_stats.field, 1, __ATOMIC_RELAXED))
-#define DCACHE_TICK()     __atomic_add_fetch(&dcache_clock, 1, __ATOMIC_RELAXED)
-
+/* Dcache hash name. */
 static uint64_t dcache_hash_name(vfs_node_t parent, const char *name)
 {
     uint64_t hash = 1469598103934665603ULL ^ (uint64_t)(uintptr_t)parent;
@@ -51,11 +47,13 @@ static uint64_t dcache_hash_name(vfs_node_t parent, const char *name)
     return hash;
 }
 
+/* Dcache bucket. */
 static vfs_dcache_bucket_t *dcache_bucket(uint64_t hash)
 {
-    return &dcache_buckets[hash & (VFS_DCACHE_BUCKETS - 1)];
+    return &dcache_buckets[hash & (CONFIG_VFS_DCACHE_BUCKETS - 1)];
 }
 
+/* VFS operation: dcache init. */
 void vfs_dcache_init(void)
 {
     memset(dcache_buckets, 0, sizeof(dcache_buckets));
@@ -63,6 +61,7 @@ void vfs_dcache_init(void)
     dcache_clock = 0;
 }
 
+/* VFS operation: dcache lookup. */
 enum vfs_dcache_result vfs_dcache_lookup(vfs_node_t parent, const char *name, vfs_node_t *node)
 {
     if (node) *node = NULL;
@@ -72,7 +71,7 @@ enum vfs_dcache_result vfs_dcache_lookup(vfs_node_t parent, const char *name, vf
     vfs_dcache_bucket_t *bucket = dcache_bucket(hash);
     spin_lock(&bucket->lock);
     for (vfs_node_t item = bucket->positive; item; item = item->dcache_next) {
-        if (item->dcache_hash != hash || item->parent != parent || !item->name || strcmp(item->name, name)) continue;
+        if (item->dcache_hash != hash || item->parent != parent || !item->name || strcmp(item->name, name) != 0) continue;
         if (item->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING) || (item->type & file_delete)) break;
         DCACHE_INC(positive_hits);
         if (node) *node = item;
@@ -80,7 +79,7 @@ enum vfs_dcache_result vfs_dcache_lookup(vfs_node_t parent, const char *name, vf
         return VFS_DCACHE_POSITIVE;
     }
     for (vfs_negative_dentry_t *item = bucket->negative; item; item = item->next) {
-        if (item->hash != hash || item->parent != parent || strcmp(item->name, name)) continue;
+        if (item->hash != hash || item->parent != parent || strcmp(item->name, name) != 0) continue;
         if (item->generation == __atomic_load_n(&parent->dcache_generation, __ATOMIC_ACQUIRE)) {
             item->age = DCACHE_TICK();
             DCACHE_INC(negative_hits);
@@ -94,6 +93,7 @@ enum vfs_dcache_result vfs_dcache_lookup(vfs_node_t parent, const char *name, vf
     return VFS_DCACHE_MISS;
 }
 
+/* VFS operation: dcache add. */
 void vfs_dcache_add(vfs_node_t node)
 {
     if (!node || !node->parent || !node->name || !node->name[0] || node->dcache_hashed) return;
@@ -112,6 +112,7 @@ void vfs_dcache_add(vfs_node_t node)
     vfs_dcache_invalidate(node->parent, node->name);
 }
 
+/* VFS operation: dcache remove. */
 void vfs_dcache_remove(vfs_node_t node)
 {
     if (!node || !node->dcache_hashed) return;
@@ -128,6 +129,7 @@ void vfs_dcache_remove(vfs_node_t node)
     spin_unlock(&bucket->lock);
 }
 
+/* VFS operation: dcache add negative. */
 void vfs_dcache_add_negative(vfs_node_t parent, const char *name)
 {
     if (!parent || !name || !name[0]) return;
@@ -161,9 +163,10 @@ void vfs_dcache_add_negative(vfs_node_t parent, const char *name)
     DCACHE_INC(insertions);
     spin_unlock(&bucket->lock);
 
-    if (__atomic_load_n(&dcache_stats.negative_entries, __ATOMIC_RELAXED) > VFS_DCACHE_MAX_NEGATIVE) (void)vfs_dcache_reclaim(64);
+    if (__atomic_load_n(&dcache_stats.negative_entries, __ATOMIC_RELAXED) > CONFIG_VFS_DCACHE_MAX_NEGATIVE) (void)vfs_dcache_reclaim(64);
 }
 
+/* VFS operation: dcache invalidate. */
 void vfs_dcache_invalidate(vfs_node_t parent, const char *name)
 {
     if (!parent || !name || !name[0]) return;
@@ -193,12 +196,13 @@ void vfs_dcache_invalidate(vfs_node_t parent, const char *name)
     }
 }
 
+/* VFS operation: dcache invalidate parent. */
 void vfs_dcache_invalidate_parent(vfs_node_t parent)
 {
     if (!parent) return;
     if (!__atomic_add_fetch(&parent->dcache_generation, 1, __ATOMIC_ACQ_REL)) __atomic_store_n(&parent->dcache_generation, 1, __ATOMIC_RELEASE);
 
-    for (size_t index = 0; index < VFS_DCACHE_BUCKETS; index++) {
+    for (size_t index = 0; index < CONFIG_VFS_DCACHE_BUCKETS; index++) {
         vfs_dcache_bucket_t   *bucket = &dcache_buckets[index];
         vfs_negative_dentry_t *dead   = NULL;
         spin_lock(&bucket->lock);
@@ -224,13 +228,14 @@ void vfs_dcache_invalidate_parent(vfs_node_t parent)
     }
 }
 
+/* VFS operation: dcache reclaim. */
 size_t vfs_dcache_reclaim(size_t target)
 {
     size_t reclaimed = 0;
     if (!target) return 0;
 
     /* Stale generations are always preferred; otherwise evict bucket tails. */
-    for (size_t index = 0; index < VFS_DCACHE_BUCKETS && reclaimed < target; index++) {
+    for (size_t index = 0; index < CONFIG_VFS_DCACHE_BUCKETS && reclaimed < target; index++) {
         vfs_dcache_bucket_t   *bucket = &dcache_buckets[index];
         vfs_negative_dentry_t *dead   = NULL;
         spin_lock(&bucket->lock);
@@ -258,6 +263,7 @@ size_t vfs_dcache_reclaim(size_t target)
     return reclaimed;
 }
 
+/* VFS operation: dcache get stats. */
 void vfs_dcache_get_stats(vfs_dcache_stats_t *stats)
 {
     if (!stats) return;

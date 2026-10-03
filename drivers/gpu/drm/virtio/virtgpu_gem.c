@@ -9,14 +9,10 @@
  */
 
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
-#include <drivers/gpu/drm/virtio/virtgpu_gem.h>
 #include <drivers/gpu/drm/virtio/virtgpu_kms.h>
-#include <kernel/printk.h>
-#include <mem/alloc.h>
 #include <mem/frame.h>
-#include <mem/heap.h>
-#include <mem/hhdm.h>
-#include <mem/page.h>
+
+#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Allocate a GEM object backed by physically contiguous frames. */
 struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_t size)
@@ -45,7 +41,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         obj->backing_page_count = ALIGN_UP(size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
         obj->backing_phys       = alloc_frames(obj->backing_page_count);
         if (!obj->backing_phys) {
-            DRM_ERROR("GEM backing frame allocation failed (%lu pages)\n", (unsigned long)obj->backing_page_count);
+            DRM_ERROR("GEM backing frame allocation failed (%llu pages)\n", obj->backing_page_count);
             free(obj);
             return NULL;
         }
@@ -56,7 +52,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         obj->num_entries = 1;
         obj->entries     = malloc(sizeof(struct virtio_gpu_mem_entry));
         if (!obj->entries) {
-            DRM_ERROR("GEM memory entry allocation failed (size=%lu)\n", (unsigned long)size);
+            DRM_ERROR("GEM memory entry allocation failed (size=%llu)\n", size);
             free_frames(obj->backing_phys, obj->backing_page_count);
             free(obj);
             return NULL;
@@ -67,7 +63,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
     }
 
     if (size && drm_gem_create_mmap_offset(&obj->base)) {
-        DRM_ERROR("GEM mmap offset allocation failed (size=%lu)\n", (unsigned long)size);
+        DRM_ERROR("GEM mmap offset allocation failed (size=%llu)\n", size);
         free(obj->entries);
         free_frames(obj->backing_phys, obj->backing_page_count);
         free(obj);
@@ -165,7 +161,6 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
 
     args->handle = handle;
     drm_gem_object_put(&obj->base);
-    DRM_INFO("Dumb buffer created: %ux%u, pitch=%u, size=%llu, handle=%u\n", args->width, args->height, args->pitch, args->size, handle);
     return 0;
 }
 
@@ -192,8 +187,6 @@ int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *d
     return 0;
 }
 
-/* PRIME export / import (dma-buf) */
-
 /* Export a GEM object as a PRIME dma-buf fd. */
 int virtgpu_gem_prime_export(struct drm_device *dev, struct drm_gem_object *obj, int *prime_fd)
 {
@@ -210,3 +203,5 @@ struct drm_gem_object *virtgpu_gem_prime_import(struct drm_device *dev, void *dm
     drm_gem_object_get(obj);
     return obj;
 }
+
+#endif

@@ -9,17 +9,11 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <sync/spin_lock.h>
 
-/* Internal helper from drm_mode_object.c */
+#if CONFIG_DRM
 
 /*
  * drm_mode_create - Allocate and register a new display mode object.
@@ -53,14 +47,14 @@ struct drm_display_mode *drm_mode_create(struct drm_device *dev)
 /* Unregister and free a display mode object. */
 void drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode)
 {
-    if (!dev || !mode) return;
-
+    if (!mode) return;
     ilist_remove(&mode->head);
 
-    spin_lock(&dev->mode_config.idr_mutex);
-    drm_idr_remove(&dev->mode_config.object_idr, mode->base.id);
-    spin_unlock(&dev->mode_config.idr_mutex);
-
+    if (dev) {
+        spin_lock(&dev->mode_config.idr_mutex);
+        drm_idr_remove(&dev->mode_config.object_idr, mode->base.id);
+        spin_unlock(&dev->mode_config.idr_mutex);
+    }
     free(mode);
 }
 
@@ -209,3 +203,5 @@ struct drm_display_mode *drm_mode_duplicate(struct drm_device *dev, const struct
 
     return nmode;
 }
+
+#endif

@@ -1,23 +1,21 @@
 /*
  *
  *      ppdev.c
- *      /dev/parportN character device (Linux drivers/parport/ppdev.c analog)
+ *      /dev/parportN character device
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
-#include <arch/common.h>
 #include <drivers/base/device.h>
 #include <drivers/char/chrdev.h>
 #include <drivers/parport/parport.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <kernel/termios.h>
-#include <libs/std/stdint.h>
 #include <mem/heap.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 
 #define PP_MAJOR 99
 #define PP_IOCTL 'p'
@@ -41,6 +39,8 @@
 #define PPFCONTROL  _IOW(PP_IOCTL, 0x9e, struct ppdev_frob_struct)
 #define PP_MODE_SPP 0
 
+#if CONFIG_PARPORT
+
 struct ppdev_frob_struct {
         unsigned char mask;
         unsigned char val;
@@ -59,7 +59,7 @@ static int64_t ppdev_read(void *ctx, void *private_data, uint64_t flags, void *a
     (void)ctx;
     (void)flags;
     (void)offset;
-    if (!file || !file->port) return -EIO;
+    if (!file || !file->port) return -EINVAL;
     if (!addr || !size) return 0;
     uint8_t status   = parport_read_status(file->port);
     *(uint8_t *)addr = status;
@@ -74,7 +74,7 @@ static int64_t ppdev_write(void *ctx, void *private_data, uint64_t flags, const 
     (void)ctx;
     (void)flags;
     (void)offset;
-    if (!file || !file->port) return -EIO;
+    if (!file || !file->port) return -EINVAL;
     if (!addr || !size) return 0;
     for (size_t i = 0; i < size; i++) parport_write_data(file->port, in[i]);
     return (int64_t)size;
@@ -94,7 +94,7 @@ static int ppdev_claim(ppdev_file_t *file, bool force)
 {
     parport_t *p = file->port;
 
-    if (!p) return -EIO;
+    if (!p) return -EINVAL;
     if (file->claimed) return 0;
     if (!force && p->claimed) return -EBUSY;
     p->claimed    = true;
@@ -107,7 +107,7 @@ static int ppdev_release(ppdev_file_t *file)
 {
     parport_t *p = file->port;
 
-    if (!p) return -EIO;
+    if (!p) return -EINVAL;
     if (file->claimed) {
         p->claimed    = false;
         file->claimed = false;
@@ -125,7 +125,7 @@ static int ppdev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req
 
     (void)ctx;
     (void)flags;
-    if (!p) return -EIO;
+    if (!p) return -EINVAL;
 
     switch (request) {
         case PPCLAIM :
@@ -233,6 +233,8 @@ void ppdev_init(void)
         parport_t *p = parport_get(i);
         if (!p) continue;
         (void)snprintf(name, sizeof(name), "parport%d", p->number);
-        (void)cdev_add("", name, PP_MAJOR, p->number, 1, file_stream, 0666, &ppdev_operations);
+        if (cdev_add("", name, PP_MAJOR, p->number, 1, file_stream, 0666, &ppdev_operations) != EOK) plogk("ppdev: Cannot register /dev/%s\n", name);
     }
 }
+
+#endif

@@ -112,6 +112,8 @@ typedef struct {
         void (*write_response)(const char *buf, size_t len);
 } vt_ansi_callbacks_t;
 
+#if CONFIG_VT
+
 /* Initialize an ANSI terminal state for a @cols x @rows grid. */
 void vt_ansi_init(vt_ansi_state_t *state, uint32_t cols, uint32_t rows);
 
@@ -119,14 +121,12 @@ void vt_ansi_init(vt_ansi_state_t *state, uint32_t cols, uint32_t rows);
 void vt_ansi_process(vt_ansi_state_t *state, uint8_t c, const vt_ansi_callbacks_t *cb, void *arg);
 
 /* Set the default SGR foreground and background colors. */
-static inline void vt_ansi_set_default_colors(vt_ansi_state_t *s, uint32_t fg, uint32_t bg)
-{
-    s->default_fg  = fg;
-    s->default_bg  = bg;
-    s->fg_color.fg = fg;
-    s->fg_color.bg = fg;
-    s->bg_color.fg = bg;
-    s->bg_color.bg = bg;
-}
+void vt_ansi_set_default_colors(vt_ansi_state_t *s, uint32_t fg, uint32_t bg);
+
+#else
+static inline void vt_ansi_init(vt_ansi_state_t *, uint32_t, uint32_t) {}
+static inline void vt_ansi_process(vt_ansi_state_t *, uint8_t, const vt_ansi_callbacks_t *, void *) {}
+static inline void vt_ansi_set_default_colors(vt_ansi_state_t *, uint32_t, uint32_t) {}
+#endif
 
 #endif // INCLUDE_VT_ANSI_H_

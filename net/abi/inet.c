@@ -8,21 +8,24 @@
  *
  */
 
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
+#include <libs/util/byteorder.h>
 #include <mem/heap.h>
 #include <net/abi/inet.h>
-#include <net/core/netdev.h>
 #include <net/ipv4/icmp.h>
 #include <net/socket.h>
 #include <net/transport/tcp.h>
 #include <net/transport/udp.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <sync/signal.h>
+
+#if CONFIG_INET && CONFIG_NET
+
+#    define INET_POLLIN  0x001
+#    define INET_POLLOUT 0x004
+#    define INET_POLLERR 0x008
+#    define INET_POLLHUP 0x010
 
 static const struct inet_backend_ops *inet_ops;
 
@@ -104,12 +107,6 @@ void inet_sock_unref(void *sock)
     }
 }
 
-#define INET_POLLIN        0x001
-#define INET_POLLOUT       0x004
-#define INET_POLLERR       0x008
-#define INET_POLLHUP       0x010
-#define INET_TICKS_PER_SEC TIMER_HZ
-
 /*
  * This is the ABI-facing layer of the inet socket family. It wraps the
  * kernel's tcp/udp/icmp endpoints in an inet_core_socket_t and translates
@@ -117,15 +114,16 @@ void inet_sock_unref(void *sock)
  */
 
 /* Translate a socket timeval into timer ticks (UINT64_MAX if invalid) */
-static uint64_t inet_timeval_ticks(const socket_timeval_t *tv)
+static uint64_t inet_timeval_ticks(const linux_timeval_t *tv)
 {
     if (!tv || tv->tv_sec < 0 || tv->tv_usec < 0 || tv->tv_usec >= 1000000) return UINT64_MAX;
     if (!tv->tv_sec && !tv->tv_usec) return 0;
-    uint64_t ticks = (uint64_t)tv->tv_sec * INET_TICKS_PER_SEC;
-    ticks += ((uint64_t)tv->tv_usec * INET_TICKS_PER_SEC + 999999U) / 1000000U;
+    uint64_t ticks = (uint64_t)tv->tv_sec * CONFIG_TIMER_HZ;
+    ticks += ((uint64_t)tv->tv_usec * CONFIG_TIMER_HZ + 999999U) / 1000000U;
     return ticks ? ticks : 1;
 }
 
+/* Inet timed out. */
 static int inet_timed_out(uint64_t deadline)
 {
     return deadline && sched_ticks() >= deadline;
@@ -213,17 +211,6 @@ static uint64_t inet_event_snapshot(inet_core_socket_t *sock)
     return generation;
 }
 
-/* True when a signal can interrupt the current socket operation. */
-static bool inet_signal_pending(void)
-{
-    process_t *proc = process_current();
-    if (!proc) return false;
-    spin_lock(&proc->signal.lock);
-    bool pending = signal_has_interrupting_pending(&proc->signal);
-    spin_unlock(&proc->signal.lock);
-    return pending;
-}
-
 /* Block interruptibly until the event generation advances or the deadline passes. */
 static int inet_event_wait(inet_core_socket_t *sock, uint64_t generation, uint64_t deadline)
 {
@@ -234,34 +221,31 @@ static int inet_event_wait(inet_core_socket_t *sock, uint64_t generation, uint64
     }
     wait_queue_prepare(&sock->wait);
     spin_unlock(&sock->event_lock);
-    if (inet_signal_pending()) {
+    if (signal_has_interrupting_pending_current()) {
         wait_queue_cancel(&sock->wait);
         return -ERESTARTSYS;
     }
-    if (deadline)
+    if (deadline) {
         (void)wait_queue_wait_timed(&sock->wait, deadline);
-    else
+    } else {
         wait_queue_sleep();
-    return inet_signal_pending() ? -ERESTARTSYS : EOK;
+    }
+    return signal_has_interrupting_pending_current() ? -ERESTARTSYS : EOK;
 }
 
 /* Drain pending TCP data into the socket RX buffer. */
 static int inet_tcp_fill(inet_core_socket_t *sock)
 {
-    if (!sock->rx_data || sock->rx_length >= TCP_RX_BUFFER_MAX) return 0;
-    int ret = tcp_receive(sock->endpoint.tcp, sock->rx_data + sock->rx_length, TCP_RX_BUFFER_MAX - sock->rx_length);
+    if (!sock->rx_data || sock->rx_length >= CONFIG_TCP_RX_BUFFER_MAX) return 0;
+    int ret = tcp_receive(sock->endpoint.tcp, sock->rx_data + sock->rx_length, CONFIG_TCP_RX_BUFFER_MAX - sock->rx_length);
     if (ret > 0) sock->rx_length += (size_t)ret;
     return ret;
 }
 
+/* Abi be16. */
 static uint16_t abi_be16(uint16_t value)
 {
     return (uint16_t)((value << 8) | (value >> 8));
-}
-
-static uint32_t abi_be32(uint32_t value)
-{
-    return __builtin_bswap32(value);
 }
 
 /* True if the IPv6 address is the all-zeros unspecified address. */
@@ -278,9 +262,10 @@ static int inet6_is_mapped(const struct in6_addr *address)
     return memcmp(address->s6_addr, prefix, sizeof(prefix)) == 0;
 }
 
+/* Inet6 mapped ipv4. */
 static uint32_t inet6_mapped_ipv4(const struct in6_addr *address)
 {
-    return ((uint32_t)address->s6_addr[12] << 24) | ((uint32_t)address->s6_addr[13] << 16) | ((uint32_t)address->s6_addr[14] << 8) | address->s6_addr[15];
+    return load_be32(&address->s6_addr[12]);
 }
 
 /* Parse a sockaddr into the transport's native address/port form (v4 or mapped v6). */
@@ -292,7 +277,7 @@ static int inet_address(inet_core_socket_t *sock, const struct sockaddr *addr, u
         if (length < sizeof(sockaddr_in_t)) return -EINVAL;
         const sockaddr_in_t *in = (const sockaddr_in_t *)addr;
         if (in->sin_family != AF_INET) return -EAFNOSUPPORT;
-        *address = abi_be32(in->sin_addr.s_addr);
+        *address = bswap32(in->sin_addr.s_addr);
         *port    = abi_be16(in->sin_port);
         if (scope_id) *scope_id = 0;
         if (native6) *native6 = 0;
@@ -326,7 +311,7 @@ static void inet_make_address(sockaddr_in_t *addr, uint32_t address, uint16_t po
 {
     memset(addr, 0, sizeof(*addr));
     addr->sin_family      = AF_INET;
-    addr->sin_addr.s_addr = abi_be32(address);
+    addr->sin_addr.s_addr = bswap32(address);
     addr->sin_port        = abi_be16(port);
 }
 
@@ -357,29 +342,29 @@ static void inet6_make_native_address(sockaddr_in6_t *addr, const ipv6_address_t
     memcpy(addr->sin6_addr.s6_addr, address->bytes, 16);
 }
 
+/* Inet make socket address. */
 static void inet_make_socket_address(inet_core_socket_t *sock, struct sockaddr *addr, uint32_t address, uint16_t port, uint32_t scope_id)
 {
-    if (sock->family == AF_INET6)
+    if (sock->family == AF_INET6) {
         inet6_make_address((sockaddr_in6_t *)addr, address, port, scope_id);
-    else
+    } else {
         inet_make_address((sockaddr_in_t *)addr, address, port);
+    }
 }
 
+/* Inet socket address size. */
 static uint32_t inet_socket_address_size(const inet_core_socket_t *sock)
 {
     return sock->family == AF_INET6 ? sizeof(sockaddr_in6_t) : sizeof(sockaddr_in_t);
 }
 
-/*
- * Core socket operations
- * Each core_* function implements one of the socket_core_ops slots
- * and talks to the wrapped tcp/udp/icmp endpoint.
- */
+/* Core inet_backend_ops implementation, talking to the wrapped tcp/udp/icmp endpoint. */
 static int core_create(int family, int type, int protocol, uint32_t flags, void **context)
 {
     inet_core_socket_t *sock = calloc(1, sizeof(*sock));
     if (!sock) {
-        plogk("inet: Socket alloc failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("inet: Socket alloc failed.\n");
         return -ENOMEM;
     }
 
@@ -387,9 +372,9 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
     sock->type                = type;
     sock->protocol            = protocol;
     sock->flags               = flags;
-    sock->refcount            = 1; /* owned by the generic socket_t */
-    sock->sndbuf              = SOCK_BUF_SIZE;
-    sock->rcvbuf              = SOCK_BUF_SIZE;
+    sock->refcount            = 1; // owned by the generic socket_t
+    sock->sndbuf              = CONFIG_SOCK_BUF_SIZE;
+    sock->rcvbuf              = CONFIG_SOCK_BUF_SIZE;
     sock->ipv6_unicast_hops   = 64;
     sock->ipv6_multicast_hops = 1;
     sock->ipv6_multicast_loop = 1;
@@ -397,21 +382,24 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
 
     wait_queue_init(&sock->wait);
 
-    if (type == SOCK_DGRAM)
+    if (type == SOCK_DGRAM) {
         sock->endpoint.udp = udp_open_family((uint16_t)family);
-    else if (type == SOCK_STREAM)
+    } else if (type == SOCK_STREAM) {
         sock->endpoint.tcp = tcp_open_family((uint16_t)family);
-    else if (type == SOCK_RAW)
+    } else if (type == SOCK_RAW) {
         sock->endpoint.icmp = icmp_open();
+    }
     if ((type == SOCK_DGRAM && !sock->endpoint.udp) || (type == SOCK_STREAM && !sock->endpoint.tcp) || (type == SOCK_RAW && !sock->endpoint.icmp)) {
-        plogk("inet: Endpoint open failed (family=%u type=%u)\n", (unsigned)family, (unsigned)type);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("inet: Endpoint open failed (family=%u type=%u)\n", family, type);
         free(sock);
         return -ENOMEM;
     }
     if (type == SOCK_STREAM) {
-        sock->rx_data = malloc(TCP_RX_BUFFER_MAX);
+        sock->rx_data = malloc(CONFIG_TCP_RX_BUFFER_MAX);
         if (!sock->rx_data) {
-            plogk("inet: Socket RX buffer alloc failed (%u bytes)\n", (unsigned)TCP_RX_BUFFER_MAX);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("inet: Socket RX buffer alloc failed (%u bytes)\n", CONFIG_TCP_RX_BUFFER_MAX);
             tcp_close(sock->endpoint.tcp);
             free(sock);
             return -ENOMEM;
@@ -426,6 +414,7 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
     return EOK;
 }
 
+/* Core close. */
 static void core_close(void *context)
 {
     inet_core_socket_t *sock = context;
@@ -483,16 +472,17 @@ static int core_bind(void *context, const struct sockaddr *addr, uint32_t length
         if (!ret) sock->local_address = address;
         return ret;
     }
-    if (native6)
+    if (native6) {
         ret = sock->type == SOCK_DGRAM ? udp_bind6(sock->endpoint.udp, &address6, port) : tcp_bind6(sock->endpoint.tcp, &address6, port);
-    else
+    } else {
         ret = sock->type == SOCK_DGRAM ? udp_bind(sock->endpoint.udp, address, port) : tcp_bind(sock->endpoint.tcp, address, port);
+    }
     if (!ret) {
         sock->local_address  = address;
         sock->local_address6 = address6;
-        if (sock->type == SOCK_DGRAM)
+        if (sock->type == SOCK_DGRAM) {
             sock->local_port = udp_local_port(sock->endpoint.udp);
-        else {
+        } else {
             tcp_endpoint_info_t info;
             if (!tcp_get_info(sock->endpoint.tcp, &info)) sock->local_port = info.local_port;
         }
@@ -540,10 +530,11 @@ static int core_connect(void *context, const struct sockaddr *addr, uint32_t len
         int error        = tcp_get_error(sock->endpoint.tcp);
         return -(error ? error : ECONNREFUSED);
     }
-    if (native6)
+    if (native6) {
         ret = sock->type == SOCK_DGRAM ? udp_connect6(sock->endpoint.udp, &address6, port) : tcp_connect6(sock->endpoint.tcp, &address6, port);
-    else
+    } else {
         ret = sock->type == SOCK_DGRAM ? udp_connect(sock->endpoint.udp, address, port) : tcp_connect(sock->endpoint.tcp, address, port);
+    }
     if (!ret || ret == -EINPROGRESS) {
         sock->remote_address  = address;
         sock->remote_address6 = address6;
@@ -616,7 +607,8 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
 
     inet_core_socket_t *sock = calloc(1, sizeof(*sock));
     if (!sock) {
-        plogk("inet: Accept socket alloc failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("inet: Accept socket alloc failed.\n");
         tcp_close(endpoint);
         return -ENOMEM;
     }
@@ -625,7 +617,7 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
     sock->family              = listener->family;
     sock->protocol            = IPPROTO_TCP;
     sock->flags               = flags;
-    sock->refcount            = 1; /* owned by the generic socket_t */
+    sock->refcount            = 1; // owned by the generic socket_t
     sock->sndbuf              = listener->sndbuf;
     sock->rcvbuf              = listener->rcvbuf;
     sock->sndtimeo_ticks      = listener->sndtimeo_ticks;
@@ -646,10 +638,11 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
     sock->local_address = listener->local_address;
     sock->local_port    = listener->local_port;
     sock->endpoint.tcp  = endpoint;
-    sock->rx_data       = malloc(TCP_RX_BUFFER_MAX);
+    sock->rx_data       = malloc(CONFIG_TCP_RX_BUFFER_MAX);
 
     if (!sock->rx_data) {
-        plogk("inet: Accept socket RX buffer alloc failed (%u bytes)\n", (unsigned)TCP_RX_BUFFER_MAX);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("inet: Accept socket RX buffer alloc failed (%u bytes)\n", CONFIG_TCP_RX_BUFFER_MAX);
         tcp_close(endpoint);
         free(sock);
         return -ENOMEM;
@@ -665,10 +658,11 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
         sock->remote_address6 = info.remote_address6;
         sock->remote_port     = info.remote_port;
         if (addr && addrlen) {
-            if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&info.remote_address6))
+            if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&info.remote_address6)) {
                 inet6_make_native_address((sockaddr_in6_t *)addr, &info.remote_address6, info.remote_port, sock->remote_scope_id);
-            else
+            } else {
                 inet_make_socket_address(sock, addr, info.remote_address, info.remote_port, sock->remote_scope_id);
+            }
             *addrlen = inet_socket_address_size(sock);
         }
     }
@@ -800,10 +794,11 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
         }
     } while (1);
     if (ret >= 0 && addr && addrlen) {
-        if (info.family == AF_INET6 && !ipv6_address_is_unspecified(&info.source_address6))
+        if (info.family == AF_INET6 && !ipv6_address_is_unspecified(&info.source_address6)) {
             inet6_make_native_address((sockaddr_in6_t *)addr, &info.source_address6, info.source_port, 0);
-        else
+        } else {
             inet_make_socket_address(sock, addr, info.source_address, info.source_port, 0);
+        }
         *addrlen = inet_socket_address_size(sock);
     }
     return ret;
@@ -838,10 +833,11 @@ static int core_getsockname(void *context, struct sockaddr *addr, uint32_t *addr
             sock->local_port     = info.local_port;
         }
     }
-    if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&sock->local_address6))
+    if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&sock->local_address6)) {
         inet6_make_native_address((sockaddr_in6_t *)addr, &sock->local_address6, sock->local_port, sock->local_scope_id);
-    else
+    } else {
         inet_make_socket_address(sock, addr, sock->local_address, sock->local_port, sock->local_scope_id);
+    }
     *addrlen = required;
     return EOK;
 }
@@ -853,10 +849,11 @@ static int core_getpeername(void *context, struct sockaddr *addr, uint32_t *addr
     if ((!sock->remote_address && ipv6_address_is_unspecified(&sock->remote_address6)) || (!sock->remote_port && sock->type != SOCK_RAW)) return -ENOTCONN;
     uint32_t required = inet_socket_address_size(sock);
     if (*addrlen < required) return -EINVAL;
-    if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&sock->remote_address6))
+    if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&sock->remote_address6)) {
         inet6_make_native_address((sockaddr_in6_t *)addr, &sock->remote_address6, sock->remote_port, sock->remote_scope_id);
-    else
+    } else {
         inet_make_socket_address(sock, addr, sock->remote_address, sock->remote_port, sock->remote_scope_id);
+    }
     *addrlen = required;
     return EOK;
 }
@@ -884,10 +881,11 @@ static int core_setsockopt(void *context, int level, int option, const void *val
             case IPV6_V6ONLY :
                 if (sock->local_port || sock->remote_port) return -EINVAL;
                 sock->v6only = val != 0;
-                if (sock->type == SOCK_DGRAM)
+                if (sock->type == SOCK_DGRAM) {
                     udp_set_v6only(sock->endpoint.udp, sock->v6only);
-                else
+                } else {
                     tcp_set_v6only(sock->endpoint.tcp, sock->v6only);
+                }
                 return EOK;
             case IPV6_UNICAST_HOPS :
                 if (val < -1 || val > 255) return -EINVAL;
@@ -939,13 +937,14 @@ static int core_setsockopt(void *context, int level, int option, const void *val
     }
     if (level != SOL_SOCKET) return -ENOPROTOOPT;
     if (option == SO_RCVTIMEO || option == SO_SNDTIMEO) {
-        if (length < sizeof(socket_timeval_t)) return -EINVAL;
+        if (length < sizeof(linux_timeval_t)) return -EINVAL;
         uint64_t ticks = inet_timeval_ticks(value);
         if (ticks == UINT64_MAX) return -EDOM;
-        if (option == SO_RCVTIMEO)
+        if (option == SO_RCVTIMEO) {
             sock->rcvtimeo_ticks = ticks;
-        else
+        } else {
             sock->sndtimeo_ticks = ticks;
+        }
         return EOK;
     }
     if (length < sizeof(int)) return -EINVAL;
@@ -962,12 +961,12 @@ static int core_setsockopt(void *context, int level, int option, const void *val
         case SO_SNDBUF :
         case SO_SNDBUFFORCE :
             if (val <= 0) return -EINVAL;
-            sock->sndbuf = (uint32_t)val > SOCK_BUF_MAX ? SOCK_BUF_MAX : (uint32_t)val;
+            sock->sndbuf = (uint32_t)val > CONFIG_SOCK_BUF_MAX ? CONFIG_SOCK_BUF_MAX : (uint32_t)val;
             return EOK;
         case SO_RCVBUF :
         case SO_RCVBUFFORCE :
             if (val <= 0) return -EINVAL;
-            sock->rcvbuf = (uint32_t)val > SOCK_BUF_MAX ? SOCK_BUF_MAX : (uint32_t)val;
+            sock->rcvbuf = (uint32_t)val > CONFIG_SOCK_BUF_MAX ? CONFIG_SOCK_BUF_MAX : (uint32_t)val;
             return EOK;
         case SO_ATTACH_FILTER :
         case SO_DETACH_FILTER :
@@ -1049,11 +1048,11 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
         return EOK;
     }
     if (level == SOL_SOCKET && (option == SO_RCVTIMEO || option == SO_SNDTIMEO)) {
-        if (*length < sizeof(socket_timeval_t)) return -EINVAL;
-        uint64_t         ticks = option == SO_RCVTIMEO ? sock->rcvtimeo_ticks : sock->sndtimeo_ticks;
-        socket_timeval_t tv    = {
-               .tv_sec  = (int64_t)(ticks / INET_TICKS_PER_SEC),
-               .tv_usec = (int64_t)((ticks % INET_TICKS_PER_SEC) * 1000000ULL / INET_TICKS_PER_SEC),
+        if (*length < sizeof(linux_timeval_t)) return -EINVAL;
+        uint64_t        ticks = option == SO_RCVTIMEO ? sock->rcvtimeo_ticks : sock->sndtimeo_ticks;
+        linux_timeval_t tv    = {
+               .tv_sec  = (int64_t)(ticks / CONFIG_TIMER_HZ),
+               .tv_usec = (int64_t)((ticks % CONFIG_TIMER_HZ) * 1000000ULL / CONFIG_TIMER_HZ),
         };
         memcpy(value, &tv, sizeof(tv));
         *length = sizeof(tv);
@@ -1064,26 +1063,33 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
         val = sock->nodelay;
     } else if (level == SOL_SOCKET && option == SO_TYPE)
         val = sock->type;
-    else if (level == SOL_SOCKET && option == SO_PROTOCOL)
+    else if (level == SOL_SOCKET && option == SO_PROTOCOL) {
         val = sock->protocol;
-    else if (level == SOL_SOCKET && option == SO_DOMAIN)
+    } else if (level == SOL_SOCKET && option == SO_DOMAIN) {
         val = sock->family;
-    else if (level == SOL_SOCKET && option == SO_ERROR)
-        val = sock->type == SOCK_STREAM ? tcp_get_error(sock->endpoint.tcp) : (sock->type == SOCK_DGRAM ? udp_get_error(sock->endpoint.udp) : 0);
-    else if (level == SOL_SOCKET && option == SO_ACCEPTCONN)
+    } else if (level == SOL_SOCKET && option == SO_ERROR)
+        if (sock->type == SOCK_STREAM) {
+            val = tcp_get_error(sock->endpoint.tcp);
+        } else if (sock->type == SOCK_DGRAM) {
+            val = udp_get_error(sock->endpoint.udp);
+        } else {
+            val = 0;
+        }
+    else if (level == SOL_SOCKET && option == SO_ACCEPTCONN) {
         val = sock->listening;
-    else if (level == SOL_SOCKET && option == SO_REUSEADDR)
+    } else if (level == SOL_SOCKET && option == SO_REUSEADDR) {
         val = sock->reuseaddr;
-    else if (level == SOL_SOCKET && option == SO_KEEPALIVE)
+    } else if (level == SOL_SOCKET && option == SO_KEEPALIVE) {
         val = sock->keepalive;
-    else if (level == SOL_SOCKET && (option == SO_SNDBUF || option == SO_SNDBUFFORCE))
+    } else if (level == SOL_SOCKET && (option == SO_SNDBUF || option == SO_SNDBUFFORCE)) {
         val = (int)sock->sndbuf;
-    else if (level == SOL_SOCKET && (option == SO_RCVBUF || option == SO_RCVBUFFORCE))
+    } else if (level == SOL_SOCKET && (option == SO_RCVBUF || option == SO_RCVBUFFORCE)) {
         val = (int)sock->rcvbuf;
-    else if (level == SOL_SOCKET && option == SO_PASSSEC)
+    } else if (level == SOL_SOCKET && option == SO_PASSSEC) {
         val = 0;
-    else
+    } else {
         return -ENOPROTOOPT;
+    }
     if (*length < sizeof(int)) return -EINVAL;
     memcpy(value, &val, sizeof(val));
     *length = sizeof(val);
@@ -1215,7 +1221,7 @@ static size_t core_proc_read(enum inet_proc_file file, char *buf, size_t capacit
         int n = snprintf(buf, capacity,
                          "Iface\tDestination Gateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
                          "%s\t00000000\t%08X\t0003\t0\t0\t0\t00000000\t0\t0\t0\n",
-                         dev->name, abi_be32(dev->ipv4_gateway));
+                         dev->name, bswap32(dev->ipv4_gateway));
         netdev_put(dev);
         if (n < 0) return 0;
         return (size_t)n < capacity ? (size_t)n : capacity;
@@ -1230,8 +1236,7 @@ static size_t core_proc_read(enum inet_proc_file file, char *buf, size_t capacit
                      "Inter-|   Receive                                                |  Transmit\n"
                      " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n"
                      "%6s: %llu %llu %llu %llu 0 0 0 0 %llu %llu %llu %llu 0 0 0 0\n",
-                     dev->name, (unsigned long long)stats.rx_bytes, (unsigned long long)stats.rx_packets, (unsigned long long)stats.rx_errors, (unsigned long long)stats.rx_dropped,
-                     (unsigned long long)stats.tx_bytes, (unsigned long long)stats.tx_packets, (unsigned long long)stats.tx_errors, (unsigned long long)stats.tx_dropped);
+                     dev->name, stats.rx_bytes, stats.rx_packets, stats.rx_errors, stats.rx_dropped, stats.tx_bytes, stats.tx_packets, stats.tx_errors, stats.tx_dropped);
     netdev_put(dev);
     if (n < 0) return 0;
     return (size_t)n < capacity ? (size_t)n : capacity;
@@ -1257,6 +1262,7 @@ static const struct inet_backend_ops core_ops = {
     .proc_read          = core_proc_read,
 };
 
+/* Inet backend register. */
 int inet_backend_register(const struct inet_backend_ops *ops)
 {
     if (!ops || !ops->create || !ops->close) return -EINVAL;
@@ -1265,17 +1271,20 @@ int inet_backend_register(const struct inet_backend_ops *ops)
     return EOK;
 }
 
+/* Inet backend get. */
 const struct inet_backend_ops *inet_backend_get(void)
 {
     return inet_ops;
 }
 
+/* Inet backend proc read. */
 size_t inet_backend_proc_read(enum inet_proc_file file, char *buf, size_t capacity)
 {
     if (!buf || !capacity || !inet_ops || !inet_ops->proc_read) return 0;
     return inet_ops->proc_read(file, buf, capacity);
 }
 
+/* Inet builtin backend register. */
 int inet_builtin_backend_register(void)
 {
     int status = inet_backend_register(&core_ops);
@@ -1285,3 +1294,5 @@ int inet_builtin_backend_register(void)
     status = ipv6_set_transport_handler(IPV6_NEXT_UDP, udp_input6);
     return status == -EBUSY ? EOK : status;
 }
+
+#endif

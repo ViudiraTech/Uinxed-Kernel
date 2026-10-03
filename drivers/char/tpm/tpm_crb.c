@@ -8,29 +8,14 @@
  *
  */
 
+#include <arch/common.h>
 #include <drivers/char/tpm/tpm.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
+#include <libs/util/byteorder.h>
 #include <mem/hhdm.h>
 
-/* Return the MMIO address of a CRB register. */
-static inline void *crb_reg_addr(tpm_device_t *dev, uint32_t offset)
-{
-    return (void *)((uintptr_t)dev->mmio_base + offset);
-}
-
-/* Read a 32-bit CRB register. */
-static inline uint32_t crb_read32(tpm_device_t *dev, uint32_t offset)
-{
-    return *(volatile uint32_t *)crb_reg_addr(dev, offset);
-}
-
-/* Write a 32-bit CRB register. */
-static inline void crb_write32(tpm_device_t *dev, uint32_t offset, uint32_t value)
-{
-    *(volatile uint32_t *)crb_reg_addr(dev, offset) = value;
-}
+#if CONFIG_TPM
 
 typedef struct crb_reg32_ctx {
         tpm_device_t *dev;
@@ -38,6 +23,24 @@ typedef struct crb_reg32_ctx {
         uint32_t      mask;
         uint32_t      expected;
 } crb_reg32_ctx_t;
+
+/* Return the MMIO address of a CRB register. */
+static void *crb_reg_addr(tpm_device_t *dev, uint32_t offset)
+{
+    return (void *)((uintptr_t)dev->mmio_base + offset);
+}
+
+/* Read a 32-bit CRB register. */
+static uint32_t crb_read32(tpm_device_t *dev, uint32_t offset)
+{
+    return mmio_read32(crb_reg_addr(dev, offset));
+}
+
+/* Write a 32-bit CRB register. */
+static void crb_write32(tpm_device_t *dev, uint32_t offset, uint32_t value)
+{
+    mmio_write32(crb_reg_addr(dev, offset), value);
+}
 
 /* Poll context: returns 1 when the register matches the expected mask. */
 static int check_reg32(void *ctx)
@@ -57,7 +60,7 @@ static int crb_wait_reg32(tpm_device_t *dev, uint32_t offset, uint32_t mask, uin
     ctx.expected = expected;
 
     if (check_reg32(&ctx)) return 0;
-    return tpm_poll_timeout(check_reg32, &ctx, timeout_ms) ? 0 : -1;
+    return tpm_poll_timeout(check_reg32, &ctx, timeout_ms) ? 0 : -ETIMEDOUT;
 }
 
 /* Return the CRB start status. */
@@ -91,7 +94,7 @@ static int crb_request_locality(tpm_device_t *dev, int l)
     crb_write32(dev, CRB_LOC_CTRL_OFFSET, CRB_LOC_CTRL_REQUEST_ACCESS);
 
     int rc = crb_wait_reg32(dev, CRB_LOC_STATE_OFFSET, value, value, dev->timeout_c);
-    if (rc < 0) return -1;
+    if (rc < 0) return -ETIMEDOUT;
     dev->locality = 0;
     return 0;
 }
@@ -136,7 +139,7 @@ static int crb_send(tpm_device_t *dev, uint8_t *buf, size_t len)
 {
     int rc;
 
-    if (len > dev->crb_cmd_size) return -1;
+    if (len > dev->crb_cmd_size) return -EINVAL;
     crb_write32(dev, CRB_CTRL_CANCEL_OFFSET, 0);
 
     /* Standard CRB (7,8): issue cmdReady */
@@ -160,7 +163,7 @@ static int crb_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
     uint64_t deadline;
     int      has_idle = (dev->crb_sm != ACPI_TPM2_START_METHOD);
 
-    if (maxlen < TPM_HEADER_SIZE) return -1;
+    if (maxlen < TPM_HEADER_SIZE) return -EINVAL;
 
     deadline = nano_time() + (uint64_t)dev->timeout_c * 1000000ULL;
     for (;;) {
@@ -168,7 +171,7 @@ static int crb_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
         if (sts & CRB_DRV_STS_COMPLETE) break;
         if (nano_time() >= deadline) {
             if (has_idle) crb_go_idle(dev);
-            return -1;
+            return -ETIMEDOUT;
         }
         tpm_udelay(200);
     }
@@ -176,16 +179,16 @@ static int crb_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
     uint32_t ctrl_sts = crb_read32(dev, CRB_CTRL_STS_OFFSET);
     if (ctrl_sts & CRB_CTRL_STS_ERROR) {
         if (has_idle) crb_go_idle(dev);
-        return -1;
+        return -EIO;
     }
 
     volatile uint8_t *rsp = (volatile uint8_t *)dev->crb_rsp_buf;
     for (int i = 0; i < TPM_HEADER_SIZE; i++) buf[i] = rsp[i];
 
-    expected = (buf[2] << 24) | (buf[3] << 16) | (buf[4] << 8) | buf[5];
+    expected = load_be32(&buf[2]);
     if (expected > (int)maxlen || expected < TPM_HEADER_SIZE) {
         if (has_idle) crb_go_idle(dev);
-        return -1;
+        return -EINVAL;
     }
 
     for (int i = TPM_HEADER_SIZE; i < expected; i++) buf[i] = rsp[i];
@@ -203,10 +206,7 @@ int tpm_crb_init(tpm_device_t *dev)
     int      is_acpi_start = (dev->crb_sm == ACPI_TPM2_START_METHOD);
 
     if (is_acpi_start) {
-        /*
-         * Method 2: no head registers, no cmdReady/goIdle.
-         * Locality is handled by ACPI/firmware.
-         */
+        /* Method 2: no head registers, no cmdReady/goIdle. Locality is handled by ACPI/firmware. */
         dev->request_locality    = crb_nop_req_locality;
         dev->relinquish_locality = crb_nop_rel_locality;
         dev->ready               = NULL;
@@ -219,14 +219,14 @@ int tpm_crb_init(tpm_device_t *dev)
         rc = crb_request_locality(dev, 0);
         if (rc < 0) {
             plogk("tpm_crb: Failed to request locality.\n");
-            return -1;
+            return -EIO;
         }
 
         rc = crb_cmd_ready(dev);
         if (rc < 0) {
             plogk("tpm_crb: Failed to enter command-ready state.\n");
             crb_relinquish_locality(dev, 0);
-            return -1;
+            return -EIO;
         }
 
         dev->request_locality    = crb_request_locality;
@@ -253,16 +253,17 @@ int tpm_crb_init(tpm_device_t *dev)
             crb_go_idle(dev);
             crb_relinquish_locality(dev, 0);
         }
-        return -1;
+        return -EINVAL;
     }
 
     dev->crb_cmd_buf  = phys_to_virt(cmd_pa);
     dev->crb_cmd_size = cmd_size;
 
-    if (rsp_pa != cmd_pa && rsp_pa != 0)
+    if (rsp_pa != cmd_pa && rsp_pa != 0) {
         dev->crb_rsp_buf = phys_to_virt(rsp_pa);
-    else
+    } else {
         dev->crb_rsp_buf = dev->crb_cmd_buf;
+    }
 
     dev->status = crb_status;
     dev->send   = crb_send;
@@ -275,3 +276,5 @@ int tpm_crb_init(tpm_device_t *dev)
     }
     return 0;
 }
+
+#endif

@@ -8,51 +8,24 @@
  *
  */
 
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <net/core/endian.h>
 #include <net/ipv4/dhcp.h>
 #include <net/transport/udp.h>
 
-#define DHCP_SERVER_PORT      67U
-#define DHCP_CLIENT_PORT      68U
-#define DHCP_FIXED_LENGTH     240U
-#define DHCP_PACKET_CAPACITY  576U
-#define DHCP_TICKS_PER_SECOND TIMER_HZ
-#define DHCP_INITIAL_RETRY    DHCP_TICKS_PER_SECOND
-#define DHCP_MAX_RETRY        (16U * DHCP_TICKS_PER_SECOND)
-#define DHCP_RETRY_LIMIT      5U
-#define DHCP_DEFAULT_LEASE    3600U
-#define DHCP_MAGIC_COOKIE     0x63825363U
+#if CONFIG_INET && CONFIG_NET
+
+#    define DHCP_PACKET_CAPACITY 576U
+#    define DHCP_MAX_RETRY       (16U * CONFIG_TIMER_HZ)
+#    define DHCP_RETRY_LIMIT     5U
+#    define DHCP_DEFAULT_LEASE   3600U
 
 /*
  * DHCP client: sends DISCOVER/REQUEST over UDP, parses OFFER/ACK options,
  * and applies the obtained address, netmask, router and DNS server to the
  * interface, with lease-renewal retry logic.
  */
-
-#define DHCP_OPT_PAD            0U
-#define DHCP_OPT_NETMASK        1U
-#define DHCP_OPT_ROUTER         3U
-#define DHCP_OPT_DNS            6U
-#define DHCP_OPT_REQUESTED_IP   50U
-#define DHCP_OPT_LEASE          51U
-#define DHCP_OPT_MESSAGE_TYPE   53U
-#define DHCP_OPT_SERVER_ID      54U
-#define DHCP_OPT_PARAMETER_LIST 55U
-#define DHCP_OPT_MAX_MESSAGE    57U
-#define DHCP_OPT_RENEWAL        58U
-#define DHCP_OPT_REBINDING      59U
-#define DHCP_OPT_CLIENT_ID      61U
-#define DHCP_OPT_END            255U
-
-#define DHCP_DISCOVER 1U
-#define DHCP_OFFER    2U
-#define DHCP_REQUEST  3U
-#define DHCP_ACK      5U
-#define DHCP_NAK      6U
 
 typedef enum dhcp_state {
     DHCP_STATE_WAIT_LINK,
@@ -79,7 +52,7 @@ typedef struct dhcp_client {
         uint64_t      rebinding_at;
 } dhcp_client_t;
 
-static dhcp_client_t   clients[NETDEV_MAX];
+static dhcp_client_t   clients[CONFIG_NETDEV_MAX];
 static udp_endpoint_t *dhcp_endpoint;
 static spinlock_t      dhcp_lock;
 static uint32_t        xid_sequence = 0x55495844U;
@@ -87,7 +60,7 @@ static uint32_t        xid_sequence = 0x55495844U;
 /* Convert a lease duration in seconds to scheduler ticks. */
 static uint64_t dhcp_seconds_to_ticks(uint32_t seconds)
 {
-    return (uint64_t)seconds * DHCP_TICKS_PER_SECOND;
+    return (uint64_t)seconds * CONFIG_TIMER_HZ;
 }
 
 /* Compute a deadline tick count from now + delay, saturating on overflow. */
@@ -99,7 +72,7 @@ static uint64_t dhcp_deadline(uint64_t now, uint64_t delay)
 /* Exponential backoff delay for a retry count, capped at the maximum. */
 static uint64_t dhcp_retry_delay(uint8_t retries)
 {
-    uint64_t delay = DHCP_INITIAL_RETRY << (retries > 4 ? 4 : retries);
+    uint64_t delay = CONFIG_TIMER_HZ << (retries > 4 ? 4 : retries);
     return delay > (uint64_t)DHCP_MAX_RETRY ? (uint64_t)DHCP_MAX_RETRY : delay;
 }
 
@@ -149,37 +122,37 @@ static int dhcp_parse_options(const uint8_t *options, size_t length, dhcp_reply_
                 break;
             case DHCP_OPT_SERVER_ID :
                 if (option_length != 4) return -EBADMSG;
-                reply->server_identifier = net_read_be32(value);
+                reply->server_identifier = load_be32(value);
                 break;
             case DHCP_OPT_NETMASK :
                 if (option_length != 4) return -EBADMSG;
-                reply->netmask     = net_read_be32(value);
+                reply->netmask     = load_be32(value);
                 reply->has_netmask = 1;
                 break;
             case DHCP_OPT_ROUTER :
                 if (option_length < 4 || (option_length & 3U)) return -EBADMSG;
-                reply->gateway     = net_read_be32(value);
+                reply->gateway     = load_be32(value);
                 reply->has_gateway = 1;
                 break;
             case DHCP_OPT_DNS :
                 if (!option_length || (option_length & 3U)) return -EBADMSG;
-                reply->dns_count = (uint8_t)(option_length / 4U > NETDEV_DNS_MAX ? NETDEV_DNS_MAX : option_length / 4U);
-                for (uint8_t i = 0; i < reply->dns_count; i++) reply->dns[i] = net_read_be32(value + (size_t)i * 4U);
+                reply->dns_count = (uint8_t)(option_length / 4U > CONFIG_NETDEV_DNS_MAX ? CONFIG_NETDEV_DNS_MAX : option_length / 4U);
+                for (uint8_t i = 0; i < reply->dns_count; i++) reply->dns[i] = load_be32(value + ((size_t)i * 4U));
                 reply->has_dns = 1;
                 break;
             case DHCP_OPT_LEASE :
                 if (option_length != 4) return -EBADMSG;
-                reply->lease_seconds = net_read_be32(value);
+                reply->lease_seconds = load_be32(value);
                 reply->has_lease     = 1;
                 break;
             case DHCP_OPT_RENEWAL :
                 if (option_length != 4) return -EBADMSG;
-                reply->renewal_seconds = net_read_be32(value);
+                reply->renewal_seconds = load_be32(value);
                 reply->has_renewal     = 1;
                 break;
             case DHCP_OPT_REBINDING :
                 if (option_length != 4) return -EBADMSG;
-                reply->rebinding_seconds = net_read_be32(value);
+                reply->rebinding_seconds = load_be32(value);
                 reply->has_rebinding     = 1;
                 break;
             default :
@@ -195,11 +168,10 @@ int dhcp_parse_reply(const void *data, size_t length, uint32_t expected_xid, con
 {
     if (!data || !hardware_address || !reply || length < DHCP_FIXED_LENGTH) return -EBADMSG;
     const uint8_t *packet = data;
-    if (packet[0] != 2 || packet[1] != 1 || packet[2] != 6 || net_read_be32(packet + 4) != expected_xid || memcmp(packet + 28, hardware_address, 6) != 0
-        || net_read_be32(packet + 236) != DHCP_MAGIC_COOKIE)
+    if (packet[0] != 2 || packet[1] != 1 || packet[2] != 6 || load_be32(packet + 4) != expected_xid || memcmp(packet + 28, hardware_address, 6) != 0 || load_be32(packet + 236) != DHCP_MAGIC_COOKIE)
         return -EBADMSG;
     memset(reply, 0, sizeof(*reply));
-    reply->offered_address = net_read_be32(packet + 16);
+    reply->offered_address = load_be32(packet + 16);
     return dhcp_parse_options(packet + DHCP_FIXED_LENGTH, length - DHCP_FIXED_LENGTH, reply);
 }
 
@@ -220,11 +192,11 @@ static int dhcp_send(dhcp_client_t *client, uint8_t message_type, int broadcast)
     packet[0] = 1;
     packet[1] = 1;
     packet[2] = 6;
-    net_write_be32(packet + 4, client->xid);
-    if (broadcast) net_write_be16(packet + 10, 0x8000U);
-    if (client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING) net_write_be32(packet + 12, client->device->ipv4_address);
+    store_be32(packet + 4, client->xid);
+    if (broadcast) store_be16(packet + 10, 0x8000U);
+    if (client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING) store_be32(packet + 12, client->device->ipv4_address);
     memcpy(packet + 28, client->device->address, 6);
-    net_write_be32(packet + 236, DHCP_MAGIC_COOKIE);
+    store_be32(packet + 236, DHCP_MAGIC_COOKIE);
 
     size_t offset                = DHCP_FIXED_LENGTH;
     offset                       = dhcp_add_option(packet, offset, DHCP_OPT_MESSAGE_TYPE, &message_type, 1);
@@ -233,26 +205,32 @@ static int dhcp_send(dhcp_client_t *client, uint8_t message_type, int broadcast)
     offset = dhcp_add_option(packet, offset, DHCP_OPT_CLIENT_ID, client_identifier, sizeof(client_identifier));
     if (client->state == DHCP_STATE_REQUESTING) {
         uint8_t address[4];
-        net_write_be32(address, client->offered_address);
+        store_be32(address, client->offered_address);
         offset = dhcp_add_option(packet, offset, DHCP_OPT_REQUESTED_IP, address, sizeof(address));
-        net_write_be32(address, client->server_identifier);
+        store_be32(address, client->server_identifier);
         offset = dhcp_add_option(packet, offset, DHCP_OPT_SERVER_ID, address, sizeof(address));
     }
     static const uint8_t parameters[] = {DHCP_OPT_NETMASK, DHCP_OPT_ROUTER, DHCP_OPT_DNS, DHCP_OPT_LEASE, DHCP_OPT_SERVER_ID, DHCP_OPT_RENEWAL, DHCP_OPT_REBINDING};
     offset                            = dhcp_add_option(packet, offset, DHCP_OPT_PARAMETER_LIST, parameters, sizeof(parameters));
     uint8_t maximum[2];
-    net_write_be16(maximum, DHCP_PACKET_CAPACITY);
+    store_be16(maximum, DHCP_PACKET_CAPACITY);
     offset           = dhcp_add_option(packet, offset, DHCP_OPT_MAX_MESSAGE, maximum, sizeof(maximum));
     packet[offset++] = DHCP_OPT_END;
     if (offset < 300U) offset = 300U;
 
     if (broadcast) {
         int status = netdev_udp_broadcast(client->device, client->device->ipv4_address, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, packet, offset);
-        if (status < 0) plogk("dhcp: %s: Broadcast failed (%d)\n", client->device->name, status);
+        if (status < 0) {
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("dhcp: %s: Broadcast failed (%d)\n", client->device->name, status);
+        }
         return status < 0 ? status : 0;
     }
     int status = udp_send(dhcp_endpoint, packet, offset, client->server_identifier, DHCP_SERVER_PORT);
-    if (status < 0) plogk("dhcp: %s: Send to server failed (%d)\n", client->device->name, status);
+    if (status < 0) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("dhcp: %s: Send to server failed (%d)\n", client->device->name, status);
+    }
     return status < 0 ? status : 0;
 }
 
@@ -294,15 +272,14 @@ static int dhcp_apply_lease(dhcp_client_t *client, const dhcp_reply_t *reply, ui
     uint32_t gateway = reply->has_gateway ? reply->gateway : client->device->ipv4_gateway;
     if (!netmask) netmask = dhcp_default_netmask(address);
     if (!address || netdev_configure_ipv4(client->device, address, netmask, gateway)) {
-        plogk("dhcp: %s: Lease apply failed (address=%u.%u.%u.%u)\n", client->device->name, (unsigned)(address >> 24) & 0xff, (unsigned)(address >> 16) & 0xff, (unsigned)(address >> 8) & 0xff,
-              (unsigned)address & 0xff);
+        plogk("dhcp: %s: Lease apply failed (address=%u.%u.%u.%u)\n", client->device->name, (address >> 24) & 0xff, (address >> 16) & 0xff, (address >> 8) & 0xff, address & 0xff);
         return -EINVAL;
     }
     if (reply->has_dns) netdev_configure_dns(client->device, reply->dns, reply->dns_count);
 
     uint32_t lease = reply->has_lease && reply->lease_seconds ? reply->lease_seconds : DHCP_DEFAULT_LEASE;
     uint32_t t1    = reply->has_renewal ? reply->renewal_seconds : lease / 2U;
-    uint32_t t2    = reply->has_rebinding ? reply->rebinding_seconds : lease - lease / 8U;
+    uint32_t t2    = reply->has_rebinding ? reply->rebinding_seconds : lease - (lease / 8U);
     if (!t1 || t1 >= lease) t1 = lease / 2U;
     if (t2 <= t1 || t2 >= lease) t2 = lease - lease / 8U;
     if (!t1) t1 = 1;
@@ -320,7 +297,7 @@ static int dhcp_apply_lease(dhcp_client_t *client, const dhcp_reply_t *reply, ui
 /* Locate a client by transaction ID and hardware address. */
 static dhcp_client_t *dhcp_find_client(uint32_t xid, const uint8_t hardware_address[6])
 {
-    for (unsigned i = 0; i < NETDEV_MAX; i++)
+    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++)
         if (clients[i].device && clients[i].xid == xid && !memcmp(clients[i].device->address, hardware_address, 6)) return &clients[i];
     return NULL;
 }
@@ -333,7 +310,7 @@ static void dhcp_receive_replies(uint64_t now)
     int            length;
     while ((length = udp_receive(dhcp_endpoint, packet, sizeof(packet), &datagram, 0)) >= 0) {
         if (datagram.length > sizeof(packet) || datagram.source_port != DHCP_SERVER_PORT || length < (int)DHCP_FIXED_LENGTH) continue;
-        uint32_t xid = net_read_be32(packet + 4);
+        uint32_t xid = load_be32(packet + 4);
         spin_lock(&dhcp_lock);
         dhcp_client_t *client = dhcp_find_client(xid, packet + 28);
         dhcp_reply_t   reply;
@@ -357,7 +334,7 @@ static void dhcp_receive_replies(uint64_t now)
         } else if (reply.message_type == DHCP_NAK && (client->state == DHCP_STATE_REQUESTING || client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING)
                    && (client->state != DHCP_STATE_REQUESTING || !reply.server_identifier || reply.server_identifier == client->server_identifier)) {
             plogk("dhcp: %s: Server NAK, restarting.\n", client->device->name);
-            dhcp_schedule_restart(client, now, DHCP_INITIAL_RETRY);
+            dhcp_schedule_restart(client, now, CONFIG_TIMER_HZ);
         }
         spin_unlock(&dhcp_lock);
     }
@@ -369,13 +346,13 @@ static void dhcp_track_device(net_device_t *device, void *context)
     (void)context;
     if (!(device->flags & NETDEV_F_BROADCAST)) return;
     spin_lock(&dhcp_lock);
-    for (unsigned i = 0; i < NETDEV_MAX; i++) {
+    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
         if (clients[i].device == device) {
             spin_unlock(&dhcp_lock);
             return;
         }
     }
-    for (unsigned i = 0; i < NETDEV_MAX; i++) {
+    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
         if (!clients[i].device) {
             memset(&clients[i], 0, sizeof(clients[i]));
             clients[i].device = device;
@@ -431,7 +408,7 @@ static void dhcp_advance(dhcp_client_t *client, uint64_t now)
     }
     if ((client->state == DHCP_STATE_SELECTING || client->state == DHCP_STATE_REQUESTING) && now >= client->next_action) {
         if (client->retries >= DHCP_RETRY_LIMIT) {
-            plogk("dhcp: %s: No reply after %u attempts; suspended until the link changes.\n", client->device->name, (unsigned)DHCP_RETRY_LIMIT);
+            plogk("dhcp: %s: No reply after %u attempts; suspended until the link changes.\n", client->device->name, DHCP_RETRY_LIMIT);
             dhcp_clear_configuration(client);
             client->state       = DHCP_STATE_DORMANT;
             client->next_action = 0;
@@ -448,6 +425,7 @@ static void dhcp_advance(dhcp_client_t *client, uint64_t now)
     }
 }
 
+/* Dhcp init. */
 void dhcp_init(void)
 {
     if (dhcp_endpoint) return;
@@ -457,10 +435,12 @@ void dhcp_init(void)
         return;
     }
     if (udp_bind(dhcp_endpoint, 0, DHCP_CLIENT_PORT)) {
-        plogk("dhcp: Bind to port %u failed.\n", (unsigned)DHCP_CLIENT_PORT);
+        plogk("dhcp: Bind to port %u failed.\n", DHCP_CLIENT_PORT);
         udp_close(dhcp_endpoint);
         dhcp_endpoint = NULL;
+        return;
     }
+    plogk("dhcp: DHCP client initialized (port=%u)\n", DHCP_CLIENT_PORT);
 }
 
 /* Periodic tick: track devices, process replies, and advance each client. */
@@ -470,7 +450,7 @@ void dhcp_timer(uint64_t now_ticks)
     netdev_iterate(dhcp_track_device, NULL);
     dhcp_receive_replies(now_ticks);
     spin_lock(&dhcp_lock);
-    for (unsigned i = 0; i < NETDEV_MAX; i++)
+    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++)
         if (clients[i].device) dhcp_advance(&clients[i], now_ticks);
     spin_unlock(&dhcp_lock);
 }
@@ -481,7 +461,7 @@ void dhcp_device_removed(net_device_t *device)
     if (!device) return;
     net_device_t *release = NULL;
     spin_lock(&dhcp_lock);
-    for (unsigned i = 0; i < NETDEV_MAX; i++) {
+    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
         if (clients[i].device == device) {
             release = clients[i].device;
             memset(&clients[i], 0, sizeof(clients[i]));
@@ -491,3 +471,5 @@ void dhcp_device_removed(net_device_t *device)
     spin_unlock(&dhcp_lock);
     if (release) netdev_put(release);
 }
+
+#endif

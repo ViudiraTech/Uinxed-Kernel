@@ -14,7 +14,6 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define BUDDY_MAX_ORDER  30U
 #define BUDDY_INDEX_NONE ((int32_t) - 1)
 
 typedef enum {
@@ -39,8 +38,8 @@ typedef struct {
         size_t        page_count;
         size_t        free_pages;
         uint8_t       max_order;
-        int32_t       free_head[BUDDY_MAX_ORDER + 1];
-        size_t        free_count[BUDDY_MAX_ORDER + 1];
+        int32_t       free_head[CONFIG_BUDDY_MAX_ORDER + 1];
+        size_t        free_count[CONFIG_BUDDY_MAX_ORDER + 1];
 } buddy_allocator_t;
 
 /* Initialise an empty allocator; ranges remain reserved until added. */
@@ -60,7 +59,7 @@ int    buddy_free(buddy_allocator_t *allocator, size_t index, unsigned order);
  */
 int buddy_trim_allocation(buddy_allocator_t *allocator, size_t index, unsigned order, size_t keep_units);
 
-/* Smallest order able to hold count units, or BUDDY_MAX_ORDER + 1. */
+/* Smallest order able to hold count units, or CONFIG_BUDDY_MAX_ORDER + 1. */
 unsigned buddy_order_for_units(size_t count);
 
 /* Expensive structural validation intended for boot checks and tests. */

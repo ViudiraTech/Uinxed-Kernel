@@ -9,28 +9,18 @@
  */
 
 #include <arch/smp.h>
-#include <fs/core/vfs.h>
 #include <ipc/sysv_ipc.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
-#include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>
 #include <process/process.h>
-#include <process/sched.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 #include <syscall/memfd.h>
 #include <syscall/mmap.h>
 #include <syscall/syscall.h>
-
-#define MMAP_DEFAULT_ALIGN PAGE_4K_SIZE
 
 /* Convert mmap protection flags to internal VM flags */
 static vm_flags_t prot_to_vm_flags(uint64_t prot)
@@ -140,6 +130,7 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
             }
             memfd_vma_retain(right->vm_file, right->flags);
         }
+
         /* The split right half shares vm_private_data: give it its own ref. */
         vma_private_get(right);
         right->next = vma->next;
@@ -178,6 +169,7 @@ static vm_area_t *vma_split_locked(process_t *proc, vm_area_t *vma, uintptr_t sp
         memfd_vma_retain(right->vm_file, right->flags);
     }
     if (right->type == VM_REGION_SHM && right->vm_private_data && sysv_shm_vma_get(right->vm_private_data, proc->task ? (uint32_t)proc->task->pid : 0)) goto fail_backing;
+
     /* Driver-backed mapping (DRM GEM): give the right half its own ref. */
     vma_private_get(right);
 
@@ -196,10 +188,7 @@ fail:
     return NULL;
 }
 
-/*
- * Drop a file_mmap VMA that failed before it was inserted. Releases the
- * driver's VMA-held private reference (if any) and the retained file node.
- */
+/* Drop a file_mmap VMA that failed before it was inserted. Releases the driver's VMA-held private reference (if any) and the retained file node. */
 static void file_mmap_vma_abort(vm_area_t *vma)
 {
     if (!vma) return;
@@ -213,7 +202,6 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-
     if (!length) return -EINVAL;
     if (length > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
     if (offset & (PAGE_4K_SIZE - 1)) return -EINVAL;
@@ -221,13 +209,11 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     if ((flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_SHARED && (flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_PRIVATE) return -EINVAL;
 
     /*
-     * glibc's rtld maps every PT_LOAD with MAP_COPY, which Linux defines as
-     * MAP_PRIVATE | MAP_DENYWRITE.  Linux has treated MAP_DENYWRITE and
-     * MAP_EXECUTABLE as compatibility no-ops for decades, so accept them
+     * glibc's rtld maps every PT_LOAD with MAP_COPY (MAP_PRIVATE | MAP_DENYWRITE).
+     * MAP_DENYWRITE and MAP_EXECUTABLE are compatibility no-ops, so accept them
      * here rather than rejecting all shared-library mappings with EINVAL.
      */
-    const uint64_t supported_flags =
-        MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_DENYWRITE | MAP_EXECUTABLE | MAP_LOCKED | MAP_POPULATE | MAP_NORESERVE | MAP_STACK;
+    const uint64_t supported_flags = MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_DENYWRITE | MAP_EXECUTABLE | MAP_LOCKED | MAP_POPULATE | MAP_NORESERVE | MAP_STACK;
     if (flags & ~supported_flags) return -EINVAL;
 
     size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
@@ -263,7 +249,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     if (!(flags & MAP_ANONYMOUS) && (int64_t)fd >= 0) {
         process_file_t *file = NULL;
         spin_lock(&proc->fd_lock);
-        if ((int64_t)fd < PROCESS_MAX_FD) {
+        if ((int64_t)fd < CONFIG_PROCESS_MAX_FD) {
             file = proc->fds[(int)fd];
             if (file) process_file_get(file);
         }
@@ -499,7 +485,6 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     if (!proc) return -ESRCH;
     if (!length || (addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
     if (length > UINT64_MAX - (PAGE_4K_SIZE - 1)) return -EINVAL;
-
     if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) return -EINVAL;
 
     vm_flags_t requested = prot_to_vm_flags(prot);
@@ -533,7 +518,12 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
         }
     }
 
-    protect_change_t *changes = calloc(count, sizeof(*changes)); // NOLINT(clang-analyzer-optin.portability.UnixAPI)
+    if (!count) {
+        spin_unlock(&proc->mmap_lock);
+        return 0;
+    }
+
+    protect_change_t *changes = calloc(count, sizeof(*changes));
     if (!changes) {
         spin_unlock(&proc->mmap_lock);
         return -ENOMEM;
@@ -638,6 +628,7 @@ int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
         if (ranges[i].file && ranges[i].shared) {
             if (ranges[i].writable) result = vfs_cache_mark_dirty_range(ranges[i].file, ranges[i].start, ranges[i].end);
             if (!result) result = vfs_writeback_range(ranges[i].file, ranges[i].start, ranges[i].end, 0);
+            if (!result && (flags & MS_SYNC)) result = vfs_wb_err_claim(ranges[i].file);
         }
         if (ranges[i].file) vfs_close(ranges[i].file);
         if (result) {
@@ -653,8 +644,9 @@ int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
 /* madvise syscall: accept all hints (advisory only) */
 int sys_madvise(uint64_t addr, uint64_t length, uint64_t advice)
 {
-    (void)addr;
-    (void)length;
+    if (addr & (PAGE_4K_SIZE - 1)) return -EINVAL;
+    if (!length) return -EINVAL;
+    if (addr > UINT64_MAX - length) return -EINVAL;
     (void)advice;
     return EOK;
 }
@@ -663,6 +655,7 @@ int sys_madvise(uint64_t addr, uint64_t length, uint64_t advice)
 int sys_mlock(uint64_t addr, uint64_t length)
 {
     if (!addr || !length) return -EINVAL;
+
     /* mlock is accepted but pages are already pinned in this kernel */
     return EOK;
 }
@@ -739,7 +732,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
         }
 
         if (extension_free) {
-            uint64_t file_offset = vma->vm_pgoff * PAGE_4K_SIZE + old_pages;
+            uint64_t file_offset = (vma->vm_pgoff * PAGE_4K_SIZE) + old_pages;
             int      result      = memfd_map(vma->vm_file, proc, extension_start, new_pages - old_pages, file_offset, vma->flags);
             if (!result) {
                 memfd_vma_release(vma->vm_file, vma->flags);
@@ -845,7 +838,7 @@ int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec)
     if (!residency) return -ENOMEM;
 
     for (size_t i = 0; i < pages; i++) {
-        uintptr_t phys = walk_page_tables(proc->user_page_dir, (uintptr_t)addr + i * PAGE_4K_SIZE);
+        uintptr_t phys = walk_page_tables(proc->user_page_dir, (uintptr_t)addr + (i * PAGE_4K_SIZE));
         residency[i]   = (phys && phys != (uintptr_t)-1) ? 1 : 0;
     }
 

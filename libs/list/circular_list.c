@@ -9,8 +9,6 @@
  */
 
 #include <libs/list/circular_list.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
 #include <mem/heap.h>
 
 /* Allocate and initialize a new circular linked list node with the given data */

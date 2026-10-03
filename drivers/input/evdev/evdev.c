@@ -1,7 +1,7 @@
 /*
  *
  *      evdev.c
- *      Linux-compatible evdev input event subsystem
+ *      evdev input event subsystem
  *
  *      2026/7/22 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -9,84 +9,20 @@
  */
 
 #include <drivers/base/device.h>
-#include <drivers/firmware/acpi.h>
-#include <drivers/input/evdev/evdev.h>
-#include <drivers/input/input_event.h>
-#include <fs/core/vfs.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/sysfs/input_sysfs.h>
-#include <fs/tmpfs/tmpfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/ioctl.h>
 #include <kernel/timer/timer.h>
-#include <libs/list/intrusive_list.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
+#include <libs/util/bitops.h>
 #include <mem/alloc.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 #include <syscall/poll.h>
 #include <syscall/syscall.h>
 
-/* _IOC extraction macros */
+#if CONFIG_INPUT_EVDEV
 
-#define _IOC_DIR(nr)  (((nr) >> _IOC_DIRSHIFT) & _IOC_DIRMASK)
-#define _IOC_TYPE(nr) (((nr) >> _IOC_TYPESHIFT) & _IOC_TYPEMASK)
-#define _IOC_NR(nr)   (((nr) >> _IOC_NRSHIFT) & _IOC_NRMASK)
-#define _IOC_SIZE(nr) (((nr) >> _IOC_SIZESHIFT) & _IOC_SIZEMASK)
-
-#define _IOC_DIRMASK  ((1U << _IOC_DIRBITS) - 1)
-#define _IOC_TYPEMASK ((1U << _IOC_TYPEBITS) - 1)
-#define _IOC_NRMASK   ((1U << _IOC_NRBITS) - 1)
-#define _IOC_SIZEMASK ((1U << _IOC_SIZEBITS) - 1)
-
-/* Set one bit in a bitmap word array. */
-static inline void set_bit(unsigned int nr, uint32_t *addr)
-{
-    addr[nr / 32] |= (1U << (nr % 32));
-}
-
-/* Clear one bit in a bitmap word array. */
-static inline void clear_bit(unsigned int nr, uint32_t *addr)
-{
-    addr[nr / 32] &= ~(1U << (nr % 32));
-}
-
-/* Return the value of one bit in a bitmap word array. */
-static inline bool test_bit(unsigned int nr, const uint32_t *addr)
-{
-    return (addr[nr / 32] >> (nr % 32)) & 1U;
-}
-
-/* Round an unsigned value up to the next power of two. */
-static inline unsigned int roundup_pow_of_two(unsigned int n)
-{
-    unsigned int r = 1;
-
-    while (r < n) r <<= 1;
-    return r;
-}
-
-/* global state */
-
-static evdev_t   *evdev_table[EVDEV_MAX_DEVICES];
-static spinlock_t evdev_table_lock  = {0};
-static bool       evdev_initialized = false;
-static bool       evdev_nodes_ready;
-
-/* global LED state shared by every keyboard */
-
-static uint32_t           evdev_led_state[(LED_CNT + 31) / 32];
-static evdev_led_notify_t evdev_led_notifies[EVDEV_MAX_DEVICES];
-static void              *evdev_led_notify_ctx[EVDEV_MAX_DEVICES];
-static size_t             evdev_led_notify_count;
-
-#define EVDEV_MAJOR 13
-
-static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client);
+#    define EVDEV_MAJOR 13
 
 struct evdev_frame_time {
         uint64_t realtime_sec;
@@ -94,6 +30,42 @@ struct evdev_frame_time {
         uint64_t monotonic_sec;
         uint64_t monotonic_usec;
 };
+
+/* global state */
+static evdev_t   *evdev_table[CONFIG_EVDEV_MAX_DEVICES];
+static spinlock_t evdev_table_lock  = {0};
+static bool       evdev_initialized = false;
+static bool       evdev_nodes_ready;
+
+/* global LED state shared by every keyboard */
+static uint32_t           evdev_led_state[(LED_CNT + 31) / 32];
+static evdev_led_notify_t evdev_led_notifies[CONFIG_EVDEV_MAX_DEVICES];
+static void              *evdev_led_notify_ctx[CONFIG_EVDEV_MAX_DEVICES];
+static size_t             evdev_led_notify_count;
+
+/* Clear one bit in a bitmap word array. */
+static void clear_bit(unsigned int nr, uint32_t *addr)
+{
+    addr[nr / 32] &= ~(1U << (nr % 32));
+}
+
+/* Return the value of one bit in a bitmap word array. */
+static bool test_bit(unsigned int nr, const uint32_t *addr)
+{
+    return (addr[nr / 32] >> (nr % 32)) & 1U;
+}
+
+/* Round an unsigned value up to the next power of two. */
+static unsigned int roundup_pow_of_two(unsigned int n)
+{
+    unsigned int r = 1;
+
+    while (r < n) r <<= 1;
+    return r;
+}
+
+/* Evdev ungrab. */
+static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client);
 
 /* Return the current timestamp in nanoseconds for the given clock type. */
 static uint64_t evdev_clock_ns(int clock_type)
@@ -223,9 +195,9 @@ static unsigned int evdev_compute_buffer_size(input_dev_t *dev)
     unsigned int n_events = dev->hint_events_per_packet * EVDEV_BUF_PACKETS;
 
     if (n_events < EVDEV_MIN_BUFFER_SIZE) n_events = EVDEV_MIN_BUFFER_SIZE;
-#ifdef INPUT_EVDEV_BUFSIZE
-    if (n_events < INPUT_EVDEV_BUFSIZE) n_events = INPUT_EVDEV_BUFSIZE;
-#endif
+#    ifdef CONFIG_INPUT_EVDEV_BUFSIZE
+    if (n_events < CONFIG_INPUT_EVDEV_BUFSIZE) n_events = CONFIG_INPUT_EVDEV_BUFSIZE;
+#    endif
     return roundup_pow_of_two(n_events);
 }
 
@@ -262,10 +234,7 @@ static void __evdev_queue_syn_dropped(evdev_client_t *client)
     (void)evdev_queue_push(&client->queue, &ev);
 }
 
-/*
- * Compact the ring buffer by removing all events that match the newly
- * installed filter mask.  Caller must hold client->buffer_lock.
- */
+/* Compact the ring buffer by removing all events that match the newly installed filter mask.  Caller must hold client->buffer_lock. */
 static void __evdev_flush_queue(evdev_client_t *client, unsigned int type)
 {
     evdev_queue_flush_type(&client->queue, type);
@@ -325,10 +294,8 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
     grab = evdev->grab;
     if (grab) {
         /*
-         * Exclusive grab: only the grab client gets events.
-         * Hold client_lock across pass_values to prevent the grab
-         * client from being freed (by evdev_fop_release) while
-         * we are writing to it.
+         * Exclusive grab: only the grab client gets events.  client_lock is held across
+         * pass_values so evdev_fop_release cannot free the grab client mid-write.
          */
         evdev_pass_values(grab, values, count, &frame_time);
         spin_unlock(&evdev->client_lock);
@@ -337,7 +304,7 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
 
     /* Distribute to all clients */
     for (node = evdev->client_list.next; node != &evdev->client_list; node = node->next) {
-        client = (evdev_client_t *)((uintptr_t)node - offsetof(evdev_client_t, node));
+        client = container_of(node, evdev_client_t, node);
         evdev_pass_values(client, values, count, &frame_time);
     }
 
@@ -449,7 +416,7 @@ static void evdev_hangup(evdev_t *evdev)
     evdev->exist = false;
 
     for (node = evdev->client_list.next; node != &evdev->client_list; node = node->next) {
-        client = (evdev_client_t *)((uintptr_t)node - offsetof(evdev_client_t, node));
+        client = container_of(node, evdev_client_t, node);
         spin_lock(&client->buffer_lock);
         spin_unlock(&client->buffer_lock);
         wait_queue_wake_all(&client->wait);
@@ -529,7 +496,7 @@ int evdev_register(evdev_t *evdev)
 
     spin_lock(&evdev_table_lock);
     minor = -1;
-    for (i = 0; i < EVDEV_MAX_DEVICES; i++) {
+    for (i = 0; i < CONFIG_EVDEV_MAX_DEVICES; i++) {
         if (!evdev_table[i]) {
             minor = i;
             break;
@@ -603,7 +570,7 @@ void evdev_unregister(evdev_t *evdev)
     spin_unlock(&evdev->input_dev->event_lock);
 
     spin_lock(&evdev_table_lock);
-    if (evdev->minor >= 0 && evdev->minor < EVDEV_MAX_DEVICES && evdev_table[evdev->minor] == evdev) evdev_table[evdev->minor] = NULL;
+    if (evdev->minor >= 0 && evdev->minor < CONFIG_EVDEV_MAX_DEVICES && evdev_table[evdev->minor] == evdev) evdev_table[evdev->minor] = NULL;
     spin_unlock(&evdev_table_lock);
 
     evdev->minor = -1;
@@ -619,7 +586,7 @@ evdev_t *evdev_find_by_minor(int minor)
 {
     evdev_t *evdev;
 
-    if (minor < 0 || minor >= EVDEV_MAX_DEVICES) return NULL;
+    if (minor < 0 || minor >= CONFIG_EVDEV_MAX_DEVICES) return NULL;
 
     spin_lock(&evdev_table_lock);
     evdev = evdev_table[minor];
@@ -634,7 +601,7 @@ void evdev_init(void)
     int i;
 
     spin_lock(&evdev_table_lock);
-    for (i = 0; i < EVDEV_MAX_DEVICES; i++) evdev_table[i] = NULL;
+    for (i = 0; i < CONFIG_EVDEV_MAX_DEVICES; i++) evdev_table[i] = NULL;
     evdev_initialized = true;
     spin_unlock(&evdev_table_lock);
 }
@@ -700,26 +667,29 @@ static bool evdev_prepare_event(input_dev_t *dev, input_event_t *event)
         case EV_LED :
             active = test_bit(event->code, dev->led_state);
             if (!!event->value == active) return false;
-            if (event->value)
+            if (event->value) {
                 set_bit(event->code, dev->led_state);
-            else
+            } else {
                 clear_bit(event->code, dev->led_state);
+            }
             break;
         case EV_SND :
             active = test_bit(event->code, dev->snd_state);
             if (!!event->value == active) return false;
-            if (event->value)
+            if (event->value) {
                 set_bit(event->code, dev->snd_state);
-            else
+            } else {
                 clear_bit(event->code, dev->snd_state);
+            }
             break;
         case EV_SW :
             active = test_bit(event->code, dev->sw_state);
             if (!!event->value == active) return false;
-            if (event->value)
+            if (event->value) {
                 set_bit(event->code, dev->sw_state);
-            else
+            } else {
                 clear_bit(event->code, dev->sw_state);
+            }
             break;
         case EV_REP :
             dev->rep[event->code] = event->value;
@@ -748,9 +718,9 @@ static int evdev_lock_key_led(uint16_t keycode)
 /* Apply a global LED change: update state, broadcast EV_LED, and notify drivers. */
 static void evdev_apply_led(int led, bool on)
 {
-    input_dev_t       *targets[EVDEV_MAX_DEVICES];
-    evdev_led_notify_t notifies[EVDEV_MAX_DEVICES];
-    void              *notify_ctx[EVDEV_MAX_DEVICES];
+    input_dev_t       *targets[CONFIG_EVDEV_MAX_DEVICES];
+    evdev_led_notify_t notifies[CONFIG_EVDEV_MAX_DEVICES];
+    void              *notify_ctx[CONFIG_EVDEV_MAX_DEVICES];
     size_t             target_count = 0;
     size_t             notify_count = 0;
     uint8_t            leds         = 0;
@@ -760,10 +730,11 @@ static void evdev_apply_led(int led, bool on)
      * and process context (EVIOCSLED), so the bit update and the snapshot
      * must be atomic: a plain load-modify-store would lose one update.
      */
-    if (on)
+    if (on) {
         (void)__atomic_fetch_or(&evdev_led_state[led / 32], 1U << (led % 32), __ATOMIC_RELAXED);
-    else
+    } else {
         (void)__atomic_fetch_and(&evdev_led_state[led / 32], ~(1U << (led % 32)), __ATOMIC_RELAXED);
+    }
 
     if (__atomic_load_n(&evdev_led_state[LED_NUML / 32], __ATOMIC_ACQUIRE) & (1U << (LED_NUML % 32))) leds |= 1U << LED_NUML;
     if (__atomic_load_n(&evdev_led_state[LED_CAPSL / 32], __ATOMIC_ACQUIRE) & (1U << (LED_CAPSL % 32))) leds |= 1U << LED_CAPSL;
@@ -771,7 +742,7 @@ static void evdev_apply_led(int led, bool on)
 
     /* Snapshot devices and notify callbacks, then act outside the table lock. */
     spin_lock(&evdev_table_lock);
-    for (size_t i = 0; i < EVDEV_MAX_DEVICES; i++) {
+    for (size_t i = 0; i < CONFIG_EVDEV_MAX_DEVICES; i++) {
         evdev_t *e = evdev_table[i];
         if (e && e->exist && e->input_dev && test_bit(EV_LED, e->input_dev->evbit)) targets[target_count++] = e->input_dev;
     }
@@ -792,7 +763,7 @@ static void evdev_apply_led(int led, bool on)
 /* Register a callback to receive global LED state changes. */
 void evdev_register_led_notify(evdev_led_notify_t notify, void *ctx)
 {
-    if (!notify || evdev_led_notify_count >= EVDEV_MAX_DEVICES) return;
+    if (!notify || evdev_led_notify_count >= CONFIG_EVDEV_MAX_DEVICES) return;
     spin_lock(&evdev_table_lock);
     evdev_led_notifies[evdev_led_notify_count]   = notify;
     evdev_led_notify_ctx[evdev_led_notify_count] = ctx;
@@ -874,7 +845,8 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
 
     ret = evdev_open_device(evdev);
     if (ret < 0) {
-        plogk("evdev: Open of \"%s\" failed: %d\n", evdev->input_dev->name, ret);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("evdev: Open of \"%s\" failed: %d\n", evdev->input_dev->name, ret);
         if (error) *error = ret;
         return NULL;
     }
@@ -884,7 +856,8 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
 
     client = malloc(client_size);
     if (!client) {
-        plogk("evdev: Failed to allocate client for \"%s\" (%u bytes)\n", evdev->input_dev->name, client_size);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("evdev: Failed to allocate client for \"%s\" (%zu bytes)\n", evdev->input_dev->name, client_size);
         if (error) *error = -ENOMEM;
         if (evdev_close_device(evdev)) evdev_free(evdev);
         return NULL;
@@ -896,7 +869,8 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
     client->clk_type    = CLOCK_REALTIME;
     client->revoked     = false;
     if (!evdev_queue_init(&client->queue, client->buffer, bufsize)) {
-        plogk("evdev: Queue init failed for \"%s\" (size %u)\n", evdev->input_dev->name, bufsize);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("evdev: Queue init failed for \"%s\" (size %u)\n", evdev->input_dev->name, bufsize);
         free(client);
         if (error) *error = -EINVAL;
         if (evdev_close_device(evdev)) evdev_free(evdev);
@@ -919,7 +893,6 @@ void evdev_fop_release(evdev_client_t *client)
     int      i;
 
     if (!client) return;
-
     evdev = client->evdev;
 
     evdev_detach_client(evdev, client);
@@ -952,7 +925,6 @@ ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool non
     max_events = count / sizeof(input_event_t);
 
     if (!evdev->exist) return -ENODEV;
-
     if (client->revoked) return -ENODEV;
     if (count == 0) return 0;
     if (max_events == 0 || !dst) return -EINVAL;
@@ -964,12 +936,10 @@ ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool non
             spin_unlock(&client->buffer_lock);
             return -EAGAIN;
         }
-
         if (!evdev->exist) {
             spin_unlock(&client->buffer_lock);
             return -ENODEV;
         }
-
         if (client->revoked) {
             spin_unlock(&client->buffer_lock);
             return -ENODEV;
@@ -980,7 +950,6 @@ ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool non
         wait_queue_sleep();
 
         if (!evdev->exist) return -ENODEV;
-
         if (client->revoked) return -ENODEV;
 
         spin_lock(&client->buffer_lock);
@@ -1005,9 +974,7 @@ ssize_t evdev_fop_write(evdev_client_t *client, const void *buf, size_t count)
     n_events = count / sizeof(input_event_t);
     if (count == 0) return 0;
     if (n_events == 0) return -EINVAL;
-
     if (!evdev->exist) return -ENODEV;
-
     if (client->revoked) return -ENODEV;
 
     evdev_inject_events(evdev->input_dev, src, n_events);
@@ -1025,10 +992,11 @@ int evdev_fop_poll(evdev_client_t *client, int events)
     if (!client) return POLLHUP;
     evdev = client->evdev;
 
-    if (client->revoked || !evdev->exist)
+    if (client->revoked || !evdev->exist) {
         revents |= POLLHUP;
-    else
+    } else {
         revents |= POLLOUT;
+    }
 
     spin_lock(&client->buffer_lock);
     if (evdev_queue_has_packet(&client->queue)) revents |= POLLIN;
@@ -1047,6 +1015,7 @@ static int evdev_copy_string_to_user(void *arg, const char *string, size_t maxle
     return copy_to_user(arg, string, length) ? -EFAULT : (int)length;
 }
 
+/* Evdev fill user. */
 static int evdev_fill_user(void *arg, uint8_t value, size_t size);
 
 /* Copy a bitmap to user space, zero-filling the padded tail. */
@@ -1156,15 +1125,17 @@ static int evdev_get_mask(evdev_client_t *client, const input_mask_t *descriptor
         if (!snapshot) return -ENOMEM;
         spin_lock(&client->buffer_lock);
         allow_all = client->evmasks[descriptor->type] == NULL;
-        if (!allow_all)
+        if (!allow_all) {
             memcpy(snapshot, client->evmasks[descriptor->type], bytes);
-        else
+        } else {
             memset(snapshot, 0xff, bytes);
+        }
         spin_unlock(&client->buffer_lock);
-        if (allow_all)
+        if (allow_all) {
             result = evdev_fill_user(user, 0xff, copy_bytes);
-        else
+        } else {
             result = evdev_copy_bits_to_user(user, snapshot, bit_count, copy_bytes) < 0 ? -EFAULT : EOK;
+        }
         free(snapshot);
         if (result != EOK) return result;
     }
@@ -1185,7 +1156,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
     evdev = client->evdev;
     dev   = evdev->input_dev;
     if (!evdev->exist) return -ENODEV;
-
     if (client->revoked) return -ENODEV;
 
     switch (request) {
@@ -1199,7 +1169,7 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
         case EVIOCGREP : {
             int repeat[2];
 
-            if (!test_bit(EV_REP, dev->evbit)) return -ENOSYS;
+            if (!test_bit(EV_REP, dev->evbit)) return -EOPNOTSUPP;
             spin_lock(&dev->event_lock);
             memcpy(repeat, dev->rep, sizeof(repeat));
             spin_unlock(&dev->event_lock);
@@ -1209,7 +1179,7 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             int           repeat[2];
             input_event_t events[2];
 
-            if (!test_bit(EV_REP, dev->evbit)) return -ENOSYS;
+            if (!test_bit(EV_REP, dev->evbit)) return -EOPNOTSUPP;
             if (copy_from_user(repeat, arg, sizeof(repeat))) return -EFAULT;
             events[0] = (input_event_t) {.type = EV_REP, .code = REP_DELAY, .value = repeat[0]};
             events[1] = (input_event_t) {.type = EV_REP, .code = REP_PERIOD, .value = repeat[1]};
@@ -1229,7 +1199,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
     }
 
     /* Handle variable-length ioctls by extracting the _IOC_NR */
-
     if (_IOC_TYPE(request) != 'E') return -EINVAL;
 
     switch (_IOC_NR(request)) {
@@ -1360,10 +1329,11 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
     /* EVIOCGRAB, EVIOCREVOKE, EVIOCGMASK, EVIOCSMASK, EVIOCSCLOCKID */
     switch (request) {
         case EVIOCGRAB :
-            if ((uintptr_t)arg)
+            if ((uintptr_t)arg) {
                 return evdev_grab(evdev, client);
-            else
+            } else {
                 return evdev_ungrab(evdev, client);
+            }
         case EVIOCREVOKE :
             if ((uintptr_t)arg) return -EINVAL;
             spin_lock(&client->buffer_lock);
@@ -1412,10 +1382,11 @@ int evdev_publish_node(evdev_t *evdev)
      * pathname.  Relative-axis devices are mice/pointers; key-only devices
      * are keyboards.
      */
-    if (test_bit(EV_REL, evdev->input_dev->evbit))
+    if (test_bit(EV_REL, evdev->input_dev->evbit)) {
         node_type |= file_mouse;
-    else if (test_bit(EV_KEY, evdev->input_dev->evbit))
+    } else if (test_bit(EV_KEY, evdev->input_dev->evbit)) {
         node_type |= file_keyboard;
+    }
 
     const tmpfs_device_ops_t ops = {
         .open             = evdev_dev_open,
@@ -1450,10 +1421,13 @@ int evdev_publish_nodes(void)
 {
     int count = 0;
 
+    if (!evdev_initialized) return 0;
     evdev_nodes_ready = true;
-    for (int minor = 0; minor < EVDEV_MAX_DEVICES; minor++) {
+    for (int minor = 0; minor < CONFIG_EVDEV_MAX_DEVICES; minor++) {
         evdev_t *evdev = evdev_find_by_minor(minor);
         if (evdev && evdev_publish_node(evdev) == EOK) count++;
     }
     return count;
 }
+
+#endif

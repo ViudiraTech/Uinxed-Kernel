@@ -13,7 +13,6 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/termios.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <process/uaccess.h>
 
@@ -61,8 +60,8 @@ static uint64_t rtc_civil_to_epoch(const rtc_time_t *t)
     yoe  = y - era * 400;
     doy  = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
     doe  = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    days = (uint64_t)(era * 146097 + doe - 719468);
-    return days * 86400ULL + (uint64_t)t->tm_hour * 3600ULL + (uint64_t)t->tm_min * 60ULL + (uint64_t)t->tm_sec;
+    days = (uint64_t)((era * 146097) + doe - 719468);
+    return (days * 86400ULL) + ((uint64_t)t->tm_hour * 3600ULL) + ((uint64_t)t->tm_min * 60ULL) + (uint64_t)t->tm_sec;
 }
 
 /* Fill the caller's rtc_time_t with the current CMOS time. */
@@ -115,8 +114,7 @@ int64_t rtc_dev_write(void *ctx, void *private_data, uint64_t flags, const void 
     (void)addr;
     (void)offset;
     (void)size;
-    plogk("rtc: Rejected write to /dev/rtc0 (RTC is read-only as a byte stream)\n");
-    return -EIO; // RTC is not writable as a byte stream
+    return -EROFS;
 }
 
 /* Handle RTC_RD_TIME and RTC_SET_TIME ioctls. */
@@ -137,10 +135,7 @@ int rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request,
             if (copy_from_user(&t, argument, sizeof(t))) return -EFAULT;
             valid = t.tm_sec >= 0 && t.tm_sec <= 59 && t.tm_min >= 0 && t.tm_min <= 59 && t.tm_hour >= 0 && t.tm_hour <= 23 && t.tm_mday >= 1 && t.tm_mday <= 31 && t.tm_mon >= 0 && t.tm_mon <= 11
                     && t.tm_year >= 70;
-            if (!valid) {
-                plogk("rtc: Rejected RTC_SET_TIME with invalid time (y=%d m=%d d=%d h=%d min=%d s=%d)\n", t.tm_year, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
-                return -EINVAL;
-            }
+            if (!valid) return -EINVAL;
             rtc_write_cmos_time(&t);
             return 0;
         default :

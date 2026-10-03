@@ -8,12 +8,15 @@
  *
  */
 
+#include <arch/common.h>
 #include <drivers/char/tpm/tpm.h>
-#include <drivers/firmware/acpi.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
+#include <libs/util/byteorder.h>
 #include <mem/hhdm.h>
+
+#if CONFIG_TPM
 
 static tpm_device_t g_tpm_device;
 static int          g_tpm_available = 0;
@@ -27,14 +30,14 @@ tpm_device_t *tpm_get_device(void)
 /* Busy-wait for the given number of microseconds. */
 void tpm_udelay(uint32_t us)
 {
-    uint64_t target = nano_time() + (uint64_t)us * 1000ULL;
-    while (nano_time() < target) __asm__ volatile("pause" ::: "memory");
+    uint64_t target = nano_time() + ((uint64_t)us * 1000ULL);
+    while (nano_time() < target) cpu_relax();
 }
 
 /* Call check(ctx) until it succeeds or the timeout expires. */
 int tpm_poll_timeout(int (*check)(void *ctx), void *ctx, uint32_t timeout_ms)
 {
-    uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
+    uint64_t deadline = nano_time() + ((uint64_t)timeout_ms * 1000000ULL);
     int      rc;
 
     for (;;) {
@@ -45,41 +48,11 @@ int tpm_poll_timeout(int (*check)(void *ctx), void *ctx, uint32_t timeout_ms)
     }
 }
 
-/* Convert a big-endian 16-bit value to host order. */
-static uint16_t be16_to_cpu(uint16_t x)
-{
-    uint8_t *b = (uint8_t *)&x;
-    return ((uint16_t)b[0] << 8) | b[1];
-}
-
-/* Convert a big-endian 32-bit value to host order. */
-static uint32_t be32_to_cpu(uint32_t x)
-{
-    uint8_t *b = (uint8_t *)&x;
-    return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | b[3];
-}
-
-/* Store a 16-bit value as big-endian bytes. */
-static void cpu_to_be16(uint16_t x, uint8_t out[2])
-{
-    out[0] = (x >> 8) & 0xFF;
-    out[1] = x & 0xFF;
-}
-
-/* Store a 32-bit value as big-endian bytes. */
-static void cpu_to_be32(uint32_t x, uint8_t out[4])
-{
-    out[0] = (x >> 24) & 0xFF;
-    out[1] = (x >> 16) & 0xFF;
-    out[2] = (x >> 8) & 0xFF;
-    out[3] = x & 0xFF;
-}
-
 /* Send a command and receive the response in-place. */
 int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
 {
     int rc;
-    if (!dev || !buf) return -1;
+    if (!dev || !buf) return -EINVAL;
 
     /*
      * Serialise the single hardware FIFO/locality across concurrent access
@@ -105,7 +78,6 @@ int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
 
         rc = dev->recv(dev, buf, bufsiz);
         dev->relinquish_locality(dev, 0);
-
         if (rc < 0) {
             tpm_udelay(1000);
             continue;
@@ -115,25 +87,25 @@ int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
     }
     spin_unlock(&dev->lock);
     plogk("tpm: Transmit failed after %u attempts.\n", TPM_RETRY);
-    return -1;
+    return -EIO;
 }
 
 /* TPM 2.0: build and send a command (no sessions) */
 static int tpm2_send_command(tpm_device_t *dev, uint32_t cc, const uint8_t *params, uint32_t param_len, uint8_t *rsp_buf, size_t rsp_buf_size)
 {
     uint8_t cmd_buf[TPM_BUFSIZE];
-    if (param_len + 10 > TPM_BUFSIZE) return -1;
+    if (param_len + 10 > TPM_BUFSIZE) return -EINVAL;
 
-    cpu_to_be16(TPM2_ST_NO_SESSIONS, &cmd_buf[0]);
-    cpu_to_be32(10 + param_len, &cmd_buf[2]);
-    cpu_to_be32(cc, &cmd_buf[6]);
+    store_be16(&cmd_buf[0], TPM2_ST_NO_SESSIONS);
+    store_be32(&cmd_buf[2], 10 + param_len);
+    store_be32(&cmd_buf[6], cc);
 
     if (params && param_len > 0) memcpy(&cmd_buf[10], params, param_len);
     int rc = tpm_transmit(dev, cmd_buf, sizeof(cmd_buf), 10 + param_len);
 
     if (rc < 0) return rc;
-    if (rc < TPM_HEADER_SIZE) return -1;
-    uint32_t rsp_code = be32_to_cpu(*(uint32_t *)&cmd_buf[6]);
+    if (rc < TPM_HEADER_SIZE) return -EIO;
+    uint32_t rsp_code = load_be32(&cmd_buf[6]);
 
     /*
      * TPM warnings (bit 10: TPM_RETRY, bit 11: TPM_DOING_SELFTEST etc.)
@@ -151,7 +123,7 @@ static int tpm2_send_command(tpm_device_t *dev, uint32_t cc, const uint8_t *para
 static int tpm2_startup(tpm_device_t *dev)
 {
     uint8_t params[2];
-    cpu_to_be16(TPM2_SU_CLEAR, params);
+    store_be16(params, TPM2_SU_CLEAR);
     return tpm2_send_command(dev, TPM2_CC_STARTUP, params, 2, NULL, 0);
 }
 
@@ -161,9 +133,9 @@ int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value)
     uint8_t params[12] = {0};
     uint8_t rsp[32]    = {0};
 
-    cpu_to_be32(TPM2_CAP_TPM_PROPERTIES, &params[0]);
-    cpu_to_be32(property, &params[4]);
-    cpu_to_be32(1, &params[8]);
+    store_be32(&params[0], TPM2_CAP_TPM_PROPERTIES);
+    store_be32(&params[4], property);
+    store_be32(&params[8], 1);
 
     int rc = tpm2_send_command(dev, TPM2_CC_GET_CAPABILITY, params, 12, rsp, sizeof(rsp));
     if (rc < 0) return rc;
@@ -177,33 +149,33 @@ int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value)
      * [13..16] value[0]    (UINT32, 4)
      */
     if (rc >= 17 && value) {
-        *value = ((uint32_t)rsp[13] << 24) | ((uint32_t)rsp[14] << 16) | ((uint32_t)rsp[15] << 8) | (uint32_t)rsp[16];
+        *value = load_be32(&rsp[13]);
         return 0;
     }
-    return -1;
+    return -EIO;
 }
 
 /* TPM GetRandom (v2.0 + v1.2) */
 int tpm_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
 {
-    if (!dev || !out || max == 0) return -1;
+    if (!dev || !out || max == 0) return -EINVAL;
     if (dev->version == TPM_VERSION_12) return tpm1_get_random(dev, out, max);
 
     uint8_t params[2];
     uint8_t rsp[128];
 
     if (max > 64) max = 64;
-    cpu_to_be16((uint16_t)max, params);
+    store_be16(params, (uint16_t)max);
 
     int rc = tpm2_send_command(dev, TPM2_CC_GET_RANDOM, params, 2, rsp, sizeof(rsp));
     if (rc < 0) return rc;
     if (rc >= 2) {
-        uint16_t size = be16_to_cpu(*(uint16_t *)rsp);
+        uint16_t size = load_be16(rsp);
         if (size > max) size = (uint16_t)max;
         if (size > 0) memcpy(out, rsp + 2, size);
         return (int)size;
     }
-    return -1;
+    return -EIO;
 }
 
 /* TPM 2.0 PCR Read */
@@ -214,14 +186,15 @@ int tpm2_pcr_read(tpm_device_t *dev, uint32_t pcr_idx, uint8_t *digest)
 
     /* PCR selection: 1 bank (TPM_ALG_SHA256 = 0x000B), 3-byte bitmap */
     uint8_t pcr_select[3] = {0, 0, 0};
-    if (pcr_idx < 8)
+    if (pcr_idx < 8) {
         pcr_select[0] = 1 << pcr_idx;
-    else if (pcr_idx < 16)
+    } else if (pcr_idx < 16) {
         pcr_select[1] = 1 << (pcr_idx - 8);
-    else if (pcr_idx < 24)
+    } else if (pcr_idx < 24) {
         pcr_select[2] = 1 << (pcr_idx - 16);
+    }
 
-    cpu_to_be16(0x000B, &params[0]); // TPM_ALG_SHA256
+    store_be16(&params[0], 0x000B); // TPM_ALG_SHA256
     params[2] = 3;
     params[3] = pcr_select[0];
     params[4] = pcr_select[1];
@@ -236,12 +209,12 @@ int tpm2_pcr_read(tpm_device_t *dev, uint32_t pcr_idx, uint8_t *digest)
      * 14=digestCnt, 18=digestSize, 20=digest data
      */
     if (rc >= 21) {
-        uint16_t digest_size = be16_to_cpu(*(uint16_t *)&rsp[18]);
+        uint16_t digest_size = load_be16(&rsp[18]);
         if (digest_size > 32) digest_size = 32;
         if (digest && digest_size > 0) memcpy(digest, &rsp[20], digest_size);
         return (int)digest_size;
     }
-    return -1;
+    return -EIO;
 }
 
 /* TPM 1.2 GetRandom */
@@ -250,24 +223,24 @@ int tpm1_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
     uint8_t cmd_buf[TPM_BUFSIZE];
     if (max > 128) max = 128;
 
-    cpu_to_be16(TPM_TAG_RQU_COMMAND, &cmd_buf[0]);
-    cpu_to_be32(14, &cmd_buf[2]);
-    cpu_to_be32(TPM_ORD_GET_RANDOM, &cmd_buf[6]);
-    cpu_to_be32((uint32_t)max, &cmd_buf[10]);
+    store_be16(&cmd_buf[0], TPM_TAG_RQU_COMMAND);
+    store_be32(&cmd_buf[2], 14);
+    store_be32(&cmd_buf[6], TPM_ORD_GET_RANDOM);
+    store_be32(&cmd_buf[10], (uint32_t)max);
 
     int rc = tpm_transmit(dev, cmd_buf, sizeof(cmd_buf), 14);
     if (rc < 0) return rc;
-    if (rc < TPM_HEADER_SIZE) return -1;
+    if (rc < TPM_HEADER_SIZE) return -EIO;
 
-    uint32_t rsp_code = be32_to_cpu(*(uint32_t *)&cmd_buf[6]);
+    uint32_t rsp_code = load_be32(&cmd_buf[6]);
     if (rsp_code != 0) return -(int)rsp_code;
     if (rc >= 14) {
-        uint32_t count = be32_to_cpu(*(uint32_t *)&cmd_buf[10]);
+        uint32_t count = load_be32(&cmd_buf[10]);
         if (count > max) count = (uint32_t)max;
         if (count > 0) memcpy(out, &cmd_buf[14], count);
         return (int)count;
     }
-    return -1;
+    return -EIO;
 }
 
 /* Log TPM capabilities after successful init */
@@ -296,9 +269,6 @@ static uint32_t tpm_verify_mmio(void *virt_addr)
 /* Main TPM initialization */
 int tpm_init(void)
 {
-#if !CONFIG_TPM
-    return 0;
-#endif
     memset(&g_tpm_device, 0, sizeof(g_tpm_device));
     g_tpm_device.locality  = -1;
     g_tpm_device.lock.lock = 0;
@@ -340,15 +310,15 @@ int tpm_init(void)
         /* For TIS, try ACPI address first; if invalid or unsupported method, probe legacy */
         if (g_tpm_device.iface == TPM_IFACE_TIS) {
             int use_legacy = 0;
-            if (ctrl_addr == 0 || ctrl_addr < 0x1000) {
-                plogk("tpm: Invalid control area, probing legacy 0x%lx\n", TPM_LEGACY_BASE_PHYS);
+            if (ctrl_addr < 0x1000) {
+                plogk("tpm: Invalid control area, probing legacy 0x%x\n", TPM_LEGACY_BASE_PHYS);
                 use_legacy = 1;
             } else {
                 /* Try ACPI-provided address first */
                 g_tpm_device.mmio_base = phys_to_virt(ctrl_addr);
                 uint32_t probe         = tpm_verify_mmio(g_tpm_device.mmio_base);
                 if (!probe) {
-                    plogk("tpm: No TPM at control area, probing legacy 0x%lx\n", TPM_LEGACY_BASE_PHYS);
+                    plogk("tpm: No TPM at control area, probing legacy 0x%x\n", TPM_LEGACY_BASE_PHYS);
                     use_legacy = 1;
                 }
             }
@@ -357,10 +327,7 @@ int tpm_init(void)
                 g_tpm_device.mmio_base = phys_to_virt(ctrl_addr);
             }
         } else {
-            /*
-             * CRB: control_area_address points to tail registers (offset 0x40);
-             * adjust mmio_base to head register base.
-             */
+            /* CRB: control_area_address points to tail registers (offset 0x40); adjust mmio_base to head register base. */
             uint64_t head          = (ctrl_addr >= 0x40) ? ctrl_addr - 0x40 : ctrl_addr;
             g_tpm_device.mmio_base = phys_to_virt(head);
         }
@@ -397,7 +364,7 @@ int tpm_init(void)
         uint32_t did_vid = tpm_verify_mmio(g_tpm_device.mmio_base);
         if (!did_vid) {
             plogk("tpm: No TPM at legacy address.\n");
-            return -1;
+            return -ENODEV;
         }
 
         g_tpm_device.did_vid   = did_vid;
@@ -445,5 +412,7 @@ int tpm_init(void)
         return 0;
     }
 
-    return -1;
+    return -ENODEV;
 }
+
+#endif

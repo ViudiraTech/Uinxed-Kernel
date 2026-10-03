@@ -9,24 +9,16 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
 
-/* External helper from drm_property.c */
+#if CONFIG_DRM
 
 /* Initial backing-array capacity for a freshly attached property set. */
-#define DRM_OBJECT_PROP_INITIAL_CAPACITY 16u
-
-/* ID allocation and reference counting */
+#    define DRM_OBJECT_PROP_INITIAL_CAPACITY 16u
 
 /*
  * Allocate a new mode-object ID from the device IDR and initialise the
@@ -44,10 +36,7 @@ int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *ob
     spin_lock(&dev->mode_config.idr_mutex);
     ret = drm_idr_alloc(&dev->mode_config.object_idr, obj, 1, 0, &id);
     spin_unlock(&dev->mode_config.idr_mutex);
-    if (ret) {
-        DRM_ERROR("Mode object IDR allocation failed (dev=%p, type=%u, ret=%d)\n", dev, type, ret);
-        return ret;
-    }
+    if (ret) return ret;
 
     obj->id       = id;
     obj->type     = type;
@@ -133,16 +122,10 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
 {
     struct drm_property_set *set;
     uint32_t                 i;
+    if (!obj || !property) return -EINVAL;
 
-    if (!obj || !property) {
-        DRM_ERROR("Property set value with invalid args (obj=%p, property=%p), returning -EINVAL\n", obj, property);
-        return -EINVAL;
-    }
     set = obj->properties;
-    if (!set) {
-        DRM_ERROR("Object %p has no property set; cannot set value, returning -EINVAL\n", obj);
-        return -EINVAL;
-    }
+    if (!set) return -EINVAL;
 
     spin_lock(&set->lock);
     for (i = 0; i < set->count; i++) {
@@ -186,24 +169,15 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
     return 0;
 }
 
-/*
- * Read @property's stored value on @obj into *@val_out.
- * Returns 0 on success or -EINVAL when the property is not attached.
- */
+/* Read @property's stored value on @obj into *@val_out. Returns 0 on success or -EINVAL when the property is not attached. */
 int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_property *property, uint64_t *val_out)
 {
     struct drm_property_set *set;
     uint32_t                 i;
+    if (!obj || !property || !val_out) return -EINVAL;
 
-    if (!obj || !property || !val_out) {
-        DRM_ERROR("Property get value with invalid args (obj=%p, property=%p, val_out=%p), returning -EINVAL\n", obj, property, val_out);
-        return -EINVAL;
-    }
     set = obj->properties;
-    if (!set) {
-        DRM_ERROR("Object %p has no property set; cannot get value, returning -EINVAL\n", obj);
-        return -EINVAL;
-    }
+    if (!set) return -EINVAL;
 
     spin_lock(&set->lock);
     for (i = 0; i < set->count; i++) {
@@ -214,7 +188,6 @@ int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_proper
         }
     }
     spin_unlock(&set->lock);
-    DRM_ERROR("Property %p not attached to object %p, returning -EINVAL\n", property, obj);
     return -EINVAL;
 }
 
@@ -227,11 +200,7 @@ int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_proper
  */
 int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property *property, uint64_t init_val)
 {
-    if (!obj || !property) {
-        DRM_ERROR("Attach property with invalid args (obj=%p, property=%p), returning -EINVAL\n", obj, property);
-        return -EINVAL;
-    }
-
+    if (!obj || !property) return -EINVAL;
     if (!obj->properties) {
         struct drm_property_set *set;
         uint32_t                *ids;
@@ -239,20 +208,20 @@ int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property 
 
         set = malloc(sizeof(*set));
         if (!set) {
-            DRM_ERROR("Property set allocation failed for object %p, returning -ENOMEM\n", obj);
+            DRM_ERROR("Property set allocation failed for object %p\n", obj);
             return -ENOMEM;
         }
         ids = malloc((size_t)DRM_OBJECT_PROP_INITIAL_CAPACITY * sizeof(*ids));
         if (!ids) {
             free(set);
-            DRM_ERROR("Property set ids allocation failed for object %p, returning -ENOMEM\n", obj);
+            DRM_ERROR("Property set ids allocation failed for object %p\n", obj);
             return -ENOMEM;
         }
         vals = malloc((size_t)DRM_OBJECT_PROP_INITIAL_CAPACITY * sizeof(*vals));
         if (!vals) {
             free(ids);
             free(set);
-            DRM_ERROR("Property set values allocation failed for object %p, returning -ENOMEM\n", obj);
+            DRM_ERROR("Property set values allocation failed for object %p\n", obj);
             return -ENOMEM;
         }
         memset(set, 0, sizeof(*set));
@@ -272,16 +241,10 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
     struct drm_mode_obj_get_properties *req = (struct drm_mode_obj_get_properties *)data;
     struct drm_mode_object             *obj;
 
-    if (!dev || !req) {
-        DRM_ERROR("OBJ_GETPROPERTIES with invalid args (dev=%p, req=%p)\n", dev, req);
-        return -EINVAL;
-    }
+    if (!dev || !req) return -EINVAL;
 
     obj = drm_mode_object_find(dev, file_priv, req->obj_id, req->obj_type);
-    if (!obj) {
-        DRM_ERROR("OBJ_GETPROPERTIES: object %u (type %u) not found, returning -ENOENT\n", req->obj_id, req->obj_type);
-        return -ENOENT;
-    }
+    if (!obj) return -ENOENT;
 
     if (obj->properties) {
         struct drm_property_set *set        = obj->properties;
@@ -306,11 +269,11 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
             free(ids);
             free(values);
             drm_mode_object_put(obj);
-            DRM_ERROR("OBJ_GETPROPERTIES: copy buffer allocation failed (count=%u), returning -ENOMEM\n", copy_count);
+            DRM_ERROR("OBJ_GETPROPERTIES: copy buffer allocation failed (count=%u)\n", copy_count);
             return -ENOMEM;
         }
 
-        /* Report DPMS state-aware: self-refresh forces ON (Linux drm_atomic_connector_get_property). */
+        /* Report DPMS state-aware: self-refresh forces ON. */
         if (obj->type == DRM_MODE_OBJECT_CONNECTOR && dev->mode_config.prop_dpms && copy_count) {
             uint32_t dpms_id = dev->mode_config.prop_dpms->base.id;
             for (uint32_t k = 0; k < copy_count; k++) {
@@ -326,7 +289,6 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
             free(ids);
             free(values);
             drm_mode_object_put(obj);
-            DRM_ERROR("OBJ_GETPROPERTIES: copy_to_user failed (count=%u), returning -EFAULT\n", copy_count);
             return -EFAULT;
         }
         free(ids);
@@ -348,21 +310,14 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
 
     (void)file_priv;
 
-    if (!dev || !req) {
-        DRM_ERROR("OBJ_SETPROPERTY with invalid args (dev=%p, req=%p)\n", dev, req);
-        return -EINVAL;
-    }
+    if (!dev || !req) return -EINVAL;
 
     obj = drm_mode_object_find(dev, NULL, req->obj_id, req->obj_type);
-    if (!obj) {
-        DRM_ERROR("OBJ_SETPROPERTY: object %u (type %u) not found, returning -ENOENT\n", req->obj_id, req->obj_type);
-        return -ENOENT;
-    }
+    if (!obj) return -ENOENT;
 
     prop = drm_property_find(dev, NULL, req->prop_id);
     if (!prop) {
         drm_mode_object_put(obj);
-        DRM_ERROR("OBJ_SETPROPERTY: property %u not found, returning -ENOENT\n", req->prop_id);
         return -ENOENT;
     }
 
@@ -385,13 +340,11 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
     if (prop->flags & DRM_MODE_PROP_IMMUTABLE) {
         drm_mode_object_put(&prop->base);
         drm_mode_object_put(obj);
-        DRM_ERROR("OBJ_SETPROPERTY: property %u is immutable, returning -EINVAL\n", req->prop_id);
         return -EINVAL;
     }
     if ((prop->flags & DRM_MODE_PROP_RANGE) && (req->value < prop->values[0] || req->value > prop->values[1])) {
         drm_mode_object_put(&prop->base);
         drm_mode_object_put(obj);
-        DRM_ERROR("OBJ_SETPROPERTY: value %llu out of range for property %u, returning -EINVAL\n", (unsigned long long)req->value, req->prop_id);
         return -EINVAL;
     }
 
@@ -431,3 +384,5 @@ void drm_property_set_destroy(struct drm_property_set *set)
     free(set->values);
     memset(set, 0, sizeof(*set));
 }
+
+#endif

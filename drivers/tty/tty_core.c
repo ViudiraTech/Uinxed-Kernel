@@ -11,16 +11,14 @@
 #include <drivers/tty/tty_core.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
 #include <syscall/fcntl.h>
 #include <syscall/poll.h>
 
-#define TTY_TICKS_PER_DECISECOND ((TIMER_HZ + 9) / 10)
+#define TTY_TICKS_PER_DECISECOND ((CONFIG_TIMER_HZ + 9) / 10)
 #define TTY_INPUT_EOF            1
 
 /* Initialize a default termios with a standard cooked-mode configuration. */
@@ -124,18 +122,8 @@ static int tty_job_control_check(tty_core_t *tty, int signal)
     bool blocked_or_ignored = signal_is_blocked_or_ignored(current, signal);
     if (signal == SIGTTOU && blocked_or_ignored) return 0;
     if (blocked_or_ignored || process_pgrp_is_orphaned(current->pgid, current->sid)) return -EIO;
-    signal_send_pgrp_session(current->pgid, current->sid, signal);
+    (void)signal_send_pgrp_session(current->pgid, current->sid, signal);
     return -ERESTARTSYS;
-}
-
-/* True when an unblocked signal can actually interrupt this tty operation. */
-static bool tty_signal_pending(process_t *current)
-{
-    if (!current) return false;
-    spin_lock(&current->signal.lock);
-    bool pending = signal_has_interrupting_pending(&current->signal);
-    spin_unlock(&current->signal.lock);
-    return pending;
 }
 
 /* Prepare an interruptible wait, releasing the tty lock while sleeping. */
@@ -185,7 +173,7 @@ void tty_core_set_winsize(tty_core_t *tty, uint16_t rows, uint16_t cols)
     int64_t foreground_pgid = tty->foreground_pgid;
     int64_t session         = tty->session;
     spin_unlock(&tty->lock);
-    if (changed && foreground_pgid > 0 && session > 0) signal_send_pgrp_session(foreground_pgid, session, SIGWINCH);
+    if (changed && foreground_pgid > 0 && session > 0) (void)signal_send_pgrp_session(foreground_pgid, session, SIGWINCH);
 }
 
 /* True when ch equals the configured control character at index. */
@@ -249,11 +237,11 @@ void tty_core_flush_input(tty_core_t *tty)
 /* Store one input byte; marker tags EOF bytes in canonical mode. */
 static bool tty_put_locked(tty_core_t *tty, uint8_t ch, uint8_t marker)
 {
-    if (tty->input_count == TTY_CORE_BUFFER_SIZE) return false;
+    if (tty->input_count == CONFIG_TTY_CORE_BUFFER_SIZE) return false;
     tty->input[tty->input_head]       = ch;
     tty->input_flags[tty->input_head] = marker;
     if (marker) tty->eof_count++;
-    tty->input_head = (tty->input_head + 1) % TTY_CORE_BUFFER_SIZE;
+    tty->input_head = (tty->input_head + 1) % CONFIG_TTY_CORE_BUFFER_SIZE;
     tty->input_count++;
     return true;
 }
@@ -265,7 +253,7 @@ static void tty_signal_foreground(tty_core_t *tty, int signal)
     int64_t pgid = tty->foreground_pgid;
     int64_t sid  = tty->session;
     spin_unlock(&tty->lock);
-    if (pgid > 0 && sid > 0) signal_send_pgrp_session(pgid, sid, signal);
+    if (pgid > 0 && sid > 0) (void)signal_send_pgrp_session(pgid, sid, signal);
 }
 
 /* Feed received bytes through the line discipline (editing, flow, ISIG). */
@@ -315,7 +303,16 @@ retry_character:;
         }
 
         if (tty->termios.c_lflag & ISIG) {
-            int signal = tty_cc_matches(&tty->termios, VINTR, ch) ? SIGINT : tty_cc_matches(&tty->termios, VQUIT, ch) ? SIGQUIT : tty_cc_matches(&tty->termios, VSUSP, ch) ? SIGTSTP : 0;
+            int signal;
+            if (tty_cc_matches(&tty->termios, VINTR, ch)) {
+                signal = SIGINT;
+            } else if (tty_cc_matches(&tty->termios, VQUIT, ch)) {
+                signal = SIGQUIT;
+            } else if (tty_cc_matches(&tty->termios, VSUSP, ch)) {
+                signal = SIGTSTP;
+            } else {
+                signal = 0;
+            }
             if (signal) {
                 tcflag_t lflag = tty->termios.c_lflag;
                 bool     flush = !(lflag & NOFLSH);
@@ -337,17 +334,18 @@ retry_character:;
                 tcflag_t lflag  = tty->termios.c_lflag;
                 bool     erased = false;
                 if (tty->edit_count) {
-                    tty->input_head = (tty->input_head + TTY_CORE_BUFFER_SIZE - 1) % TTY_CORE_BUFFER_SIZE;
+                    tty->input_head = (tty->input_head + CONFIG_TTY_CORE_BUFFER_SIZE - 1) % CONFIG_TTY_CORE_BUFFER_SIZE;
                     tty->input_count--;
                     tty->edit_count--;
                     erased = true;
                 }
                 spin_unlock(&tty->lock);
                 if (erased) {
-                    if (lflag & ECHOE)
+                    if (lflag & ECHOE) {
                         tty_echo_erase(tty);
-                    else if (lflag & ECHO)
+                    } else if (lflag & ECHO) {
                         tty_echo(tty, ch, lflag);
+                    }
                     wait_queue_wake_all(&tty->input_space_wait);
                 }
                 accepted++;
@@ -357,7 +355,7 @@ retry_character:;
                 tcflag_t lflag  = tty->termios.c_lflag;
                 size_t   erased = tty->edit_count;
                 while (tty->edit_count) {
-                    tty->input_head = (tty->input_head + TTY_CORE_BUFFER_SIZE - 1) % TTY_CORE_BUFFER_SIZE;
+                    tty->input_head = (tty->input_head + CONFIG_TTY_CORE_BUFFER_SIZE - 1) % CONFIG_TTY_CORE_BUFFER_SIZE;
                     tty->input_count--;
                     tty->edit_count--;
                 }
@@ -383,7 +381,7 @@ retry_character:;
                         /* Interrupted by a signal with no progress; return -ERESTARTSYS. */
                         if (!tty_prepare_interruptible_wait(tty, &tty->input_space_wait)) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                         wait_queue_sleep();
-                        if (tty_signal_pending(process_current())) return accepted ? (int64_t)accepted : -ERESTARTSYS;
+                        if (signal_has_interrupting_pending_current()) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                         goto retry_character;
                     }
                     spin_unlock(&tty->lock);
@@ -398,7 +396,7 @@ retry_character:;
         }
 
         bool delimiter = tty_is_delimiter(&tty->termios, ch);
-        if ((tty->termios.c_lflag & ICANON) && !delimiter && tty->input_count >= TTY_CORE_BUFFER_SIZE - 1) {
+        if ((tty->termios.c_lflag & ICANON) && !delimiter && tty->input_count >= CONFIG_TTY_CORE_BUFFER_SIZE - 1) {
             spin_unlock(&tty->lock);
             accepted++;
             continue;
@@ -425,7 +423,7 @@ retry_character:;
                 /* Interrupted by a signal with no progress; return -ERESTARTSYS. */
                 if (!tty_prepare_interruptible_wait(tty, &tty->input_space_wait)) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                 wait_queue_sleep();
-                if (tty_signal_pending(process_current())) return accepted ? (int64_t)accepted : -ERESTARTSYS;
+                if (signal_has_interrupting_pending_current()) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                 goto retry_character;
             }
             spin_unlock(&tty->lock);
@@ -448,11 +446,12 @@ static bool tty_read_ready_locked(tty_core_t *tty, size_t target)
 static bool tty_wait(tty_core_t *tty, uint64_t deadline)
 {
     if (!tty_prepare_interruptible_wait(tty, &tty->read_wait)) return false;
-    if (deadline)
+    if (deadline) {
         wait_queue_wait_timed(&tty->read_wait, deadline);
-    else
+    } else {
         wait_queue_sleep();
-    return !tty_signal_pending(process_current());
+    }
+    return !signal_has_interrupting_pending_current();
 }
 
 /* Read from the input queue, honoring canonical/raw and VMIN/VTIME. */
@@ -509,7 +508,7 @@ int64_t tty_core_read(tty_core_t *tty, void *buffer, size_t size, uint64_t flags
     while (copied < size && tty->input_count) {
         uint8_t ch      = tty->input[tty->input_tail];
         uint8_t marker  = tty->input_flags[tty->input_tail];
-        tty->input_tail = (tty->input_tail + 1) % TTY_CORE_BUFFER_SIZE;
+        tty->input_tail = (tty->input_tail + 1) % CONFIG_TTY_CORE_BUFFER_SIZE;
         tty->input_count--;
         if ((tty->termios.c_lflag & ICANON) && tty->canon_ready) tty->canon_ready--;
         if ((tty->termios.c_lflag & ICANON) && marker == TTY_INPUT_EOF) {
@@ -531,7 +530,8 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
     size_t         done  = 0;
 
     if (!tty->ops.emit) {
-        plogk("tty: Write to a tty without an output backend.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("tty: Write to a tty without an output backend.\n");
         return -EIO;
     }
     if (!size) return 0;
@@ -555,7 +555,7 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
             /* Interrupted by a signal with no progress; return -ERESTARTSYS. */
             if (!tty_prepare_interruptible_wait(tty, &tty->write_wait)) return done ? (int64_t)done : -ERESTARTSYS;
             wait_queue_sleep();
-            if (tty_signal_pending(process_current())) return done ? (int64_t)done : -ERESTARTSYS;
+            if (signal_has_interrupting_pending_current()) return done ? (int64_t)done : -ERESTARTSYS;
             spin_lock(&tty->lock);
         }
         if (tty->hung_up) {
@@ -753,7 +753,7 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             int64_t foreground_pgid = tty->foreground_pgid;
             int64_t winsize_session = tty->session;
             spin_unlock(&tty->lock);
-            if (changed && foreground_pgid > 0 && winsize_session > 0) signal_send_pgrp_session(foreground_pgid, winsize_session, SIGWINCH);
+            if (changed && foreground_pgid > 0 && winsize_session > 0) (void)signal_send_pgrp_session(foreground_pgid, winsize_session, SIGWINCH);
             return 0;
         case FIONREAD :
             value = (int)tty_core_readable(tty);
@@ -765,14 +765,31 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             value = (int)(uintptr_t)user_arg;
             if (value != TCIFLUSH && value != TCOFLUSH && value != TCIOFLUSH) return -EINVAL;
             if (value != TCOFLUSH) tty_core_flush_input(tty);
-            if (tty->ops.event) tty->ops.event(tty->context, value == TCOFLUSH ? TIOCPKT_FLUSHWRITE : value == TCIFLUSH ? TIOCPKT_FLUSHREAD : TIOCPKT_FLUSHREAD | TIOCPKT_FLUSHWRITE);
+            if (tty->ops.event) {
+                int pkt_flag;
+                if (value == TCOFLUSH) {
+                    pkt_flag = TIOCPKT_FLUSHWRITE;
+                } else if (value == TCIFLUSH) {
+                    pkt_flag = TIOCPKT_FLUSHREAD;
+                } else {
+                    pkt_flag = TIOCPKT_FLUSHREAD | TIOCPKT_FLUSHWRITE;
+                }
+                tty->ops.event(tty->context, pkt_flag);
+            }
             return 0;
         case TCXONC :
             value = (int)(uintptr_t)user_arg;
             if (value != TCOOFF && value != TCOON && value != TCIOFF && value != TCION) return -EINVAL;
             spin_lock(&tty->lock);
             if (value == TCOOFF || value == TCOON) tty->output_stopped = value == TCOOFF;
-            uint8_t flow      = value == TCOOFF ? TIOCPKT_STOP : value == TCOON ? TIOCPKT_START : 0;
+            uint8_t flow;
+            if (value == TCOOFF) {
+                flow = TIOCPKT_STOP;
+            } else if (value == TCOON) {
+                flow = TIOCPKT_START;
+            } else {
+                flow = 0;
+            }
             uint8_t flow_char = value == TCIOFF ? tty->termios.c_cc[VSTOP] : tty->termios.c_cc[VSTART];
             spin_unlock(&tty->lock);
             if (flow && tty->ops.event) tty->ops.event(tty->context, flow);
@@ -808,7 +825,8 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             spin_lock(&tty->lock);
             value = (int)tty->foreground_pgid;
             spin_unlock(&tty->lock);
-            return value > 0 ? (copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0) : -ENOTTY;
+            if (value <= 0) return -ENOTTY;
+            return copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0;
         }
         case TIOCSPGRP : {
             if (!current) return -ESRCH;
@@ -828,7 +846,8 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             spin_lock(&tty->lock);
             value = tty->session == current->sid ? (int)tty->session : 0;
             spin_unlock(&tty->lock);
-            return value > 0 ? (copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0) : -ENOTTY;
+            if (value <= 0) return -ENOTTY;
+            return copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0;
         case TIOCSCTTY : {
             if (!current || !current->task || current->sid <= 0 || current->sid != (int64_t)current->task->pid) return -EPERM;
             if ((flags & O_PATH) || (flags & O_ACCMODE) == O_WRONLY) return -EBADF;
@@ -845,15 +864,15 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             int64_t old_pgid    = 0;
 
             /*
-             * Linux only gives argument 1 special "steal" semantics; all
-             * other values mean a normal acquisition.  VTE deliberately
-             * passes the slave fd here for cross-platform compatibility.
+             * Only argument 1 carries special "steal" semantics; all other values mean a
+             * normal acquisition.  VTE passes the slave fd here for cross-platform
+             * compatibility.
              */
             int result = process_ctty_acquire(current, tty, value == 1 && current->uid == 0, &old_session, &old_pgid);
             if (result) return result;
             if (old_session > 0 && old_session != current->sid && old_pgid > 0) {
-                signal_send_pgrp_session(old_pgid, old_session, SIGHUP);
-                signal_send_pgrp_session(old_pgid, old_session, SIGCONT);
+                (void)signal_send_pgrp_session(old_pgid, old_session, SIGHUP);
+                (void)signal_send_pgrp_session(old_pgid, old_session, SIGCONT);
             }
             return 0;
         }
@@ -869,12 +888,12 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             int64_t pgid    = process_ctty_disassociate(tty, session);
             if (pgid < 0) return -ENOTTY;
             if (pgid > 0) {
-                signal_send_pgrp_session(pgid, session, SIGHUP);
-                signal_send_pgrp_session(pgid, session, SIGCONT);
+                (void)signal_send_pgrp_session(pgid, session, SIGHUP);
+                (void)signal_send_pgrp_session(pgid, session, SIGCONT);
             }
             return 0;
         }
-        case 0x4B4E : /* KDSIGACCEPT */
+        case 0x4B4E : // KDSIGACCEPT
             return 0;
         default :
             return -ENOTTY;
@@ -919,8 +938,8 @@ void tty_core_hangup(tty_core_t *tty)
     tty->foreground_pgid = 0;
     spin_unlock(&tty->lock);
     if (pgid > 0 && session > 0) {
-        signal_send_pgrp_session(pgid, session, SIGHUP);
-        signal_send_pgrp_session(pgid, session, SIGCONT);
+        (void)signal_send_pgrp_session(pgid, session, SIGHUP);
+        (void)signal_send_pgrp_session(pgid, session, SIGCONT);
     }
     process_ctty_clear_all(tty);
     wait_queue_wake_all(&tty->read_wait);

@@ -8,18 +8,15 @@
  *
  */
 
+#include <drivers/audio/core/audio.h>
 #include <drivers/base/device.h>
-#include <drivers/sound/core/audio.h>
-#include <fs/sysfs/sound_sysfs.h>
-#include <fs/sysfs/sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
 #include <mem/heap.h>
 
+#if CONFIG_AUDIO
+
+#    if CONFIG_SYSFS
 static bool sound_class_ready;
+#    endif
 
 /* Return the audio card bound to a device-model device. */
 static audio_card_t *sound_card_from(struct device *dev)
@@ -104,8 +101,12 @@ static struct device *sound_create_node(struct device *parent, audio_card_t *car
     dev->driver_data = card;
     dev->groups      = node_groups;
     dev->release     = sound_node_release;
-    if (kobject_set_name(&dev->kobj, "%s", name) != EOK || device_register(dev) != EOK) {
+    if (kobject_set_name(&dev->kobj, "%s", name) != EOK) {
         free(dev);
+        return NULL;
+    }
+    if (device_register(dev) != EOK) {
+        put_device(dev);
         return NULL;
     }
     return dev;
@@ -114,9 +115,9 @@ static struct device *sound_create_node(struct device *parent, audio_card_t *car
 /* Export every sound card and its ALSA-style nodes to /sys/class/sound/. */
 void sound_sysfs_init(void)
 {
-#if CONFIG_SYSFS
+#    if CONFIG_SYSFS
     size_t         cards;
-    struct device *card_devs[AUDIO_MAX_CARDS] = {0};
+    struct device *card_devs[CONFIG_AUDIO_MAX_CARDS] = {0};
 
     if (sound_class_ready) return;
     if (class_register(&sound_class) != EOK) {
@@ -126,7 +127,7 @@ void sound_sysfs_init(void)
     sound_class_ready = true;
 
     cards = audio_card_count();
-    if (cards > AUDIO_MAX_CARDS) cards = AUDIO_MAX_CARDS;
+    if (cards > CONFIG_AUDIO_MAX_CARDS) cards = CONFIG_AUDIO_MAX_CARDS;
 
     for (size_t c = 0; c < cards; c++) {
         audio_card_t *card = audio_get_card((uint32_t)c);
@@ -146,5 +147,7 @@ void sound_sysfs_init(void)
     }
 
     plogk("sound_sysfs: exported %zu sound card(s) to /sys/class/sound\n", cards);
-#endif
+#    endif
 }
+
+#endif

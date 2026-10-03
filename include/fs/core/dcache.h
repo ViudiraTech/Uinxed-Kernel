@@ -1,13 +1,15 @@
 /*
- * VFS pathname-component cache.
  *
- * The cache is an index over the authoritative namespace tree.  Positive
- * entries never own a vnode and may therefore be discarded at any time;
- * negative entries are qualified by the parent directory generation.
+ *      dcache.h
+ *      VFS pathname-component cache.
+ *
+ *      2026/8/24 By JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
-#ifndef INCLUDE_FS_CORE_DCACHE_H_
-#define INCLUDE_FS_CORE_DCACHE_H_
+#ifndef INCLUDE_DCACHE_H_
+#define INCLUDE_DCACHE_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -31,12 +33,10 @@ enum vfs_dcache_result {
     VFS_DCACHE_NEGATIVE = 2,
 };
 
+/* VFS operation: dcache init. */
 void vfs_dcache_init(void);
 
-/*
- * The caller must hold VFS namespace serialization (or an equivalent parent
- * and child lifetime pin) until it has finished using a positive result.
- */
+/* The caller must hold VFS namespace serialization (or an equivalent parent and child lifetime pin) until it has finished using a positive result. */
 enum vfs_dcache_result vfs_dcache_lookup(struct vfs_node *parent, const char *name, struct vfs_node **node);
 
 /* Positive entries use storage embedded in the vnode and cannot fail. */
@@ -54,4 +54,4 @@ void vfs_dcache_invalidate_parent(struct vfs_node *parent);
 size_t vfs_dcache_reclaim(size_t target);
 void   vfs_dcache_get_stats(vfs_dcache_stats_t *stats);
 
-#endif // INCLUDE_FS_CORE_DCACHE_H_
+#endif // INCLUDE_DCACHE_H_

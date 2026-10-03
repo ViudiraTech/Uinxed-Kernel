@@ -8,9 +8,8 @@
  *
  */
 
+#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <mem/buddy.h>
 
 /* Number of pages covered by a block of the given order. */
@@ -26,25 +25,25 @@ unsigned buddy_order_for_units(size_t count)
 
     unsigned order = 0;
     size_t   units = 1;
-    while (units < count && order < BUDDY_MAX_ORDER) {
+    while (units < count && order < CONFIG_BUDDY_MAX_ORDER) {
         units <<= 1;
         order++;
     }
-    if (units < count) return BUDDY_MAX_ORDER + 1;
+    if (units < count) return CONFIG_BUDDY_MAX_ORDER + 1;
     return order;
 }
 
 /* Reset the allocator over the given page metadata. */
 int buddy_init(buddy_allocator_t *allocator, buddy_page_t *metadata, size_t page_count, unsigned max_order)
 {
-    if (!allocator || !metadata || !page_count || page_count > 0x7fffffffU || max_order > BUDDY_MAX_ORDER) return -1;
+    if (!allocator || !metadata || !page_count || page_count > 0x7fffffffU || max_order > CONFIG_BUDDY_MAX_ORDER) return -EINVAL;
 
     allocator->pages      = metadata;
     allocator->page_count = page_count;
     allocator->free_pages = 0;
     allocator->max_order  = (uint8_t)max_order;
 
-    for (unsigned order = 0; order <= BUDDY_MAX_ORDER; order++) {
+    for (unsigned order = 0; order <= CONFIG_BUDDY_MAX_ORDER; order++) {
         allocator->free_head[order]  = BUDDY_INDEX_NONE;
         allocator->free_count[order] = 0;
     }
@@ -80,10 +79,11 @@ static void list_remove(buddy_allocator_t *allocator, size_t index, unsigned ord
 {
     buddy_page_t *page = &allocator->pages[index];
 
-    if (page->prev == BUDDY_INDEX_NONE)
+    if (page->prev == BUDDY_INDEX_NONE) {
         allocator->free_head[order] = page->next;
-    else
+    } else {
         allocator->pages[(size_t)page->prev].next = page->next;
+    }
     if (page->next != BUDDY_INDEX_NONE) allocator->pages[(size_t)page->next].prev = page->prev;
 
     page->next  = BUDDY_INDEX_NONE;
@@ -113,10 +113,10 @@ static void add_block(buddy_allocator_t *allocator, size_t index, unsigned order
 /* Add a page range to the allocator, split into aligned blocks. */
 int buddy_add_range(buddy_allocator_t *allocator, size_t start, size_t count)
 {
-    if (!allocator || !count || start >= allocator->page_count || count > allocator->page_count - start) return -1;
+    if (!allocator || !count || start >= allocator->page_count || count > allocator->page_count - start) return -EINVAL;
 
     for (size_t i = start; i < start + count; i++)
-        if (allocator->pages[i].state != BUDDY_PAGE_RESERVED) return -1;
+        if (allocator->pages[i].state != BUDDY_PAGE_RESERVED) return -EINVAL;
 
     while (count) {
         unsigned order = buddy_order_for_units(count);
@@ -162,17 +162,17 @@ size_t buddy_alloc(buddy_allocator_t *allocator, unsigned order)
 /* Return a block of the given order to the allocator. */
 int buddy_free(buddy_allocator_t *allocator, size_t index, unsigned order)
 {
-    if (!allocator || order > allocator->max_order || index >= allocator->page_count) return -1;
+    if (!allocator || order > allocator->max_order || index >= allocator->page_count) return -EINVAL;
     size_t units = order_units(order);
-    if ((index & (units - 1)) || units > allocator->page_count - index) return -1;
+    if ((index & (units - 1)) || units > allocator->page_count - index) return -EINVAL;
     if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) {
-        plogk("buddy: Invalid free at page 0x%llx order %u (state %u, stored order %u)\n", (uint64_t)index, order, allocator->pages[index].state, allocator->pages[index].order);
-        return -1;
+        plogk_once("buddy: Invalid free at page 0x%zx order %u (state %u, stored order %u)\n", index, order, allocator->pages[index].state, allocator->pages[index].order);
+        return -EINVAL;
     }
     for (size_t i = 1; i < units; i++) {
         if (allocator->pages[index + i].state != BUDDY_PAGE_ALLOC_TAIL) {
-            plogk("buddy: Corrupted block at page 0x%llx order %u (tail page 0x%llx state %u)\n", (uint64_t)index, order, (uint64_t)(index + i), allocator->pages[index + i].state);
-            return -1;
+            plogk_once("buddy: Corrupted block at page 0x%zx order %u (tail page 0x%zx state %u)\n", index, order, index + i, allocator->pages[index + i].state);
+            return -EFAULT;
         }
     }
 
@@ -188,12 +188,12 @@ int buddy_free(buddy_allocator_t *allocator, size_t index, unsigned order)
 /* Shrink a block down to keep_units pages, freeing the tail. */
 int buddy_trim_allocation(buddy_allocator_t *allocator, size_t index, unsigned order, size_t keep_units)
 {
-    if (!allocator || order > allocator->max_order || index >= allocator->page_count) return -1;
+    if (!allocator || order > allocator->max_order || index >= allocator->page_count) return -EINVAL;
     size_t units = order_units(order);
-    if (!keep_units || keep_units > units || units > allocator->page_count - index) return -1;
-    if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) return -1;
+    if (!keep_units || keep_units > units || units > allocator->page_count - index) return -EINVAL;
+    if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) return -EINVAL;
     for (size_t i = 1; i < units; i++)
-        if (allocator->pages[index + i].state != BUDDY_PAGE_ALLOC_TAIL) return -1;
+        if (allocator->pages[index + i].state != BUDDY_PAGE_ALLOC_TAIL) return -EFAULT;
 
     for (size_t i = 0; i < units; i++) {
         allocator->pages[index + i].state = BUDDY_PAGE_RESERVED;
@@ -224,7 +224,7 @@ static int node_in_list(const buddy_allocator_t *allocator, size_t wanted, unsig
 /* Verify free lists and buddy coalescing invariants. */
 int buddy_validate(const buddy_allocator_t *allocator)
 {
-    if (!allocator || !allocator->pages || !allocator->page_count || allocator->max_order > BUDDY_MAX_ORDER) return -1;
+    if (!allocator || !allocator->pages || !allocator->page_count || allocator->max_order > CONFIG_BUDDY_MAX_ORDER) return -EINVAL;
 
     size_t total_free  = 0;
     size_t total_heads = 0;
@@ -233,34 +233,36 @@ int buddy_validate(const buddy_allocator_t *allocator)
         int32_t previous = BUDDY_INDEX_NONE;
         size_t  count    = 0;
         while (node != BUDDY_INDEX_NONE) {
-            if (node < 0 || (size_t)node >= allocator->page_count || count++ > allocator->page_count) return -1;
+            if (node < 0 || (size_t)node >= allocator->page_count || count++ > allocator->page_count) return -EFAULT;
             size_t              index = (size_t)node;
             size_t              units = order_units(order);
             const buddy_page_t *page  = &allocator->pages[index];
-            if (page->state != BUDDY_PAGE_FREE_HEAD || page->order != order || page->prev != previous) return -1;
-            if ((index & (units - 1)) || units > allocator->page_count - index) return -1;
+            if (page->state != BUDDY_PAGE_FREE_HEAD || page->order != order || page->prev != previous) return -EFAULT;
+            if ((index & (units - 1)) || units > allocator->page_count - index) return -EFAULT;
             for (size_t i = 1; i < units; i++)
-                if (allocator->pages[index + i].state == BUDDY_PAGE_FREE_HEAD) return -1;
+                if (allocator->pages[index + i].state == BUDDY_PAGE_FREE_HEAD) return -EFAULT;
             if (order < allocator->max_order) {
                 size_t buddy = index ^ units;
-                if (buddy < allocator->page_count && allocator->pages[buddy].state == BUDDY_PAGE_FREE_HEAD && allocator->pages[buddy].order == order) return -1; // Coalescing invariant violated.
+                if (buddy < allocator->page_count && allocator->pages[buddy].state == BUDDY_PAGE_FREE_HEAD && allocator->pages[buddy].order == order) return -EFAULT; // Coalescing invariant violated.
             }
             previous = node;
             node     = page->next;
         }
-        if (count != allocator->free_count[order]) return -1;
+        if (count != allocator->free_count[order]) return -EFAULT;
         total_heads += count;
+
+        /* Order units. */
         total_free += count * order_units(order);
     }
-    if (total_free != allocator->free_pages) return -1;
+    if (total_free != allocator->free_pages) return -EFAULT;
 
     size_t observed_heads = 0;
     for (size_t i = 0; i < allocator->page_count; i++) {
         if (allocator->pages[i].state == BUDDY_PAGE_FREE_HEAD) {
             unsigned order = allocator->pages[i].order;
-            if (order > allocator->max_order || !node_in_list(allocator, i, order)) return -1;
+            if (order > allocator->max_order || !node_in_list(allocator, i, order)) return -EFAULT;
             observed_heads++;
         }
     }
-    return observed_heads == total_heads ? 0 : -1;
+    return observed_heads == total_heads ? 0 : -EFAULT;
 }

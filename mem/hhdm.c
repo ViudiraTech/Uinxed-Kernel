@@ -13,7 +13,6 @@
 #include <boot/limine.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
-#include <mem/hhdm.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>
 
@@ -29,9 +28,8 @@ void *phys_to_virt(uint64_t phys_addr)
 {
     pointer_cast_t virt_addr;
     if (!hhdm_request.response) krn_halt();
-    if (phys_addr >= (1ULL << get_cpu_phys_bits())) { // Check if physical address is valid
-        plogk("hhdm: Physical address 0x%016llx exceeds physical address space.\n", phys_addr);
-    }
+    if (phys_addr >= (1ULL << get_cpu_phys_bits())) // Check if physical address is valid
+        plogk("hhdm: Physical address 0x%016llx exceeds physical address space.\n", (phys_addr));
     virt_addr.val = phys_addr + hhdm_request.response->offset;
     return virt_addr.ptr;
 }
@@ -41,9 +39,8 @@ void *virt_to_phys(uint64_t virt_addr)
 {
     pointer_cast_t phys_addr;
     if (!hhdm_request.response) krn_halt();
-    if (virt_addr < hhdm_request.response->offset) { // Check if virtual address is in HHDM region
-        plogk("hhdm: Virtual address 0x%016llx is not in HHDM region.\n", virt_addr);
-    }
+    if (virt_addr < hhdm_request.response->offset) // Check if virtual address is in HHDM region
+        plogk("hhdm: Virtual address 0x%016llx is not in HHDM region.\n", (virt_addr));
     phys_addr.val = virt_addr - hhdm_request.response->offset;
     return phys_addr.ptr;
 }
@@ -66,6 +63,6 @@ void *virt_any_to_phys(uint64_t addr)
     }
 
     /* Not mapped */
-    plogk("hhdm: Virtual address 0x%016llx is not mapped to any physical address.\n", addr);
+    plogk("hhdm: Virtual address 0x%016llx is not mapped to any physical address.\n", (addr));
     return 0;
 }

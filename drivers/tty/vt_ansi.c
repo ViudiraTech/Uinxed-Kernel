@@ -9,8 +9,13 @@
  */
 
 #include <drivers/tty/vt_ansi.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
+
+#if CONFIG_VT
+
+typedef struct rgb {
+        uint8_t r, g, b;
+} rgb_t;
 
 static const uint32_t ansi_palette[16] = {
     0x000000, 0xaa0000, 0x00aa00, 0xaaaa00, 0x0000aa, 0xaa00aa, 0x00aaaa, 0xaaaaaa, 0x555555, 0xff5555, 0x55ff55, 0xffff55, 0x5555ff, 0xff55ff, 0x55ffff, 0xffffff,
@@ -70,19 +75,21 @@ static void vt_ansi_gotoxy(vt_ansi_state_t *s, int new_x, int new_y)
     uint32_t min_y = s->origin_mode ? s->scroll_top : 0;
     uint32_t max_y = s->origin_mode ? s->scroll_bottom : s->rows;
 
-    if (new_x < 0)
+    if (new_x < 0) {
         s->x = 0;
-    else if ((uint32_t)new_x >= s->cols)
+    } else if ((uint32_t)new_x >= s->cols) {
         s->x = s->cols - 1;
-    else
+    } else {
         s->x = (uint32_t)new_x;
+    }
 
-    if (new_y < (int)min_y)
+    if (new_y < (int)min_y) {
         s->y = min_y;
-    else if ((uint32_t)new_y >= max_y)
+    } else if ((uint32_t)new_y >= max_y) {
         s->y = max_y - 1;
-    else
+    } else {
         s->y = (uint32_t)new_y;
+    }
 
     s->wrap_next = false;
 }
@@ -106,9 +113,21 @@ static void vt_ansi_put_char(const vt_ansi_state_t *s, const vt_ansi_callbacks_t
         }
         if (s->attrs.intensity == ANSI_INTENSITY_BOLD) {
             uint32_t r = (fg >> 16) & 0xFF, g = (fg >> 8) & 0xFF, b = fg & 0xFF;
-            r  = r ? (r < 128 ? r * 2 : 255) : 0;
-            g  = g ? (g < 128 ? g * 2 : 255) : 0;
-            b  = b ? (b < 128 ? b * 2 : 255) : 0;
+            if (r) {
+                r = (r < 128) ? r * 2 : 255;
+            } else {
+                r = 0;
+            }
+            if (g) {
+                g = (g < 128) ? g * 2 : 255;
+            } else {
+                g = 0;
+            }
+            if (b) {
+                b = (b < 128) ? b * 2 : 255;
+            } else {
+                b = 0;
+            }
             fg = (r << 16) | (g << 8) | b;
         } else if (s->attrs.intensity == ANSI_INTENSITY_HALF_BRIGHT) {
             fg = ((fg & 0xFEFEFE) >> 1) | 0x555555;
@@ -243,7 +262,7 @@ static char *vt_ansi_utoa(uint32_t v, char *p)
 {
     char tmp[12], *t = tmp;
     do {
-        *t++ = (char)('0' + v % 10);
+        *t++ = (char)('0' + (v % 10));
         v /= 10;
     } while (v);
     do {
@@ -280,10 +299,6 @@ static void vt_ansi_csi_p(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     if (cb && cb->delete_chars) cb->delete_chars(s->x, s->y, count, s->cols);
     s->wrap_next = false;
 }
-
-typedef struct rgb {
-        uint8_t r, g, b;
-} rgb_t;
 
 /* Map a 256-color palette index to its RGB components. */
 static void vt_ansi_rgb_from_256_color(uint8_t i, rgb_t *c)
@@ -335,10 +350,11 @@ static int vt_ansi_t416_color(vt_ansi_state_t *s, int i, int is_fg)
         i += 3;
     } else
         return i;
-    if (is_fg)
+    if (is_fg) {
         vt_ansi_set_fg_rgb(s, &c);
-    else
+    } else {
         vt_ansi_set_bg_rgb(s, &c);
+    }
     return i;
 }
 
@@ -529,6 +545,17 @@ static void vt_ansi_dec_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks
                 break;
         }
     }
+}
+
+/* Set the default SGR foreground and background colors. */
+void vt_ansi_set_default_colors(vt_ansi_state_t *s, uint32_t fg, uint32_t bg)
+{
+    s->default_fg  = fg;
+    s->default_bg  = bg;
+    s->fg_color.fg = fg;
+    s->fg_color.bg = fg;
+    s->bg_color.fg = bg;
+    s->bg_color.bg = bg;
 }
 
 /* Initialize or reset the ANSI parser state for the given grid size. */
@@ -984,10 +1011,11 @@ csi_exec:
             if (cb && cb->write_response) cb->write_response("\033[?1;2c", 7);
             return;
         case 'g' :
-            if (s->par[0] == 0 && s->x < VT_ANSI_TABS)
+            if (s->par[0] == 0 && s->x < VT_ANSI_TABS) {
                 s->tab_stops[s->x] = 0;
-            else if (s->par[0] == 3)
+            } else if (s->par[0] == 3) {
                 memset(s->tab_stops, 0, sizeof(s->tab_stops));
+            }
             return;
         case 'h' :
             vt_ansi_hl(s, true, cb);
@@ -1043,3 +1071,5 @@ csi_exec:
             return;
     }
 }
+
+#endif

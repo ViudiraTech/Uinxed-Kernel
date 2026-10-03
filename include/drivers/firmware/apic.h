@@ -12,7 +12,6 @@
 #define INCLUDE_APIC_H_
 
 #include <drivers/firmware/acpi.h>
-#include <libs/std/stdint.h>
 
 #define MADT_APIC_LOCAL_CPU    0x00
 #define MADT_APIC_IO           0x01
@@ -132,6 +131,9 @@ uint32_t ioapic_read(uint32_t reg);
 /* Configuring I/O APIC interrupt routing */
 void ioapic_add(ioapic_routing_t *routing);
 
+/* Mask an I/O APIC interrupt routing entry (pair of ioapic_add) */
+void ioapic_remove(ioapic_routing_t *routing);
+
 /* Write local APIC register */
 void lapic_write(uint32_t reg, uint32_t value);
 
@@ -150,10 +152,7 @@ int lapic_timer_is_tsc_deadline(void);
 /* Re-arm the LAPIC timer for the next periodic tick (TSC-deadline mode only; no-op in legacy periodic mode) */
 void lapic_timer_rearm_tick(void);
 
-/*
- * Switch the BSP LAPIC timer to TSC-deadline mode after tsc_init(); must run
- * between tsc_init() and smp_init() so APs boot directly into deadline mode.
- */
+/* Switch the BSP LAPIC timer to TSC-deadline mode after tsc_init(); must run between tsc_init() and smp_init() so APs boot directly into deadline mode. */
 void lapic_timer_try_upgrade(void);
 
 /* Initialize I/O APIC */

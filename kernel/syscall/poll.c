@@ -1,7 +1,7 @@
 /*
  *
  *      poll.c
- *      Linux-compatible poll, select, pselect6, and ppoll syscalls
+ *      poll, select, pselect6, and ppoll syscalls
  *
  *      2026/7/28 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,18 +12,11 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/heap.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/signal.h>
 #include <syscall/poll.h>
 
 #define POLL_ALWAYS_MASK   (POLLERR | POLLHUP | POLLNVAL)
@@ -32,9 +25,8 @@
 #define SELECT_WRITE_MASK  (POLLOUT | POLLWRNORM | POLLWRBAND | POLLERR)
 #define SELECT_EXCEPT_MASK POLLPRI
 
-#define POLL_NFDS_MAX      65536ULL
-#define SELECT_NFDS_MAX    1024ULL
-#define SELECT_FD_SET_SIZE (SELECT_NFDS_MAX / 8)
+/* Byte size of one fd_set, rounded up to whole 64-bit words */
+#define SELECT_FD_SET_SIZE (((CONFIG_SELECT_NFDS_MAX + 63) / 64) * sizeof(uint64_t))
 
 typedef struct {
         int32_t fd;
@@ -121,16 +113,6 @@ static uint64_t poll_timeout_remaining_ns(const poll_timeout_t *timeout)
     return used_ns < timeout->duration_ns ? timeout->duration_ns - used_ns : 0;
 }
 
-/* Check whether the process has a pending signal */
-static bool poll_signal_pending(process_t *proc)
-{
-    bool pending;
-    spin_lock(&proc->signal.lock);
-    pending = signal_has_pending(&proc->signal) != 0;
-    spin_unlock(&proc->signal.lock);
-    return pending;
-}
-
 /* Event callback: bump the generation and wake waiters */
 static void poll_event_notify(vfs_poll_subscription_t *subscription, uint32_t events)
 {
@@ -170,7 +152,8 @@ static int poll_watches_create(process_t *proc, linux_pollfd_t *fds, uint64_t nf
 {
     poll_watch_t *watches = nfds ? calloc((size_t)nfds, sizeof(*watches)) : NULL;
     if (nfds && !watches) {
-        plogk("poll: Watch array alloc failed (nfds=%lu)\n", (unsigned long)nfds);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("poll: Watch array alloc failed (nfds=%llu)\n", nfds);
         return -ENOMEM;
     }
 
@@ -216,10 +199,11 @@ static int poll_scan(linux_pollfd_t *fds, poll_watch_t *watches, uint64_t nfds)
         } else {
             uint32_t requested = (uint16_t)pfd->events & POLL_REQUEST_MASK;
             int      result    = process_file_poll(watch->file, requested | POLLERR | POLLHUP);
-            if (result < 0)
+            if (result < 0) {
                 pfd->revents = POLLERR;
-            else
+            } else {
                 pfd->revents = (int16_t)((uint32_t)result & (requested | POLL_ALWAYS_MASK));
+            }
         }
         if (pfd->revents) ready++;
     }
@@ -245,19 +229,18 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
             ret = 0;
             break;
         }
-        if (poll_signal_pending(proc)) {
+        if (signal_has_pending_current()) {
             ret = -EINTR;
             break;
         }
 
         wait_queue_prepare(&context.wq);
-        if (__atomic_load_n(&context.generation, __ATOMIC_ACQUIRE) != generation || poll_signal_pending(proc) || (!timeout->infinite && sched_ticks() >= timeout->deadline_tick)) {
+        if (__atomic_load_n(&context.generation, __ATOMIC_ACQUIRE) != generation || signal_has_pending_current() || (!timeout->infinite && sched_ticks() >= timeout->deadline_tick)) {
             /*
-             * Condition already satisfied (or a signal arrived): withdraw
-             * our OWN prepared entry instead of waking the queue.  Waking
-             * ourselves through wake_all() only works while this task is
-             * still the queue's sole member and hides the real protocol
-             * transition from the scheduler.
+             * Condition already satisfied (or a signal arrived): withdraw the prepared
+             * entry instead of waking the queue.  A self-wake through
+             * wait_queue_wake_all() only works while this task is still the queue's sole
+             * member and hides the real protocol transition from the scheduler.
              */
             wait_queue_cancel(&context.wq);
             continue;
@@ -270,13 +253,12 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
          * lost-wakeup bug in a driver's poll source from an unrecoverable
          * hang into a sub-second hiccup.
          */
-        uint64_t wait_deadline = timeout->infinite ? sched_ticks() + TIMER_HZ : timeout->deadline_tick;
+        uint64_t wait_deadline = timeout->infinite ? sched_ticks() + CONFIG_TIMER_HZ : timeout->deadline_tick;
         if (!timeout->infinite && sched_ticks() >= wait_deadline) {
             /*
-             * Deadline already passed while we were preparing: withdraw the
-             * stack-backed wait entry before rescanning.  Leaving it linked
-             * lets a later fd notification dereference poll_wait_context_t
-             * after this syscall has returned.
+             * Deadline already passed while preparing: withdraw the stack-backed wait
+             * entry before rescanning.  Leaving it linked lets a later fd notification
+             * dereference poll_wait_context_t after this syscall has returned.
              */
             wait_queue_cancel(&context.wq);
             continue;
@@ -284,7 +266,7 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
         (void)wait_queue_wait_timed(&context.wq, wait_deadline);
     }
 
-    /* Match Linux poll_freewait(): no stack-owned waiter may escape poll(). */
+    /* No stack-owned waiter may escape poll(). */
     wait_queue_cancel(&context.wq);
     poll_watches_release(watches, nfds);
     return ret;
@@ -338,26 +320,21 @@ static int64_t do_poll(uint64_t user_fds, uint64_t nfds, poll_timeout_t *timeout
 {
     process_t *proc = process_current();
     if (!proc) {
-        plogk("poll: No current process for poll.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("poll: No current process for poll.\n");
         return -ESRCH;
     }
-    if (nfds > POLL_NFDS_MAX) {
-        plogk("poll: nfds %lu exceeds limit %llu\n", (unsigned long)nfds, POLL_NFDS_MAX);
-        return -EINVAL;
-    }
-    if (nfds && !user_fds) {
-        plogk("poll: nfds %lu with null fds pointer.\n", (unsigned long)nfds);
-        return -EFAULT;
-    }
+    if (nfds > CONFIG_POLL_NFDS_MAX) return -EINVAL;
+    if (nfds && !user_fds) return -EFAULT;
 
     linux_pollfd_t *fds = nfds ? calloc((size_t)nfds, sizeof(*fds)) : NULL;
     if (nfds && !fds) {
-        plogk("poll: fd array alloc failed (nfds=%lu)\n", (unsigned long)nfds);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("poll: fd array alloc failed (nfds=%llu)\n", nfds);
         return -ENOMEM;
     }
     if (nfds && copy_from_user(fds, (const void *)user_fds, (size_t)nfds * sizeof(*fds))) {
         free(fds);
-        plogk("poll: Copy of fd array from user failed (nfds=%lu, fds=%p)\n", (unsigned long)nfds, (const void *)user_fds);
         return -EFAULT;
     }
 
@@ -381,13 +358,11 @@ static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uin
 {
     process_t *proc = process_current();
     if (!proc) {
-        plogk("poll: Select with no current process.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("poll: Select with no current process.\n");
         return -ESRCH;
     }
-    if (nfds > SELECT_NFDS_MAX) {
-        plogk("poll: Select nfds %lu exceeds limit %llu\n", (unsigned long)nfds, SELECT_NFDS_MAX);
-        return -EINVAL;
-    }
+    if (nfds > CONFIG_SELECT_NFDS_MAX) return -EINVAL;
 
     size_t  set_size                       = (size_t)(((nfds + 63) / 64) * sizeof(uint64_t));
     uint8_t in_read[SELECT_FD_SET_SIZE]    = {0};
@@ -398,14 +373,13 @@ static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uin
     uint8_t out_except[SELECT_FD_SET_SIZE] = {0};
 
     if ((readfds && copy_from_user(in_read, (const void *)readfds, set_size)) || (writefds && copy_from_user(in_write, (const void *)writefds, set_size))
-        || (exceptfds && copy_from_user(in_except, (const void *)exceptfds, set_size))) {
-        plogk("poll: Select copy of fd sets from user failed (nfds=%lu)\n", (unsigned long)nfds);
+        || (exceptfds && copy_from_user(in_except, (const void *)exceptfds, set_size)))
         return -EFAULT;
-    }
 
     linux_pollfd_t *fds = nfds ? calloc((size_t)nfds, sizeof(*fds)) : NULL;
     if (nfds && !fds) {
-        plogk("poll: Select fd array alloc failed (nfds=%lu)\n", (unsigned long)nfds);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("poll: Select fd array alloc failed (nfds=%llu)\n", nfds);
         return -ENOMEM;
     }
     for (uint64_t fd = 0; fd < nfds; fd++) {
@@ -472,14 +446,8 @@ int64_t sys_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t 
     (void)arg5;
     linux_timeval_t tv = {0};
     if (timeout_ptr) {
-        if (copy_from_user(&tv, (const void *)timeout_ptr, sizeof(tv))) {
-            plogk("poll: Select timeout copy from user failed (ptr=%p)\n", (const void *)timeout_ptr);
-            return -EFAULT;
-        }
-        if (tv.tv_sec < 0 || tv.tv_usec < 0 || tv.tv_usec >= 1000000) {
-            plogk("poll: Select invalid timeout (sec=%ld, usec=%ld)\n", (long)tv.tv_sec, (long)tv.tv_usec);
-            return -EINVAL;
-        }
+        if (copy_from_user(&tv, (const void *)timeout_ptr, sizeof(tv))) return -EFAULT;
+        if (tv.tv_sec < 0 || tv.tv_usec < 0 || tv.tv_usec >= 1000000) return -EINVAL;
     }
     uint64_t       duration = timeout_ptr ? saturating_add_u64(saturating_mul_u64((uint64_t)tv.tv_sec, 1000000000ULL), (uint64_t)tv.tv_usec * 1000ULL) : 0;
     poll_timeout_t timeout;
@@ -500,29 +468,17 @@ int64_t sys_pselect6(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_
 {
     linux_timespec_t ts = {0};
     if (timeout_ptr) {
-        if (copy_from_user(&ts, (const void *)timeout_ptr, sizeof(ts))) {
-            plogk("poll: pselect6 timeout copy from user failed (ptr=%p)\n", (const void *)timeout_ptr);
-            return -EFAULT;
-        }
-        if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) {
-            plogk("poll: pselect6 invalid timeout (sec=%ld, nsec=%ld)\n", (long)ts.tv_sec, (long)ts.tv_nsec);
-            return -EINVAL;
-        }
+        if (copy_from_user(&ts, (const void *)timeout_ptr, sizeof(ts))) return -EFAULT;
+        if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) return -EINVAL;
     }
 
     sigset_t  mask;
     sigset_t *mask_ptr = NULL;
     if (sigarg_ptr) {
         linux_pselect_sigarg_t arg;
-        if (copy_from_user(&arg, (const void *)sigarg_ptr, sizeof(arg))) {
-            plogk("poll: pselect6 sigarg copy from user failed (ptr=%p)\n", (const void *)sigarg_ptr);
-            return -EFAULT;
-        }
+        if (copy_from_user(&arg, (const void *)sigarg_ptr, sizeof(arg))) return -EFAULT;
         int err = copy_sigmask(arg.sigmask, arg.sigsetsize, &mask);
-        if (err != EOK) {
-            plogk("poll: pselect6 sigmask error (err=%d, sigsetsize=%lu)\n", err, (unsigned long)arg.sigsetsize);
-            return err;
-        }
+        if (err != EOK) return err;
         if (arg.sigmask) mask_ptr = &mask;
     }
 
@@ -546,23 +502,14 @@ int64_t sys_ppoll(uint64_t fds, uint64_t nfds, uint64_t timeout_ptr, uint64_t si
     (void)arg5;
     linux_timespec_t ts = {0};
     if (timeout_ptr) {
-        if (copy_from_user(&ts, (const void *)timeout_ptr, sizeof(ts))) {
-            plogk("poll: ppoll timeout copy from user failed (ptr=%p)\n", (const void *)timeout_ptr);
-            return -EFAULT;
-        }
-        if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) {
-            plogk("poll: ppoll invalid timeout (sec=%ld, nsec=%ld)\n", (long)ts.tv_sec, (long)ts.tv_nsec);
-            return -EINVAL;
-        }
+        if (copy_from_user(&ts, (const void *)timeout_ptr, sizeof(ts))) return -EFAULT;
+        if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) return -EINVAL;
     }
 
     sigset_t  mask;
     sigset_t *mask_ptr = NULL;
     int       err      = copy_sigmask(sigmask_ptr, sigsetsize, &mask);
-    if (err != EOK) {
-        plogk("poll: ppoll sigmask error (err=%d, sigsetsize=%lu)\n", err, (unsigned long)sigsetsize);
-        return err;
-    }
+    if (err != EOK) return err;
     if (sigmask_ptr) mask_ptr = &mask;
 
     uint64_t       duration = timeout_ptr ? saturating_add_u64(saturating_mul_u64((uint64_t)ts.tv_sec, 1000000000ULL), (uint64_t)ts.tv_nsec) : 0;

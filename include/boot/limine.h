@@ -18,6 +18,7 @@
 #ifndef INCLUDE_LIMINE_H_
 #define INCLUDE_LIMINE_H_
 
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 /* Misc */
@@ -62,6 +63,8 @@ struct limine_uuid {
         uint8_t  d[8];
 };
 
+_Static_assert(sizeof(struct limine_uuid) == 16, "Limine UUID protocol size");
+
 #define LIMINE_MEDIA_TYPE_GENERIC 0
 #define LIMINE_MEDIA_TYPE_OPTICAL 1
 #define LIMINE_MEDIA_TYPE_TFTP    2
@@ -86,6 +89,8 @@ struct limine_file {
         struct limine_uuid gpt_part_uuid;
         struct limine_uuid part_uuid;
 };
+
+_Static_assert(sizeof(struct limine_file) == 112, "Limine file protocol size");
 
 /* Boot info */
 
@@ -222,10 +227,17 @@ struct limine_framebuffer {
         uint8_t  unused[7];
         uint64_t edid_size;
         LIMINE_PTR(void *) edid;
+
         /* Response revision 1 */
         uint64_t mode_count;
         LIMINE_PTR(struct limine_video_mode **) modes;
 };
+
+_Static_assert(sizeof(struct limine_framebuffer) == 80, "Limine framebuffer protocol size");
+_Static_assert(offsetof(struct limine_framebuffer, width) == 8, "Limine framebuffer width offset");
+_Static_assert(offsetof(struct limine_framebuffer, height) == 16, "Limine framebuffer height offset");
+_Static_assert(offsetof(struct limine_framebuffer, pitch) == 24, "Limine framebuffer pitch offset");
+_Static_assert(offsetof(struct limine_framebuffer, bpp) == 32, "Limine framebuffer bpp offset");
 
 struct limine_framebuffer_response {
         uint64_t revision;
@@ -238,6 +250,9 @@ struct limine_framebuffer_request {
         uint64_t revision;
         LIMINE_PTR(struct limine_framebuffer_response *) response;
 };
+
+/* The protocol fixes response right after the 32-byte magic and the revision word. */
+_Static_assert(offsetof(struct limine_framebuffer_request, response) == 40, "Limine request response offset");
 
 /* Terminal */
 
@@ -309,29 +324,10 @@ LIMINE_DEPRECATED_IGNORE_END
         LIMINE_COMMON_MAGIC, 0x95c1a0edab0944cb, 0xa4e5cb3842f7488a \
     }
 
-#if defined(__x86_64__) || defined(__i386__)
-#    define LIMINE_PAGING_MODE_X86_64_4LVL 0
-#    define LIMINE_PAGING_MODE_X86_64_5LVL 1
-#    define LIMINE_PAGING_MODE_MIN         LIMINE_PAGING_MODE_X86_64_4LVL
-#    define LIMINE_PAGING_MODE_DEFAULT     LIMINE_PAGING_MODE_X86_64_4LVL
-#elif defined(__aarch64__)
-#    define LIMINE_PAGING_MODE_AARCH64_4LVL 0
-#    define LIMINE_PAGING_MODE_AARCH64_5LVL 1
-#    define LIMINE_PAGING_MODE_MIN          LIMINE_PAGING_MODE_AARCH64_4LVL
-#    define LIMINE_PAGING_MODE_DEFAULT      LIMINE_PAGING_MODE_AARCH64_4LVL
-#elif defined(__riscv) && (__riscv_xlen == 64)
-#    define LIMINE_PAGING_MODE_RISCV_SV39 0
-#    define LIMINE_PAGING_MODE_RISCV_SV48 1
-#    define LIMINE_PAGING_MODE_RISCV_SV57 2
-#    define LIMINE_PAGING_MODE_MIN        LIMINE_PAGING_MODE_RISCV_SV39
-#    define LIMINE_PAGING_MODE_DEFAULT    LIMINE_PAGING_MODE_RISCV_SV48
-#elif defined(__loongarch__) && (__loongarch_grlen == 64)
-#    define LIMINE_PAGING_MODE_LOONGARCH64_4LVL 0
-#    define LIMINE_PAGING_MODE_MIN              LIMINE_PAGING_MODE_LOONGARCH64_4LVL
-#    define LIMINE_PAGING_MODE_DEFAULT          LIMINE_PAGING_MODE_LOONGARCH64_4LVL
-#else
-#    error Unknown architecture
-#endif
+#define LIMINE_PAGING_MODE_X86_64_4LVL 0
+#define LIMINE_PAGING_MODE_X86_64_5LVL 1
+#define LIMINE_PAGING_MODE_MIN         LIMINE_PAGING_MODE_X86_64_4LVL
+#define LIMINE_PAGING_MODE_DEFAULT     LIMINE_PAGING_MODE_X86_64_4LVL
 
 struct limine_paging_mode_response {
         uint64_t revision;
@@ -388,12 +384,11 @@ struct LIMINE_MP(info);
 
 typedef void (*limine_goto_address)(struct LIMINE_MP(info) *);
 
-#if defined(__x86_64__) || defined(__i386__)
-#    if LIMINE_API_REVISION >= 1
-#        define LIMINE_MP_X2APIC (1 << 0)
-#    else
-#        define LIMINE_SMP_X2APIC (1 << 0)
-#    endif
+#if LIMINE_API_REVISION >= 1
+#    define LIMINE_MP_X2APIC (1 << 0)
+#else
+#    define LIMINE_SMP_X2APIC (1 << 0)
+#endif
 
 struct LIMINE_MP(info) {
         uint32_t processor_id;
@@ -410,58 +405,6 @@ struct LIMINE_MP(response) {
         uint64_t cpu_count;
         LIMINE_PTR(struct LIMINE_MP(info) **) cpus;
 };
-
-#elif defined(__aarch64__)
-
-struct LIMINE_MP(info) {
-        uint32_t processor_id;
-        uint32_t reserved1;
-        uint64_t mpidr;
-        uint64_t reserved;
-        LIMINE_PTR(limine_goto_address) goto_address;
-        uint64_t extra_argument;
-};
-
-struct LIMINE_MP(response) {
-        uint64_t revision;
-        uint64_t flags;
-        uint64_t bsp_mpidr;
-        uint64_t cpu_count;
-        LIMINE_PTR(struct LIMINE_MP(info) **) cpus;
-};
-
-#elif defined(__riscv) && (__riscv_xlen == 64)
-
-struct LIMINE_MP(info) {
-        uint64_t processor_id;
-        uint64_t hartid;
-        uint64_t reserved;
-        LIMINE_PTR(limine_goto_address) goto_address;
-        uint64_t extra_argument;
-};
-
-struct LIMINE_MP(response) {
-        uint64_t revision;
-        uint64_t flags;
-        uint64_t bsp_hartid;
-        uint64_t cpu_count;
-        LIMINE_PTR(struct LIMINE_MP(info) **) cpus;
-};
-
-#elif defined(__loongarch__) && (__loongarch_grlen == 64)
-
-struct LIMINE_MP(info) {
-        uint64_t reserved;
-};
-
-struct LIMINE_MP(response) {
-        uint64_t cpu_count;
-        LIMINE_PTR(struct LIMINE_MP(info) **) cpus;
-};
-
-#else
-#    error Unknown architecture
-#endif
 
 struct LIMINE_MP(request) {
         uint64_t id[4];
@@ -772,42 +715,6 @@ struct limine_kernel_address_request {
 #else
         LIMINE_PTR(struct limine_kernel_address_response *) response;
 #endif
-};
-
-/* Device Tree Blob */
-
-#define LIMINE_DTB_REQUEST                                          \
-    {                                                               \
-        LIMINE_COMMON_MAGIC, 0xb40ddb48fb54bac7, 0x545081493f81ffb7 \
-    }
-
-struct limine_dtb_response {
-        uint64_t revision;
-        LIMINE_PTR(void *) dtb_ptr;
-};
-
-struct limine_dtb_request {
-        uint64_t id[4];
-        uint64_t revision;
-        LIMINE_PTR(struct limine_dtb_response *) response;
-};
-
-/* RISC-V Boot Hart ID */
-
-#define LIMINE_RISCV_BSP_HARTID_REQUEST                             \
-    {                                                               \
-        LIMINE_COMMON_MAGIC, 0x1369359f025525f9, 0x2ff2a56178391bb6 \
-    }
-
-struct limine_riscv_bsp_hartid_response {
-        uint64_t revision;
-        uint64_t bsp_hartid;
-};
-
-struct limine_riscv_bsp_hartid_request {
-        uint64_t id[4];
-        uint64_t revision;
-        LIMINE_PTR(struct limine_riscv_bsp_hartid_response *) response;
 };
 
 /* Bootloader Performance */

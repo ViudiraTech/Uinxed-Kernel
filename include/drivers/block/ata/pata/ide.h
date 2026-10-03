@@ -11,6 +11,7 @@
 #ifndef INCLUDE_IDE_H_
 #define INCLUDE_IDE_H_
 
+#include <drivers/block/ata/ata_cmds.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
@@ -31,46 +32,13 @@
 #define ATA_ER_TK0NF 0x02
 #define ATA_ER_AMNF  0x01
 
-#define ATA_CMD_READ_PIO     0x20
-#define ATA_CMD_READ_PIO_EXT 0x24
-#define ATA_CMD_READ_DMA     0xc8
-#ifndef ATA_CMD_READ_DMA_EXT
-#    define ATA_CMD_READ_DMA_EXT 0x25
-#endif
+#define ATA_CMD_READ_PIO      0x20
+#define ATA_CMD_READ_PIO_EXT  0x24
+#define ATA_CMD_READ_DMA      0xc8
 #define ATA_CMD_WRITE_PIO     0x30
 #define ATA_CMD_WRITE_PIO_EXT 0x34
 #define ATA_CMD_WRITE_DMA     0xca
-#ifndef ATA_CMD_WRITE_DMA_EXT
-#    define ATA_CMD_WRITE_DMA_EXT 0x35
-#endif
-#ifndef ATA_CMD_CACHE_FLUSH
-#    define ATA_CMD_CACHE_FLUSH 0xe7
-#endif
-#ifndef ATA_CMD_CACHE_FLUSH_EXT
-#    define ATA_CMD_CACHE_FLUSH_EXT 0xea
-#endif
-#define ATA_CMD_SET_FEATURES 0xef
-#ifndef ATA_CMD_PACKET
-#    define ATA_CMD_PACKET 0xa0
-#endif
-#ifndef ATA_CMD_IDENTIFY_PACKET
-#    define ATA_CMD_IDENTIFY_PACKET 0xa1
-#endif
-#ifndef ATA_CMD_IDENTIFY
-#    define ATA_CMD_IDENTIFY 0xec
-#endif
-
-#define ATA_IDENT_DEVICETYPE   0
-#define ATA_IDENT_CYLINDERS    2
-#define ATA_IDENT_HEADS        6
-#define ATA_IDENT_SECTORS      12
-#define ATA_IDENT_SERIAL       20
-#define ATA_IDENT_MODEL        54
-#define ATA_IDENT_CAPABILITIES 98
-#define ATA_IDENT_FIELDVALID   106
-#define ATA_IDENT_MAX_LBA      120
-#define ATA_IDENT_COMMANDSETS  164
-#define ATA_IDENT_MAX_LBA_EXT  200
+#define ATA_CMD_SET_FEATURES  0xef
 
 #define IDE_ATA   0x00
 #define IDE_ATAPI 0x01
@@ -141,7 +109,11 @@ extern ide_channel_registers_t channels[2];
 extern ide_device_t            ide_devices[4];
 
 /* Detect and initialize the IDE controllers and their drives */
+#if CONFIG_ATA
 void init_ide(void);
+#else
+static inline void init_ide(void) {}
+#endif
 
 /* Wait for the IDE IRQ on a channel to fire */
 int ide_wait_irq(uint8_t channel);

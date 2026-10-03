@@ -9,18 +9,13 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_DRM
 
 /*
  * MODE_ID is a blob property, but changing (or merely resubmitting) the
@@ -59,26 +54,13 @@ static int drm_atomic_validate_property(struct drm_device *dev, struct drm_mode_
 {
     uint64_t current;
 
-    if (!drm_atomic_object_has_property(obj, prop->base.id, &current)) {
-        DRM_ERROR("Object has no property %u\n", prop->base.id);
-        return -ENOENT;
-    }
-    if ((prop->flags & DRM_MODE_PROP_IMMUTABLE) && current != value) {
-        DRM_ERROR("Immutable property %u value 0x%llx rejected.\n", prop->base.id, (unsigned long long)value);
-        return -EINVAL;
-    }
-
+    if (!drm_atomic_object_has_property(obj, prop->base.id, &current)) return -ENOENT;
+    if ((prop->flags & DRM_MODE_PROP_IMMUTABLE) && current != value) return -EINVAL;
     if (prop->flags & DRM_MODE_PROP_RANGE) {
-        if (prop->num_values != 2 || value < prop->values[0] || value > prop->values[1]) {
-            DRM_ERROR("Property %u value 0x%llx out of range.\n", prop->base.id, (unsigned long long)value);
-            return -EINVAL;
-        }
+        if (prop->num_values != 2 || value < prop->values[0] || value > prop->values[1]) return -EINVAL;
     } else if (prop->flags & DRM_MODE_PROP_SIGNED_RANGE) {
         int64_t signed_value = (int64_t)value;
-        if (prop->num_values != 2 || signed_value < (int64_t)prop->values[0] || signed_value > (int64_t)prop->values[1]) {
-            DRM_ERROR("Property %u signed value %lld out of range.\n", prop->base.id, (long long)signed_value);
-            return -EINVAL;
-        }
+        if (prop->num_values != 2 || signed_value < (int64_t)prop->values[0] || signed_value > (int64_t)prop->values[1]) return -EINVAL;
     } else if (prop->flags & DRM_MODE_PROP_ENUM) {
         ilist_node_t *node;
         bool          found = false;
@@ -89,33 +71,18 @@ static int drm_atomic_validate_property(struct drm_device *dev, struct drm_mode_
                 break;
             }
         }
-        if (!found) {
-            DRM_ERROR("Property %u invalid enum value 0x%llx\n", prop->base.id, (unsigned long long)value);
-            return -EINVAL;
-        }
+        if (!found) return -EINVAL;
     } else if ((prop->flags & DRM_MODE_PROP_OBJECT) && value) {
         struct drm_mode_object *target;
-        if (!prop->num_values || value > UINT32_MAX) {
-            DRM_ERROR("Property %u invalid object value 0x%llx\n", prop->base.id, (unsigned long long)value);
-            return -EINVAL;
-        }
+        if (!prop->num_values || value > UINT32_MAX) return -EINVAL;
         target = drm_mode_object_find(dev, NULL, (uint32_t)value, (uint32_t)prop->values[0]);
-        if (!target) {
-            DRM_ERROR("Property %u object 0x%llx not found.\n", prop->base.id, (unsigned long long)value);
-            return -ENOENT;
-        }
+        if (!target) return -ENOENT;
         drm_mode_object_put(target);
     } else if ((prop->flags & DRM_MODE_PROP_BLOB) && value) {
         struct drm_property_blob *blob;
-        if (value > UINT32_MAX) {
-            DRM_ERROR("Property %u blob id 0x%llx out of range.\n", prop->base.id, (unsigned long long)value);
-            return -EINVAL;
-        }
+        if (value > UINT32_MAX) return -EINVAL;
         blob = drm_property_lookup_blob(dev, (uint32_t)value);
-        if (!blob) {
-            DRM_ERROR("Property %u blob 0x%llx not found.\n", prop->base.id, (unsigned long long)value);
-            return -ENOENT;
-        }
+        if (!blob) return -ENOENT;
         drm_property_blob_put(blob);
     }
     return 0;
@@ -143,12 +110,8 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             if (value) {
                 struct drm_property_blob *blob = drm_property_lookup_blob(state->dev, (uint32_t)value);
                 struct drm_display_mode  *mode;
-                if (!blob) {
-                    DRM_ERROR("Mode_id blob %u not found.\n", (uint32_t)value);
-                    return -ENOENT;
-                }
+                if (!blob) return -ENOENT;
                 if (blob->length != sizeof(struct drm_mode_modeinfo)) {
-                    DRM_ERROR("Mode_id blob length %zu invalid.\n", blob->length);
                     drm_property_blob_put(blob);
                     return -EINVAL;
                 }
@@ -174,10 +137,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             struct drm_framebuffer *old_fb = s->fb;
             s->fb                          = value ? drm_framebuffer_lookup(state->dev, file_priv, (uint32_t)value) : NULL;
             if (old_fb) drm_framebuffer_put(old_fb);
-            if (value && !s->fb) {
-                DRM_ERROR("Plane fb %u not found.\n", (uint32_t)value);
-                return -ENOENT;
-            }
+            if (value && !s->fb) return -ENOENT;
             if (s->crtc) {
                 struct drm_crtc_state *cs = drm_atomic_get_crtc_state(state, s->crtc);
                 if (!cs) return -ENOMEM;
@@ -188,10 +148,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         if (prop == config->prop_crtc_id) {
             struct drm_crtc        *old_crtc = s->crtc;
             struct drm_mode_object *target   = value ? drm_mode_object_find(state->dev, file_priv, (uint32_t)value, DRM_MODE_OBJECT_CRTC) : NULL;
-            if (value && !target) {
-                DRM_ERROR("Plane crtc %u not found.\n", (uint32_t)value);
-                return -ENOENT;
-            }
+            if (value && !target) return -ENOENT;
             s->crtc = target ? container_of(target, struct drm_crtc, base) : NULL;
             if (target) drm_mode_object_put(target);
             if (old_crtc) {
@@ -208,47 +165,32 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         }
         if (prop == config->prop_src_x) {
             extent = s->src.x2 - s->src.x1;
-            if (value > DRM_S32_MAX || (int64_t)value + extent > DRM_S32_MAX) {
-                DRM_ERROR("Prop src_x value 0x%llx out of range.\n", (unsigned long long)value);
-                return -EINVAL;
-            }
+            if (value > DRM_S32_MAX || (int64_t)value + extent > DRM_S32_MAX) return -EINVAL;
             s->src.x1 = (int32_t)value;
             s->src.x2 = s->src.x1 + extent;
             return 0;
         }
         if (prop == config->prop_src_y) {
             extent = s->src.y2 - s->src.y1;
-            if (value > DRM_S32_MAX || (int64_t)value + extent > DRM_S32_MAX) {
-                DRM_ERROR("Prop src_y value 0x%llx out of range.\n", (unsigned long long)value);
-                return -EINVAL;
-            }
+            if (value > DRM_S32_MAX || (int64_t)value + extent > DRM_S32_MAX) return -EINVAL;
             s->src.y1 = (int32_t)value;
             s->src.y2 = s->src.y1 + extent;
             return 0;
         }
         if (prop == config->prop_src_w) {
-            if (value > DRM_S32_MAX || (int64_t)s->src.x1 + value > DRM_S32_MAX) {
-                DRM_ERROR("Prop src_w value 0x%llx out of range.\n", (unsigned long long)value);
-                return -EINVAL;
-            }
+            if (value > DRM_S32_MAX || (int64_t)s->src.x1 + value > DRM_S32_MAX) return -EINVAL;
             s->src.x2 = s->src.x1 + (int32_t)value;
             return 0;
         }
         if (prop == config->prop_src_h) {
-            if (value > DRM_S32_MAX || (int64_t)s->src.y1 + value > DRM_S32_MAX) {
-                DRM_ERROR("Prop src_h value 0x%llx out of range.\n", (unsigned long long)value);
-                return -EINVAL;
-            }
+            if (value > DRM_S32_MAX || (int64_t)s->src.y1 + value > DRM_S32_MAX) return -EINVAL;
             s->src.y2 = s->src.y1 + (int32_t)value;
             return 0;
         }
         if (prop == config->prop_crtc_x) {
             int32_t v = (int32_t)value;
             extent    = s->dst.x2 - s->dst.x1;
-            if ((int64_t)v + extent > DRM_S32_MAX || (int64_t)v + extent < DRM_S32_MIN) {
-                DRM_ERROR("Prop crtc_x value %lld out of range.\n", (long long)v);
-                return -EINVAL;
-            }
+            if ((int64_t)v + extent > DRM_S32_MAX || (int64_t)v + extent < DRM_S32_MIN) return -EINVAL;
             s->dst.x1 = v;
             s->dst.x2 = v + extent;
             return 0;
@@ -256,27 +198,18 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         if (prop == config->prop_crtc_y) {
             int32_t v = (int32_t)value;
             extent    = s->dst.y2 - s->dst.y1;
-            if ((int64_t)v + extent > DRM_S32_MAX || (int64_t)v + extent < DRM_S32_MIN) {
-                DRM_ERROR("Prop crtc_y value %lld out of range.\n", (long long)v);
-                return -EINVAL;
-            }
+            if ((int64_t)v + extent > DRM_S32_MAX || (int64_t)v + extent < DRM_S32_MIN) return -EINVAL;
             s->dst.y1 = v;
             s->dst.y2 = v + extent;
             return 0;
         }
         if (prop == config->prop_crtc_w) {
-            if (value > DRM_S32_MAX || (int64_t)s->dst.x1 + value > DRM_S32_MAX) {
-                DRM_ERROR("Prop crtc_w value 0x%llx out of range.\n", (unsigned long long)value);
-                return -EINVAL;
-            }
+            if (value > DRM_S32_MAX || (int64_t)s->dst.x1 + value > DRM_S32_MAX) return -EINVAL;
             s->dst.x2 = s->dst.x1 + (int32_t)value;
             return 0;
         }
         if (prop == config->prop_crtc_h) {
-            if (value > DRM_S32_MAX || (int64_t)s->dst.y1 + value > DRM_S32_MAX) {
-                DRM_ERROR("Prop crtc_h value 0x%llx out of range.\n", (unsigned long long)value);
-                return -EINVAL;
-            }
+            if (value > DRM_S32_MAX || (int64_t)s->dst.y1 + value > DRM_S32_MAX) return -EINVAL;
             s->dst.y2 = s->dst.y1 + (int32_t)value;
             return 0;
         }
@@ -295,20 +228,14 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
         struct drm_connector_state *s;
 
         /* "DPMS" is legacy-only; reject it before touching any connector state. */
-        if (prop == config->prop_dpms) {
-            DRM_ERROR("Legacy DPMS property %u can only be set via legacy uAPI.\n", prop->base.id);
-            return -EINVAL;
-        }
+        if (prop == config->prop_dpms) return -EINVAL;
 
         s = drm_atomic_get_connector_state(state, connector);
         if (!s) return -ENOMEM;
         if (prop == config->prop_crtc_id) {
             struct drm_crtc        *old_crtc = s->crtc;
             struct drm_mode_object *target   = value ? drm_mode_object_find(state->dev, file_priv, (uint32_t)value, DRM_MODE_OBJECT_CRTC) : NULL;
-            if (value && !target) {
-                DRM_ERROR("Connector crtc %u not found.\n", (uint32_t)value);
-                return -ENOENT;
-            }
+            if (value && !target) return -ENOENT;
             s->crtc = target ? container_of(target, struct drm_crtc, base) : NULL;
             if (target) drm_mode_object_put(target);
             s->crtc_changed = true;
@@ -325,7 +252,6 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             return 0;
         }
     }
-    DRM_WARN("Unsupported property %u for object type %u\n", prop->base.id, obj->type);
     return -EINVAL;
 }
 
@@ -342,30 +268,15 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     int                      ret         = 0;
     uint32_t                 i;
 
-    if (!dev || !atomic || !file_priv || atomic->count_objs > 256 || atomic->reserved) {
-        DRM_ERROR("Invalid atomic ioctl args.\n");
-        return -EINVAL;
-    }
+    if (!dev || !atomic || !file_priv || atomic->count_objs > 256 || atomic->reserved) return -EINVAL;
     if (!(dev->driver->driver_features & DRIVER_ATOMIC)) {
         DRM_ERROR("Device does not support atomic modeset.\n");
         return -EOPNOTSUPP;
     }
-    if (!file_priv->atomic) {
-        DRM_ERROR("Client is not atomic-capable.\n");
-        return -EINVAL;
-    }
-    if (atomic->flags & ~DRM_MODE_ATOMIC_FLAGS) {
-        DRM_WARN("Unsupported atomic flags 0x%x\n", atomic->flags);
-        return -EINVAL;
-    }
-    if ((atomic->flags & DRM_MODE_ATOMIC_TEST_ONLY) && (atomic->flags & DRM_MODE_PAGE_FLIP_EVENT)) {
-        DRM_ERROR("TEST_ONLY with page flip event invalid.\n");
-        return -EINVAL;
-    }
-    if ((atomic->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !dev->mode_config.async_page_flip) {
-        DRM_ERROR("Async page flip not supported by this device.\n");
-        return -EINVAL;
-    }
+    if (!file_priv->atomic) return -EINVAL;
+    if (atomic->flags & ~DRM_MODE_ATOMIC_FLAGS) return -EINVAL;
+    if ((atomic->flags & DRM_MODE_ATOMIC_TEST_ONLY) && (atomic->flags & DRM_MODE_PAGE_FLIP_EVENT)) return -EINVAL;
+    if ((atomic->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !dev->mode_config.async_page_flip) return -EINVAL;
 
     /* Allocate atomic state */
     state = drm_atomic_state_alloc(dev);
@@ -378,7 +289,6 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 
     if (atomic->count_objs) {
         if (!atomic->objs_ptr || !atomic->count_props_ptr) {
-            DRM_ERROR("Missing objs/count_props pointers.\n");
             ret = -EFAULT;
             goto out;
         }
@@ -391,13 +301,11 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         }
         if (copy_from_user(objs, (const void *)(uintptr_t)atomic->objs_ptr, (size_t)atomic->count_objs * sizeof(*objs))
             || copy_from_user(count_props, (const void *)(uintptr_t)atomic->count_props_ptr, (size_t)atomic->count_objs * sizeof(*count_props))) {
-            DRM_ERROR("Failed to copy object arrays from user.\n");
             ret = -EFAULT;
             goto out;
         }
         for (i = 0; i < atomic->count_objs; i++) {
             if (count_props[i] > 4096 - total_props) {
-                DRM_ERROR("Too many props for object %u (count=%u)\n", objs[i], count_props[i]);
                 ret = -E2BIG;
                 goto out;
             }
@@ -406,7 +314,6 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     }
     if (total_props) {
         if (!atomic->props_ptr || !atomic->prop_values_ptr) {
-            DRM_ERROR("Missing props/prop_values pointers.\n");
             ret = -EFAULT;
             goto out;
         }
@@ -419,7 +326,6 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         }
         if (copy_from_user(props, (const void *)(uintptr_t)atomic->props_ptr, (size_t)total_props * sizeof(*props))
             || copy_from_user(prop_values, (const void *)(uintptr_t)atomic->prop_values_ptr, (size_t)total_props * sizeof(*prop_values))) {
-            DRM_ERROR("Failed to copy prop arrays from user.\n");
             ret = -EFAULT;
             goto out;
         }
@@ -435,12 +341,10 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             uint32_t                j;
             struct drm_mode_object *obj = drm_mode_object_find(dev, file_priv, obj_id, DRM_MODE_OBJECT_ANY);
             if (!obj) {
-                DRM_ERROR("Object %u not found.\n", obj_id);
                 ret = -ENOENT;
                 break;
             }
             if (obj->type != DRM_MODE_OBJECT_CRTC && obj->type != DRM_MODE_OBJECT_PLANE && obj->type != DRM_MODE_OBJECT_CONNECTOR) {
-                DRM_WARN("Object %u has unsupported type %u\n", obj_id, obj->type);
                 drm_mode_object_put(obj);
                 ret = -EINVAL;
                 break;
@@ -448,7 +352,6 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             for (j = 0; props && j < obj_count; j++) {
                 struct drm_property *prop = drm_property_find(dev, file_priv, props[prop_offset + j]);
                 if (!prop) {
-                    DRM_ERROR("Property %u not found.\n", props[prop_offset + j]);
                     ret = -ENOENT;
                     break;
                 }
@@ -512,37 +415,25 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     int                              ret = 0;
     struct drm_mode_object          *crtc_obj;
 
-    if (!dev || !page_flip) {
-        DRM_ERROR("Page flip with invalid args.\n");
-        return -EINVAL;
-    }
-    if (page_flip->flags & ~(DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC)) {
-        DRM_ERROR("Page flip invalid flags 0x%x\n", page_flip->flags);
-        return -EINVAL;
-    }
+    if (!dev || !page_flip) return -EINVAL;
+    if (page_flip->flags & ~(DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC)) return -EINVAL;
 
     crtc_obj = drm_mode_object_find(dev, file_priv, page_flip->crtc_id, DRM_MODE_OBJECT_CRTC);
-    if (!crtc_obj) {
-        DRM_ERROR("Page flip: CRTC %u not found.\n", page_flip->crtc_id);
-        return -ENOENT;
-    }
+    if (!crtc_obj) return -ENOENT;
 
     fb = drm_framebuffer_lookup(dev, file_priv, page_flip->fb_id);
     if (!fb) {
         drm_mode_object_put(crtc_obj);
-        DRM_ERROR("Page flip: FB %u not found.\n", page_flip->fb_id);
         return -ENOENT;
     }
     crtc = container_of(crtc_obj, struct drm_crtc, base);
 
     if (!crtc->enabled) {
-        DRM_ERROR("Page flip on disabled crtc %u\n", page_flip->crtc_id);
         drm_mode_object_put(&crtc->base);
         drm_framebuffer_put(fb);
         return -EINVAL;
     }
     if ((page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !dev->mode_config.async_page_flip) {
-        DRM_ERROR("Async page flip not supported on crtc %u\n", page_flip->crtc_id);
         drm_mode_object_put(&crtc->base);
         drm_framebuffer_put(fb);
         return -EINVAL;
@@ -551,7 +442,6 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     /* Validate that the framebuffer dimensions match the current mode */
     if (crtc->enabled && crtc->mode.hdisplay > 0 && crtc->mode.vdisplay > 0) {
         if (fb->width != (unsigned int)crtc->mode.hdisplay || fb->height != (unsigned int)crtc->mode.vdisplay) {
-            DRM_ERROR("Page flip: FB %ux%u does not match mode %ux%u\n", fb->width, fb->height, crtc->mode.hdisplay, crtc->mode.vdisplay);
             drm_mode_object_put(&crtc->base);
             drm_framebuffer_put(fb);
             return -EINVAL;
@@ -560,7 +450,6 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
 
     /* Validate the framebuffer format against the primary plane's list. */
     if (crtc->primary && !drm_plane_format_supported(crtc->primary, fb->format)) {
-        DRM_ERROR("Page flip: FB format 0x%x not supported by primary plane.\n", fb->format);
         drm_mode_object_put(&crtc->base);
         drm_framebuffer_put(fb);
         return -EINVAL;
@@ -681,15 +570,9 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
     struct drm_gem_object        *new_obj = NULL, *old_obj = NULL;
     int                           ret = 0;
 
-    if (!dev || !file_priv || !cursor || !cursor->flags || (cursor->flags & ~(DRM_MODE_CURSOR_BO | DRM_MODE_CURSOR_MOVE))) {
-        DRM_ERROR("Cursor with invalid args.\n");
-        return -EINVAL;
-    }
+    if (!dev || !file_priv || !cursor || !cursor->flags || (cursor->flags & ~(DRM_MODE_CURSOR_BO | DRM_MODE_CURSOR_MOVE))) return -EINVAL;
     base = drm_mode_object_find(dev, file_priv, cursor->crtc_id, DRM_MODE_OBJECT_CRTC);
-    if (!base) {
-        DRM_ERROR("Cursor crtc %u not found.\n", cursor->crtc_id);
-        return -ENOENT;
-    }
+    if (!base) return -ENOENT;
     crtc    = container_of(base, struct drm_crtc, base);
     helpers = (struct drm_crtc_helper_funcs *)crtc->helper_private;
 
@@ -701,18 +584,15 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
         }
         if (cursor->handle) {
             if (!cursor->width || !cursor->height || hot_x < 0 || hot_y < 0 || (uint32_t)hot_x >= cursor->width || (uint32_t)hot_y >= cursor->height) {
-                DRM_ERROR("Invalid cursor size %ux%u hot %dx%d\n", cursor->width, cursor->height, hot_x, hot_y);
                 ret = -EINVAL;
                 goto out;
             }
             new_obj = drm_gem_object_lookup(file_priv, cursor->handle);
             if (!new_obj) {
-                DRM_ERROR("Cursor gem handle %u not found.\n", cursor->handle);
                 ret = -ENOENT;
                 goto out;
             }
             if (new_obj->size < (size_t)cursor->width * cursor->height * 4) {
-                DRM_ERROR("Cursor gem too small for %ux%u\n", cursor->width, cursor->height);
                 ret = -EINVAL;
                 goto out;
             }
@@ -764,3 +644,5 @@ int drm_mode_cursor2_ioctl(struct drm_device *dev, void *data, struct drm_file *
     struct drm_mode_cursor2 *cursor2 = (struct drm_mode_cursor2 *)data;
     return drm_mode_cursor_common(dev, file_priv, &cursor2->req, cursor2->hot_x, cursor2->hot_y);
 }
+
+#endif

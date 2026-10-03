@@ -1,7 +1,7 @@
 /*
  *
  *      ptrace.c
- *      Linux-compatible process tracing
+ *      Process tracing
  *
  *      2026/7/28 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -10,16 +10,11 @@
 
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <process/process.h>
-#include <process/ptrace.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
 #include <security/seccomp.h>
 #include <syscall/syscall.h>
@@ -116,6 +111,7 @@ void ptrace_regs_to_frame(syscall_frame_t *frame, const ptrace_user_regs_t *regs
     frame->rip    = regs->rip;
     frame->rflags = (regs->eflags & PTRACE_EFLAGS_USER_MASK) | PTRACE_EFLAGS_FIXED;
     frame->rsp    = regs->rsp;
+
     /* User segment selectors are invariant in the Uinxed x86-64 ABI. */
     frame->cs = 0x1b;
     frame->ss = 0x23;
@@ -238,10 +234,7 @@ static void ptrace_build_user_area(task_t *target, ptrace_user_area_t *area)
 /* Write a 64-bit value into a tracee's struct user area (PTRACE_POKEUSR) */
 static int ptrace_poke_user(task_t *target, uintptr_t offset, uint64_t value)
 {
-    if ((offset & (sizeof(uint64_t) - 1)) || offset >= sizeof(ptrace_user_area_t)) {
-        plogk("ptrace: POKEUSR unaligned or out-of-range offset %lx (pid=%d)\n", (unsigned long)offset, (int)target->pid);
-        return -EIO;
-    }
+    if ((offset & (sizeof(uint64_t) - 1)) || offset >= sizeof(ptrace_user_area_t)) return -EIO;
     if (offset < sizeof(ptrace_user_regs_t)) {
         *(uint64_t *)((uint8_t *)&target->ptrace.regs + offset) = value;
         return 0;
@@ -250,29 +243,20 @@ static int ptrace_poke_user(task_t *target, uintptr_t offset, uint64_t value)
     uintptr_t debug_end   = debug_start + sizeof(target->ptrace.debug_regs);
     if (offset >= debug_start && offset < debug_end) {
         size_t index = (offset - debug_start) / sizeof(uint64_t);
-        if (index == 4 || index == 5) {
-            plogk("ptrace: POKEUSR reserved debug register index %lu (pid=%d)\n", (unsigned long)index, (int)target->pid);
-            return -EIO;
-        }
-        if (index < 4 && value >= PROCESS_USER_STACK_TOP) {
-            plogk("ptrace: POKEUSR invalid debug register value %lx (pid=%d)\n", (unsigned long)value, (int)target->pid);
-            return -EIO;
-        }
-        if (index == 7 && (value & (1ULL << 13))) { // General detect is kernel-only.
-            plogk("ptrace: POKEUSR general-detect bit rejected (pid=%d)\n", (int)target->pid);
-            return -EIO;
-        }
+        if (index == 4 || index == 5) return -EIO;
+        if (index < 4 && value >= PROCESS_USER_STACK_TOP) return -EIO;
+        if (index == 7 && (value & (1ULL << 13))) return -EIO; // General detect is kernel-only.
         target->ptrace.debug_regs[index] = value;
         return 0;
     }
-    plogk("ptrace: POKEUSR offset %lx outside valid ranges (pid=%d)\n", (unsigned long)offset, (int)target->pid);
     return -EIO;
 }
 
 /* Map a user address to a kernel pointer, handling COW and huge-page walks */
 static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **mapped, size_t *available)
 {
-    if (!proc || !proc->user_page_dir || !proc->user_page_dir->table || addr >= PROCESS_USER_STACK_TOP) return -EIO;
+    if (!proc || !proc->user_page_dir || !proc->user_page_dir->table) return -EIO;
+    if (addr >= PROCESS_USER_STACK_TOP) return -EFAULT;
 
     if (write && page_resolve_cow_fault(proc, addr) < 0) { // Non-COW writable mappings continue through the normal walk.
     }
@@ -284,10 +268,10 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
 
     page_table_t *l4  = proc->user_page_dir->table;
     uint64_t      l4e = l4->entries[l4i].value;
-    if (!(l4e & PTE_PRESENT) || !(l4e & PTE_USER)) return -EIO;
+    if (!(l4e & PTE_PRESENT) || !(l4e & PTE_USER)) return -EFAULT;
     page_table_t *l3  = phys_to_virt(l4e & PAGE_4K_MASK);
     uint64_t      l3e = l3->entries[l3i].value;
-    if (!(l3e & PTE_PRESENT) || !(l3e & PTE_USER)) return -EIO;
+    if (!(l3e & PTE_PRESENT) || !(l3e & PTE_USER)) return -EFAULT;
     if (l3e & PTE_HUGE) {
         uintptr_t offset = addr & (PAGE_1G_SIZE - 1);
         *mapped          = phys_to_virt((l3e & PAGE_1G_MASK) + offset);
@@ -296,7 +280,7 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
     }
     page_table_t *l2  = phys_to_virt(l3e & PAGE_4K_MASK);
     uint64_t      l2e = l2->entries[l2i].value;
-    if (!(l2e & PTE_PRESENT) || !(l2e & PTE_USER)) return -EIO;
+    if (!(l2e & PTE_PRESENT) || !(l2e & PTE_USER)) return -EFAULT;
     if (l2e & PTE_HUGE) {
         uintptr_t offset = addr & (PAGE_2M_SIZE - 1);
         *mapped          = phys_to_virt((l2e & PAGE_2M_MASK) + offset);
@@ -305,7 +289,7 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
     }
     page_table_t *l1  = phys_to_virt(l2e & PAGE_4K_MASK);
     uint64_t      l1e = l1->entries[l1i].value;
-    if (!(l1e & PTE_PRESENT) || !(l1e & PTE_USER)) return -EIO;
+    if (!(l1e & PTE_PRESENT) || !(l1e & PTE_USER)) return -EFAULT;
 
     uintptr_t offset = addr & (PAGE_4K_SIZE - 1);
     *mapped          = phys_to_virt((l1e & PAGE_4K_MASK) + offset);
@@ -349,12 +333,23 @@ static void ptrace_notify_tracer(task_t *tracee)
     spin_unlock(&state->lock);
     siginfo_t info;
     memset(&info, 0, sizeof(info));
-    info.si_signo  = SIGCHLD;
-    info.si_code   = (status & 0x7f) == 0x7f ? CLD_TRAPPED : (status & 0x7f ? CLD_KILLED : CLD_EXITED);
-    info.si_pid    = (int64_t)tracee->pid;
-    info.si_uid    = tracee->process ? tracee->process->uid : 0;
-    info.si_status = (status & 0x7f) == 0x7f ? ((status >> 8) & 0xff) : (status & 0x7f ? status & 0x7f : (status >> 8) & 0xff);
-    signal_send(tracer, SIGCHLD, &info);
+    info.si_signo = SIGCHLD;
+    {
+        int sig = status & 0x7f;
+        if (sig == 0x7f) {
+            info.si_code   = CLD_TRAPPED;
+            info.si_status = (status >> 8) & 0xff;
+        } else if (sig) {
+            info.si_code   = CLD_KILLED;
+            info.si_status = sig;
+        } else {
+            info.si_code   = CLD_EXITED;
+            info.si_status = (status >> 8) & 0xff;
+        }
+    }
+    info.si_pid = (int32_t)tracee->pid;
+    info.si_uid = tracee->process ? tracee->process->uid : 0;
+    (void)signal_send(tracer, SIGCHLD, &info);
     process_put(tracer);
 }
 
@@ -425,15 +420,11 @@ static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reas
 /* Resume a stopped tracee (cont or single-step), optionally delivering a signal */
 static int ptrace_resume(task_t *target, ptrace_run_mode_t mode, int sig)
 {
-    if (!sig_valid(sig) && sig != 0) {
-        plogk("ptrace: Resume with invalid signal %d (pid=%d)\n", sig, (int)target->pid);
-        return -EIO;
-    }
+    if (!sig_valid(sig) && sig != 0) return -EINVAL;
     ptrace_state_t *state = &target->ptrace;
     spin_lock(&state->lock);
     if (!state->stopped) {
         spin_unlock(&state->lock);
-        plogk("ptrace: Resume of non-stopped task (pid=%d)\n", (int)target->pid);
         return -ESRCH;
     }
     state->mode          = mode;
@@ -448,34 +439,21 @@ static int ptrace_resume(task_t *target, ptrace_run_mode_t mode, int sig)
     return 0;
 }
 
-/*
- * Attach to a target task: validate permissions, mark it as traced and
- * arrange a stop so the tracer can take control
- */
+/* Attach to a target task: validate permissions, mark it as traced and arrange a stop so the tracer can take control */
 static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t options)
 {
     process_t *current = process_current();
     task_t    *self    = current_task();
     int        ret     = ptrace_access_allowed(current, owner);
     if (ret) return ret;
-    if (!self || target == self || (options & ~PTRACE_O_MASK)) {
-        plogk("ptrace: Attach invalid args (target=%p, options=%x)\n", (void *)target, (unsigned)options);
-        return -EINVAL;
-    }
-    if ((options & PTRACE_O_SUSPEND_SECCOMP) && (current->uid != 0 || self->seccomp_mode != SECCOMP_MODE_DISABLED)) {
-        plogk("ptrace: Attach with SUSPEND_SECCOMP requires root (target=%d)\n", (int)target->pid);
-        return -EPERM;
-    }
-    if (target->state == TASK_ZOMBIE) {
-        plogk("ptrace: Attach to zombie (pid=%d)\n", (int)target->pid);
-        return -ESRCH;
-    }
+    if (!self || target == self || (options & ~PTRACE_O_MASK)) return -EINVAL;
+    if ((options & PTRACE_O_SUSPEND_SECCOMP) && (current->uid != 0 || self->seccomp_mode != SECCOMP_MODE_DISABLED)) return -EPERM;
+    if (target->state == TASK_ZOMBIE) return -ESRCH;
 
     ptrace_state_t *state = &target->ptrace;
     spin_lock(&state->lock);
     if (state->tracer_pid) {
         spin_unlock(&state->lock);
-        plogk("ptrace: Attach denied, task %d already traced (tracer=%lld)\n", (int)target->pid, (long long)state->tracer_pid);
         return -EPERM;
     }
     state->tracer_pid = (int64_t)self->pid;
@@ -488,7 +466,7 @@ static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t 
         siginfo_t info = {0};
         info.si_signo  = SIGSTOP;
         info.si_code   = SI_USER;
-        info.si_pid    = (int64_t)self->pid;
+        info.si_pid    = (int32_t)self->pid;
         info.si_uid    = current->uid;
         ret            = signal_send_thread(target, SIGSTOP, &info);
         if (ret) {
@@ -503,7 +481,7 @@ static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t 
 /* Copy a regset between the tracee state and user memory (PTRACE_GET/SETREGSET) */
 static int ptrace_copy_regset(task_t *target, uintptr_t note, uintptr_t data, bool write)
 {
-    ptrace_iovec_t iov;
+    iovec_t iov;
     if (copy_from_user(&iov, (void *)data, sizeof(iov))) return -EFAULT;
     void  *source;
     size_t source_size;
@@ -514,16 +492,15 @@ static int ptrace_copy_regset(task_t *target, uintptr_t note, uintptr_t data, bo
         source      = target->ptrace.fpregs;
         source_size = sizeof(target->ptrace.fpregs);
     } else {
-        plogk("ptrace: GET/SETREGSET with unknown note %lx (pid=%d)\n", (unsigned long)note, (int)target->pid);
         return -EINVAL;
     }
-    size_t length = iov.len < source_size ? iov.len : source_size;
+    size_t length = iov.iov_len < source_size ? iov.iov_len : source_size;
     if (write) {
-        if (copy_from_user(source, iov.base, length)) return -EFAULT;
+        if (copy_from_user(source, iov.iov_base, length)) return -EFAULT;
     } else {
-        if (copy_to_user(iov.base, source, length)) return -EFAULT;
+        if (copy_to_user(iov.iov_base, source, length)) return -EFAULT;
     }
-    iov.len = length;
+    iov.iov_len = length;
     return copy_to_user((void *)data, &iov, sizeof(iov)) ? -EFAULT : 0;
 }
 
@@ -532,10 +509,7 @@ static int64_t ptrace_peek_siginfo(task_t *target, uintptr_t addr, uintptr_t dat
 {
     ptrace_peeksiginfo_args_t args;
     if (copy_from_user(&args, (void *)addr, sizeof(args))) return -EFAULT;
-    if (args.flags & ~PTRACE_PEEKSIGINFO_SHARED || args.nr < 0) {
-        plogk("ptrace: PEEKSIGINFO invalid args (flags=%lx, pid=%d)\n", (unsigned long)args.flags, (int)target->pid);
-        return -EINVAL;
-    }
+    if (args.flags & ~PTRACE_PEEKSIGINFO_SHARED || args.nr < 0) return -EINVAL;
 
     signal_state_t *signals = &target->process->signal;
     spin_lock(&signals->lock);
@@ -607,7 +581,6 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         spin_lock(&state->lock);
         if (state->tracer_pid) {
             spin_unlock(&state->lock);
-            plogk("ptrace: TRACEME already traced (pid=%d, tracer=%lld)\n", (int)self->pid, (long long)state->tracer_pid);
             return -EPERM;
         }
         state->tracer_pid = (int64_t)current->parent->task->pid;
@@ -618,24 +591,20 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
 
     process_t *owner  = NULL;
     task_t    *target = ptrace_find_task_get(pid, &owner);
-    if (!target) {
-        plogk("ptrace: Target pid %lld not found.\n", (long long)pid);
-        return -ESRCH;
-    }
+    if (!target) return -ESRCH;
     int64_t ret = 0;
 
     if (request == PTRACE_ATTACH || request == PTRACE_SEIZE) {
         if (request == PTRACE_SEIZE && addr) {
-            plogk("ptrace: SEIZE with non-null addr %lx (pid=%lld)\n", (unsigned long)addr, (long long)pid);
             process_put(owner);
-            return -EIO;
+            return -EINVAL;
         }
         ret = ptrace_attach(target, owner, request == PTRACE_SEIZE, request == PTRACE_SEIZE ? (uint32_t)data : 0);
         process_put(owner);
         return ret;
     }
     if (!ptrace_attached_by_current(target)) {
-        plogk("ptrace: Task %lld not attached by pid %d\n", (long long)pid, (int)self->pid);
+        plogk("ptrace: Task %lld not attached by pid %d\n", pid, (int)self->pid);
         process_put(owner);
         return -ESRCH;
     }
@@ -646,7 +615,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
     bool wait_pending = state->wait_pending;
     spin_unlock(&state->lock);
     if (request != PTRACE_INTERRUPT && request != PTRACE_KILL && (!stopped || wait_pending)) {
-        plogk("ptrace: Task %lld not stopped (request=%d, stopped=%d, wait_pending=%d)\n", (long long)pid, request, stopped, wait_pending);
+        plogk("ptrace: Task %lld not stopped (request=%d, stopped=%d, wait_pending=%d)\n", pid, request, stopped, wait_pending);
         process_put(owner);
         return -ESRCH;
     }
@@ -666,7 +635,6 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         }
         case PTRACE_PEEKUSR :
             if ((addr & (sizeof(uint64_t) - 1)) || addr >= sizeof(ptrace_user_area_t)) {
-                plogk("ptrace: PEEKUSR invalid offset %lx (pid=%lld)\n", (unsigned long)addr, (long long)pid);
                 ret = -EIO;
             } else {
                 ptrace_user_area_t area;
@@ -782,10 +750,18 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             ret = copy_to_user((void *)data, &state->event_msg, sizeof(state->event_msg)) ? -EFAULT : 0;
             break;
         case PTRACE_GETSIGINFO :
-            ret = state->stop_reason == PTRACE_STOP_NONE ? -EINVAL : (copy_to_user((void *)data, &state->siginfo, sizeof(state->siginfo)) ? -EFAULT : 0);
+            if (state->stop_reason == PTRACE_STOP_NONE) {
+                ret = -EINVAL;
+            } else {
+                ret = copy_to_user((void *)data, &state->siginfo, sizeof(state->siginfo)) ? -EFAULT : 0;
+            }
             break;
         case PTRACE_SETSIGINFO :
-            ret = state->stop_reason == PTRACE_STOP_NONE ? -EINVAL : (copy_from_user(&state->siginfo, (void *)data, sizeof(state->siginfo)) ? -EFAULT : 0);
+            if (state->stop_reason == PTRACE_STOP_NONE) {
+                ret = -EINVAL;
+            } else {
+                ret = copy_from_user(&state->siginfo, (void *)data, sizeof(state->siginfo)) ? -EFAULT : 0;
+            }
             break;
         case PTRACE_GETSIGMASK :
             if (addr != sizeof(sigset_t)) {
@@ -825,7 +801,6 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             ret = seccomp_ptrace_get_metadata(target, addr, (void *)data);
             break;
         default :
-            plogk("ptrace: Unknown request %d (pid=%lld, addr=%lx)\n", request, (long long)pid, (unsigned long)addr);
             ret = -EIO;
             break;
     }
@@ -916,8 +891,11 @@ wait_again:
         bool pending = signal_has_pending(signals);
         spin_unlock(&signals->lock);
         if (pending) return -ERESTARTSYS;
-        /* Notifications can race this point; bounded sleep prevents a lost
-         * raw task_wakeup() from becoming a permanent tracer hang. */
+
+        /*
+         * Notifications can race this point; bounded sleep prevents a lost
+         * raw task_wakeup() from becoming a permanent tracer hang.
+         */
         task_sleep_ticks(1);
     }
 }
@@ -1005,7 +983,7 @@ bool ptrace_seccomp_event(syscall_frame_t *frame, uint16_t data, int64_t *skip_r
     frame->rax = state->regs.orig_rax;
     if (skip_result) *skip_result = (int64_t)state->regs.rax;
     spin_unlock(&state->lock);
-    if (injected) signal_send_thread(task, injected, NULL);
+    if (injected) (void)signal_send_thread(task, injected, NULL);
     return true;
 }
 
@@ -1160,7 +1138,7 @@ void ptrace_tracer_exit(int64_t tracer_pid)
             state->stopped    = false;
             state->options    = 0;
             spin_unlock(&state->lock);
-            if (kill) signal_send_thread(task, SIGKILL, NULL);
+            if (kill) (void)signal_send_thread(task, SIGKILL, NULL);
             if (stopped) task_wakeup(task);
             if (proc->parent && proc->parent->task) task_wakeup(proc->parent->task);
         }

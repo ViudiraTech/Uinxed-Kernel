@@ -32,11 +32,24 @@
 #define ICMP_HOST_PROHIBITED      10U
 #define ICMP_ADMIN_PROHIBITED     13U
 
+#define ICMP_READY_READ  0x01U
+#define ICMP_READY_WRITE 0x02U
+
+typedef struct icmp_packet   icmp_packet_t;
 typedef struct icmp_endpoint icmp_endpoint_t;
 typedef void (*icmp_event_callback_t)(icmp_endpoint_t *endpoint, uint32_t events, void *context);
 
-#define ICMP_READY_READ  0x01U
-#define ICMP_READY_WRITE 0x02U
+typedef struct icmp_endpoint {
+        uint32_t              local_address;
+        uint32_t              remote_address;
+        uint16_t              queue_length;
+        uint32_t              queue_bytes;
+        icmp_packet_t        *head;
+        icmp_packet_t        *tail;
+        spinlock_t            lock;
+        icmp_event_callback_t event_callback;
+        void                 *event_context;
+} icmp_endpoint_t;
 
 /* ICMP input and error generation. */
 int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet);

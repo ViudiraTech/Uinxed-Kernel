@@ -9,37 +9,26 @@
  */
 
 #include <ipc/sysv_ipc.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/kobject/kobject.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
 #include <process/process.h>
 #include <process/sched.h>
-#include <process/task.h>
 #include <process/uaccess.h>
-#include <sync/spin_lock.h>
+
+#if CONFIG_SYSVIPC
 
 /* Internal constants */
 
-#define SEM_MAX_NSEMS 250
-#define SEM_MAX_SETS  128
+#    define SHMLBA PAGE_4K_SIZE
 
-#define SHM_MAX_SEGS 128
-#define SHMLBA       PAGE_4K_SIZE
-
-#define MSG_MAX_QUEUES 128
-
-#define IPC_ID_MASK   0x0000FFFF
-#define IPC_SEQ_SHIFT 16
-#define IPC_SEQ_MASK  0x0000FFFF
+#    define IPC_ID_MASK   0x0000FFFF
+#    define IPC_SEQ_SHIFT 16
+#    define IPC_SEQ_MASK  0x0000FFFF
 
 /* Internal structures */
 
@@ -112,16 +101,16 @@ typedef struct msg_queue {
 
 /* Global IPC namespace */
 
-static sem_array_t *sem_sets[SEM_MAX_SETS];
-static uint16_t     sem_seq[SEM_MAX_SETS];
+static sem_array_t *sem_sets[CONFIG_SEM_MAX_SETS];
+static uint16_t     sem_seq[CONFIG_SEM_MAX_SETS];
 static spinlock_t   sem_global_lock;
 
-static shm_seg_t *shm_segs[SHM_MAX_SEGS];
-static uint16_t   shm_seq[SHM_MAX_SEGS];
+static shm_seg_t *shm_segs[CONFIG_SHM_MAX_SEGS];
+static uint16_t   shm_seq[CONFIG_SHM_MAX_SEGS];
 static spinlock_t shm_global_lock;
 
-static msg_queue_t *msg_queues[MSG_MAX_QUEUES];
-static uint16_t     msg_seq[MSG_MAX_QUEUES];
+static msg_queue_t *msg_queues[CONFIG_MSG_MAX_QUEUES];
+static uint16_t     msg_seq[CONFIG_MSG_MAX_QUEUES];
 static spinlock_t   msg_global_lock;
 
 static sem_undo_t *sem_undo_list;
@@ -130,7 +119,7 @@ static spinlock_t  sem_undo_lock;
 /* Release a segment after both its table reference and all VMA/operation references have gone away. */
 static void shm_seg_release(kref_t *ref)
 {
-    shm_seg_t *seg = (shm_seg_t *)((uint8_t *)ref - offsetof(shm_seg_t, refs));
+    shm_seg_t *seg = container_of(ref, shm_seg_t, refs);
 
     free_frames(seg->phys_addr, seg->npages);
     free(seg);
@@ -146,7 +135,7 @@ static void shm_seg_put(shm_seg_t *seg)
 static shm_seg_t *shm_seg_get_by_id(int shmid)
 {
     int idx = shmid & IPC_ID_MASK;
-    if (idx < 0 || idx >= SHM_MAX_SEGS) return NULL;
+    if (idx < 0 || idx >= CONFIG_SHM_MAX_SEGS) return NULL;
     uint16_t seq = (uint16_t)((shmid >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK);
 
     spin_lock(&shm_global_lock);
@@ -157,8 +146,8 @@ static shm_seg_t *shm_seg_get_by_id(int shmid)
 }
 
 /*
- * Remove a marked segment once no address space is attached.  Linux keeps a
- * removed shmid attachable until this point; MIT-SHM clients depend on that
+ * Remove a marked segment once no address space is attached.  A removed
+ * shmid stays attachable until this point; MIT-SHM clients depend on that
  * behaviour when they issue IPC_RMID immediately after their first shmat.
  */
 static void shm_remove_if_unused(shm_seg_t *seg)
@@ -169,7 +158,7 @@ static void shm_remove_if_unused(shm_seg_t *seg)
     spin_lock(&shm_global_lock);
     spin_lock(&seg->lock);
 
-    if (seg->deleted && seg->nattch == 0 && idx >= 0 && idx < SHM_MAX_SEGS && shm_segs[idx] == seg && shm_seq[idx] == (uint16_t)((seg->id >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK)) {
+    if (seg->deleted && seg->nattch == 0 && idx >= 0 && idx < CONFIG_SHM_MAX_SEGS && shm_segs[idx] == seg && shm_seq[idx] == (uint16_t)((seg->id >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK)) {
         shm_segs[idx]  = NULL;
         drop_table_ref = 1;
     }
@@ -197,12 +186,13 @@ static int ipc_perm_check(const ipc_perm_t *perm, int mode)
     if (proc->uid == 0) return 0;
 
     uint32_t granted;
-    if (proc->uid == perm->uid)
+    if (proc->uid == perm->uid) {
         granted = (perm->mode >> 6) & 07;
-    else if (proc->gid == perm->gid || process_in_group(proc, perm->gid))
+    } else if (proc->gid == perm->gid || process_in_group(proc, perm->gid)) {
         granted = (perm->mode >> 3) & 07;
-    else
+    } else {
         granted = perm->mode & 07;
+    }
 
     uint32_t requested = 0;
     if (mode & 0444) requested |= 04;
@@ -259,14 +249,6 @@ static void *ipc_id_lookup_held(void **table, uint16_t *seq_table, int max, spin
     return obj;
 }
 
-/* Look up an IPC object by id, verifying its sequence still matches. */
-static void *ipc_id_lookup(void **table, uint16_t *seq_table, int max, spinlock_t *lock, int id)
-{
-    void *obj = ipc_id_lookup_held(table, seq_table, max, lock, id);
-    if (obj) spin_unlock(lock);
-    return obj;
-}
-
 /* Remove an IPC object from the table, verifying its sequence matches. */
 static int ipc_id_remove(void **table, uint16_t *seq_table, int max, spinlock_t *lock, int id)
 {
@@ -291,7 +273,7 @@ static int ipc_id_remove(void **table, uint16_t *seq_table, int max, spinlock_t 
  */
 static void sem_array_release(kref_t *ref)
 {
-    sem_array_t *sem = (sem_array_t *)((uint8_t *)ref - offsetof(sem_array_t, refs));
+    sem_array_t *sem = container_of(ref, sem_array_t, refs);
 
     free(sem->waitq);
     free(sem->semzcnt);
@@ -304,7 +286,7 @@ static void sem_array_release(kref_t *ref)
 /* Free a message queue once its table reference and all operation references have gone away. */
 static void msg_queue_release(kref_t *ref)
 {
-    msg_queue_t *q   = (msg_queue_t *)((uint8_t *)ref - offsetof(msg_queue_t, refs));
+    msg_queue_t *q   = container_of(ref, msg_queue_t, refs);
     msg_msg_t   *msg = q->head;
 
     while (msg) {
@@ -315,14 +297,11 @@ static void msg_queue_release(kref_t *ref)
     free(q);
 }
 
-/*
- * Pin a semaphore set for a syscall.  The reference is taken under the table
- * lock so IPC_RMID cannot free the set between the lookup and the pin.
- */
+/* Pin a semaphore set for a syscall.  The reference is taken under the table lock so IPC_RMID cannot free the set between the lookup and the pin. */
 static sem_array_t *sem_lookup(int semid)
 {
     int idx = semid & IPC_ID_MASK;
-    if (idx < 0 || idx >= SEM_MAX_SETS) return NULL;
+    if (idx < 0 || idx >= CONFIG_SEM_MAX_SETS) return NULL;
     uint16_t seq = (uint16_t)((semid >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK);
 
     spin_lock(&sem_global_lock);
@@ -342,7 +321,7 @@ static void sem_put(sem_array_t *sem)
 static msg_queue_t *msg_lookup(int msqid)
 {
     int idx = msqid & IPC_ID_MASK;
-    if (idx < 0 || idx >= MSG_MAX_QUEUES) return NULL;
+    if (idx < 0 || idx >= CONFIG_MSG_MAX_QUEUES) return NULL;
     uint16_t seq = (uint16_t)((msqid >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK);
 
     spin_lock(&msg_global_lock);
@@ -388,11 +367,8 @@ void sysv_sem_undo_release(process_t *proc)
         if (u->proc == proc) {
             *prev = u->next;
 
-            /*
-             * Apply the undo while holding the set's table lock so the set
-             * cannot be freed concurrently.
-             */
-            sem_array_t *sem = (sem_array_t *)ipc_id_lookup_held((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, u->semid);
+            /* Apply the undo while holding the set's table lock so the set cannot be freed concurrently. */
+            sem_array_t *sem = (sem_array_t *)ipc_id_lookup_held((void **)sem_sets, sem_seq, CONFIG_SEM_MAX_SETS, &sem_global_lock, u->semid);
             if (sem != NULL) {
                 uint32_t n = sem_undo_apply(u, sem);
                 for (uint32_t i = 0; i < n; i++) wait_queue_wake_all(&sem->waitq[i]);
@@ -411,13 +387,13 @@ void sysv_sem_undo_release(process_t *proc)
 /* sys_semget - get or create a semaphore set */
 int64_t sys_semget(key_t key, int nsems, int semflg)
 {
-    if (nsems < 0 || nsems > SEM_MAX_NSEMS) return -EINVAL;
+    if (nsems < 0 || nsems > CONFIG_SEM_MAX_NSEMS) return -EINVAL;
     if (nsems == 0 && (semflg & IPC_CREAT)) return -EINVAL;
 
     /* Search for existing set by key (non-zero key only) */
     if (key != IPC_PRIVATE) {
         spin_lock(&sem_global_lock);
-        for (int i = 0; i < SEM_MAX_SETS; i++) {
+        for (int i = 0; i < CONFIG_SEM_MAX_SETS; i++) {
             if (sem_sets[i] != NULL && sem_sets[i]->perm.key == key) {
                 sem_array_t *sem = sem_sets[i];
                 spin_unlock(&sem_global_lock);
@@ -427,7 +403,6 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
                 int ret = ipc_perm_check(&sem->perm, semflg & 0777);
                 if (ret < 0) return ret;
-
                 if (nsems > 0 && (uint32_t)nsems > sem->nsems) return -EINVAL;
 
                 return ((int)sem->perm.seq << IPC_SEQ_SHIFT) | i;
@@ -441,7 +416,8 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
     /* Allocate new semaphore set */
     sem_array_t *sem = malloc(sizeof(sem_array_t));
     if (sem == NULL) {
-        plogk("sysv_ipc: Semget array allocation failed (%u semaphores)\n", (unsigned)nsems);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Semget array allocation failed (%u semaphores)\n", nsems);
         return -ENOMEM;
     }
     memset(sem, 0, sizeof(sem_array_t));
@@ -449,7 +425,8 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->values = malloc(sizeof(uint16_t) * (uint32_t)nsems);
     if (sem->values == NULL) {
-        plogk("sysv_ipc: Semget values allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Semget values allocation failed.\n");
         free(sem);
         return -ENOMEM;
     }
@@ -457,7 +434,8 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->sempid = malloc(sizeof(uint32_t) * (uint32_t)nsems);
     if (sem->sempid == NULL) {
-        plogk("sysv_ipc: Semget sempid allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Semget sempid allocation failed.\n");
         free(sem->values);
         free(sem);
         return -ENOMEM;
@@ -466,7 +444,8 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->semcnt = malloc(sizeof(uint32_t) * (uint32_t)nsems);
     if (sem->semcnt == NULL) {
-        plogk("sysv_ipc: Semget semcnt allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Semget semcnt allocation failed.\n");
         free(sem->sempid);
         free(sem->values);
         free(sem);
@@ -476,7 +455,8 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->semzcnt = malloc(sizeof(uint32_t) * (uint32_t)nsems);
     if (sem->semzcnt == NULL) {
-        plogk("sysv_ipc: Semget semzcnt allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Semget semzcnt allocation failed.\n");
         free(sem->semcnt);
         free(sem->sempid);
         free(sem->values);
@@ -487,7 +467,8 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->waitq = malloc(sizeof(wait_queue_t) * (uint32_t)nsems);
     if (sem->waitq == NULL) {
-        plogk("sysv_ipc: Semget wait queue allocation failed.\n");
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Semget wait queue allocation failed.\n");
         free(sem->semzcnt);
         free(sem->semcnt);
         free(sem->sempid);
@@ -509,7 +490,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
     sem->perm.mode  = (uint32_t)(semflg & 0777);
     sem->perm.key   = key;
 
-    int id = ipc_id_alloc((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, sem);
+    int id = ipc_id_alloc((void **)sem_sets, sem_seq, CONFIG_SEM_MAX_SETS, &sem_global_lock, sem);
     if (id < 0) {
         free(sem->waitq);
         free(sem->semzcnt);
@@ -537,8 +518,8 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
     if (sops == NULL) return -EFAULT;
 
     /*
-     * sem_lookup pins the set: IPC_RMID cannot free it while we hold this
-     * reference, so the waiter path below can safely re-lock after waking.
+     * sem_lookup pins the set: IPC_RMID cannot free it while this reference is
+     * held, so the waiter path below can safely re-lock after waking.
      */
     sem_array_t *sem = sem_lookup(semid);
     if (sem == NULL) return -EINVAL;
@@ -738,7 +719,8 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
             if (u != NULL) {
                 for (uint32_t i = 0; i < sem->nsems; i++) u->adj[i] = (int16_t)(u->adj[i] + undo_adj[i]);
             } else {
-                plogk("sysv_ipc: Semtimedop undo tracking lost for semid %d (allocation failed)\n", semid);
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Semtimedop undo tracking lost for semid %d (allocation failed)\n", semid);
             }
             spin_unlock(&sem_undo_lock);
         }
@@ -764,7 +746,7 @@ static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uin
             int ret = ipc_owner_check(&sem->perm);
             if (ret < 0) return ret;
 
-            int rem = ipc_id_remove((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, semid);
+            int rem = ipc_id_remove((void **)sem_sets, sem_seq, CONFIG_SEM_MAX_SETS, &sem_global_lock, semid);
             if (rem < 0) return rem;
 
             spin_lock(&sem->lock);
@@ -775,8 +757,8 @@ static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uin
             for (uint32_t i = 0; i < sem->nsems; i++) wait_queue_wake_all(&sem->waitq[i]);
 
             /*
-             * Drop the table reference; the set is freed only when the last
-             * operation reference (ours) is released by sys_semctl.
+             * Drop the table reference; the set is freed only when the last operation
+             * reference is released by sys_semctl.
              */
             sem_put(sem);
             return 0;
@@ -914,9 +896,9 @@ static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uin
             if (arg == 0) return -EFAULT;
             seminfo_t info;
             memset(&info, 0, sizeof(info));
-            info.semmni = SEM_MAX_SETS;
-            info.semmns = SEM_MAX_SETS * SEM_MAX_NSEMS;
-            info.semmsl = SEM_MAX_NSEMS;
+            info.semmni = CONFIG_SEM_MAX_SETS;
+            info.semmns = CONFIG_SEM_MAX_SETS * CONFIG_SEM_MAX_NSEMS;
+            info.semmsl = CONFIG_SEM_MAX_NSEMS;
             info.semopm = SEMOPM;
             info.semvmx = 32767;
             info.semusz = (int32_t)sizeof(sem_array_t);
@@ -924,17 +906,17 @@ static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uin
             if (cmd == SEM_INFO) {
                 spin_lock(&sem_global_lock);
                 int used = 0;
-                for (int i = 0; i < SEM_MAX_SETS; i++)
+                for (int i = 0; i < CONFIG_SEM_MAX_SETS; i++)
                     if (sem_sets[i] != NULL) used++;
                 spin_unlock(&sem_global_lock);
                 return used;
             }
-            return SEM_MAX_SETS;
+            return CONFIG_SEM_MAX_SETS;
         }
         case SEM_STAT : {
             if (arg == 0) return -EFAULT;
             int idx = semid & IPC_ID_MASK;
-            if (idx < 0 || idx >= SEM_MAX_SETS) return -EINVAL;
+            if (idx < 0 || idx >= CONFIG_SEM_MAX_SETS) return -EINVAL;
 
             spin_lock(&sem_global_lock);
             sem_array_t *s = sem_sets[idx];
@@ -961,7 +943,7 @@ static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uin
 /* sys_semctl - semaphore control operations */
 int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 {
-    /* sem_lookup pins the set so IPC_RMID (which drops the table reference) cannot free it while we operate on it. */
+    /* sem_lookup pins the set so IPC_RMID (which drops the table reference) cannot free it mid-operation. */
     sem_array_t *sem = sem_lookup(semid);
     if (sem == NULL) return -EINVAL;
 
@@ -995,7 +977,7 @@ int sysv_shm_vma_get(void *identity, uint32_t pid)
 static shm_seg_t *shm_attach_get(int shmid, int mode, uint32_t pid, int *error)
 {
     int idx = shmid & IPC_ID_MASK;
-    if (idx < 0 || idx >= SHM_MAX_SEGS) {
+    if (idx < 0 || idx >= CONFIG_SHM_MAX_SEGS) {
         if (error) *error = -EINVAL;
         return NULL;
     }
@@ -1064,7 +1046,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     /* Search for existing segment by key */
     if (key != IPC_PRIVATE) {
         spin_lock(&shm_global_lock);
-        for (int i = 0; i < SHM_MAX_SEGS; i++) {
+        for (int i = 0; i < CONFIG_SHM_MAX_SEGS; i++) {
             if (shm_segs[i] != NULL && !shm_segs[i]->deleted && shm_segs[i]->perm.key == key) {
                 shm_seg_t *seg = shm_segs[i];
                 if (!kref_get_unless_zero(&seg->refs)) continue;
@@ -1092,7 +1074,6 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     }
 
     if (!(shmflg & IPC_CREAT)) return -ENOENT;
-
     if (size == 0) return -EINVAL;
     size_t pages = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
     if (pages == 0) pages = 1;
@@ -1100,7 +1081,8 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     /* Allocate physical frames */
     uint64_t phys = alloc_frames(pages);
     if (phys == 0) {
-        plogk("sysv_ipc: Shmget frame allocation failed (key %#x, %lu pages)\n", (unsigned)key, (unsigned long)pages);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Shmget frame allocation failed (key %#x, %zu pages)\n", key, pages);
         return -ENOMEM;
     }
 
@@ -1111,7 +1093,8 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     /* Allocate segment descriptor */
     shm_seg_t *seg = malloc(sizeof(shm_seg_t));
     if (seg == NULL) {
-        plogk("sysv_ipc: Shmget segment allocation failed (key %#x)\n", (unsigned)key);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Shmget segment allocation failed (key %#x)\n", key);
         free_frames(phys, pages);
         return -ENOMEM;
     }
@@ -1136,7 +1119,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     seg->perm.mode  = (uint32_t)(shmflg & 0777);
     seg->perm.key   = key;
 
-    int id = ipc_id_alloc((void **)shm_segs, shm_seq, SHM_MAX_SEGS, &shm_global_lock, seg);
+    int id = ipc_id_alloc((void **)shm_segs, shm_seq, CONFIG_SHM_MAX_SEGS, &shm_global_lock, seg);
     if (id < 0) {
         free_frames(phys, pages);
         free(seg);
@@ -1188,7 +1171,8 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 
     vm_area_t *vma = vm_area_alloc(vaddr, vaddr + mapping_size, flags);
     if (!vma) {
-        plogk("sysv_ipc: Shmat VMA allocation failed (shmid %d)\n", shmid);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Shmat VMA allocation failed (shmid %d)\n", shmid);
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
         return -ENOMEM;
     }
@@ -1202,7 +1186,8 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
     }
 
     if (frame_retain_range(seg->phys_addr, seg->npages)) {
-        plogk("sysv_ipc: Shmat frame retain failed (shmid %d)\n", shmid);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Shmat frame retain failed (shmid %d)\n", shmid);
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
         free(vma);
         return -ENOMEM;
@@ -1214,22 +1199,23 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 
     uint32_t mapped = 0;
     for (uint32_t i = 0; i < seg->npages; i++) {
-        uint64_t frame = seg->phys_addr + i * PAGE_4K_SIZE;
-        if (page_map_new_to(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE, frame, pte_flags)) goto rollback;
+        uint64_t frame = seg->phys_addr + (i * PAGE_4K_SIZE);
+        if (page_map_new_to(proc->user_page_dir, vaddr + (i * PAGE_4K_SIZE), frame, pte_flags)) goto rollback;
         mapped++;
     }
 
     if (vm_area_insert(proc, vma)) {
-        plogk("sysv_ipc: Shmat VMA insert failed (shmid %d)\n", shmid);
-        for (uint32_t i = 0; i < seg->npages; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Shmat VMA insert failed (shmid %d)\n", shmid);
+        for (uint32_t i = 0; i < seg->npages; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + (i * PAGE_4K_SIZE));
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
         free(vma);
         return -ENOMEM;
     }
     return (int64_t)vaddr;
 rollback:
-    for (uint32_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE);
-    if (mapped < seg->npages) (void)frame_release_range(seg->phys_addr + mapped * PAGE_4K_SIZE, seg->npages - mapped);
+    for (uint32_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + (i * PAGE_4K_SIZE));
+    if (mapped < seg->npages) (void)frame_release_range(seg->phys_addr + (mapped * PAGE_4K_SIZE), seg->npages - mapped);
     sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
     free(vma);
     return -ENOMEM;
@@ -1271,25 +1257,25 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
         memset(&info, 0, sizeof(info));
         info.shmmax = SHM_SIZE_MAX;
         info.shmmin = 1;
-        info.shmmni = SHM_MAX_SEGS;
-        info.shmseg = SHM_MAX_SEGS;
-        info.shmall = (uint64_t)SHM_MAX_SEGS * 256;
+        info.shmmni = CONFIG_SHM_MAX_SEGS;
+        info.shmseg = CONFIG_SHM_MAX_SEGS;
+        info.shmall = (uint64_t)CONFIG_SHM_MAX_SEGS * 256;
         if (copy_to_user(buf, &info, sizeof(shminfo_t)) != 0) return -EFAULT;
         if (cmd == SHM_INFO) {
             spin_lock(&shm_global_lock);
             int used = 0;
-            for (int i = 0; i < SHM_MAX_SEGS; i++)
+            for (int i = 0; i < CONFIG_SHM_MAX_SEGS; i++)
                 if (shm_segs[i] != NULL) used++;
             spin_unlock(&shm_global_lock);
             return used;
         }
-        return SHM_MAX_SEGS;
+        return CONFIG_SHM_MAX_SEGS;
     }
 
     if (cmd == SHM_STAT) {
         if (buf == NULL) return -EFAULT;
         int idx = shmid & IPC_ID_MASK;
-        if (idx < 0 || idx >= SHM_MAX_SEGS) return -EINVAL;
+        if (idx < 0 || idx >= CONFIG_SHM_MAX_SEGS) return -EINVAL;
 
         spin_lock(&shm_global_lock);
         shm_seg_t *indexed = shm_segs[idx];
@@ -1332,7 +1318,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             spin_lock(&shm_global_lock);
             spin_lock(&seg->lock);
             int idx = seg->id & IPC_ID_MASK;
-            if (seg->deleted || idx < 0 || idx >= SHM_MAX_SEGS || shm_segs[idx] != seg) {
+            if (seg->deleted || idx < 0 || idx >= CONFIG_SHM_MAX_SEGS || shm_segs[idx] != seg) {
                 result = -EINVAL;
             } else {
                 seg->deleted = 1;
@@ -1437,7 +1423,7 @@ int64_t sys_msgget(key_t key, int msgflg)
     /* Search for existing queue by key */
     if (key != IPC_PRIVATE) {
         spin_lock(&msg_global_lock);
-        for (int i = 0; i < MSG_MAX_QUEUES; i++) {
+        for (int i = 0; i < CONFIG_MSG_MAX_QUEUES; i++) {
             if (msg_queues[i] != NULL && msg_queues[i]->perm.key == key) {
                 msg_queue_t *q = msg_queues[i];
                 spin_unlock(&msg_global_lock);
@@ -1459,7 +1445,8 @@ int64_t sys_msgget(key_t key, int msgflg)
     /* Allocate new message queue */
     msg_queue_t *q = malloc(sizeof(msg_queue_t));
     if (q == NULL) {
-        plogk("sysv_ipc: Msgget queue allocation failed (key %#x)\n", (unsigned)key);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Msgget queue allocation failed (key %#x)\n", key);
         return -ENOMEM;
     }
     memset(q, 0, sizeof(msg_queue_t));
@@ -1478,7 +1465,7 @@ int64_t sys_msgget(key_t key, int msgflg)
     q->perm.mode    = (uint32_t)(msgflg & 0777);
     q->perm.key     = key;
 
-    int id = ipc_id_alloc((void **)msg_queues, msg_seq, MSG_MAX_QUEUES, &msg_global_lock, q);
+    int id = ipc_id_alloc((void **)msg_queues, msg_seq, CONFIG_MSG_MAX_QUEUES, &msg_global_lock, q);
     if (id < 0) {
         free(q);
         return id;
@@ -1491,13 +1478,13 @@ int64_t sys_msgget(key_t key, int msgflg)
 /* sys_msgsnd - send a message to a queue */
 int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
 {
-    if (msgsz > MSGMAX) return -EINVAL;
+    if (msgsz > CONFIG_MSGMAX) return -EINVAL;
     if (msgp == NULL) return -EFAULT;
 
     /*
-     * msg_lookup pins the queue: IPC_RMID cannot free it while we are
-     * blocked on send_wq (the queue is only freed when the last reference,
-     * ours, is released on every exit path below).
+     * msg_lookup pins the queue: IPC_RMID cannot free it while blocked on send_wq
+     * (the queue is only freed when the last reference is released on every exit
+     * path below).
      */
     msg_queue_t *q = msg_lookup(msqid);
     if (q == NULL) return -EINVAL;
@@ -1523,7 +1510,8 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
     size_t     msg_total = sizeof(msg_msg_t) + msgsz;
     msg_msg_t *msg       = malloc(msg_total);
     if (msg == NULL) {
-        plogk("sysv_ipc: Msgsnd buffer allocation failed (msqid %d, %lu bytes)\n", msqid, (unsigned long)msg_total);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("sysv_ipc: Msgsnd buffer allocation failed (msqid %d, %zu bytes)\n", msqid, msg_total);
         msg_put(q);
         return -ENOMEM;
     }
@@ -1733,7 +1721,7 @@ static int64_t msgctl_core(msg_queue_t *q, int msqid, int cmd, void *buf)
             int ret = ipc_owner_check(&q->perm);
             if (ret < 0) return ret;
 
-            int rem = ipc_id_remove((void **)msg_queues, msg_seq, MSG_MAX_QUEUES, &msg_global_lock, msqid);
+            int rem = ipc_id_remove((void **)msg_queues, msg_seq, CONFIG_MSG_MAX_QUEUES, &msg_global_lock, msqid);
             if (rem < 0) return rem;
 
             spin_lock(&q->lock);
@@ -1745,8 +1733,8 @@ static int64_t msgctl_core(msg_queue_t *q, int msqid, int cmd, void *buf)
             wait_queue_wake_all(&q->send_wq);
 
             /*
-             * Drop the table reference; the queue and its messages are freed
-             * only when the last operation reference (ours) is released by sys_msgctl.
+             * Drop the table reference; the queue and its messages are freed only when
+             * the last operation reference is released by sys_msgctl.
              */
             msg_put(q);
             return 0;
@@ -1798,26 +1786,26 @@ static int64_t msgctl_core(msg_queue_t *q, int msqid, int cmd, void *buf)
             if (buf == NULL) return -EFAULT;
             msginfo_t info;
             memset(&info, 0, sizeof(info));
-            info.msgmax = MSGMAX;
+            info.msgmax = CONFIG_MSGMAX;
             info.msgmnb = MSGMNB;
-            info.msgmni = MSG_MAX_QUEUES;
-            info.msgtql = MSG_MAX_QUEUES * 16;
-            info.msgseg = MSG_MAX_QUEUES * 64;
+            info.msgmni = CONFIG_MSG_MAX_QUEUES;
+            info.msgtql = CONFIG_MSG_MAX_QUEUES * 16;
+            info.msgseg = CONFIG_MSG_MAX_QUEUES * 64;
             if (copy_to_user(buf, &info, sizeof(msginfo_t)) != 0) return -EFAULT;
             if (cmd == MSG_INFO) {
                 spin_lock(&msg_global_lock);
                 int used = 0;
-                for (int i = 0; i < MSG_MAX_QUEUES; i++)
+                for (int i = 0; i < CONFIG_MSG_MAX_QUEUES; i++)
                     if (msg_queues[i] != NULL) used++;
                 spin_unlock(&msg_global_lock);
                 return used;
             }
-            return MSG_MAX_QUEUES;
+            return CONFIG_MSG_MAX_QUEUES;
         }
         case MSG_STAT : {
             if (buf == NULL) return -EFAULT;
             int idx = msqid & IPC_ID_MASK;
-            if (idx < 0 || idx >= MSG_MAX_QUEUES) return -EINVAL;
+            if (idx < 0 || idx >= CONFIG_MSG_MAX_QUEUES) return -EINVAL;
 
             spin_lock(&msg_global_lock);
             msg_queue_t *mq = msg_queues[idx];
@@ -1849,19 +1837,18 @@ static int64_t msgctl_core(msg_queue_t *q, int msqid, int cmd, void *buf)
 /* sys_msgctl - message queue control operations */
 int64_t sys_msgctl(int msqid, int cmd, void *buf)
 {
-    /* msg_lookup pins the queue so IPC_RMID cannot free it while we operate on it. */
+    /* msg_lookup pins the queue so IPC_RMID cannot free it mid-operation. */
     msg_queue_t *q = msg_lookup(msqid);
     if (q == NULL) return -EINVAL;
 
     int64_t result = msgctl_core(q, msqid, cmd, buf);
-    msg_put(q); // NOLINT(clang-analyzer-unix.Malloc): msg_lookup's pin keeps q alive until this final put
+    msg_put(q);
     return result;
 }
 
 /* sysv_ipc_init - initialize all System V IPC subsystems */
 void sysv_ipc_init(void)
 {
-#if CONFIG_SYSVIPC
     memset(sem_sets, 0, sizeof(sem_sets));
     memset(sem_seq, 0, sizeof(sem_seq));
     memset(shm_segs, 0, sizeof(shm_segs));
@@ -1871,6 +1858,7 @@ void sysv_ipc_init(void)
 
     sem_undo_list = NULL;
 
-    plogk("sysv_ipc: System V IPC registered (sem=%d sets, shm=%d segments, msg=%d queues)\n", SEM_MAX_SETS, SHM_MAX_SEGS, MSG_MAX_QUEUES);
-#endif
+    plogk("sysv_ipc: System V IPC registered (sem=%d sets, shm=%d segments, msg=%d queues)\n", CONFIG_SEM_MAX_SETS, CONFIG_SHM_MAX_SEGS, CONFIG_MSG_MAX_QUEUES);
 }
+
+#endif

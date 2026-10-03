@@ -9,14 +9,10 @@
  */
 
 #include <boot/limine_module.h>
-#include <fs/core/vfs.h>
 #include <fs/cpio/cpio.h>
 #include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <libs/util/gzip.h>
 #include <mem/heap.h>
@@ -53,14 +49,15 @@ static bool cpio_read_hex(const char *text, size_t count, uint32_t *result)
     if (!text || !result || count > 8) return false;
     for (size_t i = 0; i < count; i++) {
         unsigned digit;
-        if (text[i] >= '0' && text[i] <= '9')
+        if (text[i] >= '0' && text[i] <= '9') {
             digit = (unsigned)(text[i] - '0');
-        else if (text[i] >= 'a' && text[i] <= 'f')
+        } else if (text[i] >= 'a' && text[i] <= 'f') {
             digit = (unsigned)(text[i] - 'a' + 10);
-        else if (text[i] >= 'A' && text[i] <= 'F')
+        } else if (text[i] >= 'A' && text[i] <= 'F') {
             digit = (unsigned)(text[i] - 'A' + 10);
-        else
+        } else {
             return false;
+        }
         value = (value << 4) | digit;
     }
     *result = value;
@@ -104,9 +101,7 @@ static bool cpio_make_path(const char *archive_name, size_t namesize, char path[
     for (size_t i = 0; i <= length; i++) {
         if (i != length && name[i] != '/') continue;
         size_t component_length = i - component_start;
-        if (!component_length || (component_length == 1 && name[component_start] == '.') || (component_length == 2 && name[component_start] == '.' && name[component_start + 1] == '.')) {
-            return false;
-        }
+        if (!component_length || (component_length == 1 && name[component_start] == '.') || (component_length == 2 && name[component_start] == '.' && name[component_start + 1] == '.')) return false;
         component_start = i + 1;
     }
 
@@ -200,7 +195,13 @@ static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t 
         status = tmpfs_resize(node->handle, 0);
         if (status == EOK && filesize) {
             int64_t written = vfs_write(node, filedata, 0, filesize);
-            status          = written < 0 ? (int)written : (size_t)written == filesize ? EOK : -EIO;
+            if (written < 0) {
+                status = (int)written;
+            } else if ((size_t)written == filesize) {
+                status = EOK;
+            } else {
+                status = -EIO;
+            }
         }
     }
     if (status == EOK) cpio_set_metadata(node, mode, uid, gid, mtime);
@@ -324,8 +325,8 @@ void init_cpio(void)
 
     if (allocated) free(archive);
     if (failure != EOK || !trailer) {
-        plogk("cpio: Initramfs rejected after %llu entries: %d%s\n", entries, failure, trailer ? "" : " (missing trailer)");
+        plogk("cpio: Initramfs rejected after %zu entries: %d%s\n", entries, failure, trailer ? "" : " (missing trailer)");
         return;
     }
-    plogk("cpio: Loaded initramfs: %llu bytes, %llu entries, format=%s, storage=%s\n", size, entries, format, allocated ? "copied" : "module-backed COW");
+    plogk("cpio: Loaded initramfs: %zu bytes, %zu entries, format=%s, storage=%s\n", size, entries, format, allocated ? "copied" : "module-backed COW");
 }

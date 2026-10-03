@@ -8,25 +8,22 @@
  *
  */
 
-#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdbool.h>
 #include <libs/std/string.h>
 #include <net/core/ethernet.h>
-#include <net/core/netdev.h>
 #include <process/kthread.h>
 #include <process/sched.h>
 
-#define LOOPBACK_ADDRESS   0x7f000001u /* 127.0.0.1 */
-#define LOOPBACK_NETMASK   0xff000000u /* 255.0.0.0 */
-#define LOOPBACK_QUEUE_MAX 256U
-#define LOOPBACK_BYTES_MAX (2U * 1024U * 1024U)
-#define LOOPBACK_RX_BUDGET 64U
+#if CONFIG_INET && CONFIG_NET
+
+#    define LOOPBACK_ADDRESS   0x7f000001u // 127.0.0.1
+#    define LOOPBACK_NETMASK   0xff000000u // 255.0.0.0
+#    define LOOPBACK_RX_BUDGET 64U
 
 /* Locally administered unicast address for the internal Ethernet shim. */
 static const uint8_t loopback_mac[ETH_ADDRESS_LEN] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
 
-static netdev_t loopback_device;
+static net_device_t loopback_device;
 
 typedef struct loopback_queue_entry {
         net_pbuf_t *packet;
@@ -34,7 +31,7 @@ typedef struct loopback_queue_entry {
 } loopback_queue_entry_t;
 
 typedef struct loopback_context {
-        loopback_queue_entry_t queue[LOOPBACK_QUEUE_MAX];
+        loopback_queue_entry_t queue[CONFIG_LOOPBACK_QUEUE_MAX];
         uint16_t               head;
         uint16_t               tail;
         uint16_t               count;
@@ -64,7 +61,7 @@ static void loopback_stop(net_device_t *device)
 {
     if (!device) return;
 
-    net_pbuf_t *discard[LOOPBACK_QUEUE_MAX];
+    net_pbuf_t *discard[CONFIG_LOOPBACK_QUEUE_MAX];
     size_t      count = 0;
     spin_lock(&loopback.lock);
     loopback.enabled = false;
@@ -73,7 +70,7 @@ static void loopback_stop(net_device_t *device)
         loopback_queue_entry_t *entry = &loopback.queue[loopback.head];
         discard[count++]              = entry->packet;
         entry->packet                 = NULL;
-        loopback.head                 = (uint16_t)((loopback.head + 1U) % LOOPBACK_QUEUE_MAX);
+        loopback.head                 = (uint16_t)((loopback.head + 1U) % CONFIG_LOOPBACK_QUEUE_MAX);
         loopback.count--;
     }
     loopback.bytes = 0;
@@ -102,7 +99,7 @@ static int loopback_xmit(net_device_t *device, net_pbuf_t *packet)
         net_pbuf_free(copy);
         return -ENETDOWN;
     }
-    if (loopback.count >= LOOPBACK_QUEUE_MAX || copy->length > LOOPBACK_BYTES_MAX - loopback.bytes) {
+    if (loopback.count >= CONFIG_LOOPBACK_QUEUE_MAX || copy->length > CONFIG_LOOPBACK_BYTES_MAX - loopback.bytes) {
         spin_unlock(&loopback.lock);
         net_pbuf_free(copy);
         return -ENOBUFS;
@@ -110,7 +107,7 @@ static int loopback_xmit(net_device_t *device, net_pbuf_t *packet)
     loopback_queue_entry_t *entry = &loopback.queue[loopback.tail];
     entry->packet                 = copy;
     entry->generation             = loopback.generation;
-    loopback.tail                 = (uint16_t)((loopback.tail + 1U) % LOOPBACK_QUEUE_MAX);
+    loopback.tail                 = (uint16_t)((loopback.tail + 1U) % CONFIG_LOOPBACK_QUEUE_MAX);
     loopback.count++;
     loopback.bytes += copy->length;
     wait_queue_wake_one_sync(&loopback.wait);
@@ -121,7 +118,7 @@ static int loopback_xmit(net_device_t *device, net_pbuf_t *packet)
 /* Validate and store a new MTU (loopback accepts anything the core allows). */
 static int loopback_set_mtu(net_device_t *device, uint32_t mtu)
 {
-    if (!device || mtu < NETDEV_MTU_MIN || mtu > NETDEV_MTU_MAX) return -EINVAL;
+    if (!device || mtu < NETDEV_MTU_MIN || mtu > CONFIG_NETDEV_MTU_MAX) return -EINVAL;
     return EOK;
 }
 
@@ -149,16 +146,17 @@ static int loopback_worker(void *argument)
             }
             loopback_queue_entry_t entry         = loopback.queue[loopback.head];
             loopback.queue[loopback.head].packet = NULL;
-            loopback.head                        = (uint16_t)((loopback.head + 1U) % LOOPBACK_QUEUE_MAX);
+            loopback.head                        = (uint16_t)((loopback.head + 1U) % CONFIG_LOOPBACK_QUEUE_MAX);
             loopback.count--;
             loopback.bytes -= entry.packet->length;
             uint32_t generation = loopback.generation;
             spin_unlock(&loopback.lock);
 
-            if (entry.generation == generation)
+            if (entry.generation == generation) {
                 (void)netdev_rx(&loopback_device, entry.packet);
-            else
+            } else {
                 net_pbuf_free(entry.packet);
+            }
             processed++;
         }
 
@@ -173,7 +171,6 @@ static int loopback_worker(void *argument)
 /* Create and register the loopback interface with its 127.0.0.1 address. */
 void loopback_init(void)
 {
-#if CONFIG_NET
     static bool initialized;
     if (initialized) return;
 
@@ -184,20 +181,20 @@ void loopback_init(void)
         return;
     }
     memcpy(loopback_device.address, loopback_mac, ETH_ADDRESS_LEN);
-    loopback_device.mtu          = NETDEV_MTU_MAX;
+    loopback_device.mtu          = CONFIG_NETDEV_MTU_MAX;
     loopback_device.flags        = NETDEV_F_UP | NETDEV_F_RUNNING | NETDEV_F_LOOPBACK;
     loopback_device.ipv4_address = LOOPBACK_ADDRESS;
     loopback_device.ipv4_netmask = LOOPBACK_NETMASK;
     int status                   = netdev_register(&loopback_device);
     if (status) {
-        plogk("loopback: Device register failed (%d).\n", status);
+        plogk("loopback: Device register failed (%d)\n", status);
         return;
     }
 
     status = kernel_worker_register("net-loopback", loopback_worker, NULL, &loopback.worker);
     if (status) {
         (void)netdev_unregister(&loopback_device);
-        plogk("loopback: Worker registration failed (%d).\n", status);
+        plogk("loopback: Worker registration failed (%d)\n", status);
         return;
     }
     spin_lock(&loopback.lock);
@@ -205,6 +202,7 @@ void loopback_init(void)
     spin_unlock(&loopback.lock);
     __atomic_store_n(&loopback.ready, true, __ATOMIC_RELEASE);
     initialized = true;
-    plogk("loopback: Interface 'lo' registered (127.0.0.1/8).\n");
-#endif
+    plogk("loopback: Interface 'lo' registered (127.0.0.1/8)\n");
 }
+
+#endif

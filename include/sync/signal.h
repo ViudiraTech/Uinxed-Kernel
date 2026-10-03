@@ -16,7 +16,7 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-/* Signal number definitions / Linux compatible */
+/* Signal number definitions */
 
 #define SIGHUP    1
 #define SIGINT    2
@@ -58,83 +58,7 @@
 #define SIG_DFL ((sig_handler_t)0)
 #define SIG_IGN ((sig_handler_t)1)
 
-/* sigset_t / 64-bit bitmap */
-
-typedef uint64_t sigset_t;
-
 #define _SIGSET_NWORDS 1
-
-/* Clear every signal in the set. */
-static inline void sigemptyset(sigset_t *set)
-{
-    *set = 0;
-}
-
-/* Set every signal in the set. */
-static inline void sigfillset(sigset_t *set)
-{
-    *set = ~(uint64_t)0;
-}
-
-/* Add a signal to the set. */
-static inline int sigaddset(sigset_t *set, int signo)
-{
-    if (signo <= 0 || signo >= NSIG) return -1;
-    *set |= (1ULL << (signo - 1));
-    return 0;
-}
-
-/* Remove a signal from the set. */
-static inline int sigdelset(sigset_t *set, int signo)
-{
-    if (signo <= 0 || signo >= NSIG) return -1;
-    *set &= ~(1ULL << (signo - 1));
-    return 0;
-}
-
-/* Test whether a signal is present in the set. */
-static inline int sigismember(const sigset_t *set, int signo)
-{
-    if (signo <= 0 || signo >= NSIG) return 0;
-    return !!(*set & (1ULL << (signo - 1)));
-}
-
-/* Test whether the set is empty. */
-static inline int sigisemptyset(const sigset_t *set)
-{
-    return *set == 0;
-}
-
-/* Compute the union of two signal sets. */
-static inline void sigorset(sigset_t *dst, const sigset_t *a, const sigset_t *b)
-{
-    *dst = *a | *b;
-}
-
-/* Compute the intersection of two signal sets. */
-static inline void sigandset(sigset_t *dst, const sigset_t *a, const sigset_t *b)
-{
-    *dst = *a & *b;
-}
-
-/* Test whether a signal set is valid. */
-static inline int sigset_valid(const sigset_t *set)
-{
-    (void)set;
-    /* sigset_t is uint64_t, all 64 bits are valid for signals 1-64 */
-    return 1;
-}
-
-/* Signal handler types */
-
-typedef void (*sig_handler_t)(int);
-
-typedef struct {
-        sig_handler_t sa_handler;
-        uint64_t      sa_flags;
-        uint64_t      sa_restorer;
-        sigset_t      sa_mask;
-} sigaction_t;
 
 /* sa_flags */
 #define SA_NOCLDSTOP 0x00000001
@@ -151,12 +75,38 @@ typedef struct {
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 
+/* sigset_t / 64-bit bitmap */
+typedef uint64_t sigset_t;
+
+/* Signal handler types */
+
+typedef void (*sig_handler_t)(int);
+
+/*
+ * Linux x86-64 struct sigaction. sa_mask is the full 128-byte user-visible
+ * sigset_t the syscall ABI requires; only its low 64 bits carry signals here,
+ * which is exactly the window rt_sigaction's sigsetsize argument addresses.
+ */
+typedef struct {
+        sig_handler_t sa_handler;
+        uint64_t      sa_mask[16];
+        int32_t       sa_flags;
+        uint64_t      sa_restorer;
+} sigaction_t;
+
+_Static_assert(sizeof(sigaction_t) == 152, "x86-64 struct sigaction ABI size");
+_Static_assert(offsetof(sigaction_t, sa_mask) == 8, "x86-64 sigaction sa_mask offset");
+_Static_assert(offsetof(sigaction_t, sa_flags) == 136, "x86-64 sigaction sa_flags offset");
+_Static_assert(offsetof(sigaction_t, sa_restorer) == 144, "x86-64 sigaction sa_restorer offset");
+
 /* siginfo_t */
 
 typedef union sigval {
         int   sival_int;
         void *sival_ptr;
 } sigval_t;
+
+_Static_assert(sizeof(sigval_t) == 8, "x86-64 sigval ABI size");
 
 typedef struct {
         int si_signo;
@@ -169,7 +119,7 @@ typedef struct {
 
                 /* kill / tkill / tgkill */
                 struct {
-                        int64_t  _pid;
+                        int32_t  _pid;
                         uint32_t _uid;
                 } _kill;
 
@@ -182,18 +132,18 @@ typedef struct {
 
                 /* POSIX.1b signals */
                 struct {
-                        int64_t  _pid;
+                        int32_t  _pid;
                         uint32_t _uid;
                         sigval_t _sigval;
                 } _rt;
 
                 /* SIGCHLD */
                 struct {
-                        int64_t  _pid;
+                        int32_t  _pid;
                         uint32_t _uid;
                         int      _status;
-                        int      _utime;
-                        int      _stime;
+                        int64_t  _utime;
+                        int64_t  _stime;
                 } _sigchld;
 
                 /* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
@@ -224,7 +174,42 @@ typedef struct {
         } _sifields;
 } siginfo_t;
 
+/* Clear every signal in the set. */
+void sigemptyset(sigset_t *set);
+
+/* Set every signal in the set. */
+void sigfillset(sigset_t *set);
+
+/* Add a signal to the set. */
+int sigaddset(sigset_t *set, int signo);
+
+/* Remove a signal from the set. */
+int sigdelset(sigset_t *set, int signo);
+
+/* Test whether a signal is present in the set. */
+int sigismember(const sigset_t *set, int signo);
+
+/* Test whether the set is empty. */
+int sigisemptyset(const sigset_t *set);
+
+/* Compute the union of two signal sets. */
+void sigorset(sigset_t *dst, const sigset_t *a, const sigset_t *b);
+
+/* Compute the intersection of two signal sets. */
+void sigandset(sigset_t *dst, const sigset_t *a, const sigset_t *b);
+
+/* Test whether a signal set is valid. */
+int sigset_valid(const sigset_t *set);
+
 _Static_assert(sizeof(siginfo_t) == 128, "x86-64 siginfo_t ABI size");
+
+/* Lock the Linux x86-64 field offsets: __kernel_pid_t is 32-bit, __kernel_clock_t is 64-bit. */
+_Static_assert(offsetof(siginfo_t, _sifields._kill._pid) == 16, "x86-64 siginfo si_pid offset");
+_Static_assert(offsetof(siginfo_t, _sifields._kill._uid) == 20, "x86-64 siginfo si_uid offset");
+_Static_assert(offsetof(siginfo_t, _sifields._rt._sigval) == 24, "x86-64 siginfo si_value offset");
+_Static_assert(offsetof(siginfo_t, _sifields._sigchld._status) == 24, "x86-64 siginfo si_status offset");
+_Static_assert(offsetof(siginfo_t, _sifields._sigchld._utime) == 32, "x86-64 siginfo si_utime offset");
+_Static_assert(offsetof(siginfo_t, _sifields._sigchld._stime) == 40, "x86-64 siginfo si_stime offset");
 
 #define si_pid       _sifields._kill._pid
 #define si_uid       _sifields._kill._uid
@@ -283,8 +268,9 @@ _Static_assert(sizeof(siginfo_t) == 128, "x86-64 siginfo_t ABI size");
 #define BUS_ADRERR 2
 #define BUS_OBJERR 3
 
-#define TRAP_BRKPT 1
-#define TRAP_TRACE 2
+#define TRAP_BRKPT  1
+#define TRAP_TRACE  2
+#define TRAP_HWBKPT 4
 
 #define CLD_EXITED    1
 #define CLD_KILLED    2
@@ -300,6 +286,9 @@ _Static_assert(sizeof(siginfo_t) == 128, "x86-64 siginfo_t ABI size");
 #define POLL_PRI 5
 #define POLL_HUP 6
 
+#define SS_ONSTACK 1
+#define SS_DISABLE 2
+
 /* sigaltstack */
 
 typedef struct {
@@ -308,11 +297,9 @@ typedef struct {
         size_t ss_size;
 } stack_t;
 
-#define SS_ONSTACK 1
-#define SS_DISABLE 2
+_Static_assert(sizeof(stack_t) == 24, "x86-64 stack_t ABI size");
 
-/* x86-64 Linux/musl ucontext ABI used as the third SA_SIGINFO argument. */
-
+/* x86-64 ucontext ABI used as the third SA_SIGINFO argument. */
 typedef struct {
         uint64_t gregs[23];
         uint64_t fpregs;
@@ -336,31 +323,27 @@ _Static_assert(offsetof(signal_ucontext_t, uc_mcontext) == 40, "x86-64 ucontext 
 _Static_assert(offsetof(signal_ucontext_t, uc_sigmask) == 296, "x86-64 ucontext sigmask offset");
 _Static_assert(offsetof(signal_ucontext_t, fpstate) == 424, "x86-64 ucontext fpstate offset");
 
-/* Handler's return address, siginfo and a complete Linux-compatible context. */
+/* Return values for signal_deliver_one */
+#define SIG_DELIV_HANDLED 0
+#define SIG_DELIV_TERM    1
+#define SIG_DELIV_HANDLER 2
+
+/* Per-process signal state */
+#define SIG_ACTION_NUM NSIG
+
+/* Handler's return address, siginfo and the full register context. */
 typedef struct {
         uint64_t          pretcode;
         siginfo_t         info;
         signal_ucontext_t ucontext;
 } signal_user_frame_t;
 
-/* Return values for signal_deliver_one */
-#define SIG_DELIV_HANDLED 0
-#define SIG_DELIV_TERM    1
-#define SIG_DELIV_HANDLER 2
-
 /* Signal queue / real-time */
-
-#define SIGQUEUE_MAX 32
-
 typedef struct sigqueue {
         siginfo_t        info;
         uint64_t         target_tid; // zero for process-directed signals
         struct sigqueue *next;
 } sigqueue_t;
-
-/* Per-process signal state */
-
-#define SIG_ACTION_NUM NSIG
 
 /* Forward declaration */
 typedef struct process       process_t;
@@ -412,7 +395,7 @@ void     signal_itimer_cancel(process_t *proc);
 void signal_state_init(signal_state_t *state);
 
 /*
- * Linux ignore_signals(): set every signal to SIG_IGN. Kernel threads call
+ * signal_ignore_all(): set every signal to SIG_IGN. Kernel threads call
  * this to ignore every signal (SIGKILL and SIGSTOP included); they are stopped
  * only by kthread_stop().
  */
@@ -446,6 +429,8 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info);
  * Returns 0 if signals delivered (or none pending), 1 if process terminated.
  */
 int signal_deliver_if_pending(syscall_frame_t *frame);
+
+/* Signal deliver for process. */
 int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame);
 
 /* Check if there is a pending signal that should be delivered */
@@ -461,32 +446,26 @@ int signal_has_interrupting_pending(signal_state_t *state);
 /* Query a process signal disposition while holding the signal-state lock. */
 bool signal_is_blocked_or_ignored(process_t *proc, int sig);
 
+/* Make a synchronous fault signal deliverable: unblock it and make an ignored disposition fatal */
+void signal_force_delivery(process_t *proc, int sig);
+
+/* True when a signal has no handler and no tracer, so it takes its default action */
+bool signal_is_unhandled(process_t *proc, int sig);
+
 /* Get the default action for a signal */
 sig_dfl_action_t signal_default_action(int sig);
 
 /* Check if a signal is a real-time signal */
-static inline int sig_is_rt(int sig)
-{
-    return sig >= SIGRTMIN && sig <= SIGRTMAX;
-}
+int sig_is_rt(int sig);
 
 /* Check if a signal number is valid */
-static inline int sig_valid(int sig)
-{
-    return sig > 0 && sig < NSIG;
-}
+int sig_valid(int sig);
 
 /* Check if a signal is ignorable (cannot be ignored, caught, or blocked) */
-static inline int sig_is_uncatchable(int sig)
-{
-    return sig == SIGKILL || sig == SIGSTOP;
-}
+int sig_is_uncatchable(int sig);
 
 /* Check if a signal is a stop signal */
-static inline int sig_is_stop(int sig)
-{
-    return sig == SIGSTOP || sig == SIGTSTP || sig == SIGTTIN || sig == SIGTTOU;
-}
+int sig_is_stop(int sig);
 
 /* Flush all pending signals for a process */
 void signal_flush(process_t *proc);
@@ -506,17 +485,16 @@ int signal_check_perm(const process_t *from, const process_t *to);
  * caller normally blocks the signals precisely so they can be read through
  * the synchronous interface instead of being delivered to a handler.
  */
-int  signal_dequeue_masked(process_t *proc, const sigset_t *mask, siginfo_t *info);
+int signal_dequeue_masked(process_t *proc, const sigset_t *mask, siginfo_t *info);
+
+/* Signal has pending masked. */
 bool signal_has_pending_masked(process_t *proc, const sigset_t *mask);
 
 /* Notify the signal subsystem that a child process exited */
 void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_code, int status);
 void signal_notify_child_status(process_t *parent, int64_t child_pid, int status, int code);
 
-/*
- * Called from syscall_dispatch with frame access to restore
- * the interrupted process context after a signal handler returns.
- */
+/* Called from syscall_dispatch with frame access to restore the interrupted process context after a signal handler returns. */
 int64_t do_rt_sigreturn(syscall_frame_t *frame);
 
 /* Syscall implementations (called from syscall.c) */

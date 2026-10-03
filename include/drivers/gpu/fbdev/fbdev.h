@@ -13,7 +13,7 @@
 
 #include <libs/std/stdint.h>
 
-/* Linux include/linux/major.h: FB_MAJOR 29, one node per framebuffer. */
+/* FB_MAJOR, one node per framebuffer. */
 #define FB_MAJOR 29
 
 /* Return a `fbdev_info_t` describing /dev/fb0. */

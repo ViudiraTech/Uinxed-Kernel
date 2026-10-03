@@ -9,18 +9,23 @@
  */
 
 #include <arch/common.h>
-#include <drivers/block/ata/sata/ahci.h>
 #include <drivers/block/ata/sata/satapi.h>
 #include <drivers/bus/pci.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
+
+#if CONFIG_ATA
+
+/* Issue a command */
+#    define ATA_CMD_FIS_DWORDS 5
+
+/* SATA read/write */
+#    define SATA_DMA_BUF_PAGES   8
+#    define SATA_DMA_MAX_SECTORS (SATA_DMA_BUF_PAGES * 4096 / 512)
 
 /* PCI finding request for AHCI controller (class code 0x010601) */
 static pci_finding_request_t ahci_pci_request = {
@@ -40,9 +45,10 @@ int           ahci_device_count = 0;
 volatile uint8_t *hba_mmio = 0;
 
 /* Per-port state */
-
 ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];
-static int        ahci_port_count = 0;
+
+/* Per-prot count */
+static int ahci_port_count = 0;
 
 /* MMIO helpers */
 uint32_t ahci_read32(volatile uint8_t *base, uint32_t reg)
@@ -50,20 +56,22 @@ uint32_t ahci_read32(volatile uint8_t *base, uint32_t reg)
     return mmio_read32((void *)(base + reg));
 }
 
+/* Write a 32-bit AHCI register. */
 void ahci_write32(volatile uint8_t *base, uint32_t reg, uint32_t val)
 {
     mmio_write32((uint32_t *)(base + reg), val);
 }
 
 /* Slot finder */
-static int ahci_find_slot(ahci_port_state_t *port)
+int ahci_find_slot(ahci_port_state_t *port)
 {
     uint32_t slots = ((ahci_read32(hba_mmio, HOST_CAP) >> 8) & 0x1F) + 1;
     uint32_t ci    = ahci_read32(port->port_mmio, PORT_CI);
     uint32_t sact  = ahci_read32(port->port_mmio, PORT_SACT);
+
     for (uint32_t i = 0; i < slots; i++)
         if (!((ci | sact) & (1u << i))) return (int)i;
-    return -1;
+    return -ENOSPC;
 }
 
 /* Port start / stop */
@@ -73,17 +81,21 @@ static int ahci_port_stop(ahci_port_state_t *port)
     volatile uint8_t *p = port->port_mmio;
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) & ~PORT_CMD_ST);
+
     tout = 500000;
     while (ahci_read32(p, PORT_CMD) & PORT_CMD_CR)
         if (--tout <= 0) return -ETIMEDOUT;
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) & ~PORT_CMD_FRE);
+
     tout = 500000;
     while (ahci_read32(p, PORT_CMD) & PORT_CMD_FR)
         if (--tout <= 0) return -ETIMEDOUT;
+
     return EOK;
 }
 
+/* AHCI port start. */
 static int ahci_port_start(ahci_port_state_t *port)
 {
     volatile uint8_t *p = port->port_mmio;
@@ -95,18 +107,17 @@ static int ahci_port_start(ahci_port_state_t *port)
     ahci_write32(p, PORT_LST_ADDR_HI, (uint32_t)(port->clb_phys >> 32));
     ahci_write32(p, PORT_FIS_ADDR, (uint32_t)(port->fb_phys & 0xFFFFFFFFULL));
     ahci_write32(p, PORT_FIS_ADDR_HI, (uint32_t)(port->fb_phys >> 32));
-
     ahci_write32(p, PORT_SERR, 0xFFFFFFFF);
-
     ahci_write32(p, PORT_IRQ_STAT, 0xFFFFFFFF);
     ahci_write32(p, PORT_IRQ_MASK, 0);
-
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) | PORT_CMD_FRE);
+
     tout = 500000;
     while (!(ahci_read32(p, PORT_CMD) & PORT_CMD_FR))
         if (--tout <= 0) return -ETIMEDOUT;
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) | PORT_CMD_ST);
+
     tout = 500000;
     while (!(ahci_read32(p, PORT_CMD) & PORT_CMD_CR))
         if (--tout <= 0) return -ETIMEDOUT;
@@ -114,9 +125,7 @@ static int ahci_port_start(ahci_port_state_t *port)
     return 0;
 }
 
-/* Issue a command */
-#define ATA_CMD_FIS_DWORDS 5
-
+/* AHCI issue cmd. */
 static int ahci_issue_cmd(ahci_port_state_t *port, int slot, uint8_t *cfis, int write, uint64_t buf_phys, uint32_t byte_count)
 {
     volatile hba_cmd_header_t *hdr = &port->cmd_list[slot];
@@ -143,7 +152,7 @@ static int ahci_issue_cmd(ahci_port_state_t *port, int slot, uint8_t *cfis, int 
 
     tout = 1000000;
     while (ahci_read32(p, PORT_TFDATA) & 0x88)
-        if (--tout <= 0) return -EBUSY;
+        if (--tout <= 0) return -ETIMEDOUT;
 
     ahci_write32(p, PORT_CI, (uint32_t)(1 << slot));
 
@@ -182,7 +191,6 @@ static int ahci_port_identify(ahci_port_state_t *port, ahci_device_t *dev)
     if (ret != 0) return ret;
 
     uint16_t *buf = (uint16_t *)port->dma_buf;
-
     if (buf[0] == 0x0000 || buf[0] == 0xFFFF) return -ENODEV;
 
     dev->reserved    = 1;
@@ -191,36 +199,36 @@ static int ahci_port_identify(ahci_port_state_t *port, ahci_device_t *dev)
 
     uint16_t *ident = (uint16_t *)port->dma_buf;
     uint32_t  cmds  = (uint32_t)ident[82] | ((uint32_t)ident[83] << 16);
-    if (cmds & (1u << 26))
+
+    if (cmds & (1u << 26)) {
         dev->size = (uint64_t)ident[100] | ((uint64_t)ident[101] << 16) | ((uint64_t)ident[102] << 32) | ((uint64_t)ident[103] << 48);
-    else
+    } else {
         dev->size = (uint32_t)ident[60] | ((uint32_t)ident[61] << 16);
+    }
 
     for (int k = 0; k < 40; k += 2) {
         dev->model[k]     = port->dma_buf[ATA_IDENT_MODEL + k + 1];
         dev->model[k + 1] = port->dma_buf[ATA_IDENT_MODEL + k];
     }
+
     dev->model[40] = 0;
 
     for (int k = 39; k > 0; k--) {
-        if (dev->model[k] == ' ')
+        if (dev->model[k] == ' ') {
             dev->model[k] = '\0';
-        else
+        } else {
             break;
+        }
     }
 
     return 0;
 }
 
-/* SATA read/write */
-
-#define SATA_DMA_BUF_PAGES   8
-#define SATA_DMA_MAX_SECTORS (SATA_DMA_BUF_PAGES * 4096 / 512)
-
+/* AHCI read sectors. */
 int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffer)
 {
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
-    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -ENOSYS;
+    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -EOPNOTSUPP;
 
     uint8_t            port_idx = ahci_devices[drive].port;
     ahci_port_state_t *port     = &ahci_ports[port_idx];
@@ -241,6 +249,7 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffe
 
         fis_reg_h2d_t cfis;
         memset(&cfis, 0, sizeof(cfis));
+
         cfis.fis_type = FIS_TYPE_REG_H2D;
         cfis.c        = 1;
         cfis.command  = ATA_CMD_READ_DMA_EXT;
@@ -255,14 +264,16 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffe
 
         int slot = ahci_find_slot(port);
         if (slot < 0) {
-            plogk("ahci: Port %u: no free command slot for read at LBA %llu\n", port_idx, (unsigned long long)lba);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("ahci: Port %u: no free command slot for read at LBA %llu\n", port_idx, lba);
             spin_unlock(&port->lock);
             return -EBUSY;
         }
 
         int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, port->dma_buf_phys, bytes);
         if (ret != 0) {
-            plogk("ahci: Port %u: read error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("ahci: Port %u: read error at LBA %llu: %d\n", port_idx, lba, ret);
             spin_unlock(&port->lock);
             return ret;
         }
@@ -276,10 +287,11 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffe
     return 0;
 }
 
+/* AHCI write sectors. */
 int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void *buffer)
 {
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
-    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -ENOSYS;
+    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -EOPNOTSUPP;
 
     uint8_t            port_idx = ahci_devices[drive].port;
     ahci_port_state_t *port     = &ahci_ports[port_idx];
@@ -294,9 +306,9 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
         uint32_t bytes = (uint32_t)chunk * 512;
 
         memcpy(port->dma_buf, in, bytes);
-
         fis_reg_h2d_t cfis;
         memset(&cfis, 0, sizeof(cfis));
+
         cfis.fis_type = FIS_TYPE_REG_H2D;
         cfis.c        = 1;
         cfis.command  = ATA_CMD_WRITE_DMA_EXT;
@@ -311,14 +323,16 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
 
         int slot = ahci_find_slot(port);
         if (slot < 0) {
-            plogk("ahci: Port %u: no free command slot for write at LBA %llu\n", port_idx, (unsigned long long)lba);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("ahci: Port %u: no free command slot for write at LBA %llu\n", port_idx, lba);
             spin_unlock(&port->lock);
             return -EBUSY;
         }
 
         int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 1, port->dma_buf_phys, bytes);
         if (ret != 0) {
-            plogk("ahci: Port %u: write error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("ahci: Port %u: write error at LBA %llu: %d\n", port_idx, lba, ret);
             spin_unlock(&port->lock);
             return ret;
         }
@@ -339,12 +353,14 @@ int ahci_flush_cache(uint8_t drive)
     int                slot;
 
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
-    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -ENOSYS;
+    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -EOPNOTSUPP;
 
     port = &ahci_ports[ahci_devices[drive].port];
     slot = ahci_find_slot(port);
+
     if (slot < 0) {
-        plogk("ahci: Port %u: no free command slot for cache flush.\n", ahci_devices[drive].port);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("ahci: Port %u: no free command slot for cache flush.\n", ahci_devices[drive].port);
         return -EBUSY;
     }
 
@@ -357,29 +373,31 @@ int ahci_flush_cache(uint8_t drive)
     cfis.device  = 1 << 6;
 
     int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, 0, 0);
-    if (ret != 0) plogk("ahci: Port %u: cache flush failed: %d\n", ahci_devices[drive].port, ret);
+    if (ret != 0) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("ahci: Port %u: cache flush failed: %d\n", ahci_devices[drive].port, ret);
+    }
     return ret;
 }
 
 /* Initialize the AHCI controller and probe its ports */
 void init_ahci(void)
 {
-#if CONFIG_ATA
     pci_device_find(&ahci_pci_request);
     if (ahci_pci_request.response->error != PCI_FINDING_SUCCESS) return;
 
     pci_device_cache_t *cache      = ahci_pci_request.response->device;
     int                 sata_count = 0, satapi_count = 0;
 
-    pci_write_command_status(cache, (pci_read_command_status(cache) & 0xFFFF) | (1u << 1) | (1u << 2));
+    pci_enable_device(cache, PCI_CMD_MEM | PCI_CMD_BUSMASTER);
 
-    base_address_register_t bar = get_base_address_register(cache, 5);
-    if (bar.type != mem_mapping) {
+    pci_bar_t bar;
+    if (pci_map_bar(cache, 5, &bar) < 0) {
         plogk("ahci: BAR5 is not a memory BAR.\n");
         return;
     }
 
-    hba_mmio = (volatile uint8_t *)bar.address;
+    hba_mmio = (volatile uint8_t *)bar.virt;
 
     plogk("ahci: Controller found at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", cache->device->domain, cache->device->bus, cache->device->slot, cache->device->func, cache->vendor_id,
           cache->device_id);
@@ -403,6 +421,7 @@ void init_ahci(void)
     /* HBA reset */
     ahci_write32(hba_mmio, HOST_CTL, (ahci_read32(hba_mmio, HOST_CTL) | HOST_AHCI_EN) & ~HOST_IRQ_EN);
     ahci_write32(hba_mmio, HOST_CTL, ahci_read32(hba_mmio, HOST_CTL) | HOST_AHCI_EN | HOST_RESET);
+
     int reset_timeout = 1000000;
     while (ahci_read32(hba_mmio, HOST_CTL) & HOST_RESET) {
         if (--reset_timeout <= 0) {
@@ -412,6 +431,7 @@ void init_ahci(void)
     }
 
     ahci_write32(hba_mmio, HOST_CTL, ahci_read32(hba_mmio, HOST_CTL) | HOST_AHCI_EN);
+
     int ae_timeout = 1000000;
     while (!(ahci_read32(hba_mmio, HOST_CTL) & HOST_AHCI_EN)) {
         if (--ae_timeout <= 0) {
@@ -423,6 +443,7 @@ void init_ahci(void)
     uint32_t pi        = ahci_read32(hba_mmio, HOST_PORTS_IMPL);
     uint32_t cap       = ahci_read32(hba_mmio, HOST_CAP);
     uint32_t max_ports = (cap & 0x1F) + 1;
+
     if (max_ports > AHCI_MAX_PORTS) max_ports = AHCI_MAX_PORTS;
     plogk("ahci: CAP=0x%08x, PI=0x%08x, %u ports implemented.\n", cap, pi, max_ports);
 
@@ -472,12 +493,12 @@ void init_ahci(void)
             plogk("ahci: Port %u DMA buffer phys alloc failed.\n", i);
             continue;
         }
+
         port->dma_buf = (uint8_t *)phys_to_virt(port->dma_buf_phys);
         if (!port->dma_buf) {
             plogk("ahci: Port %u DMA buffer virt alloc failed.\n", i);
             continue;
         }
-
         if (ahci_port_stop(port) != EOK) {
             plogk("ahci: Port %u stop failed.\n", i);
             continue;
@@ -491,6 +512,7 @@ void init_ahci(void)
         {
             uint32_t ssts;
             int      det_timeout = 100000;
+
             while (1) {
                 ssts = ahci_read32(port->port_mmio, PORT_SSTS);
                 if ((ssts & 0xF) == HBA_PORT_DET_PRESENT) break;
@@ -515,7 +537,6 @@ void init_ahci(void)
             ahci_port_stop(port);
             continue;
         }
-
         if (sig == SATA_SIG_ATAPI) {
             /* SATAPI device - handled by satapi.c, just register in ahci device table */
             ahci_device_t *dev = &ahci_devices[ahci_device_count];
@@ -548,11 +569,11 @@ void init_ahci(void)
         sata_count++;
         ahci_port_count++;
 
-        plogk("ahci: Port %u: SATA drive, %u KiB, model \"%s\"\n", i, (dev->size * 512) / 1024, dev->model);
+        plogk("ahci: Port %u: SATA drive, %llu KiB, model \"%s\"\n", i, ((dev->size * 512) / 1024), dev->model);
     }
-
     if (ahci_device_count > 0) plogk("ahci: %u device(s) found (%u SATA, %u SATAPI)\n", ahci_device_count, sata_count, satapi_count);
 
     ahci_satapi_init();
-#endif
 }
+
+#endif

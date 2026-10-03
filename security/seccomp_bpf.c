@@ -58,7 +58,7 @@ static bool seccomp_bpf_valid_jump(const struct sock_filter *instruction, size_t
 /* Verify a filter program is well-formed and safe to run. */
 int seccomp_bpf_validate(const struct sock_filter *program, size_t length)
 {
-    if (!program || !length || length > SECCOMP_MAX_INSNS_PER_FILTER) return -EINVAL;
+    if (!program || !length || length > CONFIG_SECCOMP_MAX_INSNS_PER_FILTER) return -EINVAL;
     for (size_t i = 0; i < length; i++) {
         const struct sock_filter *instruction = &program[i];
         uint16_t                  code        = instruction->code;
@@ -99,9 +99,9 @@ int seccomp_bpf_validate(const struct sock_filter *program, size_t length)
      * on every reachable predecessor path.  All jumps are forward, so one
      * ascending data-flow pass reaches a fixed point.
      */
-    uint16_t memory_masks[SECCOMP_MAX_INSNS_PER_FILTER] = {0};
-    uint8_t  reachable[SECCOMP_MAX_INSNS_PER_FILTER]    = {0};
-    reachable[0]                                        = 1;
+    uint16_t memory_masks[CONFIG_SECCOMP_MAX_INSNS_PER_FILTER] = {0};
+    uint8_t  reachable[CONFIG_SECCOMP_MAX_INSNS_PER_FILTER]    = {0};
+    reachable[0]                                               = 1;
     for (size_t i = 0; i < length; i++) {
         if (!reachable[i]) continue;
         const struct sock_filter *instruction = &program[i];
@@ -112,9 +112,9 @@ int seccomp_bpf_validate(const struct sock_filter *program, size_t length)
 
         size_t successors[2];
         size_t count = 1;
-        if (instruction->code == (BPF_JMP | BPF_JA))
+        if (instruction->code == (BPF_JMP | BPF_JA)) {
             successors[0] = i + 1U + instruction->k;
-        else if (BPF_CLASS(instruction->code) == BPF_JMP) {
+        } else if (BPF_CLASS(instruction->code) == BPF_JMP) {
             successors[0] = i + 1U + instruction->jt;
             successors[1] = i + 1U + instruction->jf;
             count         = 2;
@@ -153,22 +153,24 @@ uint32_t seccomp_bpf_run(const struct sock_filter *program, size_t length, const
         uint16_t                  code        = instruction->code;
         switch (BPF_CLASS(code)) {
             case BPF_LD :
-                if (code == (BPF_LD | BPF_W | BPF_ABS))
+                if (code == (BPF_LD | BPF_W | BPF_ABS)) {
                     accumulator = seccomp_bpf_load_word(data, instruction->k);
-                else if (code == (BPF_LD | BPF_W | BPF_LEN))
+                } else if (code == (BPF_LD | BPF_W | BPF_LEN)) {
                     accumulator = sizeof(*data);
-                else if (code == (BPF_LD | BPF_IMM))
+                } else if (code == (BPF_LD | BPF_IMM)) {
                     accumulator = instruction->k;
-                else
+                } else {
                     accumulator = memory[instruction->k];
+                }
                 break;
             case BPF_LDX :
-                if (code == (BPF_LDX | BPF_W | BPF_LEN))
+                if (code == (BPF_LDX | BPF_W | BPF_LEN)) {
                     index = sizeof(*data);
-                else if (code == (BPF_LDX | BPF_IMM))
+                } else if (code == (BPF_LDX | BPF_IMM)) {
                     index = instruction->k;
-                else
+                } else {
                     index = memory[instruction->k];
+                }
                 break;
             case BPF_ST :
                 memory[instruction->k] = accumulator;
@@ -205,7 +207,7 @@ uint32_t seccomp_bpf_run(const struct sock_filter *program, size_t length, const
                         accumulator = operand < 32U ? accumulator >> operand : 0;
                         break;
                     case BPF_NEG :
-                        accumulator = (uint32_t)-accumulator;
+                        accumulator = (-accumulator);
                         break;
                     case BPF_MOD :
                         if (!operand) return SECCOMP_RET_KILL_THREAD;
@@ -249,10 +251,11 @@ uint32_t seccomp_bpf_run(const struct sock_filter *program, size_t length, const
             case BPF_RET :
                 return BPF_RVAL(code) == BPF_A ? accumulator : instruction->k;
             case BPF_MISC :
-                if (BPF_MISCOP(code) == BPF_TAX)
+                if (BPF_MISCOP(code) == BPF_TAX) {
                     index = accumulator;
-                else
+                } else {
                     accumulator = index;
+                }
                 break;
             default :
                 return SECCOMP_RET_KILL_THREAD;

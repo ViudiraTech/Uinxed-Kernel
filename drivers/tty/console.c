@@ -13,7 +13,6 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
-#include <sync/spin_lock.h>
 
 console_cmdline_t console_cmdline[NR_CONSOLES];
 int               console_cmdline_count;
@@ -22,6 +21,25 @@ static console_t *console_list;
 static console_t *console_active;
 static spinlock_t console_lock;
 static bool       console_cmdline_parsed;
+
+static char default_dev_name[16];
+static int  default_dev_index;
+static bool default_dev_set;
+
+/* Initialize the default console device. */
+static void console_default_dev_init(void)
+{
+    const char *p = CONFIG_TTY_DEFAULT_DEV;
+    size_t      n = 0;
+
+    if (!p || !*p) return;
+    while (p[n] && ((p[n] >= 'a' && p[n] <= 'z') || (p[n] >= 'A' && p[n] <= 'Z') || p[n] == '_')) n++;
+    if (n == 0 || n >= sizeof(default_dev_name)) return;
+    memcpy(default_dev_name, p, n);
+    default_dev_name[n] = '\0';
+    if (p[n] >= '0' && p[n] <= '9') default_dev_index = (int)strtol(p + n, NULL, 10);
+    default_dev_set = true;
+}
 
 /* Parse one console= argument into a name, index, and options. */
 static void console_cmdline_add(const char *arg)
@@ -88,18 +106,19 @@ int register_console(console_t *c)
     if (!c || !c->name) return -EINVAL;
 
     console_cmdline_parse();
+    console_default_dev_init();
 
     spin_lock(&console_lock);
     for (cur = console_list; cur; cur = cur->next) {
         if (streq(cur->name, c->name) && cur->index == c->index) {
             spin_unlock(&console_lock);
-            plogk("console: Console %s%u is already registered.\n", c->name, (unsigned)c->index);
+            plogk("console: Console %s%u is already registered.\n", c->name, c->index);
             return -EEXIST;
         }
     }
 
     /* No console= given: the vt console is the default boot console. */
-    if (console_matches_cmdline(c) || (console_cmdline_count == 0 && streq(c->name, "tty") && c->index == 0)) { enabled = true; }
+    if (console_matches_cmdline(c) || (console_cmdline_count == 0 && default_dev_set && streq(c->name, default_dev_name) && c->index == (uint32_t)default_dev_index)) enabled = true;
     if (enabled) c->flags |= CON_ENABLED;
 
     /*
@@ -183,12 +202,13 @@ tty_device_t console_derive_boot_tty(void)
     console_t   *c   = console_get_active();
 
     if (c) {
-        if (streq(c->name, "ttyS"))
+        if (streq(c->name, "ttyS")) {
             dev.type = TTY_DEVICE_SERIAL;
-        else if (streq(c->name, "ttyD"))
+        } else if (streq(c->name, "ttyD")) {
             dev.type = TTY_DEVICE_DRM;
-        else
+        } else {
             dev.type = TTY_DEVICE_VGA;
+        }
         dev.port = c->index;
     }
     return dev;

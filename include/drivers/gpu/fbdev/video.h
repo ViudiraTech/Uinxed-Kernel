@@ -49,6 +49,9 @@ typedef struct {
         void     *edid;              // EDID data pointer
 } video_info_t;
 
+/* Flush callback type - pushes one damaged framebuffer rectangle to host. */
+typedef void (*video_flush_fn_t)(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
+
 /* Shared variables for video subsystem */
 extern uint64_t  width;  // Screen width
 extern uint64_t  height; // Screen height
@@ -67,10 +70,7 @@ extern uint32_t font_height; // Font height
 /* Get video information */
 video_info_t video_get_info(void);
 
-/*
- * Build the Linux-style fbdev identifier: "<active DRM driver>drmfb", or
- * "simple" when no DRM driver owns the display.
- */
+/* Build the fbdev identifier: "<active DRM driver>drmfb", or "simple" when no DRM driver owns the display. */
 void video_fix_id(char *buf, size_t len);
 
 /* Get the frame buffer */
@@ -103,9 +103,6 @@ void video_start_refresh_worker(void);
 
 /* Initialize Video */
 void video_init(void);
-
-/* Flush callback type - pushes one damaged framebuffer rectangle to host. */
-typedef void (*video_flush_fn_t)(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
 
 /*
  * Switch the console framebuffer to an external backing buffer.

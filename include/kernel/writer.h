@@ -15,10 +15,7 @@
 
 struct writer;
 
-/*
- * A handle of writing a char
- * `uint8_t` is a bool, if != 0 means write success, if == 0 means write failure
- */
+/* A handle of writing a char `uint8_t` is a bool, if != 0 means write success, if == 0 means write failure */
 typedef uint8_t (*write_handler)(struct writer *writer, char ch);
 
 /* A writer writes a single character; handler returns 0 on failure */

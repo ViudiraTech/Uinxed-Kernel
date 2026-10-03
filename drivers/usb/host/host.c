@@ -9,19 +9,15 @@
  */
 
 #include <drivers/usb/host/host.h>
-#include <drivers/usb/host/ohci/ohci.h>
-#include <drivers/usb/host/uhci/uhci.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/string.h>
-#include <mem/alloc.h>
 
-usb_host_t     *usb_host_list;
-spinlock_t      usb_host_lock;
-static uint16_t usb_host_next_bus_number = 1;
+#if CONFIG_USB
+
+usb_host_t       *usb_host_list;
+static spinlock_t usb_host_lock;
+static uint16_t   usb_host_next_bus_number = 1;
 
 /* USB device addresses are 1..127 per bus. Bit 0 is reserved for address 0. */
-static uint8_t  usb_address_bitmap[256][16];
+static uint8_t    usb_address_bitmap[256][16];
 static spinlock_t usb_address_lock;
 
 /* Allocate the next unique USB bus number. */
@@ -37,22 +33,25 @@ int usb_host_allocate_bus_number(void)
     return bus_number;
 }
 
-/* Add a host controller to the global list, rejecting duplicate buses. */
-int usb_host_register(usb_host_t *host)
+/* Add a host controller to the global list; a duplicate bus is reported, not returned. */
+void usb_host_register(usb_host_t *host)
 {
-    if (!host || !host->bus_number) return -EINVAL;
+    if (!host || !host->bus_number) {
+        plogk("usb: Refusing to register a host controller without a bus number.\n");
+        return;
+    }
     uint64_t flags = spin_lock_irqsave(&usb_host_lock);
     for (usb_host_t *entry = usb_host_list; entry; entry = entry->next) {
         if (entry->bus_number == host->bus_number) {
             spin_unlock_irqrestore(&usb_host_lock, flags);
-            return -EEXIST;
+            plogk("usb: %s: bus %u already in use; controller left unregistered.\n", host->name, host->bus_number);
+            return;
         }
     }
     host->next    = usb_host_list;
     usb_host_list = host;
     spin_unlock_irqrestore(&usb_host_lock, flags);
     plogk("usb: Registered %s (bus %u, type %d)\n", host->name, host->bus_number, host->type);
-    return EOK;
 }
 
 /* Remove a host controller from the global list. */
@@ -128,7 +127,7 @@ void usb_host_release_address(uint8_t bus_number, uint8_t address)
 {
     if (!address || address >= 128) return;
     uint64_t flags = spin_lock_irqsave(&usb_address_lock);
-    uint8_t byte = address / 8, bit = address % 8;
+    uint8_t  byte = address / 8, bit = address % 8;
     usb_address_bitmap[bus_number][byte] &= ~(1u << bit);
     spin_unlock_irqrestore(&usb_address_lock, flags);
 }
@@ -164,3 +163,5 @@ void usb_host_shutdown_all(void)
     }
     spin_unlock_irqrestore(&usb_host_lock, flags);
 }
+
+#endif

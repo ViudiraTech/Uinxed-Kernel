@@ -1,7 +1,7 @@
 /*
  *
  *      chrdev.h
- *      Character device registry (Linux fs/char_dev.c analog)
+ *      Character device registry
  *
  *      2026/8/10 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,13 +12,8 @@
 #define INCLUDE_CHRDEV_H_
 
 #include <fs/tmpfs/tmpfs.h>
-#include <libs/std/stdint.h>
 
-/*
- * A static character device. Drivers announce devices they own through
- * cdev_add(); devtmpfs walks the registry to publish the /dev nodes at
- * boot.
- */
+/* A static character device. Drivers announce devices they own through cdev_add(); devtmpfs walks the registry to publish the /dev nodes at boot. */
 typedef struct cdev {
         char               dir[64];  // /dev-relative parent dir ("" for the root)
         char               name[64]; // leaf node name, e.g. "null", "ttyS0", "parport0"
@@ -37,8 +32,8 @@ int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, 
 /* Remove a static character device by its full /dev path. */
 int cdev_del(const char *path);
 
-/* Look up a registered character device by device number. */
-cdev_t *chrdev_lookup(uint32_t major, uint32_t minor);
+/* Copy the character device covering a device number; false when none matches. */
+bool chrdev_lookup(uint32_t major, uint32_t minor, cdev_t *out);
 
 /* Create every registered /dev node. Returns the number created. */
 int chrdev_populate(void);

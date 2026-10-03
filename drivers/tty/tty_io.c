@@ -9,18 +9,11 @@
  */
 
 #include <drivers/base/device.h>
-#include <drivers/char/chrdev.h>
 #include <drivers/tty/tty_driver.h>
 #include <fs/devtmpfs/devtmpfs.h>
-#include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <sync/spin_lock.h>
-
-static tty_driver_t *tty_driver_list;
-static spinlock_t    tty_driver_lock;
 
 typedef struct tty_registered_device {
         tty_driver_t                 *drv;
@@ -29,13 +22,15 @@ typedef struct tty_registered_device {
         struct tty_registered_device *next;
 } tty_registered_device_t;
 
-static tty_registered_device_t *tty_registered_devices;
-
 typedef struct tty_dispatch {
         tty_driver_t *drv;
         int           index;
         void         *drv_data;
 } tty_dispatch_t;
+
+static tty_driver_t            *tty_driver_list;
+static spinlock_t               tty_driver_lock;
+static tty_registered_device_t *tty_registered_devices;
 
 /* Invoke cb for every registered tty device. */
 void tty_for_each_registered(int (*cb)(tty_driver_t *drv, int index, const char *name, void *opaque), void *opaque)

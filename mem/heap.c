@@ -11,24 +11,17 @@
 #include <arch/common.h>
 #include <boot/limine.h>
 #include <kernel/uinxed.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/frame.h>
 #include <mem/heap.h>
-#include <mem/hhdm.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>
 
+#define KERNEL_HEAP_SEARCH_BASE 0xffffc00000000000ULL
+#define KERNEL_HEAP_MAX_SIZE    ((uint64_t)(CONFIG_KERNEL_HEAP_MAX_MIB) * 1024ULL * 1024ULL)
+
 uint64_t KERNEL_HEAP_START = 0;
 uint64_t KERNEL_HEAP_SIZE  = 0;
-
-#define KERNEL_HEAP_SEARCH_BASE 0xffffc00000000000ULL
-#ifndef KERNEL_HEAP_MAX_MIB
-#    define KERNEL_HEAP_MAX_MIB 128
-#endif
-#define KERNEL_HEAP_MAX_SIZE ((uint64_t)(KERNEL_HEAP_MAX_MIB) * 1024ULL * 1024ULL)
 
 /* Initialize the memory heap */
 void init_heap(void)
@@ -43,10 +36,8 @@ void init_heap(void)
 
     if (!KERNEL_HEAP_SIZE && !KERNEL_HEAP_START) {
         /*
-         * This heap is eagerly backed by physical pages and cannot be
-         * reclaimed.  One eighth of RAM stranded too much memory from Xorg,
-         * file cache and GEM buffers, so reserve one sixteenth while retaining
-         * the established 32 MiB floor on normal-memory machines.
+         * This heap is eagerly backed by physical pages and cannot be reclaimed:
+         * reserve one sixteenth of RAM, with a floor of min(RAM/4, 32 MiB).
          */
         KERNEL_HEAP_SIZE          = usable_ram / 16;
         uint64_t low_memory_floor = usable_ram / 4;
@@ -69,10 +60,7 @@ void init_heap(void)
 /* Allocate an empty memory */
 void *calloc(size_t nmemb, size_t size)
 {
-    /*
-     * A zero-length allocation is meaningless: return NULL so callers never
-     * obtain a dangling zero-size object.
-     */
+    /* A zero-length allocation is meaningless: return NULL so callers never obtain a dangling zero-size object. */
     if (nmemb == 0 || size == 0) return 0;
 
     /* Check for multiplication overflow */

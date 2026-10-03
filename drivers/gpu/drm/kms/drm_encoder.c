@@ -9,19 +9,10 @@
  */
 
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/gpu/drm/drm_idr.h>
-#include <drivers/gpu/drm/drm_mode.h>
-#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
-#include <mem/alloc.h>
-#include <sync/spin_lock.h>
 
-/* Internal helper from drm_mode_object.c */
+#if CONFIG_DRM
 
 /* Initialise an encoder object. */
 int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void *funcs, int encoder_type, const char *name)
@@ -30,11 +21,7 @@ int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void *
 
     (void)name;
 
-    if (!dev || !encoder) {
-        DRM_ERROR("Encoder_init: NULL device or encoder.\n");
-        return -EINVAL;
-    }
-
+    if (!dev || !encoder) return -EINVAL;
     ret = drm_mode_object_idr_alloc(dev, &encoder->base, DRM_MODE_OBJECT_ENCODER);
     if (ret) {
         DRM_ERROR("Encoder id allocation failed (ret=%d)\n", ret);
@@ -62,16 +49,9 @@ int drm_mode_getencoder(struct drm_device *dev, void *data, struct drm_file *fil
     struct drm_mode_object      *obj;
     struct drm_encoder          *encoder;
 
-    if (!dev || !enc_req) {
-        DRM_ERROR("Getencoder: NULL device or request.\n");
-        return -EINVAL;
-    }
-
+    if (!dev || !enc_req) return -EINVAL;
     obj = drm_mode_object_find(dev, file_priv, enc_req->encoder_id, DRM_MODE_OBJECT_ENCODER);
-    if (!obj) {
-        DRM_ERROR("Getencoder: encoder %u not found.\n", enc_req->encoder_id);
-        return -ENOENT;
-    }
+    if (!obj) return -ENOENT;
     encoder = container_of(obj, struct drm_encoder, base);
 
     enc_req->encoder_type    = encoder->encoder_type;
@@ -95,9 +75,7 @@ void drm_encoder_cleanup(struct drm_encoder *encoder)
     struct drm_device *dev;
 
     if (!encoder) return;
-
     dev = encoder->dev;
-
     ilist_remove(&encoder->head);
 
     if (dev) {
@@ -108,3 +86,5 @@ void drm_encoder_cleanup(struct drm_encoder *encoder)
         if (dev->mode_config.num_encoder > 0) dev->mode_config.num_encoder--;
     }
 }
+
+#endif

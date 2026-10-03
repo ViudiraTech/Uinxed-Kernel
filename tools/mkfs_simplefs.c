@@ -22,6 +22,9 @@
 #define SIMPLEFS_INODE_DIRECT_COUNT 12
 #define SIMPLEFS_DIRENT_NAME_LENGTH 56
 
+#define SIMPLEFS_DEFAULT_IMAGE_MB 64
+#define SIMPLEFS_DEFAULT_BLOCKS   16
+
 enum {
     simplefs_inode_none    = 0,
     simplefs_inode_file    = 1,
@@ -64,9 +67,7 @@ typedef struct simplefs_dirent_disk {
     char     name[SIMPLEFS_DIRENT_NAME_LENGTH];
 } __attribute__((packed)) simplefs_dirent_disk_t;
 
-#define SIMPLEFS_DEFAULT_IMAGE_MB 64
-#define SIMPLEFS_DEFAULT_BLOCKS   16
-
+/* Write zeros. */
 static int write_zeros(FILE *fp, size_t size)
 {
     unsigned char zero[4096] = {0};
@@ -79,12 +80,14 @@ static int write_zeros(FILE *fp, size_t size)
     return 0;
 }
 
+/* Write at. */
 static int write_at(FILE *fp, long offset, const void *buf, size_t size)
 {
     if (fseek(fp, offset, SEEK_SET) != 0) return -1;
     return fwrite(buf, 1, size, fp) == size ? 0 : -1;
 }
 
+/* Parse size mb. */
 static int parse_size_mb(const char *str, uint32_t *size_mb)
 {
     char *end;
@@ -100,6 +103,7 @@ static int parse_size_mb(const char *str, uint32_t *size_mb)
     return 0;
 }
 
+/* Main. */
 int main(int argc, char **argv)
 {
     const char             *image_path;

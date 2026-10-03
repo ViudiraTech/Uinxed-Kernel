@@ -1,7 +1,7 @@
 /*
  *
  *      evdev.h
- *      Linux-compatible evdev input event subsystem header
+ *      evdev input event subsystem header
  *
  *      2026/7/22 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,17 +12,9 @@
 #define INCLUDE_EVDEV_H_
 
 #include <drivers/input/evdev/evdev_queue.h>
-#include <drivers/input/input_event.h>
 #include <fs/core/vfs.h>
-#include <libs/list/intrusive_list.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
+#include <kernel/errno.h>
 #include <process/task.h>
-#include <sync/spin_lock.h>
-
-struct device;
-struct evdev;
 
 /* evdev internal constants */
 #define EVDEV_MINOR_BASE      64
@@ -31,8 +23,8 @@ struct evdev;
 #define EVDEV_BUF_PACKETS     8
 #define EVDEV_MAX_NAME_LEN    80
 
-/* Maximum number of simultaneous evdev devices */
-#define EVDEV_MAX_DEVICES 32
+struct device;
+struct evdev;
 
 /* Input device descriptor (attached to each evdev). */
 typedef struct input_dev {
@@ -96,20 +88,18 @@ typedef struct evdev {
         struct device   *sysfs_device;
 } evdev_t;
 
-/*
- * Allocate and initialize a new evdev device for the given input_dev.
- * The input_dev is NOT copied - caller must keep it alive.
- * Returns NULL on failure.
- */
+/* LED notify callback: invoked when the global keyboard LED state changes. */
+typedef void (*evdev_led_notify_t)(void *ctx, uint8_t leds);
+
+#if CONFIG_INPUT_EVDEV
+
+/* Allocate and initialize a new evdev device for the given input_dev. The input_dev is NOT copied - caller must keep it alive. Returns NULL on failure. */
 evdev_t *evdev_create(input_dev_t *dev);
 
 /* Destroy an evdev device. Hangs up all clients first. */
 void evdev_destroy(evdev_t *evdev);
 
-/*
- * Register an evdev device into the global evdev table.
- * Returns 0 on success, negative errno on failure.
- */
+/* Register an evdev device into the global evdev table. Returns 0 on success, negative errno on failure. */
 int evdev_register(evdev_t *evdev);
 
 /* Unregister and destroy an evdev device. */
@@ -130,8 +120,6 @@ int evdev_publish_nodes(void);
 /* Initialize the evdev subsystem. Called once at boot. */
 void evdev_init(void);
 
-/* Event injection API (called by input device drivers) */
-
 /*
  * Inject a single event into the evdev subsystem.
  * This is the main entry point for input device drivers.
@@ -145,14 +133,33 @@ void evdev_inject_events(input_dev_t *dev, const input_event_t *events, size_t c
 /* Inject a SYN_REPORT event to flush the current packet. */
 void evdev_inject_syn(input_dev_t *dev);
 
-/* LED notify callback: invoked when the global keyboard LED state changes. */
-typedef void (*evdev_led_notify_t)(void *ctx, uint8_t leds);
-
 /* Register a callback to receive global LED state changes (for keyboard LEDs). */
 void evdev_register_led_notify(evdev_led_notify_t notify, void *ctx);
 
 /* Unregister a previously registered LED notify callback. */
 void evdev_unregister_led_notify(evdev_led_notify_t notify, void *ctx);
+
+#else
+static inline evdev_t *evdev_create(input_dev_t *)
+{
+    return NULL;
+}
+static inline void evdev_destroy(evdev_t *) {}
+static inline int  evdev_register(evdev_t *)
+{
+    return -ENOSYS;
+}
+static inline int evdev_publish_nodes(void)
+{
+    return 0;
+}
+static inline void evdev_init(void) {}
+static inline void evdev_inject_event(input_dev_t *, uint16_t, uint16_t, int32_t) {}
+static inline void evdev_inject_events(input_dev_t *, const input_event_t *, size_t) {}
+static inline void evdev_inject_syn(input_dev_t *) {}
+static inline void evdev_register_led_notify(evdev_led_notify_t, void *) {}
+static inline void evdev_unregister_led_notify(evdev_led_notify_t, void *) {}
+#endif
 
 /* File operation callbacks (for VFS integration) */
 

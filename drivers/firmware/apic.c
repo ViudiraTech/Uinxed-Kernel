@@ -16,16 +16,13 @@
 #include <drivers/firmware/apic.h>
 #include <drivers/time/tsc.h>
 #include <kernel/printk.h>
-#include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <mem/hhdm.h>
 
 #define CPUID_FEAT_EDX_APIC   (1 << 9)
 #define CPUID_FEAT_ECX_X2APIC (1 << 21)
 
-int x2apic_mode = -1;
+int x2apic_mode = -1; // -1 undetermined, 0 xAPIC, 1 x2APIC
 
 /*
  * LAPIC timer mode shared by every CPU (written once on the BSP before APs
@@ -72,10 +69,20 @@ void ioapic_add(ioapic_routing_t *routing)
     ioapic_write(ioredtbl + 1, (uint32_t)(redirect >> 32));
 }
 
+/* Mask an I/O APIC interrupt routing entry (pair of ioapic_add) */
+void ioapic_remove(ioapic_routing_t *routing)
+{
+    uint32_t ioredtbl = (uint32_t)(0x10 + (uint32_t)(routing->irq * 2));
+    uint64_t redirect = ioapic_read(ioredtbl) | ((uint64_t)ioapic_read(ioredtbl + 1) << 32);
+    redirect |= 0x10000ULL; // Interrupt Mask bit
+    ioapic_write(ioredtbl, (uint32_t)redirect);
+    ioapic_write(ioredtbl + 1, (uint32_t)(redirect >> 32));
+}
+
 /* Write local APIC register */
 void lapic_write(uint32_t reg, uint32_t value)
 {
-    if (x2apic_mode) {
+    if (x2apic_mode > 0) {
         wrmsr(0x800 + (reg >> 4), value);
         return;
     }
@@ -87,7 +94,7 @@ void lapic_write(uint32_t reg, uint32_t value)
 /* Read local APIC register */
 uint32_t lapic_read(uint32_t reg)
 {
-    if (x2apic_mode) return (uint32_t)rdmsr(0x800 + (reg >> 4));
+    if (x2apic_mode > 0) return (uint32_t)rdmsr(0x800 + (reg >> 4));
     pointer_cast_t reg_ptr;
     reg_ptr.val = lapic_ptr.val + reg;
     return mmio_read32(reg_ptr.ptr);
@@ -96,7 +103,7 @@ uint32_t lapic_read(uint32_t reg)
 /* Get the local APIC ID of the current processor */
 uint64_t lapic_id(void)
 {
-    if (x2apic_mode) return rdmsr(0x800 + (LAPIC_REG_ID >> 4));
+    if (x2apic_mode > 0) return rdmsr(0x800 + (LAPIC_REG_ID >> 4));
 
     /* Must be shifted to the right by 24 bits (refer to the Intel SDM Vol.3 Chapter.12.4.6) */
     return lapic_read(LAPIC_REG_ID) >> 24;
@@ -108,17 +115,19 @@ void local_apic_init(void)
     if (x2apic_mode == -1) { // Run only once
         uint32_t eax, ebx, ecx, edx;
         cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+
         if (!(edx & CPUID_FEAT_EDX_APIC)) {
             plogk("apic: Local APIC not supported.\n");
             return;
         }
+
         x2apic_mode = smp_request.response && (smp_request.response->flags & 1) && (ecx & CPUID_FEAT_ECX_X2APIC);
         plogk("apic: Local APIC: %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
 
         /*
          * CPUID.01H:ECX[24] TSC_DEADLINE: the LVTT can select deadline mode,
          * where a write of an absolute TSC value to IA32_TSC_DEADLINE arms a
-         * one-shot interrupt (Linux "lapic-deadline" clockevent).  Requires
+         * one-shot interrupt (the "lapic-deadline" clockevent).  Requires
          * the calibrated TSC frequency; tsc_init() runs before SMP boot.
          */
         uint32_t eax2, ebx2, ecx2, edx2;
@@ -142,19 +151,18 @@ void local_apic_init(void)
 
     if (apic_lapic_timer_mode == 1) {
         /*
-         * Deadline mode: no counter calibration is needed and every tick is
-         * exactly TIMER_TICK_NS regardless of the LAPIC input clock.  The
-         * handler re-arms via lapic_timer_rearm_tick().  The divide-configuration
-         * register is ignored in this mode.
+         * Deadline mode: no counter calibration is needed and every tick is exactly
+         * TIMER_TICK_NS regardless of the LAPIC input clock.  The handler re-arms via
+         * lapic_timer_rearm_tick().  The divide-configuration register is ignored in
+         * this mode.
          *
          * In xAPIC mode the LVTT write and the TSC_DEADLINE MSR write are not
-         * serialized with each other; order them LVTT-first like Linux's
-         * __setup_APIC_LVTT so the MSR write always lands after the mode is
-         * selected.
+         * serialized with each other; order them LVTT-first so the MSR write always
+         * lands after the mode is selected.
          */
         lapic_write(LAPIC_REG_TIMER_DIV, 11);
         lapic_write(LAPIC_REG_TIMER, IRQ_0 | APIC_LVT_TSC_DEADLINE);
-        wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + tsc_get_cpu_frequency() / TIMER_HZ);
+        wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + (tsc_get_cpu_frequency() / CONFIG_TIMER_HZ));
         return;
     }
 
@@ -166,7 +174,7 @@ void local_apic_init(void)
     for (uint64_t start = nano_time(); nano_time() - start < 1000000;);
 
     uint64_t lapic_timer              = (~(uint32_t)0) - lapic_read(LAPIC_REG_TIMER_CURCNT);
-    uint64_t calibrated_timer_initial = (uint64_t)((uint64_t)(lapic_timer * 1000) / TIMER_HZ);
+    uint64_t calibrated_timer_initial = (uint64_t)((uint64_t)(lapic_timer * 1000) / CONFIG_TIMER_HZ);
 
     lapic_write(LAPIC_REG_TIMER, lapic_read(LAPIC_REG_TIMER) | APIC_LVT_PERIODIC);
     lapic_write(LAPIC_REG_TIMER_INITCNT, calibrated_timer_initial);
@@ -175,10 +183,7 @@ void local_apic_init(void)
 /* Whether this CPU's LAPIC timer runs in TSC-deadline one-shot mode */
 int lapic_timer_is_tsc_deadline(void)
 {
-    /*
-     * Written once on the BSP before APs boot and never changed afterwards;
-     * timer IRQ context reads it without locking.
-     */
+    /* Written once on the BSP before APs boot and never changed afterwards; timer IRQ context reads it without locking. */
     return __atomic_load_n(&apic_lapic_timer_mode, __ATOMIC_RELAXED) == 1;
 }
 
@@ -186,8 +191,9 @@ int lapic_timer_is_tsc_deadline(void)
 void lapic_timer_rearm_tick(void)
 {
     if (!lapic_timer_is_tsc_deadline()) return;
+
     /* Absolute TSC deadline one tick out; a late re-arm fires immediately, self-correcting drift. */
-    wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + tsc_get_cpu_frequency() / TIMER_HZ);
+    wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + (tsc_get_cpu_frequency() / CONFIG_TIMER_HZ));
 }
 
 /*
@@ -207,6 +213,7 @@ void lapic_timer_try_upgrade(void)
 
     uint32_t eax, ebx, ecx, edx;
     cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+
     if (!((ecx >> 24) & 1U)) {
         plogk("apic: TSC-deadline mode not supported by this CPU; staying periodic.\n");
         return;
@@ -226,9 +233,9 @@ void lapic_timer_try_upgrade(void)
     lapic_write(LAPIC_REG_TIMER_INITCNT, 0);
     lapic_write(LAPIC_REG_TIMER_DIV, 11);
     lapic_write(LAPIC_REG_TIMER, IRQ_0 | APIC_LVT_TSC_DEADLINE);
-    wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + tsc_get_cpu_frequency() / TIMER_HZ);
+    wrmsr(MSR_IA32_TSC_DEADLINE, rdtsc_serialized() + (tsc_get_cpu_frequency() / CONFIG_TIMER_HZ));
 
-    plogk("apic: LAPIC timer upgraded to TSC-deadline one-shot (%llu Hz TSC)\n", (unsigned long long)tsc_get_cpu_frequency());
+    plogk("apic: LAPIC timer upgraded to TSC-deadline one-shot (%llu Hz TSC)\n", tsc_get_cpu_frequency());
 }
 
 /* Initialize I/O APIC */
@@ -244,7 +251,6 @@ void io_apic_init(void)
         &(ioapic_routing_t) {IRQ_15, 15}, // IDE1 IRQ_15 = 47
         0,
     };
-
     ioapic_routing_t **routing = ioapic_router;
 
     while (*routing != 0) {
@@ -287,7 +293,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
     uint64_t rflags = get_rflags();
     disable_intr();
 
-    if (x2apic_mode) {
+    if (x2apic_mode > 0) {
         /*
          * IA32_X2APIC_ICR carries the complete 32-bit destination in
          * bits 63:32.  Limiting it to four bits routes an IPI for APIC IDs
@@ -299,6 +305,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
         lapic_write(APIC_ICR_HIGH, apic_id << 24);
         lapic_write(APIC_ICR_LOW, command);
     }
+
     int tout = 1000000;
     while (lapic_read(APIC_ICR_LOW) & (1 << 12)) {
         if (--tout <= 0) {
@@ -319,7 +326,13 @@ void apic_init(madt_t *madt)
     uint8_t *entries_base = (uint8_t *)&madt->entries;
     size_t   current      = 0;
 
-    while (current < madt->header.length - sizeof(madt_t)) {
+    /*
+     * Entries start right after the fixed 44-byte MADT header; the fake
+     * `void *entries` member is only there to anchor them, so never use
+     * sizeof(madt_t) (52) or the last entry would be skipped.
+     */
+    size_t entries_len = madt->header.length - offsetof(madt_t, entries);
+    while (current < entries_len) {
         madt_header_t *header = (madt_header_t *)(entries_base + current);
         switch (header->entry_type) {
             case MADT_APIC_LOCAL_CPU : {
@@ -336,7 +349,7 @@ void apic_init(madt_t *madt)
             case MADT_APIC_LOCAL_ADDR : {
                 madt_local_apic_addr_t *addr = (madt_local_apic_addr_t *)(entries_base + current);
                 lapic_ptr.ptr                = phys_to_virt(addr->address);
-                plogk("apic: Local APIC base is overwritten as %p\n", lapic_ptr);
+                plogk("apic: Local APIC base is overwritten as %p\n", lapic_ptr.ptr);
                 break;
             }
             case MADT_APIC_LOCAL_X2_CPU : {

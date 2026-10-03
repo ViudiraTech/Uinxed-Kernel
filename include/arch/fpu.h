@@ -11,9 +11,20 @@
 #ifndef INCLUDE_FPU_H_
 #define INCLUDE_FPU_H_
 
+#include <kernel/debug/ringlog.h>
 #include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+
+/*
+ * Signal handlers execute in the interrupted task and may freely use
+ * x87/SSE/AVX.  Snapshot the live state into a user-frame staging buffer and
+ * restore it on rt_sigreturn.  The restore path sanitizes user-modifiable
+ * XSAVE metadata before issuing XRSTOR/FXRSTOR.
+ */
+#define FPU_SIGNAL_STATE_MAX 4096U
 
 struct task;
+extern log_buffer_t fpu_log;
 
 /*
  * Initialize FPU/SSE/AVX support on the current logical CPU.
@@ -48,6 +59,8 @@ void fpu_switch(struct task *prev, struct task *next);
  * or sleep.
  */
 void kernel_fpu_begin(void);
+
+/* Kernel fpu end. */
 void kernel_fpu_end(void);
 
 /*
@@ -58,15 +71,16 @@ void kernel_fpu_end(void);
  */
 int kernel_sse_available(void);
 
-/*
- * Signal handlers execute in the interrupted task and may freely use
- * x87/SSE/AVX.  Snapshot the live state into a user-frame staging buffer and
- * restore it on rt_sigreturn.  The restore path sanitizes user-modifiable
- * XSAVE metadata before issuing XRSTOR/FXRSTOR.
- */
-#define FPU_SIGNAL_STATE_MAX 4096U
+/* si_code for the x87 (#MF) or SIMD (#XM) exception, or 0 when it is spurious. */
+int fpu_exception_code(uint32_t vector);
+
+/* FPU signal state size. */
 size_t fpu_signal_state_size(void);
-int    fpu_signal_save(struct task *task, void *state, size_t capacity);
-int    fpu_signal_restore(struct task *task, const void *state, size_t size);
+
+/* FPU signal save. */
+int fpu_signal_save(struct task *task, void *state, size_t capacity);
+
+/* FPU signal restore. */
+int fpu_signal_restore(struct task *task, const void *state, size_t size);
 
 #endif // INCLUDE_FPU_H_

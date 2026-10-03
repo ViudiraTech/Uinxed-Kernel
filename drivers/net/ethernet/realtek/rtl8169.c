@@ -12,7 +12,6 @@
 #include <arch/idt.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/net/ethernet/realtek/rtl8169.h>
-#include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
@@ -20,102 +19,24 @@
 #include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
 #include <net/core/netdev.h>
-#include <net/core/pbuf.h>
 #include <process/sched.h>
-#include <process/task.h>
-#include <sync/spin_lock.h>
 
-#define RTL8169_MAX_DEVICES       8
-#define RTL8169_RX_COUNT          256
-#define RTL8169_TX_COUNT          256
-#define RTL8169_BUFFER_SIZE       2048 // multiple of 8, one RX buffer per descriptor
-#define RTL8169_MAX_FRAME_SIZE    (RTL8169_MTU + 18)
-#define RTL8169_CRC_LEN           4 // RX frame length reported by the chip includes CRC
-#define RTL8169_WORK_BUDGET       64
-#define RTL8169_TX_RECLAIM_BUDGET 64
-#define RTL8169_RESET_TIMEOUT_US  100000
+#if CONFIG_RTL8169 && CONFIG_NET
 
-/*
- * Register map (RTL8169S/RTL8110S datasheet Rev 1.3).
- * Access widths follow the datasheet; descriptor arrays must be
- * 256-byte aligned.
- */
-#define RTL8169_REG_IDR0      0x0000 // MAC address, bytes 0-5
-#define RTL8169_REG_TNPDS     0x0020 // TX descriptor start address, 64-bit (low/high)
-#define RTL8169_REG_CR        0x0037 // Command register (byte)
-#define RTL8169_REG_TPPOLL    0x0038 // Transmit priority polling (byte)
-#define RTL8169_REG_IMR       0x003c // Interrupt mask register (word)
-#define RTL8169_REG_ISR       0x003e // Interrupt status register (word, W1C)
-#define RTL8169_REG_TCR       0x0040 // Transmit configuration register
-#define RTL8169_REG_RCR       0x0044 // Receive configuration register
-#define RTL8169_REG_9346CR    0x0050 // 93C46/93C56 command register (byte)
-#define RTL8169_REG_PHYSTATUS 0x006c // PHY(GMII/MII/TBI) status register (byte)
-#define RTL8169_REG_RMS       0x00da // Receive packet maximum size (word)
-#define RTL8169_REG_CPLUSCR   0x00e0 // C+ command register (word)
-#define RTL8169_REG_RDSAR     0x00e4 // RX descriptor start address, 64-bit (low/high)
-#define RTL8169_REG_MTPS      0x00ec // Max transmit packet size register (byte)
+#    define RTL8169_MAX_DEVICES       8
+#    define RTL8169_RX_COUNT          256
+#    define RTL8169_TX_COUNT          256
+#    define RTL8169_BUFFER_SIZE       2048 // multiple of 8, one RX buffer per descriptor
+#    define RTL8169_MAX_FRAME_SIZE    (RTL8169_MTU + 18)
+#    define RTL8169_CRC_LEN           4 // RX frame length reported by the chip includes CRC
+#    define RTL8169_WORK_BUDGET       64
+#    define RTL8169_TX_RECLAIM_BUDGET 64
+#    define RTL8169_RESET_TIMEOUT_US  100000
 
-/* Command register (0x37) */
-#define RTL8169_CR_TE    (1u << 2)
-#define RTL8169_CR_RE    (1u << 3)
-#define RTL8169_CR_RESET (1u << 4)
-
-/* Transmit priority polling (0x38) */
-#define RTL8169_TPPOLL_NPQ (1u << 6)
-
-/* Interrupt mask / status (0x3c/0x3e) */
-#define RTL8169_ISR_ROK     (1u << 0)
-#define RTL8169_ISR_RER     (1u << 1)
-#define RTL8169_ISR_TOK     (1u << 2)
-#define RTL8169_ISR_TER     (1u << 3)
-#define RTL8169_ISR_RDU     (1u << 4)
-#define RTL8169_ISR_LINKCHG (1u << 5)
-#define RTL8169_ISR_FOVW    (1u << 6)
-#define RTL8169_ISR_TDU     (1u << 7)
-#define RTL8169_ISR_SWINT   (1u << 8)
-#define RTL8169_ISR_TIMEOUT (1u << 14)
-#define RTL8169_ISR_SERR    (1u << 15)
-
-#define RTL8169_INT_MASK     (RTL8169_ISR_ROK | RTL8169_ISR_RER | RTL8169_ISR_TOK | RTL8169_ISR_TER | RTL8169_ISR_RDU | RTL8169_ISR_LINKCHG | RTL8169_ISR_FOVW | RTL8169_ISR_TDU)
-#define RTL8169_RX_INT_MASK  (RTL8169_ISR_ROK | RTL8169_ISR_RER | RTL8169_ISR_RDU | RTL8169_ISR_FOVW)
-#define RTL8169_WORK_INITIAL (RTL8169_ISR_ROK | RTL8169_ISR_TOK | RTL8169_ISR_LINKCHG)
-
-/* Transmit configuration (0x40) */
-#define RTL8169_TCR_IFG_NORMAL      (3u << 24)
-#define RTL8169_TCR_MXDMA_UNLIMITED (7u << 8)
-
-/* Receive configuration (0x44) */
-#define RTL8169_RCR_AAP   (1u << 0)  // accept all packets (promiscuous)
-#define RTL8169_RCR_APM   (1u << 1)  // accept physical match
-#define RTL8169_RCR_AM    (1u << 2)  // accept multicast
-#define RTL8169_RCR_AB    (1u << 3)  // accept broadcast
-#define RTL8169_RCR_AR    (1u << 4)  // accept runt
-#define RTL8169_RCR_AER   (1u << 5)  // accept error packets
-#define RTL8169_RCR_MXDMA (7u << 8)  // unlimited DMA burst
-#define RTL8169_RCR_RXFTH (7u << 13) // no FIFO threshold
-
-/* C+ command register (0xe0) */
-#define RTL8169_CPLUS_DAC (1u << 4) // PCI dual address cycle (64-bit DMA)
-
-/* 93C46/93C56 command register (0x50) */
-#define RTL8169_9346_UNLOCK 0xc0
-#define RTL8169_9346_LOCK   0x00
-
-/* PHY status register (0x6c) */
-#define RTL8169_PHYSTATUS_LINKSTS (1u << 1)
-
-/* Descriptor dword0 bits */
-#define RTL8169_DESC_OWN    (1u << 31)
-#define RTL8169_DESC_EOR    (1u << 30)
-#define RTL8169_DESC_FS     (1u << 29)
-#define RTL8169_DESC_LS     (1u << 28)
-#define RTL8169_TX_LEN_MASK 0x0000ffff
-#define RTL8169_RX_LEN_MASK 0x00003fff
-
-/* RX status error summary: RWT(22) | RES(21) | RUNT(20) | CRC(19) */
-#define RTL8169_RX_ERROR_MASK (0x0fu << 19)
+#    define RTL8169_INT_MASK     (RTL8169_ISR_ROK | RTL8169_ISR_RER | RTL8169_ISR_TOK | RTL8169_ISR_TER | RTL8169_ISR_RDU | RTL8169_ISR_LINKCHG | RTL8169_ISR_FOVW | RTL8169_ISR_TDU)
+#    define RTL8169_RX_INT_MASK  (RTL8169_ISR_ROK | RTL8169_ISR_RER | RTL8169_ISR_RDU | RTL8169_ISR_FOVW)
+#    define RTL8169_WORK_INITIAL (RTL8169_ISR_ROK | RTL8169_ISR_TOK | RTL8169_ISR_LINKCHG)
 
 /*
  * Device IDs that use the classic RTL8169 descriptor and register
@@ -127,35 +48,16 @@ typedef struct {
         uint16_t device;
 } rtl8169_id_t;
 
-static const rtl8169_id_t rtl8169_ids[] = {
-    {0x10ec, 0x8161}, // RTL8169/RTL8111SC
-    {0x10ec, 0x8169}, // RTL8169
-    {0x1259, 0xc107}, // Kontron
-    {0x1737, 0x1032}, // Linksys EG1032
-    {0x16ec, 0x0116}, // US Robotics
-};
-
-typedef struct {
-        uint32_t command;  // dword0: ownership/status/length
-        uint32_t vlan;     // dword1: VLAN tag (unused)
-        uint32_t low_buf;  // dword2: low 32 bits of buffer address
-        uint32_t high_buf; // dword3: high 32 bits of buffer address
-} __attribute__((packed)) rtl8169_desc_t;
-
 typedef struct rtl8169_device {
         pci_device_cache_t      *pci;
         volatile uint8_t        *mmio;
-        uint64_t                 mmio_phys;
-        uint32_t                 mmio_size;
         uint16_t                 device_id;
         uint16_t                 features;
         uint16_t                 saved_command;
         uint8_t                  mac[6];
-        uint8_t                  irq;
-        int                      vector;
+        pci_irq_state_t          irq_state;
         int                      using_msi;
         int                      using_legacy;
-        int                      using_direct_legacy;
         int                      running;
         int                      stopping;
         int                      link_up;
@@ -185,6 +87,14 @@ typedef struct rtl8169_device {
         struct rtl8169_device   *next;
 } rtl8169_device_t;
 
+static const rtl8169_id_t rtl8169_ids[] = {
+    {RTL8169_VENDOR_REALTEK, 0x8161}, // RTL8169/RTL8111SC
+    {RTL8169_VENDOR_REALTEK, 0x8169}, // RTL8169
+    {0x1259,                 0xc107}, // Kontron
+    {0x1737,                 0x1032}, // Linksys EG1032
+    {0x16ec,                 0x0116}, // US Robotics
+};
+
 static rtl8169_device_t *rtl8169_devices;
 static size_t            rtl8169_device_count;
 static rtl8169_device_t *rtl8169_irq_slots[RTL8169_MAX_DEVICES];
@@ -192,43 +102,43 @@ static spinlock_t        rtl8169_irq_lock;
 static int               rtl8169_scheduler_ready;
 
 /* Read an 8-bit MMIO register. */
-static inline uint8_t rtl8169_read8(const rtl8169_device_t *device, uint32_t reg)
+static uint8_t rtl8169_read8(const rtl8169_device_t *device, uint32_t reg)
 {
-    return *(volatile uint8_t *)(device->mmio + reg);
+    return mmio_read8((device->mmio + reg));
 }
 
 /* Read a 16-bit MMIO register. */
-static inline uint16_t rtl8169_read16(const rtl8169_device_t *device, uint32_t reg)
+static uint16_t rtl8169_read16(const rtl8169_device_t *device, uint32_t reg)
 {
-    return *(volatile uint16_t *)(device->mmio + reg);
+    return mmio_read16((device->mmio + reg));
 }
 
 /* Read a 32-bit MMIO register. */
-static inline uint32_t rtl8169_read32(const rtl8169_device_t *device, uint32_t reg)
+static uint32_t rtl8169_read32(const rtl8169_device_t *device, uint32_t reg)
 {
-    return *(volatile uint32_t *)(device->mmio + reg);
+    return mmio_read32((device->mmio + reg));
 }
 
 /* Write an 8-bit MMIO register. */
-static inline void rtl8169_write8(rtl8169_device_t *device, uint32_t reg, uint8_t value)
+static void rtl8169_write8(rtl8169_device_t *device, uint32_t reg, uint8_t value)
 {
-    *(volatile uint8_t *)(device->mmio + reg) = value;
+    mmio_write8((device->mmio + reg), value);
 }
 
 /* Write a 16-bit MMIO register. */
-static inline void rtl8169_write16(rtl8169_device_t *device, uint32_t reg, uint16_t value)
+static void rtl8169_write16(rtl8169_device_t *device, uint32_t reg, uint16_t value)
 {
-    *(volatile uint16_t *)(device->mmio + reg) = value;
+    mmio_write16((device->mmio + reg), value);
 }
 
 /* Write a 32-bit MMIO register. */
-static inline void rtl8169_write32(rtl8169_device_t *device, uint32_t reg, uint32_t value)
+static void rtl8169_write32(rtl8169_device_t *device, uint32_t reg, uint32_t value)
 {
-    *(volatile uint32_t *)(device->mmio + reg) = value;
+    mmio_write32((device->mmio + reg), value);
 }
 
 /* Force a previous MMIO write to complete by reading back the PHY status register. */
-static inline void rtl8169_write_flush(rtl8169_device_t *device)
+static void rtl8169_write_flush(rtl8169_device_t *device)
 {
     (void)rtl8169_read32(device, RTL8169_REG_PHYSTATUS);
 }
@@ -257,32 +167,14 @@ static int rtl8169_valid_mac(const uint8_t mac[6])
 static int rtl8169_map_bar(rtl8169_device_t *device)
 {
     for (uint32_t bar = 0; bar < 6; bar++) {
-        base_address_register_t info = get_base_address_register(device->pci, bar);
-        uint32_t                raw;
-        uint64_t                phys;
-
-        if (info.type != mem_mapping || !info.size) continue;
-        raw = read_bar_n(device->pci, bar);
-        if (raw == 0xffffffff || (raw & 1) || (((raw >> 1) & 3) == BAR_Reserved)) continue;
-        phys = raw & ~0xfull;
-        if (((raw >> 1) & 3) == BAR_S64) {
-            uint32_t high = read_bar_n(device->pci, bar + 1);
-            if (high == 0xffffffff) continue;
-            phys |= (uint64_t)high << 32;
-        }
-        if (!phys) continue;
-
-        device->mmio_size = info.size & ~BAR_64BIT_FLAG;
-        if (device->mmio_size < RTL8169_REG_RDSAR + 8) continue;
-        if (phys + device->mmio_size < phys) continue;
-        uint64_t start = phys & ~(PAGE_4K_SIZE - 1);
-        uint64_t end   = (phys + device->mmio_size + PAGE_4K_SIZE - 1) & ~(PAGE_4K_SIZE - 1);
-        page_map_range_to(get_kernel_pagedir(), start, end - start, PTE_MMIO_FLAGS);
-        device->mmio_phys = phys;
-        device->mmio      = (volatile uint8_t *)phys_to_virt(phys);
+        pci_bar_t info;
+        if (pci_map_bar(device->pci, bar, &info) < 0) continue;
+        if (info.size < RTL8169_REG_RDSAR + 8) continue;
+        if (info.phys + info.size < info.phys) continue;
+        device->mmio = (volatile uint8_t *)info.virt;
         return 0;
     }
-    plogk("rtl8169: %04x:%04x: No usable memory BAR found.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8169: %04x:%04x: No usable memory BAR found.\n", device->pci->vendor_id, device->pci->device_id);
     return -ENODEV;
 }
 
@@ -295,7 +187,7 @@ static int rtl8169_reset(rtl8169_device_t *device)
         if (!(rtl8169_read8(device, RTL8169_REG_CR) & RTL8169_CR_RESET)) return 0;
         usleep(1);
     }
-    plogk("rtl8169: %04x:%04x: Reset timed out.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8169: %04x:%04x: Reset timed out.\n", device->pci->vendor_id, device->pci->device_id);
     return -ETIMEDOUT;
 }
 
@@ -304,7 +196,7 @@ static void rtl8169_read_mac(rtl8169_device_t *device)
 {
     for (size_t i = 0; i < 6; i++) device->mac[i] = rtl8169_read8(device, RTL8169_REG_IDR0 + (uint32_t)i);
     if (!rtl8169_valid_mac(device->mac)) {
-        plogk("rtl8169: %04x:%04x: Invalid MAC address, using fallback.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8169: %04x:%04x: Invalid MAC address, using fallback.\n", device->pci->vendor_id, device->pci->device_id);
         for (size_t i = 0; i < 6; i++) device->mac[i] = i;
         device->mac[0] &= ~1u; // ensure a unicast, locally administered address
         device->mac[0] |= 2u;
@@ -334,12 +226,12 @@ static int rtl8169_alloc_dma(rtl8169_device_t *device)
 {
     device->rx_ring_phys = alloc_frames(1);
     if (!device->rx_ring_phys) {
-        plogk("rtl8169: %04x:%04x: RX descriptor ring allocation failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8169: %04x:%04x: RX descriptor ring allocation failed.\n", device->pci->vendor_id, device->pci->device_id);
         return -ENOMEM;
     }
     device->tx_ring_phys = alloc_frames(1);
     if (!device->tx_ring_phys) {
-        plogk("rtl8169: %04x:%04x: TX descriptor ring allocation failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8169: %04x:%04x: TX descriptor ring allocation failed.\n", device->pci->vendor_id, device->pci->device_id);
         return -ENOMEM;
     }
     device->rx_ring = (volatile rtl8169_desc_t *)phys_to_virt(device->rx_ring_phys);
@@ -350,7 +242,7 @@ static int rtl8169_alloc_dma(rtl8169_device_t *device)
     for (size_t i = 0; i < RTL8169_RX_COUNT; i++) {
         device->rx_buffer_phys[i] = alloc_frames(1);
         if (!device->rx_buffer_phys[i]) {
-            plogk("rtl8169: %04x:%04x: RX buffer allocation failed (index %zu)\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id, i);
+            plogk("rtl8169: %04x:%04x: RX buffer allocation failed (index %zu)\n", device->pci->vendor_id, device->pci->device_id, i);
             return -ENOMEM;
         }
         uint32_t cmd = RTL8169_DESC_OWN | RTL8169_BUFFER_SIZE;
@@ -363,7 +255,7 @@ static int rtl8169_alloc_dma(rtl8169_device_t *device)
     for (size_t i = 0; i < RTL8169_TX_COUNT; i++) {
         device->tx_buffer_phys[i] = alloc_frames(1);
         if (!device->tx_buffer_phys[i]) {
-            plogk("rtl8169: %04x:%04x: TX buffer allocation failed (index %zu)\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id, i);
+            plogk("rtl8169: %04x:%04x: TX buffer allocation failed (index %zu)\n", device->pci->vendor_id, device->pci->device_id, i);
             return -ENOMEM;
         }
         uint32_t cmd = 0;
@@ -425,10 +317,11 @@ static void rtl8169_update_link(rtl8169_device_t *device)
     device->stats.link_changes++;
     if (device->netdev_registered) {
         spin_lock(&device->netdev.lock);
-        if (up && (device->netdev.flags & NETDEV_F_UP))
+        if (up && (device->netdev.flags & NETDEV_F_UP)) {
             device->netdev.flags |= NETDEV_F_RUNNING;
-        else
+        } else {
             device->netdev.flags &= ~NETDEV_F_RUNNING;
+        }
         spin_unlock(&device->netdev.lock);
     }
 }
@@ -442,6 +335,7 @@ static size_t rtl8169_tx_reclaim_locked(rtl8169_device_t *device, size_t budget)
         volatile rtl8169_desc_t *desc = &device->tx_ring[device->tx_clean];
         dma_read_barrier();
         if (desc->command & RTL8169_DESC_OWN) break;
+
         /*
          * The Tx status descriptor no longer carries the frame length
          * (bits 27-0 are reserved), so bytes are counted at submit time.
@@ -522,6 +416,16 @@ static const netdev_ops_t rtl8169_netdev_ops = {
     .set_mtu = rtl8169_net_set_mtu,
 };
 
+/* Generate the IDT interrupt wrapper for one IRQ slot. */
+#    define RTL8169_IRQ_WRAPPERS(n)                                                     \
+        INTERRUPT_BEGIN static void rtl8169_idt_interrupt_##n(interrupt_frame_t *frame) \
+        {                                                                               \
+            irq_enter_gs(frame);                                                        \
+            rtl8169_interrupt_slot(n, frame);                                           \
+            irq_leave_gs(frame);                                                        \
+        }                                                                               \
+        INTERRUPT_END
+
 /* Queue one frame on the TX ring and kick the DMA engine. */
 int rtl8169_transmit(rtl8169_device_t *device, const void *packet, size_t length)
 {
@@ -598,11 +502,8 @@ size_t rtl8169_poll(rtl8169_device_t *device, size_t budget)
 
         if (!good) {
             device->stats.rx_errors++;
-            static uint64_t last_log;
-            if (sched_ticks() - last_log >= 1000) {
-                plogk("rtl8169: %s: RX error (cmd=%#x, length=%u)\n", device->netdev.name, (unsigned)cmd, (unsigned)length);
-                last_log = sched_ticks();
-            }
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("rtl8169: %s: RX error (cmd=%#x, length=%u)\n", device->netdev.name, cmd, length);
         } else {
             memcpy(frame, phys_to_virt(device->rx_buffer_phys[idx]), frame_length);
         }
@@ -618,16 +519,13 @@ size_t rtl8169_poll(rtl8169_device_t *device, size_t budget)
             spin_unlock_irqrestore(&device->rx_lock, rflags);
             net_pbuf_t *packet = net_pbuf_from(frame, frame_length, NET_PBUF_HEADROOM);
             if (!packet) {
-                static uint64_t last_log;
-                if (sched_ticks() - last_log >= 1000) {
-                    plogk("rtl8169: %s: RX frame allocation failed.\n", device->netdev.name);
-                    last_log = sched_ticks();
-                }
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("rtl8169: %s: RX frame allocation failed.\n", device->netdev.name);
                 device->stats.rx_dropped++;
             } else {
-                if (netdev_rx(&device->netdev, packet))
+                if (netdev_rx(&device->netdev, packet)) {
                     device->stats.rx_dropped++;
-                else {
+                } else {
                     device->stats.rx_packets++;
                     device->stats.rx_bytes += frame_length;
                 }
@@ -646,20 +544,24 @@ static void rtl8169_process_work(rtl8169_device_t *device, uint32_t cause)
     if (cause & RTL8169_ISR_LINKCHG) rtl8169_update_link(device);
     if (cause & RTL8169_ISR_RER) {
         device->stats.rx_errors++;
-        plogk("rtl8169: %s: Receive error interrupt.\n", device->netdev.name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("rtl8169: %s: Receive error interrupt.\n", device->netdev.name);
     }
     if (cause & (RTL8169_ISR_RDU | RTL8169_ISR_FOVW)) {
         device->stats.rx_errors++;
         device->stats.rx_overruns++;
-        plogk("rtl8169: %s: RX descriptor/FIFO overrun.\n", device->netdev.name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("rtl8169: %s: RX descriptor/FIFO overrun.\n", device->netdev.name);
     }
     if (cause & RTL8169_ISR_TER) {
         device->stats.tx_errors++;
-        plogk("rtl8169: %s: Transmit error interrupt.\n", device->netdev.name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("rtl8169: %s: Transmit error interrupt.\n", device->netdev.name);
     }
     if (cause & RTL8169_ISR_TDU) {
         device->stats.tx_errors++;
-        plogk("rtl8169: %s: TX descriptor unavailable.\n", device->netdev.name);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("rtl8169: %s: TX descriptor unavailable.\n", device->netdev.name);
     }
     if ((cause & RTL8169_RX_INT_MASK) || rtl8169_rx_ready(device)) (void)rtl8169_poll(device, RTL8169_WORK_BUDGET);
 
@@ -759,10 +661,11 @@ static void rtl8169_interrupt_slot(size_t slot, void *frame)
     (void)frame;
     uint64_t          rflags = spin_lock_irqsave(&rtl8169_irq_lock);
     rtl8169_device_t *device = rtl8169_irq_slots[slot];
-    if (device && !device->stopping)
+    if (device && !device->stopping) {
         device->irq_active++;
-    else
+    } else {
         device = NULL;
+    }
     spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
 
     if (device) {
@@ -774,20 +677,6 @@ static void rtl8169_interrupt_slot(size_t slot, void *frame)
     send_eoi();
 }
 
-/* Generate the legacy and IDT interrupt wrappers for one IRQ slot. */
-#define RTL8169_IRQ_WRAPPERS(n)                                                     \
-    static void rtl8169_legacy_interrupt_##n(void *frame)                           \
-    {                                                                               \
-        rtl8169_interrupt_slot(n, frame);                                           \
-    }                                                                               \
-    INTERRUPT_BEGIN static void rtl8169_idt_interrupt_##n(interrupt_frame_t *frame) \
-    {                                                                               \
-        irq_enter_gs(frame);                                                        \
-        rtl8169_interrupt_slot(n, frame);                                           \
-        irq_leave_gs(frame);                                                        \
-    }                                                                               \
-    INTERRUPT_END
-
 RTL8169_IRQ_WRAPPERS(0)
 RTL8169_IRQ_WRAPPERS(1)
 RTL8169_IRQ_WRAPPERS(2)
@@ -796,11 +685,6 @@ RTL8169_IRQ_WRAPPERS(4)
 RTL8169_IRQ_WRAPPERS(5)
 RTL8169_IRQ_WRAPPERS(6)
 RTL8169_IRQ_WRAPPERS(7)
-
-static const net_irq_handler_fn rtl8169_legacy_irq_handlers[RTL8169_MAX_DEVICES] = {
-    rtl8169_legacy_interrupt_0, rtl8169_legacy_interrupt_1, rtl8169_legacy_interrupt_2, rtl8169_legacy_interrupt_3,
-    rtl8169_legacy_interrupt_4, rtl8169_legacy_interrupt_5, rtl8169_legacy_interrupt_6, rtl8169_legacy_interrupt_7,
-};
 
 static void *const rtl8169_idt_irq_handlers[RTL8169_MAX_DEVICES] = {
     (void *)rtl8169_idt_interrupt_0, (void *)rtl8169_idt_interrupt_1, (void *)rtl8169_idt_interrupt_2, (void *)rtl8169_idt_interrupt_3,
@@ -816,46 +700,29 @@ static int rtl8169_setup_interrupt(rtl8169_device_t *device)
         if (!rtl8169_irq_slots[slot]) break;
     if (slot == RTL8169_MAX_DEVICES) {
         spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
-        plogk("rtl8169: %04x:%04x: No free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8169: %04x:%04x: No free IRQ slot.\n", device->pci->vendor_id, device->pci->device_id);
         return -ENOSPC;
     }
     device->irq_slot        = (uint8_t)slot;
     rtl8169_irq_slots[slot] = device;
     spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
 
-    pci_msi_init(device->pci);
-    device->vector = pci_enable_msi(device->pci);
-    if (device->vector >= 0) {
-        register_interrupt_handler((uint16_t)device->vector, rtl8169_idt_irq_handlers[slot], 0, 0x8e);
-        device->using_msi = 1;
-        return 0;
-    }
-    plogk("rtl8169: %04x:%04x: MSI unavailable, falling back to INTx.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
-
-    device->irq = (uint8_t)pci_get_irq(device->pci);
-    if (device->irq == 0 || device->irq == 0xff) goto fail;
-    if (net_irq_claim_legacy && net_irq_release_legacy) {
-        if (net_irq_claim_legacy(device->irq, rtl8169_legacy_irq_handlers[slot])) goto fail;
-    } else {
-        /*
-         * Some platforms expose only INTx and this kernel may be built
-         * without a shared legacy-IRQ dispatcher. Install an exclusive
-         * fallback route so the device is not rejected before its RX
-         * worker can start.
-         */
-        device->vector = IRQ_0 + device->irq;
-        register_interrupt_handler((uint16_t)device->vector, rtl8169_idt_irq_handlers[slot], 0, 0x8e);
-        ioapic_routing_t routing = {(uint8_t)device->vector, device->irq};
-        ioapic_add(&routing);
-        device->using_direct_legacy = 1;
-    }
-    device->using_legacy = 1;
+    pci_irq_request_t request = {
+        .modes         = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
+        .idt_handler   = rtl8169_idt_irq_handlers[slot],
+        .legacy_base   = IRQ_0,
+        .legacy_ioapic = 1,
+    };
+    if (pci_request_irq(device->pci, &request, &device->irq_state) < 0) goto fail;
+    device->using_msi    = (device->irq_state.mode == PCI_IRQ_MSI);
+    device->using_legacy = (device->irq_state.mode == PCI_IRQ_LEGACY);
+    if (device->using_legacy) plogk("rtl8169: %04x:%04x: MSI unavailable, falling back to INTx.\n", device->pci->vendor_id, device->pci->device_id);
     return 0;
 fail:
     rflags                  = spin_lock_irqsave(&rtl8169_irq_lock);
     rtl8169_irq_slots[slot] = NULL;
     spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
-    plogk("rtl8169: %04x:%04x: Interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8169: %04x:%04x: Interrupt setup failed.\n", device->pci->vendor_id, device->pci->device_id);
     return -ENODEV;
 }
 
@@ -872,23 +739,16 @@ static void rtl8169_release_interrupt(rtl8169_device_t *device)
     rtl8169_irq_slots[device->irq_slot] = NULL;
     spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
 
-    if (device->using_msi) pci_disable_msi(device->pci);
-    if (device->using_legacy && !device->using_direct_legacy && net_irq_release_legacy) net_irq_release_legacy(device->irq, rtl8169_legacy_irq_handlers[device->irq_slot]);
-    for (;;) {
-        rflags     = spin_lock_irqsave(&rtl8169_irq_lock);
-        int active = device->irq_active != 0;
-        spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
-        if (!active) break;
-        __asm__ volatile("pause" ::: "memory");
-    }
-    device->using_msi = device->using_legacy = device->using_direct_legacy = 0;
+    pci_free_irq(device->pci, &device->irq_state);
+    spin_until_zero(&device->irq_active, &rtl8169_irq_lock);
+    device->using_msi = device->using_legacy = 0;
 }
 
 /* Pick the first free ethN name not claimed by another device. */
 static int rtl8169_netdev_name(char *name, size_t size)
 {
-    for (unsigned i = 0; i < NETDEV_MAX; i++) {
-        char          candidate[NETDEV_NAME_MAX];
+    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
+        char          candidate[CONFIG_NETDEV_NAME_MAX];
         net_device_t *existing;
         (void)snprintf(candidate, sizeof(candidate), "eth%u", i);
         existing = netdev_get_by_name(candidate);
@@ -931,11 +791,7 @@ static void rtl8169_destroy(rtl8169_device_t *device)
         rtl8169_write_flush(device);
         msleep(10);
     }
-    if (device->pci) {
-        uint16_t command = pci_read_command_status(device->pci) & 0xffff;
-        pci_write_command_status(device->pci, command & ~(1u << 2));
-        (void)pci_read_command_status(device->pci);
-    }
+    if (device->pci) pci_disable_device(device->pci, PCI_CMD_BUSMASTER);
     dma_full_barrier();
     rtl8169_free_dma(device);
     if (device->pci) pci_write_command_status(device->pci, device->saved_command);
@@ -953,23 +809,22 @@ int rtl8169_probe(pci_device_cache_t *pci)
 
     rtl8169_device_t *device = malloc(sizeof(*device));
     if (!device) {
-        plogk("rtl8169: %04x:%04x: Device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
+        plogk("rtl8169: %04x:%04x: Device allocation failed.\n", pci->vendor_id, pci->device_id);
         return -ENOMEM;
     }
     memset(device, 0, sizeof(*device));
     device->pci           = pci;
     device->device_id     = id->device;
     device->features      = 0;
-    device->vector        = -1;
     device->saved_command = pci_read_command_status(pci) & 0xffff;
     wait_queue_init(&device->work_wait);
     const char *stage = "BAR mapping";
 
     /* BAR sizing writes all ones, so memory and I/O decoding must be off. */
-    pci_write_command_status(pci, device->saved_command & ~((1u << 1) | (1u << 2)));
+    pci_write_command_status(pci, device->saved_command & ~(PCI_CMD_MEM | PCI_CMD_BUSMASTER));
     int ret = rtl8169_map_bar(device);
     if (ret) goto fail;
-    pci_write_command_status(pci, device->saved_command | (1u << 1) | (1u << 2));
+    pci_write_command_status(pci, device->saved_command | (PCI_CMD_MEM | PCI_CMD_BUSMASTER));
     stage = "reset";
     ret   = rtl8169_reset(device);
     if (ret) goto fail;
@@ -983,7 +838,7 @@ int rtl8169_probe(pci_device_cache_t *pci)
     ret   = rtl8169_setup_interrupt(device);
     if (ret) goto fail;
 
-    char netdev_name[NETDEV_NAME_MAX];
+    char netdev_name[CONFIG_NETDEV_NAME_MAX];
     stage = "netdev initialization";
     ret   = rtl8169_netdev_name(netdev_name, sizeof(netdev_name));
     if (ret) goto fail;
@@ -1030,9 +885,6 @@ fail:
 /* Probe all RTL8169 devices present in the PCI device cache. */
 int rtl8169_init(void)
 {
-#if !CONFIG_RTL8169
-    return 0;
-#endif
     int                  found = 0;
     pci_devices_cache_t *cache = pci_get_devices_cache();
     if (!cache) return -ENODEV;
@@ -1046,9 +898,6 @@ int rtl8169_init(void)
 /* Register the worker task of every device for unified creation. */
 int rtl8169_start_workers(void)
 {
-#if !CONFIG_RTL8169
-    return 0;
-#endif
     int started = 0;
     int failed  = 0;
 
@@ -1067,7 +916,9 @@ int rtl8169_start_workers(void)
         rtl8169_device_count--;
         rtl8169_destroy(device);
     }
-    return started ? started : (failed ? -ENOMEM : -ENODEV);
+    if (started) return started;
+    if (failed) return -ENOMEM;
+    return -ENODEV;
 }
 
 /* Shut down and destroy every registered device. */
@@ -1110,3 +961,5 @@ rtl8169_device_t *rtl8169_next_device(rtl8169_device_t *device)
 {
     return device ? device->next : NULL;
 }
+
+#endif

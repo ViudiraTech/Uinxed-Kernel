@@ -29,7 +29,7 @@ void fbcon_handoff_end(void);
 bool fbcon_is_ready(void);
 
 /* Draw a character with per-cell foreground and background color */
-void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg);
+void fbcon_draw_char_bg(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg);
 
 /* ANSI escape sequence aware rendering primitives */
 void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines);
@@ -53,6 +53,8 @@ void fbcon_ansi_write(const uint8_t *buf, size_t len);
  * the logo area line by line.
  */
 void fbcon_set_logo_active(bool active);
+
+/* Fbcon release logo. */
 void fbcon_release_logo(void);
 
 /*

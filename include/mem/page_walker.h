@@ -13,7 +13,6 @@
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <mem/hhdm.h>
 #include <mem/page.h>
 
 #define PAGE_WALK_INDEX(addr, shift) (((addr) >> (shift)) & 0x1FF)
@@ -52,43 +51,19 @@ typedef struct {
 } page_walk_state_t;
 
 /* Get page size from walk state */
-static inline size_t get_page_size_from_state(const page_walk_state_t *state)
-{
-    if (!state->is_valid) return PAGE_4K_SIZE;
-
-    switch (state->page_size) {
-        case 2 :
-            return PAGE_1G_SIZE; // 1GB page
-        case 1 :
-            return PAGE_2M_SIZE; // 2MB page
-        default :
-            return PAGE_4K_SIZE; // 4KB page
-    }
-}
+size_t get_page_size_from_state(const page_walk_state_t *state);
 
 /* Check if address is aligned to specific page size */
-static inline uint8_t is_page_aligned(uintptr_t addr, size_t page_size)
-{
-    return (addr & (page_size - 1)) == 0;
-}
+uint8_t is_page_aligned(uintptr_t addr, size_t page_size);
 
 /* Align address down to specific page size */
-static inline uintptr_t align_down_to_page(uintptr_t addr, size_t page_size)
-{
-    return addr & ~(page_size - 1);
-}
+uintptr_t align_down_to_page(uintptr_t addr, size_t page_size);
 
 /* Align address up to specific page size */
-static inline uintptr_t align_up_to_page(uintptr_t addr, size_t page_size)
-{
-    return (addr + page_size - 1) & ~(page_size - 1);
-}
+uintptr_t align_up_to_page(uintptr_t addr, size_t page_size);
 
 /* Get next aligned address for specific page size */
-static inline uintptr_t get_next_aligned_addr(uintptr_t addr, size_t page_size)
-{
-    return align_up_to_page(addr, page_size);
-}
+uintptr_t get_next_aligned_addr(uintptr_t addr, size_t page_size);
 
 /* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr);

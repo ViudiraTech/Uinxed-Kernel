@@ -9,20 +9,15 @@
  */
 
 #include <boot/limine.h>
-#include <drivers/gpu/drm/drm.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_fourcc.h>
-#include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/stdbool.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+
+#if CONFIG_SIMPLEDRM && CONFIG_DRM
 
 /* Private per-device state: the bootloader framebuffer plus the KMS objects. */
 typedef struct simpledrm_device {
@@ -31,12 +26,38 @@ typedef struct simpledrm_device {
         struct drm_plane       *primary;
         struct drm_encoder     *encoder;
         struct drm_connector   *connector;
-        void                   *screen; /* GOP framebuffer address   */
+        void                   *screen; // GOP framebuffer address
         uint32_t                width;
         uint32_t                height;
-        uint32_t                screen_pitch; /* GOP pitch, in bytes       */
+        uint32_t                screen_pitch; // GOP pitch, in bytes
         struct drm_framebuffer *current_fb;
 } simpledrm_device_t;
+
+static enum drm_connector_status simpledrm_connector_detect(struct drm_connector *connector, bool force);
+static int                       simpledrm_connector_get_modes(struct drm_connector *connector);
+static int                       simpledrm_connector_mode_valid(struct drm_connector *connector, struct drm_display_mode *mode);
+static void                      simpledrm_encoder_atomic_check(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state);
+static void                      simpledrm_crtc_mode_set(struct drm_crtc *crtc, struct drm_framebuffer *fb);
+static int                       simpledrm_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags);
+static void                      simpledrm_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+static void                      simpledrm_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+
+static const struct drm_crtc_helper_funcs simpledrm_crtc_helpers = {
+    .mode_set       = simpledrm_crtc_mode_set,
+    .page_flip      = simpledrm_crtc_page_flip,
+    .atomic_enable  = simpledrm_crtc_atomic_enable,
+    .atomic_disable = simpledrm_crtc_atomic_disable,
+};
+
+static const struct drm_encoder_helper_funcs simpledrm_enc_helpers = {
+    .atomic_mode_set = simpledrm_encoder_atomic_check,
+};
+
+static const struct drm_connector_helper_funcs simpledrm_conn_helpers = {
+    .detect     = simpledrm_connector_detect,
+    .get_modes  = simpledrm_connector_get_modes,
+    .mode_valid = simpledrm_connector_mode_valid,
+};
 
 /* A GOP framebuffer is always present and connected. */
 static enum drm_connector_status simpledrm_connector_detect(struct drm_connector *connector, bool force)
@@ -107,7 +128,7 @@ static int simpledrm_blit_rect(simpledrm_device_t *sdev, struct drm_framebuffer 
 
     /* The GOP framebuffer is 32-bit; reject any other pixel layout. */
     if (fb->format != DRM_FORMAT_XRGB8888 && fb->format != DRM_FORMAT_ARGB8888) {
-        DRM_WARN("Scanout: unsupported framebuffer format 0x%x, skipping scanout.\n", (unsigned int)fb->format);
+        DRM_WARN("Scanout: unsupported framebuffer format 0x%x, skipping scanout.\n", fb->format);
         return -EINVAL;
     }
 
@@ -126,7 +147,7 @@ static int simpledrm_blit_rect(simpledrm_device_t *sdev, struct drm_framebuffer 
     src = (const uint8_t *)fb->obj[0]->backing + fb->offsets[0];
     dst = (uint8_t *)sdev->screen;
 
-    for (y = y1; y < y2; y++) memcpy(dst + (size_t)y * sdev->screen_pitch + (size_t)x1 * sizeof(uint32_t), src + (size_t)y * fb_pitch + (size_t)x1 * sizeof(uint32_t), row_bytes);
+    for (y = y1; y < y2; y++) memcpy(dst + ((size_t)y * sdev->screen_pitch) + ((size_t)x1 * sizeof(uint32_t)), src + ((size_t)y * fb_pitch) + ((size_t)x1 * sizeof(uint32_t)), row_bytes);
     return 0;
 }
 
@@ -201,8 +222,10 @@ static int simpledrm_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffe
     int ret = simpledrm_scanout_fb(sdev, fb);
     if (ret) return ret;
 
-    /* The legacy page-flip ioctl expects the driver to commit the plane;
-     * transfer the committed-state reference before its lookup pin drops. */
+    /*
+     * The legacy page-flip ioctl expects the driver to commit the plane;
+     * transfer the committed-state reference before its lookup pin drops.
+     */
     if (crtc->primary && crtc->primary->state) {
         struct drm_framebuffer *old_fb = crtc->primary->state->fb;
         if (old_fb != fb) {
@@ -210,7 +233,7 @@ static int simpledrm_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffe
             crtc->primary->state->fb = fb;
             drm_framebuffer_put(old_fb);
         }
-        crtc->primary->fb_id     = fb ? fb->base.id : 0;
+        crtc->primary->fb_id = fb ? fb->base.id : 0;
     }
     return 0;
 }
@@ -244,7 +267,6 @@ static void simpledrm_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc
 }
 
 /* Plane formats */
-
 static const uint32_t simpledrm_formats[] = {
     DRM_FORMAT_XRGB8888,
     DRM_FORMAT_ARGB8888,
@@ -289,12 +311,7 @@ static void simpledrm_release(struct drm_device *dev)
 
     /* drm_dev_put() already removed the device from the core list. */
     if (sdev) {
-        /*
-         * drm_mode_config_cleanup() first: it unlinks every KMS object from
-         * the mode_config lists and frees the crtc/plane/connector states
-         * plus their internal members.  Only the driver-allocated outer
-         * structs are left for us to release here.
-         */
+        /* drm_mode_config_cleanup() frees the KMS state; only the driver-allocated outer structs remain. */
         drm_vblank_cleanup(dev);
         drm_mode_config_cleanup(dev);
         if (sdev->connector) free(sdev->connector);
@@ -307,7 +324,6 @@ static void simpledrm_release(struct drm_device *dev)
 }
 
 /* DRM driver descriptor */
-
 static struct drm_driver simpledrm_drm_driver = {
     .name            = "simpledrm",
     .desc            = "DRM driver for simple-framebuffer platform devices",
@@ -378,21 +394,12 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
     memset(crtc, 0, sizeof(*crtc));
     sdev->crtc = crtc;
 
-    {
-        static const struct drm_crtc_helper_funcs crtc_helpers = {
-            .mode_set       = simpledrm_crtc_mode_set,
-            .page_flip      = simpledrm_crtc_page_flip,
-            .atomic_enable  = simpledrm_crtc_atomic_enable,
-            .atomic_disable = simpledrm_crtc_atomic_disable,
-        };
-
-        ret = drm_crtc_init_with_planes(dev, crtc, primary, NULL, (void *)&crtc_helpers, "simpledrm-crtc-0");
-        if (ret) {
-            DRM_ERROR("Failed to init CRTC: %d\n", ret);
-            free(crtc);
-            sdev->crtc = NULL;
-            return ret;
-        }
+    ret = drm_crtc_init_with_planes(dev, crtc, primary, NULL, (void *)&simpledrm_crtc_helpers, "simpledrm-crtc-0");
+    if (ret) {
+        DRM_ERROR("Failed to init CRTC: %d\n", ret);
+        free(crtc);
+        sdev->crtc = NULL;
+        return ret;
     }
 
     dev->mode_config.async_page_flip = true;
@@ -417,18 +424,12 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
     memset(encoder, 0, sizeof(*encoder));
     sdev->encoder = encoder;
 
-    {
-        static const struct drm_encoder_helper_funcs enc_helpers = {
-            .atomic_mode_set = simpledrm_encoder_atomic_check,
-        };
-
-        ret = drm_encoder_init(dev, encoder, (void *)&enc_helpers, DRM_MODE_ENCODER_NONE, "simpledrm-encoder-0");
-        if (ret) {
-            DRM_ERROR("Failed to init encoder: %d\n", ret);
-            free(encoder);
-            sdev->encoder = NULL;
-            return ret;
-        }
+    ret = drm_encoder_init(dev, encoder, (void *)&simpledrm_enc_helpers, DRM_MODE_ENCODER_NONE, "simpledrm-encoder-0");
+    if (ret) {
+        DRM_ERROR("Failed to init encoder: %d\n", ret);
+        free(encoder);
+        sdev->encoder = NULL;
+        return ret;
     }
     encoder->possible_crtcs = 1;
     encoder->crtc           = crtc;
@@ -443,24 +444,16 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
     memset(connector, 0, sizeof(*connector));
     sdev->connector = connector;
 
-    {
-        static const struct drm_connector_helper_funcs conn_helpers = {
-            .detect     = simpledrm_connector_detect,
-            .get_modes  = simpledrm_connector_get_modes,
-            .mode_valid = simpledrm_connector_mode_valid,
-        };
-
-        ret = drm_connector_init(dev, connector, (void *)&conn_helpers, DRM_MODE_CONNECTOR_Unknown);
-        if (ret) {
-            DRM_ERROR("Failed to init connector: %d\n", ret);
-            free(connector);
-            sdev->connector = NULL;
-            return ret;
-        }
+    ret = drm_connector_init(dev, connector, (void *)&simpledrm_conn_helpers, DRM_MODE_CONNECTOR_Unknown);
+    if (ret) {
+        DRM_ERROR("Failed to init connector: %d\n", ret);
+        free(connector);
+        sdev->connector = NULL;
+        return ret;
     }
     connector->status = connector_status_connected;
-    /* display_info mm stays 0 (Linux simpledrm only fills it from DT size) */
 
+    /* display_info mm stays 0 (simpledrm only fills it from DT size) */
     connector->state = malloc(sizeof(*connector->state));
     if (!connector->state) {
         DRM_ERROR("out of memory allocating connector state.\n");
@@ -492,19 +485,16 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
 
     drm_connector_register(connector);
 
-    /* Linux simpledrm pins mode_config bounds to the native framebuffer size */
+    /* simpledrm pins mode_config bounds to the native framebuffer size */
     dev->mode_config.min_width  = sdev->width;
     dev->mode_config.max_width  = sdev->width;
     dev->mode_config.min_height = sdev->height;
     dev->mode_config.max_height = sdev->height;
 
-    DRM_INFO("simpledrm KMS pipeline: plane-%u + crtc-%u + encoder-%u + connector-%u, mode %ux%u, %u pixel format(s)\n", primary->base.id, crtc->base.id, encoder->base.id, connector->base.id,
-             sdev->width, sdev->height, (unsigned int)(sizeof(simpledrm_formats) / sizeof(simpledrm_formats[0])));
+    DRM_INFO("simpledrm: KMS pipeline up, %u pixel format(s)\n", (unsigned int)(sizeof(simpledrm_formats) / sizeof(simpledrm_formats[0])));
 
     return 0;
 }
-
-/* Probe / module init */
 
 /*
  * Probe the bootloader GOP framebuffer and attach a software-scanout DRM
@@ -513,7 +503,6 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
  */
 int simpledrm_probe(void)
 {
-#if CONFIG_SIMPLEDRM
     struct limine_framebuffer *framebuffer;
     simpledrm_device_t        *sdev;
     int                        ret;
@@ -524,7 +513,7 @@ int simpledrm_probe(void)
         return -ENODEV;
     }
     if (framebuffer->bpp != 32) {
-        plogk("simpledrm: boot framebuffer is %u bpp (only 32bpp XRGB8888 is supported), probe skipped.\n", (unsigned)framebuffer->bpp);
+        plogk("simpledrm: boot framebuffer is %u bpp (only 32bpp XRGB8888 is supported), probe skipped.\n", framebuffer->bpp);
         return -ENODEV;
     }
 
@@ -546,7 +535,7 @@ int simpledrm_probe(void)
         return -ENODEV;
     }
 
-    plogk("simpledrm: %ux%u 32bpp boot framebuffer @ 0x%llx, pitch %u\n", sdev->width, sdev->height, (unsigned long long)sdev->screen, sdev->screen_pitch);
+    plogk("simpledrm: %ux%u 32bpp boot framebuffer @ %p, pitch %u\n", sdev->width, sdev->height, sdev->screen, sdev->screen_pitch);
 
     sdev->drm = drm_dev_alloc(&simpledrm_drm_driver);
     if (!sdev->drm) {
@@ -558,7 +547,7 @@ int simpledrm_probe(void)
     sdev->drm->dev_private = sdev;
 
     /*
-     * Build the KMS pipeline first, then publish the device (Linux order):
+     * Build the KMS pipeline first, then publish the device:
      * a registered /dev/dri device must already expose its modes and be
      * fully usable.  drm_dev_register()'s "Initialized ... KMS range" log
      * therefore prints the real bounds.
@@ -566,18 +555,13 @@ int simpledrm_probe(void)
     ret = simpledrm_kms_setup(sdev);
     if (ret) {
         DRM_ERROR("KMS setup failed: %d\n", ret);
-        /*
-         * Drop the device: .release() tears down whatever KMS objects were
-         * built so far and frees sdev.
-         */
+
+        /* Drop the device: .release() tears down whatever KMS objects were built so far and frees sdev. */
         drm_dev_unregister(sdev->drm);
         return ret;
     }
 
-    /*
-     * drm_dev_register() publishes the /dev/dri nodes, sysfs and the core
-     * device list.
-     */
+    /* drm_dev_register() publishes the /dev/dri nodes, sysfs and the core device list. */
     ret = drm_dev_register(sdev->drm, 0);
     if (ret) {
         DRM_ERROR("failed to register DRM device: %d\n", ret);
@@ -586,7 +570,6 @@ int simpledrm_probe(void)
     }
 
     return 0;
-#else
-    return -ENODEV;
-#endif
 }
+
+#endif

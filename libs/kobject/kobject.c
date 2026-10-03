@@ -8,23 +8,11 @@
  *
  */
 
-#include <fs/core/vfs.h>
-#include <fs/sysfs/sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/timer/timer.h>
 #include <libs/kobject/kobject.h>
-#include <libs/list/circular_list.h>
-#include <libs/std/stdarg.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
-#include <mem/alloc.h>
 #include <mem/heap.h>
 #include <net/netlink/netlink.h>
-#include <process/sched.h>
-#include <sync/spin_lock.h>
+
 /* Default release function for dynamically-allocated kobjects */
 static void dynamic_kobj_release(struct kobject *kobj)
 {
@@ -40,13 +28,13 @@ static struct kobj_type dynamic_kobj_ktype = {
 /* Release a dynamically-allocated kset and its child list. */
 static void dynamic_kset_release(struct kobject *kobj)
 {
-    struct kset *kset = (struct kset *)((char *)kobj - offsetof(struct kset, kobj));
+    struct kset *kset = container_of(kobj, struct kset, kobj);
     kset->list        = clist_free(kset->list);
     free(kset);
 }
 
-/* Release hook for statically-allocated ksets: nothing to do. */
-static void static_kset_release(struct kobject *kobj)
+/* Release callback for statically-allocated kobjects: nothing to free. */
+void kobject_static_release(struct kobject *kobj)
 {
     (void)kobj;
 }
@@ -63,8 +51,15 @@ static struct kobj_type dynamic_kset_ktype = {
 };
 
 static struct kobj_type static_kset_ktype = {
-    .release     = static_kset_release,
+    .release     = kobject_static_release,
     .uevent_name = kset_uevent_name,
+};
+
+static uint64_t uevent_seqnum;
+
+/* Build and broadcast a uevent message. */
+static const char *const kobject_actions[] = {
+    [KOBJ_ADD] = "add", [KOBJ_REMOVE] = "remove", [KOBJ_CHANGE] = "change", [KOBJ_MOVE] = "move", [KOBJ_ONLINE] = "online", [KOBJ_OFFLINE] = "offline", [KOBJ_BIND] = "bind", [KOBJ_UNBIND] = "unbind",
 };
 
 /* Accept non-empty names that contain no path separators. */
@@ -74,7 +69,7 @@ static int kobject_name_valid(const char *name)
 }
 
 /* Append data to a circular linked list, creating the node as needed. */
-static int kobject_list_add(clist_t *list, void *data)
+int kobject_list_add(clist_t *list, void *data)
 {
     clist_t node = clist_alloc(data);
     if (!node) return -ENOMEM;
@@ -87,6 +82,19 @@ static int kobject_list_add(clist_t *list, void *data)
         node->prev   = tail;
     }
     return EOK;
+}
+
+/* Find a child kobject by name, or NULL. */
+struct kobject *kobject_find_child(struct kobject *parent, const char *name)
+{
+    clist_t node;
+
+    if (!parent || !name) return NULL;
+    for (node = parent->children; node; node = node->next) {
+        struct kobject *kobj = node->data;
+        if (kobj && kobj->name && streq(kobj->name, name)) return kobj;
+    }
+    return NULL;
 }
 
 /* Initialize a kobject. */
@@ -118,7 +126,7 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
 }
 
 /* Set a formatted name on a kobject. */
-int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
+__attribute__((format(printf, 2, 3))) int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
 {
     char    buf[KOBJ_NAME_LEN];
     va_list args;
@@ -142,7 +150,7 @@ int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
 }
 
 /* Add a kobject to its parent and kset, creating its sysfs entry. */
-int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...)
+__attribute__((format(printf, 3, 4))) int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...)
 {
     va_list args;
     char    namebuf[KOBJ_NAME_LEN];
@@ -168,8 +176,8 @@ int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, .
 
     /* Determine parent */
     if (!parent && kobj->kset) parent = &kobj->kset->kobj;
-    if (parent && (held_parent = kobject_get(parent)) == NULL) return -EINVAL; // NOLINT(bugprone-assignment-in-if-condition)
-    if (kobj->kset && (held_kset = kset_get(kobj->kset)) == NULL) {            // NOLINT(bugprone-assignment-in-if-condition)
+    if (parent && (held_parent = kobject_get(parent)) == NULL) return -EINVAL;
+    if (kobj->kset && (held_kset = kset_get(kobj->kset)) == NULL) {
         kobject_put(held_parent);
         return -EINVAL;
     }
@@ -226,7 +234,6 @@ err_kset:
         kobj->state_in_kset = 0;
     }
 err_refs:
-    plogk("kobject: Add of \"%s\" (parent \"%s\") failed: %d\n", kobj->name ? kobj->name : "(unnamed)", parent && parent->name ? parent->name : "(none)", ret);
     kobj->parent = NULL;
     kset_put(held_kset);
     kobject_put(held_parent);
@@ -234,7 +241,7 @@ err_refs:
 }
 
 /* Initialize a kobject and add it to sysfs. */
-int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...)
+__attribute__((format(printf, 4, 5))) int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...)
 {
     va_list args;
     char    namebuf[KOBJ_NAME_LEN];
@@ -270,6 +277,53 @@ struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
     return kobj;
 }
 
+/* Increment the reference count */
+void kref_init(kref_t *kref)
+{
+    __atomic_store_n(&kref->refcount, 1, __ATOMIC_RELEASE);
+}
+
+/* Take an additional reference without resurrecting a released object. */
+int kref_get_unless_zero(kref_t *kref)
+{
+    uint32_t count = __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
+
+    while (count) {
+        if (count == UINT32_MAX) return 0;
+        if (__atomic_compare_exchange_n(&kref->refcount, &count, count + 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return 1;
+    }
+    return 0;
+}
+
+/* Take an additional reference */
+void kref_get(kref_t *kref)
+{
+    (void)kref_get_unless_zero(kref);
+}
+
+/* Drop a reference; returns 1 if the count reached zero */
+int kref_put(kref_t *kref, void (*release)(kref_t *kref))
+{
+    uint32_t count = __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
+
+    while (count) {
+        if (__atomic_compare_exchange_n(&kref->refcount, &count, count - 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            if (count == 1) {
+                if (release) release(kref);
+                return 1;
+            }
+            return 0;
+        }
+    }
+    return 0;
+}
+
+/* Return the current reference count */
+uint32_t kref_read(const kref_t *kref)
+{
+    return __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
+}
+
 /* Increment a kobject's reference count. */
 struct kobject *kobject_get(struct kobject *kobj)
 {
@@ -280,7 +334,7 @@ struct kobject *kobject_get(struct kobject *kobj)
 /* Final release path: detach from sysfs, free the name, run the ktype. */
 static void kobject_release_internal(kref_t *kref)
 {
-    struct kobject *kobj = (struct kobject *)((char *)kref - offsetof(struct kobject, kref));
+    struct kobject *kobj = container_of(kref, struct kobject, kref);
 
     if (kobj->state_in_sysfs) kobject_del(kobj);
     free((void *)kobj->name);
@@ -305,7 +359,6 @@ void kobject_del(struct kobject *kobj)
     struct kset    *kset;
 
     if (!kobj || !kobj->state_in_sysfs) return;
-
     if (kobj->state_add_uevent_sent && !kobj->state_remove_uevent_sent) kobject_uevent(kobj, KOBJ_REMOVE);
 
     /* Remove default attributes */
@@ -377,7 +430,7 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
     kobj->name                 = replacement;
     const char *event_old_path = old_path;
     if (strncmp(event_old_path, "/sys/", 5) == 0) event_old_path += 4;
-    char old_path_env[UEVENT_BUFFER_SIZE];
+    char old_path_env[CONFIG_UEVENT_BUFFER_SIZE];
     int  length = snprintf(old_path_env, sizeof(old_path_env), "DEVPATH_OLD=%s", event_old_path);
     if (length > 0 && length < (int)sizeof(old_path_env)) {
         char *envp[] = {old_path_env};
@@ -444,7 +497,7 @@ int kobject_move(struct kobject *kobj, struct kobject *new_parent)
     kobject_put(old_parent);
     const char *event_old_path = old_path;
     if (strncmp(event_old_path, "/sys/", 5) == 0) event_old_path += 4;
-    char old_path_env[UEVENT_BUFFER_SIZE];
+    char old_path_env[CONFIG_UEVENT_BUFFER_SIZE];
     int  length = snprintf(old_path_env, sizeof(old_path_env), "DEVPATH_OLD=%s", event_old_path);
     if (length > 0 && length < (int)sizeof(old_path_env)) {
         char *envp[] = {old_path_env};
@@ -459,6 +512,19 @@ const char *kobject_name(const struct kobject *kobj)
 {
     if (!kobj) return "(null)";
     return kobj->name ? kobj->name : "(unnamed)";
+}
+
+/* Get a reference to the kset */
+struct kset *kset_get(struct kset *kset)
+{
+    if (kset) kobject_get(&kset->kobj);
+    return kset;
+}
+
+/* Drop a reference to the kset */
+void kset_put(struct kset *kset)
+{
+    if (kset) kobject_put(&kset->kobj);
 }
 
 /* Initialize a kset. */
@@ -554,19 +620,11 @@ int kobject_uevent(struct kobject *kobj, enum kobject_action action)
     return kobject_uevent_env(kobj, action, NULL, 0);
 }
 
-static uint64_t uevent_seqnum;
-
 /* Return the next uevent sequence number. */
 uint64_t kobject_uevent_seqnum(void)
 {
     return __atomic_load_n(&uevent_seqnum, __ATOMIC_RELAXED);
 }
-
-/* Build and broadcast a uevent message. */
-
-static const char *const kobject_actions[] = {
-    [KOBJ_ADD] = "add", [KOBJ_REMOVE] = "remove", [KOBJ_CHANGE] = "change", [KOBJ_MOVE] = "move", [KOBJ_ONLINE] = "online", [KOBJ_OFFLINE] = "offline", [KOBJ_BIND] = "bind", [KOBJ_UNBIND] = "unbind",
-};
 
 /* Return the string name of a uevent action. */
 const char *kobject_action_name(enum kobject_action action)
@@ -589,21 +647,21 @@ int kobject_action_type(const char *name, enum kobject_action *action)
 }
 
 /* Append a formatted KEY=value variable to a uevent environment. */
-int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...)
+__attribute__((format(printf, 2, 3))) int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...)
 {
     va_list args;
     int     length;
 
     if (!env || !fmt || env->envp_idx < 0 || env->buflen < 0) return -EINVAL;
-    if (env->envp_idx >= UEVENT_NUM_ENVP - 1) return -ENOMEM;
-    if (env->buflen >= UEVENT_BUFFER_SIZE) return -ENOMEM;
+    if (env->envp_idx >= CONFIG_UEVENT_NUM_ENVP - 1) return -ENOMEM;
+    if (env->buflen >= CONFIG_UEVENT_BUFFER_SIZE) return -ENOMEM;
 
     env->envp[env->envp_idx] = env->envbuf + env->buflen;
     va_start(args, fmt);
-    length = vsnprintf(env->envbuf + env->buflen, UEVENT_BUFFER_SIZE - (size_t)env->buflen, fmt, args);
+    length = vsnprintf(env->envbuf + env->buflen, CONFIG_UEVENT_BUFFER_SIZE - (size_t)env->buflen, fmt, args);
     va_end(args);
     if (length < 0) return -EINVAL;
-    if (length >= UEVENT_BUFFER_SIZE - env->buflen) return -ENOMEM;
+    if (length >= CONFIG_UEVENT_BUFFER_SIZE - env->buflen) return -ENOMEM;
 
     env->buflen += length + 1;
     env->envp_idx++;
@@ -677,7 +735,7 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
     int                     ret;
 
     if (!kobj) return -EINVAL;
-    if (nenv < 0 || nenv >= UEVENT_NUM_ENVP) return -EINVAL;
+    if (nenv < 0 || nenv >= CONFIG_UEVENT_NUM_ENVP) return -EINVAL;
     action_string = kobject_action_name(action);
     if (!action_string) return -EINVAL;
     if (action == KOBJ_REMOVE) kobj->state_remove_uevent_sent = 1;
@@ -737,29 +795,16 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
         ret = kobj->ktype->uevent(kobj, env);
         if (ret) goto out;
     }
-
     if (action == KOBJ_UNBIND) zap_modalias_env(env);
-
     if (action == KOBJ_ADD) kobj->state_add_uevent_sent = 1;
 
     seq = __atomic_add_fetch(&uevent_seqnum, 1, __ATOMIC_RELAXED);
-    ret = add_uevent_var(env, "SEQNUM=%llu", (unsigned long long)seq);
+    ret = add_uevent_var(env, "SEQNUM=%llu", seq);
     if (ret) goto out;
 
     ret = kobject_uevent_message(env, action_string, event_path, &message, &message_len);
     if (ret) goto out;
-    {
-        uint64_t t0 = sched_ticks();
-        ret         = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1U, message, message_len, 0);
-        uint64_t dt = sched_ticks() - t0;
-        if (dt > TIMER_HZ / 10) {
-            static uint64_t last_slow;
-            if (sched_ticks() - last_slow >= TIMER_HZ) {
-                plogk("uevent-dbg: broadcast of %s@%s took %llu ms\n", action_string, event_path, (unsigned long long)(dt * 1000ULL / TIMER_HZ));
-                last_slow = sched_ticks();
-            }
-        }
-    }
+    ret = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1U, message, message_len, 0);
     if (ret >= 0 || ret == -ESRCH || ret == -ECONNREFUSED || ret == -ENOBUFS) ret = EOK;
 out:
     free(message);

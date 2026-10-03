@@ -13,10 +13,8 @@
 
 #include <fs/core/vfs.h>
 #include <fs/sysfs/sysfs.h>
-#include <libs/list/circular_list.h>
-#include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
-#include <sync/spin_lock.h>
+
+#define KOBJ_NAME_LEN 64
 
 /* kref - reference-counting primitive */
 
@@ -24,65 +22,15 @@ typedef struct kref {
         uint32_t refcount;
 } kref_t;
 
-/* Increment the reference count */
-static inline void kref_init(kref_t *kref)
-{
-    __atomic_store_n(&kref->refcount, 1, __ATOMIC_RELEASE);
-}
-
-/* Take an additional reference without resurrecting a released object. */
-static inline int kref_get_unless_zero(kref_t *kref)
-{
-    uint32_t count = __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
-
-    while (count) {
-        if (count == UINT32_MAX) return 0;
-        if (__atomic_compare_exchange_n(&kref->refcount, &count, count + 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return 1;
-    }
-    return 0;
-}
-
-/* Take an additional reference */
-static inline void kref_get(kref_t *kref)
-{
-    (void)kref_get_unless_zero(kref);
-}
-
-/* Drop a reference; returns 1 if the count reached zero */
-static inline int kref_put(kref_t *kref, void (*release)(kref_t *kref))
-{
-    uint32_t count = __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
-
-    while (count) {
-        if (__atomic_compare_exchange_n(&kref->refcount, &count, count - 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-            if (count == 1) {
-                if (release) release(kref);
-                return 1;
-            }
-            return 0;
-        }
-    }
-    return 0;
-}
-
-/* Return the current reference count */
-static inline uint32_t kref_read(const kref_t *kref)
-{
-    return __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
-}
-
 /* Forward declarations */
 
 struct kobject;
 struct kset;
 struct kobj_type;
 
-#define UEVENT_NUM_ENVP    64
-#define UEVENT_BUFFER_SIZE 2048
-
 struct kobj_uevent_env {
-        char  envbuf[UEVENT_BUFFER_SIZE];
-        char *envp[UEVENT_NUM_ENVP];
+        char  envbuf[CONFIG_UEVENT_BUFFER_SIZE];
+        char *envp[CONFIG_UEVENT_NUM_ENVP];
         int   envp_idx;
         int   buflen;
 };
@@ -116,10 +64,7 @@ struct kset_uevent_ops {
         int (*uevent)(struct kobject *kobj, struct kobj_uevent_env *env);
 };
 
-/* kobject - the core object-model primitive */
-
-#define KOBJ_NAME_LEN 64
-
+/* The core object-model primitive. */
 struct kobject {
         const char       *name;   // name in sysfs
         struct kobject   *parent; // parent kobject (NULL = sysfs root)
@@ -144,7 +89,6 @@ struct kobject {
 };
 
 /* kset - a collection of kobjects (appears as a sysfs subdirectory) */
-
 struct kset {
         clist_t                       list;      // circular list of kobject entries
         spinlock_t                    list_lock; // protects list modifications
@@ -153,14 +97,29 @@ struct kset {
         unsigned int                  dynamic : 1;
 };
 
+/* Increment the reference count */
+void kref_init(kref_t *kref);
+
+/* Take an additional reference without resurrecting a released object. */
+int kref_get_unless_zero(kref_t *kref);
+
+/* Take an additional reference */
+void kref_get(kref_t *kref);
+
+/* Drop a reference; returns 1 if the count reached zero */
+int kref_put(kref_t *kref, void (*release)(kref_t *kref));
+
+/* Return the current reference count */
+uint32_t kref_read(const kref_t *kref);
+
 /* Initialise a kobject (must be called before kobject_add) */
 void kobject_init(struct kobject *kobj, struct kobj_type *ktype);
 
 /* Add a kobject to the hierarchy (creates sysfs directory) */
-int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...);
+__attribute__((format(printf, 3, 4))) int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...);
 
 /* Combined init + add with a va_list name format */
-int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...);
+__attribute__((format(printf, 4, 5))) int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...);
 
 /* Allocate, init, and add a standalone kobject (creates a directory) */
 struct kobject *kobject_create_and_add(const char *name, struct kobject *parent);
@@ -171,6 +130,9 @@ struct kobject *kobject_get(struct kobject *kobj);
 /* Drop a reference on a kobject */
 void kobject_put(struct kobject *kobj);
 
+/* Release callback for statically-allocated kobjects: nothing to free. */
+void kobject_static_release(struct kobject *kobj);
+
 /* Remove a kobject from the hierarchy (removes sysfs directory) */
 void kobject_del(struct kobject *kobj);
 
@@ -178,13 +140,19 @@ void kobject_del(struct kobject *kobj);
 int kobject_rename(struct kobject *kobj, const char *new_name);
 
 /* Set the name of a kobject */
-int kobject_set_name(struct kobject *kobj, const char *fmt, ...);
+__attribute__((format(printf, 2, 3))) int kobject_set_name(struct kobject *kobj, const char *fmt, ...);
 
 /* Move a kobject to a new parent */
 int kobject_move(struct kobject *kobj, struct kobject *new_parent);
 
 /* Return a pointer to the kobject's name */
 const char *kobject_name(const struct kobject *kobj);
+
+/* Find a child kobject by name, or NULL */
+struct kobject *kobject_find_child(struct kobject *parent, const char *name);
+
+/* Append data to a circular linked list, creating the node as needed */
+int kobject_list_add(clist_t *list, void *data);
 
 /* Initialise a kset */
 void kset_init(struct kset *kset);
@@ -196,17 +164,10 @@ struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops 
 void kset_unregister(struct kset *kset);
 
 /* Get a reference to the kset */
-static inline struct kset *kset_get(struct kset *kset)
-{
-    if (kset) kobject_get(&kset->kobj);
-    return kset;
-}
+struct kset *kset_get(struct kset *kset);
 
 /* Drop a reference to the kset */
-static inline void kset_put(struct kset *kset)
-{
-    if (kset) kobject_put(&kset->kobj);
-}
+void kset_put(struct kset *kset);
 
 /* Send a KOBJ_ADD uevent for a kobject */
 int kobject_uevent(struct kobject *kobj, enum kobject_action action);
@@ -215,7 +176,7 @@ int kobject_uevent(struct kobject *kobj, enum kobject_action action);
 int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *envp[], int nenv);
 
 /* Append one KEY=value entry to a type or subsystem uevent callback. */
-int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...);
+__attribute__((format(printf, 2, 3))) int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...);
 
 /* Parse and emit a userspace-triggered action written to a sysfs uevent file. */
 int kobject_synth_uevent(struct kobject *kobj, const char *buf, size_t count);

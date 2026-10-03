@@ -11,24 +11,22 @@
 #ifndef INCLUDE_TCP_H_
 #define INCLUDE_TCP_H_
 
-#include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
 #include <net/abi/inet.h>
 #include <net/ipv4/ipv4.h>
 #include <net/ipv6/ipv6.h>
 #include <process/task.h>
 
-#define TCP_ENDPOINT_MAX    128U
-#define TCP_ACCEPT_MAX      16U
-#define TCP_RX_BUFFER_MAX   65535U
-#define TCP_TX_SEGMENT_MAX  32U
-#define TCP_OOO_SEGMENT_MAX 16U
-
-#define TCP_KEEPIDLE_DEFAULT_TICKS  ((uint64_t)7200U * TIMER_HZ)
-#define TCP_KEEPINTVL_DEFAULT_TICKS ((uint64_t)75U * TIMER_HZ)
+#define TCP_KEEPIDLE_DEFAULT_TICKS  ((uint64_t)7200U * CONFIG_TIMER_HZ)
+#define TCP_KEEPINTVL_DEFAULT_TICKS ((uint64_t)75U * CONFIG_TIMER_HZ)
 #define TCP_KEEPCNT_DEFAULT         9U
-#define TCP_SYN_RETRIES_DEFAULT     6U
-#define TCP_DATA_RETRIES_DEFAULT    15U
+
+#define TCP_HEADER_LEN 20U
+#define TCP_FLAG_FIN   0x01U
+#define TCP_FLAG_SYN   0x02U
+#define TCP_FLAG_RST   0x04U
+#define TCP_FLAG_PSH   0x08U
+#define TCP_FLAG_ACK   0x10U
 
 #define TCP_READY_READ   0x01U
 #define TCP_READY_WRITE  0x02U
@@ -49,18 +47,6 @@ typedef enum tcp_state {
     TCP_LAST_ACK,
     TCP_TIME_WAIT,
 } tcp_state_t;
-
-#define TCP_STATE_CLOSED       TCP_CLOSED
-#define TCP_STATE_LISTEN       TCP_LISTEN
-#define TCP_STATE_SYN_SENT     TCP_SYN_SENT
-#define TCP_STATE_SYN_RECEIVED TCP_SYN_RECEIVED
-#define TCP_STATE_ESTABLISHED  TCP_ESTABLISHED
-#define TCP_STATE_FIN_WAIT_1   TCP_FIN_WAIT_1
-#define TCP_STATE_FIN_WAIT_2   TCP_FIN_WAIT_2
-#define TCP_STATE_CLOSE_WAIT   TCP_CLOSE_WAIT
-#define TCP_STATE_CLOSING      TCP_CLOSING
-#define TCP_STATE_LAST_ACK     TCP_LAST_ACK
-#define TCP_STATE_TIME_WAIT    TCP_TIME_WAIT
 
 typedef enum tcp_event {
     TCP_EVENT_ACTIVE_OPEN,
@@ -84,8 +70,75 @@ typedef struct net_tcp_segment {
         size_t         payload_len;
 } net_tcp_segment_t;
 
-typedef struct tcp_endpoint tcp_endpoint_t;
+typedef struct tcp_tx_record  tcp_tx_record_t;
+typedef struct tcp_ooo_record tcp_ooo_record_t;
+typedef struct tcp_endpoint   tcp_endpoint_t;
 typedef void (*tcp_event_callback_t)(tcp_endpoint_t *endpoint, uint32_t events, void *context);
+
+typedef struct tcp_endpoint {
+        uint16_t             family;
+        uint8_t              native6;
+        uint8_t              v6only;
+        uint32_t             local_address;
+        uint32_t             remote_address;
+        ipv6_address_t       local_address6;
+        ipv6_address_t       remote_address6;
+        uint16_t             local_port;
+        uint16_t             remote_port;
+        tcp_state_t          state;
+        uint32_t             snd_una;
+        uint32_t             snd_nxt;
+        uint32_t             snd_wl1;
+        uint32_t             snd_wl2;
+        uint32_t             rcv_nxt;
+        uint16_t             peer_window;
+        uint16_t             peer_mss;
+        uint16_t             rx_length;
+        uint16_t             ooo_length;
+        uint8_t             *rx_data;
+        int                  error;
+        uint8_t              bound;
+        uint8_t              backlog;
+        uint8_t              accept_head;
+        uint8_t              accept_tail;
+        uint8_t              accept_count;
+        uint64_t             time_wait_until;
+        uint64_t             last_received;
+        uint64_t             keepalive_deadline;
+        uint64_t             persist_deadline;
+        uint32_t             cwnd;
+        uint32_t             ssthresh;
+        uint32_t             rto;
+        uint32_t             srtt;
+        uint32_t             rttvar;
+        uint32_t             last_ack;
+        uint32_t             recover;
+        uint32_t             retransmissions;
+        uint32_t             keepalive_probes_sent;
+        uint32_t             persist_probes_sent;
+        uint32_t             persist_interval;
+        uint32_t             keepalive_idle;
+        uint32_t             keepalive_interval;
+        uint8_t              duplicate_acks;
+        uint8_t              keepalive_probe_count;
+        uint8_t              keepalive_count;
+        uint8_t              syn_retries;
+        uint8_t              data_retries;
+        uint8_t              keepalive_enabled;
+        uint8_t              fast_recovery;
+        uint8_t              persist_needed;
+        uint8_t              persist_byte;
+        uint8_t              ooo_count;
+        uint8_t              orphaned;
+        struct tcp_endpoint *parent;
+        struct tcp_endpoint *accept_queue[CONFIG_TCP_ACCEPT_MAX];
+        tcp_tx_record_t     *tx_head;
+        tcp_ooo_record_t    *ooo_head;
+        wait_queue_t         wait;
+        spinlock_t           lock;
+        tcp_event_callback_t event_callback;
+        void                *event_context;
+} tcp_endpoint_t;
 
 typedef enum tcp_option {
     TCP_OPTION_KEEPALIVE,
@@ -148,10 +201,16 @@ void          tcp_set_event_callback(tcp_endpoint_t *endpoint, tcp_event_callbac
 wait_queue_t *tcp_wait_queue(tcp_endpoint_t *endpoint);
 
 /* Protocol entry points and packet parsing. */
-int         tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet);
-int         tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
-void        tcp_control_error(uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu);
-void        tcp_timer(uint64_t now_ticks);
+int  tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet);
+int  tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
+void tcp_control_error(uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu);
+
+#if CONFIG_INET && CONFIG_NET
+void tcp_timer(uint64_t now_ticks);
+#else
+static inline void tcp_timer(uint64_t) {}
+#endif
+
 int         net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_tcp_segment_t *segment);
 int         net_tcp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination, net_tcp_segment_t *segment);
 int         net_tcp_seq_before(uint32_t a, uint32_t b);

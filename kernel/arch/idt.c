@@ -10,7 +10,6 @@
 
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <libs/std/stdint.h>
 
 idt_register_t idt_pointer;
 idt_entry_t    idt_entries[256];
@@ -39,4 +38,10 @@ void register_interrupt_handler(uint16_t vector, void *handler, uint8_t ist, uin
     idt_entries[vector].selector   = 0x08;
     idt_entries[vector].offset_mid = (uint16_t)(addr >> 16);
     idt_entries[vector].offset_hi  = (uint32_t)(addr >> 32);
+}
+
+/* Restore an interrupt vector to its default empty handler */
+void unregister_interrupt_handler(uint16_t vector)
+{
+    register_interrupt_handler(vector, (void *)empty_handle[vector], 0, 0x8e);
 }

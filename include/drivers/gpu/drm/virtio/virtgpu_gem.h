@@ -11,8 +11,6 @@
 #ifndef INCLUDE_VIRTGPU_GEM_H_
 #define INCLUDE_VIRTGPU_GEM_H_
 
-#include <drivers/gpu/drm/virtio/virtgpu_drv.h>
-
 /* Helper to convert drm_gem_object to virtio_gpu_object */
 #define to_virtio_gpu_object(obj) ((struct virtio_gpu_object *)(obj))
 

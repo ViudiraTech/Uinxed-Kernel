@@ -12,6 +12,12 @@
   <a href="https://deepwiki.com/ViudiraTech/Uinxed-Kernel"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </div>
 
+<div align="center">
+
+  **English (current)** | [中文](docs/README_zh.md) | [日本語](docs/README_ja.md) | [한국어](docs/README_ko.md) | [Русский](docs/README_ru.md) | [Français](docs/README_fr.md)
+
+</div>
+
 ---
 
 ## Overview
@@ -25,6 +31,7 @@ The project aims to build a practical, self-contained kernel with modern design 
 ## Core Features
 
 ### Scheduling & Process Management
+
 - EEVDF (Earliest Eligible Virtual Deadline First) scheduler with per-CPU runqueues and a red-black tree timeline (`vruntime`, `deadline`, `vlag`, `weight`)
 - SMP-aware task placement, CPU migration, load balancing, and IPI-based preemption
 - Two-phase wait queues that avoid lost wakeups, plus timed waits backed by the scheduler timer queue
@@ -33,22 +40,26 @@ The project aims to build a practical, self-contained kernel with modern design 
 - Linux-compatible `ptrace` and cgroups with a pids controller
 
 ### Memory Management
+
 - Physical frame allocator (binary buddy) and standard 4-level paging with 4 KiB, 2 MiB, and 1 GiB pages
 - Higher-half direct map (`HHDM`) and a buddy-backed kernel heap/slab allocator
 - Unified page cache with page locking, LRU reclaim, dirty-page writeback, readahead, and truncation
 - Swap subsystem for anonymous memory: multiple swap areas, slot allocation, and swap-in/swap-out fault handling
 
 ### VFS & Filesystems
+
 - UNIX-style virtual filesystem with mount points, inode-like nodes, and a callback-based driver interface
 - tmpfs as the default root filesystem; procfs, sysfs, devtmpfs, cpio, and cgroupfs for virtual views
 - FAT12/16/32/exFAT (via FatFS with 64-bit LBA and variable sector sizes), ext2/ext3/ext4, NTFS (with write support), and ISO 9660 (with Rock Ridge)
 
 ### Networking
+
 - In-house protocol stack: Ethernet, ARP, IPv4/IPv6, ICMP/ICMPv6, NDP, UDP, and TCP
 - Ethernet NIC drivers: Intel e1000/e1000e (82540EM, 82545EM, 82546EB, 82541PI, 82574L) and Realtek RTL8139/RTL8169, behind a generic network-device abstraction
 - Linux `AF_INET` / `AF_INET6` socket ABI (`SOCK_DGRAM` / `SOCK_STREAM`), a DHCP client, and `/proc/net` / `/sys/class/net` views
 
 ### ABI & IPC
+
 - Linux x86-64 syscall ABI (Linux 6.12 numbering, 0-462)
 - `AF_UNIX`, `AF_NETLINK`, `AF_INET`, `AF_INET6` sockets
 - pipes, `epoll`, `eventfd`, `timerfd`, `signalfd`, `memfd`, `pidfd`, POSIX message queues, and System V IPC
@@ -58,10 +69,12 @@ The project aims to build a practical, self-contained kernel with modern design 
 - Loadable kernel modules via `init_module` / `finit_module` / `delete_module`
 
 ### Security & Tracing
+
 - seccomp filters with `no_new_privs`, user notifications, and seccomp event support
 - Linux-compatible `ptrace` inspection, process lifecycle events, and syscall-stop handling
 
 ### Drivers
+
 - **Input:** PS/2 keyboard and mouse, Linux-compatible `evdev`, USB HID (keyboard, mouse, consumer control)
 - **Storage:** IDE/ATA, AHCI (SATA), NVMe, and USB Mass Storage (Bulk-Only Transport / SCSI)
 - **Audio:** Sound Blaster 16, Intel HD Audio, and an ALSA-compatible PCM/control ABI
@@ -168,13 +181,14 @@ Uinxed-Kernel/
 |-- mem/              # Memory management subsystem
 |-- net/              # Network stack and protocol implementations
 |-- scripts/          # Build, configuration, and maintenance scripts
-|-- security          # Security and policy-related components
+|-- security/         # Security and policy-related components
 |-- tools/            # Development, debugging, and auxiliary tools
-|-- .clangd_template  # Clangd configuration template
 |-- .clang-format     # Code formatting configuration
 |-- .clang-tidy       # Static analysis configuration
 |-- .config-default   # Default kernel configuration
 |-- .gitignore        # Git ignore rules
+|-- CONTRIBUTING.md   # Contribution guidelines
+|-- CREDITS           # Contributors
 |-- Kconfig           # Kernel configuration system
 |-- LICENSE           # Project license (Apache License 2.0)
 |-- Makefile          # Build system
@@ -220,37 +234,12 @@ Some subsystems are disabled by default in Kconfig. For example, `VIRTIO` and `V
 
 Yes, but treat it as an experimental kernel. Follow the physical-hardware steps above, and prefer disposable machines or test disks - filesystem drivers (especially the NTFS writer) are not yet safe for important data.
 
-## Contributing
-
-Contributions are welcome! Follow these steps:
-
-1. Fork the repository and clone it to your local machine.
-2. Make your changes.
-3. Run static analysis to make sure nothing is broken: `make check`
-4. Format your code: `make format`
-5. Submit your changes using one of the following methods:
-   * Push to your fork and open a Pull Request against `master`.
-   * Create a patch and send it to the project maintainer's email address [(see below)](#contact).
-
-It is recommended to submit a patch so that maintainers can test and review your changes before merging.
-
-### Submit an Issue
-
-Encountering a bug? File an issue - we welcome them all. A few guidelines:
-
-1. **Describe the problem in as much detail as possible.** Logs and code snippets go a long way toward understanding what happened.
-2. **Just be polite.** A respectful report gets solved smoothly; hostility helps nobody.
-3. **No need to be overly formal.** Casual is fine - we are partners in making this project better.
-4. **Your native language is welcome.** You may write in any language, but keep in mind that typos can confuse translation tools.
-
 ## License & Disclaimer
 
 ### License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
-
 This distribution includes third-party software, each under its own license. Full attribution and license texts are collected in [NOTICE](NOTICE).
-
 Parts of the codebase reference and reimplement Linux kernel interfaces for interoperability. These are independent implementations of public interfaces and specifications; they do not contain Linux kernel source code.
 
 ### Disclaimer

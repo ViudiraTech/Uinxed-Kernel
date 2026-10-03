@@ -9,7 +9,6 @@
  */
 
 #include <arch/smp.h>
-#include <boot/limine.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
@@ -18,12 +17,15 @@
 #include <libs/gfx/bmp.h>
 
 /* Saved CPU count so the logo can be redrawn after a framebuffer switch */
+#if CONFIG_BOOT_LOGO
 static uint32_t saved_logo_count = 0;
+#endif
 
 /* Draw the kernel logo */
 void video_draw_logo(uint32_t count)
 {
-#if BOOT_LOGO
+    (void)count;
+#if CONFIG_BOOT_LOGO
     if (count <= 0) return;
 
     saved_logo_count = count;
@@ -50,7 +52,7 @@ void video_draw_logo(uint32_t count)
 /* Redraw the logo on the current framebuffer (e.g. after a DRM switch) */
 void video_redraw_logo(void)
 {
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     if (saved_logo_count > 0) video_draw_logo(saved_logo_count);
 #endif
 }
@@ -64,11 +66,13 @@ void video_clear_logo(void)
 /* Show the boot logo on the boot console, honoring the CPU count limit. */
 void video_show_boot_logo(void)
 {
-#if BOOT_LOGO
+#if CONFIG_BOOT_LOGO
     tty_device_t *boot_tty = get_boot_tty();
     if (boot_tty->type == TTY_DEVICE_VGA || boot_tty->type == TTY_DEVICE_DRM) {
-        struct limine_smp_response *smp = smp_request.response;
-        video_draw_logo((!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count));
+        struct limine_smp_response *smp       = smp_request.response;
+        uint32_t                    cpu_count = smp->cpu_count;
+        if (CONFIG_CPU_MAX_COUNT && cpu_count > CONFIG_CPU_MAX_COUNT) cpu_count = CONFIG_CPU_MAX_COUNT;
+        video_draw_logo(cpu_count);
     }
 #endif
 }

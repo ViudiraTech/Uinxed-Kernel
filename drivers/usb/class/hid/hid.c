@@ -1,7 +1,7 @@
 /*
  *
  *      hid.c
- *      USB HID transport and Linux evdev binding
+ *      USB HID transport and evdev binding
  *
  *      2026/7/28 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -11,19 +11,13 @@
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/usb/class/hid/usb_hid.h>
 #include <drivers/usb/core/usb.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <libs/std/string.h>
-#include <mem/alloc.h>
+#include <libs/util/bitops.h>
 #include <mem/heap.h>
 
-#define USB_HID_REQ_SET_IDLE       0x0a
-#define USB_HID_REQ_SET_PROTOCOL   0x0b
-#define USB_HID_REQ_SET_REPORT     0x09
-#define USB_HID_REPORT_TYPE_OUTPUT 0x02
-#define USB_HID_REPORT_PROTOCOL    1
-#define USB_HID_MAX_REPORT_SIZE    4096
-#define USB_HID_EVENT_CAPACITY     128
+#if CONFIG_USB_HID && CONFIG_USB
+
+#    define USB_HID_MAX_REPORT_SIZE 4096
+#    define USB_HID_EVENT_CAPACITY  128
 
 typedef struct {
         usb_interface_t *interface;
@@ -42,12 +36,6 @@ typedef struct {
 static void hid_input_release(input_dev_t *input)
 {
     free(input);
-}
-
-/* Set a single bit in an evdev capability bitmap. */
-static void hid_set_bit(unsigned int bit, uint32_t *bitmap)
-{
-    bitmap[bit / 32] |= 1U << (bit % 32);
 }
 
 /* Push the lock-key LED state to the keyboard via Set Report. */
@@ -71,20 +59,12 @@ static uint16_t hid_usage_at(const usb_hid_field_t *field, size_t index)
     return 0;
 }
 
-/* Resolve the usage page for a report index. */
-static uint16_t hid_usage_page_at(const usb_hid_field_t *field, size_t index)
-{
-    if (index < field->usage_count) return field->usage_pages[index];
-    if (field->usage_minimum_page == field->usage_maximum_page) return field->usage_minimum_page;
-    return field->usage_page;
-}
-
 /* Advertise one key in the input device's capability bitmaps. */
 static void hid_enable_key(input_dev_t *input, uint16_t keycode)
 {
     if (!keycode || keycode >= KEY_CNT) return;
-    hid_set_bit(EV_KEY, input->evbit);
-    hid_set_bit(keycode, input->keybit);
+    set_bit(EV_KEY, input->evbit);
+    set_bit(keycode, input->keybit);
 }
 
 /* Advertise an axis usage as relative or absolute with its range. */
@@ -93,39 +73,40 @@ static void hid_enable_axis(input_dev_t *input, const usb_hid_field_t *field, ui
     bool     relative = (field->flags & USB_HID_MAIN_RELATIVE) != 0;
     uint16_t code;
 
+    /* The generic-desktop axes share one numbering between REL_* and ABS_*. */
     switch (usage) {
         case 0x30 :
-            code = relative ? REL_X : ABS_X; // NOLINT(bugprone-branch-clone)
+            code = REL_X;
             break;
         case 0x31 :
-            code = relative ? REL_Y : ABS_Y; // NOLINT(bugprone-branch-clone)
+            code = REL_Y;
             break;
         case 0x32 :
-            code = relative ? REL_Z : ABS_Z; // NOLINT(bugprone-branch-clone)
+            code = REL_Z;
             break;
         case 0x33 :
-            code = relative ? REL_RX : ABS_RX; // NOLINT(bugprone-branch-clone)
+            code = REL_RX;
             break;
         case 0x34 :
-            code = relative ? REL_RY : ABS_RY; // NOLINT(bugprone-branch-clone)
+            code = REL_RY;
             break;
         case 0x35 :
-            code = relative ? REL_RZ : ABS_RZ; // NOLINT(bugprone-branch-clone)
+            code = REL_RZ;
             break;
         case 0x38 :
-            code = relative ? REL_WHEEL : ABS_WHEEL; // NOLINT(bugprone-branch-clone)
+            code = REL_WHEEL;
             break;
         default :
             return;
     }
     if (relative) {
         if (code >= REL_CNT) return;
-        hid_set_bit(EV_REL, input->evbit);
-        hid_set_bit(code, input->relbit);
+        set_bit(EV_REL, input->evbit);
+        set_bit(code, input->relbit);
     } else {
         if (code >= ABS_CNT) return;
-        hid_set_bit(EV_ABS, input->evbit);
-        hid_set_bit(code, input->absbit);
+        set_bit(EV_ABS, input->evbit);
+        set_bit(code, input->absbit);
         input->absinfo[code].minimum = field->logical_minimum;
         input->absinfo[code].maximum = field->logical_maximum;
     }
@@ -141,7 +122,7 @@ static void hid_build_capabilities(usb_hid_device_t *hid)
 
         for (size_t usage_index = 0; usage_index < field->report_count; usage_index++) {
             uint16_t usage = hid_usage_at(field, usage_index);
-            switch (hid_usage_page_at(field, usage_index)) {
+            switch (hid_field_usage_page(field, usage_index)) {
                 case 0x01 :
                     hid_enable_axis(input, field, usage);
                     break;
@@ -198,7 +179,7 @@ static int hid_register_inputs(usb_hid_device_t *hid)
         input->exist                  = true;
         input->release                = hid_input_release;
         input->hint_events_per_packet = 16;
-        hid_set_bit(EV_SYN, input->evbit);
+        set_bit(EV_SYN, input->evbit);
     }
     hid_build_capabilities(hid);
     for (size_t i = 0; i < hid->application_count; i++) {
@@ -268,7 +249,6 @@ static int hid_report_descriptor_length(const usb_interface_t *interface, uint16
 /* Probe a HID interface: fetch the report and start interrupt input. */
 int usb_hid_probe(usb_interface_t *interface)
 {
-#if CONFIG_USB_HID
     uint16_t report_length;
     int      result;
 
@@ -298,9 +278,11 @@ int usb_hid_probe(usb_interface_t *interface)
     (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_PROTOCOL, USB_HID_REPORT_PROTOCOL, interface->descriptor.interface_number, NULL, 0,
                           USB_CTRL_TIMEOUT_MS);
 
-    /* HID Output reports exist only for devices with LED or other host-to-device controls
+    /*
+     * HID Output reports exist only for devices with LED or other host-to-device controls
      * (e.g., keyboard). Sending SET_REPORT to a pure Input device such as QEMU HID Mouse
-     * stalls and times out per HID 1.11 §7.2. Check the descriptor. */
+     * stalls and times out per HID 1.11 §7.2. Check the descriptor.
+     */
     if (hid->report.has_output) {
         hid_set_leds(hid, 0);
         evdev_register_led_notify(hid_led_notify, hid);
@@ -331,16 +313,11 @@ fail:
     free(hid->report_descriptor);
     free(hid);
     return result;
-#else
-    (void)interface;
-    return -ENOSYS;
-#endif
 }
 
 /* Disconnect a HID interface, stopping input and freeing the device. */
 void usb_hid_disconnect(usb_interface_t *interface)
 {
-#if CONFIG_USB_HID
     usb_hid_device_t *hid = interface ? interface->driver_data : NULL;
     if (!hid) return;
     hid->running = false;
@@ -350,7 +327,6 @@ void usb_hid_disconnect(usb_interface_t *interface)
     interface->driver_data = NULL;
     free(hid->report_descriptor);
     free(hid);
-#else
-    (void)interface;
-#endif
 }
+
+#endif

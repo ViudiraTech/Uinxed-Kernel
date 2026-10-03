@@ -8,8 +8,9 @@
  *
  */
 
+#define __LIBS_STD_STRING_INTERNAL
+
 #include <libs/std/math.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
@@ -19,14 +20,6 @@ void *memcpy(void *str1, const void *str2, size_t n)
 {
     if (str1 == str2 || !n) return str1;
 
-#if defined(__x86_64__) || defined(__i386__)
-    /*
-     * The old fallback used volatile byte accesses, which prevented the
-     * compiler and the CPU from combining ordinary kernel copies.  Keep the
-     * implementation freestanding, but let the processor select its
-     * optimized string engine.  The kernel is compiled without SSE state in
-     * general, so this is safer than borrowing XMM registers in a hot path.
-     */
     void       *dest  = str1;
     const void *src   = str2;
     size_t      words = n / sizeof(uint64_t);
@@ -35,18 +28,11 @@ void *memcpy(void *str1, const void *str2, size_t n)
     if (words) __asm__ volatile("cld; rep movsq" : "+D"(dest), "+S"(src), "+c"(words) : : "memory");
     if (tail) __asm__ volatile("cld; rep movsb" : "+D"(dest), "+S"(src), "+c"(tail) : : "memory");
     return str1;
-#else
-    uint8_t       *dest = (uint8_t *)str1;
-    const uint8_t *src  = (const uint8_t *)str2;
-    while (n--) *dest++ = *src++;
-    return str1;
-#endif
 }
 
 /* Sets a memory area to the specified value */
 void *memset(void *str, int c, size_t n)
 {
-#if defined(__x86_64__) || defined(__i386__)
     void    *dest  = str;
     size_t   words = n / sizeof(uint64_t);
     size_t   tail  = n % sizeof(uint64_t);
@@ -56,19 +42,12 @@ void *memset(void *str, int c, size_t n)
     if (words) __asm__ volatile("cld; rep stosq" : "+D"(dest), "+c"(words) : "a"(value) : "memory");
     if (tail) __asm__ volatile("cld; rep stosb" : "+D"(dest), "+c"(tail) : "a"(c) : "memory");
     return str;
-#else
-    uint8_t *dest = (uint8_t *)str;
-    while (n--) *dest++ = (uint8_t)c;
-    return str;
-#endif
 }
 
 /* Copies n characters from str2 to str1, accounting for overlaps */
 void *memmove(void *str1, const void *str2, size_t n)
 {
     if (str1 == str2 || !n) return str1;
-
-#if defined(__x86_64__) || defined(__i386__)
     uint8_t       *dest = (uint8_t *)str1;
     const uint8_t *src  = (const uint8_t *)str2;
 
@@ -83,26 +62,11 @@ void *memmove(void *str1, const void *str2, size_t n)
         __asm__ volatile("std; rep movsb; cld" : "+D"(dest), "+S"(src), "+c"(n) : : "memory");
     }
     return str1;
-#else
-    uint8_t       *dest = (uint8_t *)str1;
-    const uint8_t *src  = (const uint8_t *)str2;
-    if (dest > src && dest < src + n) {
-        dest += n;
-        src += n;
-        while (n--) *--dest = *--src;
-    } else {
-        while (n--) *dest++ = *src++;
-    }
-    return str1;
-#endif
 }
 
 /* Compares the first n bytes of memory area str1 with those of memory area str2 */
 int memcmp(const void *str1, const void *str2, size_t n)
 {
-#if defined(__builtin_memcmp)
-    return __builtin_memcmp(str1, str2, n);
-#else
     const uint8_t *_str1 = (const uint8_t *)str1;
     const uint8_t *_str2 = (const uint8_t *)str2;
     const uint8_t *end   = (const uint8_t *)((uint8_t *)str1 + n);
@@ -112,7 +76,6 @@ int memcmp(const void *str1, const void *str2, size_t n)
         if (*_str1 > *_str2) return 1;
     }
     return 0;
-#endif
 }
 
 /* Finds the first occurrence of c in the first n bytes of a memory area */
@@ -129,33 +92,22 @@ void *memchr(const void *str, int c, size_t n)
 /* Calculates the length of the string str */
 size_t strlen(const char *str)
 {
-#if defined(__builtin_strlen)
-    return __builtin_strlen(str);
-#else
     size_t len = 0;
     while (*str++ != '\0') len++;
     return len;
-#endif
 }
 
 /* Copies the string pointed to by src to dest */
 char *strcpy(char *dest, const char *src)
 {
-#if defined(__builtin_strcpy)
-    return __builtin_strcpy(dest, src);
-#else
     char *_dest = dest;
     while ((*dest++ = *src++) != '\0');
     return _dest;
-#endif
 }
 
 /* Copies the string pointed to by src to dest, up to n characters. */
 char *strncpy(char *dest, const char *src, size_t n)
 {
-#if defined(__builtin_strncpy)
-    return __builtin_strncpy(dest, src, n);
-#else
     char  *result = dest;
     size_t i      = 0;
 
@@ -171,15 +123,11 @@ char *strncpy(char *dest, const char *src, size_t n)
     }
     while (i < n) dest[i++] = '\0';
     return result;
-#endif
 }
 
 /* Compares the string pointed to by str1 with the string pointed to by str2 */
 int strcmp(const char *str1, const char *str2)
 {
-#if defined(__builtin_strcmp)
-    return __builtin_strcmp(str1, str2);
-#else
     const uint8_t *_str1 = (const uint8_t *)str1;
     const uint8_t *_str2 = (const uint8_t *)str2;
     int            c1, c2;
@@ -190,15 +138,11 @@ int strcmp(const char *str1, const char *str2)
         if (!c1) return c1 - c2;
     } while (c1 == c2);
     return c1 - c2;
-#endif
 }
 
 /* Compares the first n characters of two strings for equality */
 int strncmp(const char *str1, const char *str2, size_t n)
 {
-#if defined(__builtin_strncmp)
-    return __builtin_strncmp(str1, str2, n);
-#else
     const uint8_t *_str1 = (const uint8_t *)str1;
     const uint8_t *end   = (const uint8_t *)str1 + n;
     const uint8_t *_str2 = (const uint8_t *)str2;
@@ -211,54 +155,38 @@ int strncmp(const char *str1, const char *str2, size_t n)
         if (c1 != c2) return c1 - c2;
     }
     return 0;
-#endif
 }
 
 /* Append the string pointed to by src to the end of the string pointed to by dest */
 char *strcat(char *dest, const char *src)
 {
-#if defined(__builtin_strcat)
-    return __builtin_strcat(dest, src);
-#else
     const char *_dest = dest;
     while (*dest++ != '\0');
     dest--;
     while ((*dest++ = *src++) != '\0');
     return (char *)_dest;
-#endif
 }
 
 /* Finds a character in a string and returns the position of the character in the string */
 char *strchr(const char *str, int c)
 {
-#if defined(__builtin_strchr)
-    return __builtin_strchr(str, c);
-#else
     for (; *str != '\0'; str++)
         if (*str == c) return (char *)str;
     return 0;
-#endif
 }
 
 /* Searches the string pointed to by the parameter str for the last occurrence of the character c */
 char *strrchr(const char *str, int c)
 {
-#if defined(__builtin_strrchr)
-    return __builtin_strrchr(str, c);
-#else
     const char *finded = 0;
     for (; *str != '\0'; str++)
         if (*str == c) finded = str;
     return (char *)finded;
-#endif
 }
 
 /* Find the first occurrence of the string needle in the string haystack, excluding the terminator */
 char *strstr(const char *haystack, const char *needle)
 {
-#if defined(__builtin_strstr)
-    return __builtin_strstr(haystack, needle);
-#else
     size_t _sn = strlen(haystack), _tn = strlen(needle);
 
     if (!_tn) return (char *)haystack;
@@ -269,39 +197,39 @@ char *strstr(const char *haystack, const char *needle)
     for (size_t i = 0; i <= _sn - _tn; i++)
         if (!strncmp(s + i, t, _tn)) return (char *)(s + i);
     return 0;
-#endif
 }
 
 /* Make a copy of the string and return it */
 char *strdup(const char *s)
 {
-#if defined(__builtin_strdup)
-    return __builtin_strdup(s);
-#else
     size_t len = strlen(s) + 1;
-    void  *p   = (void *)malloc(len);
+    void  *p   = malloc(len);
 
     if (p) memcpy(p, (uint8_t *)s, len);
     return p;
-#endif
 }
 
 /* String equality check */
 int streq(const char *s1, const char *s2)
 {
-#if defined(__builtin_streq)
-    return __builtin_streq(s1, s2);
-#else
     return !strcmp(s1, s2);
-#endif
+}
+
+/* Equality check of a length-bounded buffer against a token, ignoring trailing whitespace. */
+int streq_trimmed(const char *buf, size_t count, const char *token)
+{
+    size_t token_len;
+    if (!buf || !token) return 0;
+
+    /* Strip a trailing newline (optionally preceded by CR) and stray whitespace. */
+    while (count && (buf[count - 1] == '\n' || buf[count - 1] == '\r' || buf[count - 1] == ' ' || buf[count - 1] == '\t')) count--;
+    token_len = strlen(token);
+    return count == token_len && memcmp(buf, token, token_len) == 0;
 }
 
 /* String splitting */
 char *strtok(char *str, const char *delim)
 {
-#if defined(__builtin_strtok)
-    return __builtin_strtok(str, delim);
-#else
     static char *last = 0;
     if (str) {
         last = str;
@@ -326,15 +254,11 @@ char *strtok(char *str, const char *delim)
         last = 0;
     }
     return start;
-#endif
 }
 
 /* String to long integer */
 int64_t strtol(const char *str, char **endptr, int base)
 {
-#if defined(__builtin_strtol)
-    return __builtin_strtol(str, endptr, base);
-#else
     const char *s      = str;
     uint64_t    acc    = 0;
     char        c      = '\0';
@@ -369,14 +293,15 @@ int64_t strtol(const char *str, char **endptr, int base)
     cutoff /= base;
 
     for (;; c = *s++) {
-        if (c >= '0' && c <= '9')
+        if (c >= '0' && c <= '9') {
             c -= '0';
-        else if (c >= 'A' && c <= 'Z')
+        } else if (c >= 'A' && c <= 'Z') {
             c -= 'A' - 10;
-        else if (c >= 'a' && c <= 'z')
+        } else if (c >= 'a' && c <= 'z') {
             c -= 'a' - 10;
-        else
+        } else {
             break;
+        }
         if (c >= base) break;
         if (acc > cutoff || (acc == cutoff && ((uint64_t)c) > cutlim)) {
             any = -1;
@@ -393,5 +318,4 @@ noconv:;
     }
     if ((void *)endptr) *endptr = (char *)(any ? s - 1 : str);
     return (int64_t)(acc);
-#endif
 }

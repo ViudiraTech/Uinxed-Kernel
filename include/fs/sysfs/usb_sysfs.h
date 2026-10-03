@@ -17,6 +17,10 @@ struct attribute_group;
 extern const struct attribute_group *usb_device_groups[];
 
 /* Register /sys/bus/usb with the device model. */
+#if CONFIG_USB
 void usb_sysfs_init(void);
+#else
+static inline void usb_sysfs_init(void) {}
+#endif
 
 #endif // INCLUDE_USB_SYSFS_H_

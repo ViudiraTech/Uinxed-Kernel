@@ -11,20 +11,19 @@
 #include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
-#include <arch/gdt.h>
 #include <arch/smbios.h>
 #include <arch/smp.h>
 #include <boot/limine_module.h>
 #include <cgroup/cgroup.h>
+#include <drivers/audio/intel/hda.h>
+#include <drivers/audio/soundblaster/sb16.h>
 #include <drivers/base/device.h>
 #include <drivers/block/ata/pata/ide.h>
 #include <drivers/block/ata/sata/ahci.h>
 #include <drivers/block/core/gendisk.h>
 #include <drivers/block/nvme/nvme.h>
-#include <drivers/bus/pci.h>
 #include <drivers/char/chrdev.h>
 #include <drivers/char/tpm/tpm.h>
-#include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
@@ -35,8 +34,6 @@
 #include <drivers/net/ethernet/realtek/rtl8139.h>
 #include <drivers/net/ethernet/realtek/rtl8169.h>
 #include <drivers/parport/parport.h>
-#include <drivers/sound/intel/hda.h>
-#include <drivers/sound/soundblaster/sb16.h>
 #include <drivers/time/rtc.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/serial/8250.h>
@@ -46,13 +43,12 @@
 #include <drivers/usb/host/host.h>
 #include <fs/cgroup/cgroupfs.h>
 #include <fs/core/inotify.h>
-#include <fs/core/vfs.h>
 #include <fs/cpio/cpio.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/extfs/extfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
-#include <fs/ntfs/ntfs_vfs.h>
+#include <fs/ntfs/ntfs.h>
 #include <fs/proc/procfs.h>
 #include <fs/sysfs/block_sysfs.h>
 #include <fs/sysfs/dmi_sysfs.h>
@@ -67,51 +63,44 @@
 #include <fs/sysfs/pci_sysfs.h>
 #include <fs/sysfs/rtc_sysfs.h>
 #include <fs/sysfs/sound_sysfs.h>
-#include <fs/sysfs/sysfs.h>
 #include <fs/sysfs/tpm_sysfs.h>
 #include <fs/sysfs/tty_sysfs.h>
 #include <fs/sysfs/usb_sysfs.h>
-#include <fs/tmpfs/tmpfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
 #include <ipc/pipe.h>
 #include <ipc/posix_mq.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/cmdline/cmdline.h>
-#include <kernel/config.h>
 #include <kernel/debug/debug.h>
-#include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <kernel/uinxed.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
-#include <mem/page.h>
 #include <mem/swap.h>
+#include <net/core/loopback.h>
 #include <net/core/netdev.h>
+#include <net/ipv4/arp.h>
 #include <net/ipv4/dhcp.h>
+#include <net/ipv6/ndp.h>
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
 #include <process/elf_loader.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <security/seccomp.h>
-#include <sync/signal.h>
-#include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
-#include <syscall/mmap.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
 
 /* Executable entry */
-void executable_entry(void)
+__attribute__((noreturn)) void executable_entry(void)
 {
     const char *msg     = "Theoretically you should use Limine to boot this kernel, not execute it directly.\n";
     size_t      msg_len = 0;
@@ -129,7 +118,7 @@ void executable_entry(void)
                      : "r"(msg), "r"(msg), "r"(msg_len)
                      : "%rax", "%rdi", "%rsi", "%rdx", "memory");
 
-    while (1) __asm__ volatile("cli; hlt");
+    krn_halt();
 }
 
 /* Load `path` as PID 1, logging any failure and returning the status. */
@@ -149,7 +138,7 @@ static void swapper_run_init(void)
 {
     process_t *init = process_create("init");
     if (!init) panic("Failed to create init process.");
-    if (!init->task || init->task->pid != 1) panic("User init did not receive PID 1.");
+    if (!init->task || init->task->pid != 1) panic("User init did not receive PID 1");
 
     /*
      * PID 1 starts with full system credentials.  Login/session services are
@@ -164,10 +153,9 @@ static void swapper_run_init(void)
     if (process_setsid(init, &init_sid) || init_sid != 1 || init->pgid != 1) panic("Failed to establish init session.");
 
     /*
-     * Hand PID 1 the console as its standard descriptors before it runs.
-     * Mirrors Linux kernel_init_freeable(): a missing console is a warning,
-     * never a reason to abandon init.
-     */
+      * Hand PID 1 the console as its standard descriptors before it runs.
+      * A missing console is a warning, never a reason to abandon init.
+      */
     {
         vfs_node_t console = vfs_open("/dev/console");
         if (!console) {
@@ -176,17 +164,18 @@ static void swapper_run_init(void)
             int std_fd = process_fd_install(init, console, O_RDWR | O_NOCTTY);
             if (std_fd != 0) {
                 /* Should never happen: a fresh process has fd 0 free. */
-                if (std_fd < 0)
+                if (std_fd < 0) {
                     vfs_close(console);
-                else
+                } else {
                     process_fd_close(init, std_fd);
+                }
                 plogk("swapper/0: Unable to open an initial console.\n");
             } else {
                 /*
-                 * process_fd_dup2() returns the NEW descriptor number (1 or 2)
-                 * on success, like Linux; only a negative value is an error.
-                 * Comparing against EOK (0) misreported every successful dup.
-                 */
+                  * process_fd_dup2() returns the NEW descriptor number (1 or 2)
+                  * on success; only a negative value is an error.
+                  * Comparing against EOK (0) misreported every successful dup.
+                  */
                 int dup_stdout = process_fd_dup2(init, 0, 1);
                 if (dup_stdout < 0) plogk("init: dup2 stdout failed (err=%d)\n", dup_stdout);
                 int dup_stderr = process_fd_dup2(init, 0, 2);
@@ -198,13 +187,11 @@ static void swapper_run_init(void)
     const char *chosen_path = NULL; // raw path stored in exe_path
 
     /* init= value buffer; chosen_path may point into it. */
-    char init_opt[VFS_PATH_MAX];
-
+    char init_opt[CONFIG_VFS_PATH_MAX];
 #if CONFIG_INIT_MODULE
     lmodule_t  *init_mod = get_lmodule("init");
     const char *mod_name = init_mod ? (init_mod->path ? init_mod->path : init_mod->name) : "init";
 #endif
-
     /* Probe order: init=, CONFIG_INIT_PATH, conventional paths, then the bootloader module. */
     const char *init_param = cmdline_get_option("init", init_opt, sizeof(init_opt));
     if (init_param && !swapper_try_init_path(init, init_param)) chosen_path = init_param;
@@ -218,7 +205,6 @@ static void swapper_run_init(void)
                 break;
             }
         }
-
 #if CONFIG_INIT_MODULE
         /* Bootloader "init" module as a last resort. */
         if (!chosen_path) {
@@ -258,7 +244,7 @@ static void swapper_enqueue_init(void)
 }
 
 /* Kernel entry */
-void kernel_entry(void)
+__attribute__((noreturn)) void kernel_entry(void)
 {
     /* CPU Features */
     fpu_init();             // Floating-Point Unit / Streaming SIMD Extensions
@@ -279,12 +265,12 @@ void kernel_entry(void)
     video_show_boot_logo();
 
     plogk("%s version %s (%s version %s) SMP %s %s\n", KERNEL_NAME, KERNEL_VERSION, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
-    plogk("fb0: Base %p, Size %lu KiB.\n", fbinfo.framebuffer, (fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024));
-    plogk("fb0: Mode %lux%lu @ %ubpp.\n", fbinfo.width, fbinfo.height, fbinfo.bpp);
+    plogk("fb0: Base %p, Size %llu KiB.\n", fbinfo.framebuffer, ((fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024)));
+    plogk("fb0: Mode %llux%llu @ %ubpp.\n", fbinfo.width, fbinfo.height, fbinfo.bpp);
     plogk("fb0: Color map: RGB, Mask bits R:%u G:%u B:%u\n", fbinfo.red_mask_size, fbinfo.green_mask_size, fbinfo.blue_mask_size);
     plogk("fb0: Channel offsets R:%u G:%u B:%u\n", fbinfo.red_mask_shift, fbinfo.green_mask_shift, fbinfo.blue_mask_shift);
     plogk("fbcon: fb0 is primary device.\n");
-    plogk("fbcon: Screen grid: %lux%lu characters.\n", fbinfo.c_width, fbinfo.c_height);
+    plogk("fbcon: Screen grid: %ux%u characters.\n", fbinfo.c_width, fbinfo.c_height);
     plogk("Command line: %s\n", get_cmdline());
     plogk("SMBIOS %d.%d.0 present.\n", smbios_major_version(), smbios_minor_version());
     plogk("cpu: Vendor: %s, Model: %s\n", get_vendor_name(), get_model_name());
@@ -292,11 +278,13 @@ void kernel_entry(void)
     plogk("cpu: NX (Execute Disable) protection = %s\n", cpu_nx_enabled() ? "active" : "passive");
     plogk("page: kernel_page_dir = %p\n", get_kernel_pagedir());
     plogk("page: kernel_page_table = %p\n", phys_to_virt(get_cr3()));
-    plogk("heap: Range: %p - %p (%llu KiB)\n", KERNEL_HEAP_START, KERNEL_HEAP_START + KERNEL_HEAP_SIZE, KERNEL_HEAP_SIZE / 1024);
+    plogk("heap: Range: %p - %p (%llu KiB)\n", (void *)KERNEL_HEAP_START, (void *)(KERNEL_HEAP_START + KERNEL_HEAP_SIZE), (KERNEL_HEAP_SIZE / 1024));
     plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config().pat_str);
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
     /* Architecture */
+    log_buffer_print(&fpu_log);                                    //
+                                                                   //
     init_gdt();                                                    // Global Descriptor Table
     init_idt();                                                    // Interrupt Descriptor Table
     isr_registe_handle();                                          //
@@ -308,7 +296,6 @@ void kernel_entry(void)
     tsc_init();                                                    // Time Stamp Counter
     lapic_timer_try_upgrade();                                     // Switch BSP LAPIC timer to TSC-deadline now that TSC is calibrated (before APs boot)
     smp_init();                                                    // Symmetric Multiprocessing
-    parport_pc_init();                                             // PC Parallel Port (SPP)
                                                                    //
     print_memory_map();                                            //
     log_buffer_print(&frame_log);                                  //
@@ -370,19 +357,24 @@ void kernel_entry(void)
     chrdev_init();                 // Register static character devices
     vt_driver_init();              // Register vt/aux tty drivers
     devtmpfs_init();               // Device Temporary File System
+                                   //
+    /* Network Stack */            //
+    arp_init();                    // ARP cache / pending pool
+    ndp_init();                    // IPv6 NDP cache / pending pool
+    dhcp_init();                   // DHCP client (UDP/68)
+    loopback_init();               // Loopback 'lo' (127.0.0.1/8)
+                                   //
     /* Device Drivers */           //
     init_ide();                    // ATA / ATAPI
     init_ahci();                   // Advanced Host Controller Interface
     nvme_init();                   // Non-Volatile Memory Express
     block_register_all_disks();    // Publish discovered disks into the gendisk registry
-    net_init();                    // Initialize ARP/NDP caches and DHCP client
     e1000_init();                  // Intel 8254x Gigabit Ethernet
     rtl8169_init();                // Realtek RTL8169 Gigabit Ethernet
     rtl8139_init();                // Realtek RTL8139 Fast Ethernet
     usb_host_pci_scan();           // Discover and init all USB host controllers
     sb16_init();                   // Sound Blaster 16
     hda_init();                    // Intel HD Audio
-                                   //
                                    //
     /* RAM Filesystem */           //
     init_cpio();                   // Copy In, Copy Out
@@ -430,12 +422,5 @@ void kernel_entry(void)
     swapper_enqueue_init();       // Finally make init runnable
                                   //
     enable_intr();                // Enable interrupts
-    sched_start();                // Hand execution over to the scheduler
-
-    /*
-     * sched_start() must never return. Reaching this point means the
-     * scheduler violated its non-returning contract; do not allow
-     * execution to fall through the end of kernel_entry().
-     */
-    panic("Scheduler returned.");
+    sched_start();                // Hand execution over to the scheduler (never returns)
 }

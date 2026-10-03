@@ -15,6 +15,10 @@
 int fatfs_vfs_mount_volume(const char *src, const char *path);
 
 /* Register the fatfs filesystem with the VFS layer. */
+#if CONFIG_FAT_FS
 void fatfs_vfs_regist(void);
+#else
+static inline void fatfs_vfs_regist(void) {}
+#endif
 
 #endif // INCLUDE_FATFS_VFS_H_

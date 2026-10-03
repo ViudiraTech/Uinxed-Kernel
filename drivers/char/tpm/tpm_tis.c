@@ -8,39 +8,47 @@
  *
  */
 
+#include <arch/common.h>
 #include <drivers/char/tpm/tpm.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdint.h>
-#include <libs/std/string.h>
+#include <libs/util/byteorder.h>
+
+#if CONFIG_TPM
+
+typedef struct tis_stat_ctx {
+        tpm_device_t *dev;
+        uint8_t       mask;
+} tis_stat_ctx_t;
 
 /* Return the MMIO address of a TIS register. */
-static inline void *tis_reg_addr(tpm_device_t *dev, uint32_t offset)
+static void *tis_reg_addr(tpm_device_t *dev, uint32_t offset)
 {
     return (void *)((uintptr_t)dev->mmio_base + offset);
 }
 
 /* Read a TIS byte register. */
-static inline uint8_t tis_read8(tpm_device_t *dev, uint32_t offset)
+static uint8_t tis_read8(tpm_device_t *dev, uint32_t offset)
 {
-    return *(volatile uint8_t *)tis_reg_addr(dev, offset);
+    return mmio_read8(tis_reg_addr(dev, offset));
 }
 
 /* Write a TIS byte register. */
-static inline void tis_write8(tpm_device_t *dev, uint32_t offset, uint8_t value)
+static void tis_write8(tpm_device_t *dev, uint32_t offset, uint8_t value)
 {
-    *(volatile uint8_t *)tis_reg_addr(dev, offset) = value;
+    mmio_write8(tis_reg_addr(dev, offset), value);
 }
 
 /* Read a TIS 32-bit register. */
-static inline uint32_t tis_read32(tpm_device_t *dev, uint32_t offset)
+static uint32_t tis_read32(tpm_device_t *dev, uint32_t offset)
 {
-    return *(volatile uint32_t *)tis_reg_addr(dev, offset);
+    return mmio_read32(tis_reg_addr(dev, offset));
 }
 
 /* Write a TIS 32-bit register. */
-static inline void tis_write32(tpm_device_t *dev, uint32_t offset, uint32_t value)
+static void tis_write32(tpm_device_t *dev, uint32_t offset, uint32_t value)
 {
-    *(volatile uint32_t *)tis_reg_addr(dev, offset) = value;
+    mmio_write32(tis_reg_addr(dev, offset), value);
 }
 
 /* Return the TIS status register, 0 if the locality is invalid. */
@@ -48,10 +56,7 @@ static uint8_t tpm_tis_status(tpm_device_t *dev)
 {
     uint8_t sts = tis_read8(dev, TIS_REG_STS(dev->locality));
 
-    /*
-     * Bits 0,1,5 must be zero on valid read; non-zero usually
-     * means locality was never properly acquired.
-     */
+    /* Bits 0,1,5 must be zero on valid read; non-zero usually means locality was never properly acquired. */
     if (sts & TPM_STS_READ_ZERO) return 0;
     return sts;
 }
@@ -62,11 +67,6 @@ static int tpm_tis_ready(tpm_device_t *dev)
     tis_write8(dev, TIS_REG_STS(dev->locality), TPM_STS_COMMAND_READY);
     return 0;
 }
-
-typedef struct tis_stat_ctx {
-        tpm_device_t *dev;
-        uint8_t       mask;
-} tis_stat_ctx_t;
 
 /* Poll context: returns 1 when the status mask matches. */
 static int check_status(void *ctx)
@@ -82,7 +82,7 @@ static int wait_for_stat(tpm_device_t *dev, uint8_t mask, uint32_t timeout_ms)
     ctx.dev  = dev;
     ctx.mask = mask;
     if (check_status(&ctx)) return 0;
-    return tpm_poll_timeout(check_status, &ctx, timeout_ms) ? 0 : -1;
+    return tpm_poll_timeout(check_status, &ctx, timeout_ms) ? 0 : -ETIMEDOUT;
 }
 
 /* Return 1 if locality l is active and valid. */
@@ -107,7 +107,7 @@ static int check_locality_active(tpm_device_t *dev, int l)
 static int tis_request_locality(tpm_device_t *dev, int l)
 {
     uint32_t timeout_ms = dev->timeout_a;
-    uint64_t deadline   = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
+    uint64_t deadline   = nano_time() + ((uint64_t)timeout_ms * 1000000ULL);
 
     if (check_locality(dev, l)) return l;
 
@@ -117,7 +117,7 @@ static int tis_request_locality(tpm_device_t *dev, int l)
             if (check_locality(dev, l)) return l;
             tpm_udelay(200);
         }
-        return -1;
+        return -ETIMEDOUT;
     }
 
     /* Check for pending request from another locality; release if needed */
@@ -138,7 +138,7 @@ static int tis_request_locality(tpm_device_t *dev, int l)
         if (check_locality(dev, l)) return l;
         tpm_udelay(200);
     }
-    return -1;
+    return -ETIMEDOUT;
 }
 
 /* Release the currently held TIS locality. */
@@ -156,18 +156,18 @@ static void tis_cancel(tpm_device_t *dev)
     if (dev->locality >= 0) tpm_tis_ready(dev);
 }
 
-/* Return the TIS FIFO burst count, or -1 on timeout. */
+/* Return the TIS FIFO burst count, or -ETIMEDOUT. */
 static int get_burstcount(tpm_device_t *dev)
 {
     uint32_t timeout_ms = (dev->flags & TPM_FLAG_TPM2) ? dev->timeout_a : dev->timeout_d;
-    uint64_t deadline   = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
+    uint64_t deadline   = nano_time() + ((uint64_t)timeout_ms * 1000000ULL);
     uint32_t value;
 
     for (;;) {
         value        = tis_read32(dev, TIS_REG_STS(dev->locality));
         int burstcnt = (value >> 8) & 0xFFFF;
         if (burstcnt) return burstcnt;
-        if (nano_time() >= deadline) return -1;
+        if (nano_time() >= deadline) return -ETIMEDOUT;
         tpm_udelay(100);
     }
 }
@@ -182,24 +182,26 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
     int      itpm = 0;
 
     /* Detect iTPM (vendor 0x8086) which has DATA_EXPECT quirks */
-    if ((dev->did_vid & 0xFFFF) == TPM_VID_INTEL) itpm = 1; // NOLINT(clang-analyzer-deadcode.DeadStores)
+    if ((dev->did_vid & 0xFFFF) == TPM_VID_INTEL) itpm = 1;
 
     uint8_t sts = tpm_tis_status(dev);
     if (!(sts & TPM_STS_COMMAND_READY)) {
         tpm_tis_ready(dev);
         rc = wait_for_stat(dev, TPM_STS_COMMAND_READY, dev->timeout_b);
         if (rc < 0) {
-            plogk("tpm_tis: COMMAND_READY wait failed.\n");
-            return -1;
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("tpm_tis: COMMAND_READY wait failed.\n");
+            return -ETIMEDOUT;
         }
     }
 
     while (count < len - 1) {
         burstcnt = get_burstcount(dev);
         if (burstcnt < 0) {
-            plogk("tpm_tis: Burst count timeout.\n");
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("tpm_tis: Burst count timeout.\n");
             tpm_tis_ready(dev);
-            return -1;
+            return -ETIMEDOUT;
         }
 
         int chunk = burstcnt;
@@ -210,17 +212,19 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
 
         rc = wait_for_stat(dev, TPM_STS_VALID, dev->timeout_c);
         if (rc < 0) {
-            plogk("tpm_tis: VALID wait failed.\n");
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("tpm_tis: VALID wait failed.\n");
             tpm_tis_ready(dev);
-            return -1;
+            return -ETIMEDOUT;
         }
 
         sts = tpm_tis_status(dev);
         if (!(sts & TPM_STS_DATA_EXPECT)) {
             if (!itpm) {
-                plogk("tpm_tis: DATA_EXPECT missing (sts=0x%02x), retrying.\n", sts);
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("tpm_tis: DATA_EXPECT missing (sts=0x%02x), retrying.\n", sts);
                 tpm_tis_ready(dev);
-                return -1; // Non-iTPM: treat as hard error, upper layer retries
+                return -EIO; // Non-iTPM: treat as hard error, upper layer retries
             }
             /* iTPM: tolerate missing DATA_EXPECT */
         }
@@ -232,14 +236,15 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
     rc = wait_for_stat(dev, TPM_STS_VALID, dev->timeout_c);
     if (rc < 0) {
         tpm_tis_ready(dev);
-        return -1;
+        return -ETIMEDOUT;
     }
 
     sts = tpm_tis_status(dev);
     if (!itpm && (sts & TPM_STS_DATA_EXPECT)) {
-        plogk("tpm_tis: DATA_EXPECT stuck after last byte (sts=0x%02x)\n", sts);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("tpm_tis: DATA_EXPECT stuck after last byte (sts=0x%02x)\n", sts);
         tpm_tis_ready(dev);
-        return -1;
+        return -EIO;
     }
 
     /* Issue GO command */
@@ -273,18 +278,18 @@ static int tis_recv_data(tpm_device_t *dev, uint8_t *buf, size_t count)
 /* Receive a TIS response. */
 static int tis_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
 {
-    if (maxlen < TPM_HEADER_SIZE) return -1;
+    if (maxlen < TPM_HEADER_SIZE) return -EINVAL;
 
     int size = tis_recv_data(dev, buf, TPM_HEADER_SIZE);
     if (size < TPM_HEADER_SIZE) {
         tpm_tis_ready(dev);
-        return -1;
+        return -EIO;
     }
 
-    int expected = (buf[2] << 24) | (buf[3] << 16) | (buf[4] << 8) | buf[5];
+    int expected = load_be32(&buf[2]);
     if (expected > (int)maxlen || expected < TPM_HEADER_SIZE) {
         tpm_tis_ready(dev);
-        return -1;
+        return -EIO;
     }
 
     int rc = tis_recv_data(dev, &buf[TPM_HEADER_SIZE], expected - TPM_HEADER_SIZE);
@@ -296,19 +301,19 @@ static int tis_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
 
     if (size < expected) {
         tpm_tis_ready(dev);
-        return -1;
+        return -EIO;
     }
 
     rc = wait_for_stat(dev, TPM_STS_VALID, dev->timeout_c);
     if (rc < 0) {
         tpm_tis_ready(dev);
-        return -1;
+        return -ETIMEDOUT;
     }
 
     uint8_t sts = tpm_tis_status(dev);
     if (sts & TPM_STS_DATA_AVAIL) {
         tpm_tis_ready(dev);
-        return -1;
+        return -EIO;
     }
 
     tpm_tis_ready(dev);
@@ -318,13 +323,13 @@ static int tis_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
 /* Wait for the TIS access register to become valid. */
 static int tis_wait_startup(tpm_device_t *dev)
 {
-    uint64_t deadline = nano_time() + (uint64_t)dev->timeout_a * 1000000ULL;
+    uint64_t deadline = nano_time() + ((uint64_t)dev->timeout_a * 1000000ULL);
     while (nano_time() < deadline) {
         uint8_t access = tis_read8(dev, TIS_REG_ACCESS(0));
         if (access & TPM_ACCESS_VALID) return 0;
         tpm_udelay(200);
     }
-    return -1;
+    return -ETIMEDOUT;
 }
 
 /* Initialize the TIS interface. */
@@ -336,7 +341,7 @@ int tpm_tis_init(tpm_device_t *dev)
     did_vid = tis_read32(dev, TIS_REG_DID_VID(0));
     if (did_vid == 0 || did_vid == 0xFFFFFFFF) {
         plogk("tpm_tis: No TPM at MMIO base (DID/VID 0x%08x)\n", did_vid);
-        return -1;
+        return -ENODEV;
     }
     dev->did_vid = did_vid;
 
@@ -353,11 +358,11 @@ int tpm_tis_init(tpm_device_t *dev)
 
     if (tis_wait_startup(dev) < 0) {
         plogk("tpm_tis: Timed out waiting for TPM startup.\n");
-        return -1;
+        return -ETIMEDOUT;
     }
     if (tis_request_locality(dev, 0) < 0) {
         plogk("tpm_tis: Failed to request locality 0\n");
-        return -1;
+        return -EIO;
     }
 
     uint32_t intfcaps = tis_read32(dev, TIS_REG_INTF_CAPS(0));
@@ -370,3 +375,5 @@ int tpm_tis_init(tpm_device_t *dev)
 
     return 0;
 }
+
+#endif

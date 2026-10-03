@@ -31,14 +31,10 @@
 #define EPOLLWAKEUP    (1U << 29)
 #define EPOLLONESHOT   (1U << 30)
 #define EPOLLET        (1U << 31)
-
-#define EPOLL_CTL_ADD 1
-#define EPOLL_CTL_DEL 2
-#define EPOLL_CTL_MOD 3
-
-#define EPOLL_CLOEXEC 0x80000
-
-#define EPOLL_MAX_EVENTS 256
+#define EPOLL_CTL_ADD  1
+#define EPOLL_CTL_DEL  2
+#define EPOLL_CTL_MOD  3
+#define EPOLL_CLOEXEC  0x80000
 
 /* Epoll structures */
 
@@ -55,7 +51,7 @@ typedef struct epoll_event {
 } __attribute__((packed)) epoll_event_t;
 
 _Static_assert(sizeof(epoll_event_t) == 12, "Linux x86_64 epoll_event must be 12 bytes");
-_Static_assert(__builtin_offsetof(epoll_event_t, data) == 4, "epoll_event.data must start at byte 4");
+_Static_assert(offsetof(epoll_event_t, data) == 4, "epoll_event.data must start at byte 4");
 
 /* Create a new epoll instance. */
 int64_t sys_epoll_create(int size);
