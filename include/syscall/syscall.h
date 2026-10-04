@@ -103,4 +103,12 @@ const char *path_basename(const char *path);
 /* Create a filesystem node at an already-resolved path, dispatching on mode. */
 int64_t mknod_create_node(char *resolved, uint64_t mode, uint64_t dev);
 
+/* Compare the kernel resources two processes share (kcmp). */
+int64_t sys_kcmp(uint64_t pid1, uint64_t pid2, uint64_t type, uint64_t idx1, uint64_t idx2, uint64_t arg5);
+
+int64_t sys_mount_setattr(uint64_t dfd, uint64_t path, uint64_t flags, uint64_t uattr, uint64_t usize, uint64_t arg5);
+
+int64_t sys_open_tree(uint64_t dfd, uint64_t path, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5);
+int64_t sys_move_mount(uint64_t from_dfd, uint64_t from_path, uint64_t to_dfd, uint64_t to_path, uint64_t flags, uint64_t arg5);
+
 #endif // INCLUDE_SYSCALL_H_

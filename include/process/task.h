@@ -15,6 +15,7 @@
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 #include <libs/util/rbtree.h>
+#include <mem/numa.h>
 #include <mem/page.h>
 #include <process/ptrace.h>
 
@@ -107,6 +108,11 @@ struct task {
         wait_queue_t      *wait_queue;
         task_wake_reason_t wake_reason;
         uint32_t           cpu_id;
+        cpumask_t          cpus_allowed; // requested task affinity
+        cpumask_t          cpuset_cpus;  // effective cgroup affinity
+        nodemask_t         mems_allowed; // effective cgroup memory nodes
+        uint64_t           numa_interleave_next;
+        numa_policy_t      mempolicy;         // inherited by fork/clone, retained by exec
         uint32_t           last_cpu;          // previous CPU before migration
         uint64_t           last_wake_tick;    // scheduler tick of last wakeup
         uint64_t           last_migrate_tick; // anti-ping-pong migration stamp
@@ -126,6 +132,7 @@ struct task {
         char            name[TASK_NAME_LEN];
         process_t      *process;
         uint64_t        clear_child_tid;
+        uintptr_t       robust_list; // independent of the pthread join futex
         ilist_node_t    thread_node;
         cgroup_t       *cgroup;
         ilist_node_t    cgroup_node;
@@ -164,6 +171,14 @@ struct task {
         struct seccomp_filter *seccomp_filter;
         uint8_t                seccomp_mode;
         bool                   no_new_privs;
+        spinlock_t             cap_lock;
+        uint64_t               cap_effective;
+        uint64_t               cap_permitted;
+        uint64_t               cap_inheritable;
+        uint64_t               cap_bounding;
+        uint64_t               cap_ambient;
+        uint32_t               cap_uid;
+        bool                   caps_initialized;
         uint8_t                securebits; // PR_SET_SECUREBITS state
         ptrace_state_t         ptrace;     // ptrace state is per-thread
         uint64_t               flags;      // PF_KTHREAD etc.

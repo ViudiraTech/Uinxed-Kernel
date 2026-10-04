@@ -17,6 +17,7 @@
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
+#include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/page.h>
 #include <process/process.h>
@@ -31,14 +32,13 @@
 
 /* Global state */
 
-scheduler_t         scheduler;
-eevdf_rq_t         *cpu_rqs;
-uint32_t            cpu_scheduler_count;
-sched_domain_cpu_t *cpu_sched_domains;
-static task_t       boot_task = {.pid = 0, .name = "swapper"};
-static uint8_t      boot_stack_marker;
-static task_t      *ap_boot_tasks;
-static uint32_t     next_task_cpu; // shared wake-placement cursor: atomic RMW (__atomic_*) on every CPU
+scheduler_t     scheduler;
+eevdf_rq_t     *cpu_rqs;
+uint32_t        cpu_scheduler_count;
+static task_t   boot_task = {.pid = 0, .name = "swapper"};
+static uint8_t  boot_stack_marker;
+static task_t  *ap_boot_tasks;
+static uint32_t next_task_cpu; // shared wake-placement cursor: atomic RMW (__atomic_*) on every CPU
 
 /* Forward declarations */
 
@@ -458,6 +458,8 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 {
     if (!task || task->state == TASK_ZOMBIE || task->state == TASK_IDLE) return;
     if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
+    if (__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) && !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE) && !sched_task_cpu_allowed(task, cpu_id))
+        cpu_id = select_wakeup_cpu_locked(task, false);
 
     /*
      * Every runnable task has a kernel stack (fork/kthread/ELF setup set
@@ -517,6 +519,7 @@ void enqueue_task(task_t *task)
 /* Enqueue a newly created task with initial placement */
 void enqueue_task_initial(task_t *task)
 {
+    if (__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) && !sched_task_cpu_allowed(task, task->cpu_id)) { task->cpu_id = select_wakeup_cpu_locked(task, false); }
     enqueue_task_on_cpu(task, task->cpu_id, 1);
 }
 
@@ -664,107 +667,6 @@ static void sleep_task(task_t *task, uint64_t wake_tick)
     insert_sleep_deadline_locked(task);
 }
 
-/* Check whether a CPU belongs to the scheduler domain at the given topology level. */
-static int sched_domain_level_contains(uint32_t anchor, uint8_t level, uint32_t cpu)
-{
-    if (anchor >= cpu_scheduler_count || cpu >= cpu_scheduler_count) return 0;
-    if (level == SCHED_DOMAIN_SMT) return cpu_topology_same_core(anchor, cpu);
-    if (level == SCHED_DOMAIN_PACKAGE) return cpu_topology_same_package(anchor, cpu);
-    return 1;
-}
-
-/* Check whether a CPU belongs to a scheduler domain. */
-static int sched_domain_contains(uint32_t anchor, const sched_domain_t *domain, uint32_t cpu)
-{
-    return domain && sched_domain_level_contains(anchor, domain->level, cpu);
-}
-
-/* Scheduling groups are CPUs at SMT, cores at package, and packages at system level. */
-static int sched_domain_same_group(const sched_domain_t *domain, uint32_t first, uint32_t second)
-{
-    if (domain->level == SCHED_DOMAIN_SMT) return first == second;
-    if (domain->level == SCHED_DOMAIN_PACKAGE) return cpu_topology_same_core(first, second);
-    return cpu_topology_same_package(first, second);
-}
-
-/* Count the distinct scheduling groups within a topology level. */
-static uint16_t sched_domain_group_count(uint32_t anchor, uint8_t level)
-{
-    uint32_t groups = 0;
-
-    for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
-        if (!sched_domain_level_contains(anchor, level, cpu)) continue;
-
-        /* Every logical CPU is its own group inside an SMT domain. */
-        if (level == SCHED_DOMAIN_SMT) {
-            groups++;
-            continue;
-        }
-
-        int seen = 0;
-        for (uint32_t previous = 0; previous < cpu; previous++) {
-            if (!sched_domain_level_contains(anchor, level, previous)) continue;
-            if ((level == SCHED_DOMAIN_PACKAGE && cpu_topology_same_core(previous, cpu)) || (level == SCHED_DOMAIN_SYSTEM && cpu_topology_same_package(previous, cpu))) {
-                seen = 1;
-                break;
-            }
-        }
-        if (!seen) groups++;
-    }
-    return groups > UINT16_MAX ? UINT16_MAX : (uint16_t)groups;
-}
-
-/* Return the number of CPUs covered by a scheduling domain level. */
-static uint16_t sched_domain_span_weight(uint32_t anchor, uint8_t level)
-{
-    uint32_t weight = 0;
-    for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++)
-        if (sched_domain_level_contains(anchor, level, cpu)) weight++;
-    return weight > UINT16_MAX ? UINT16_MAX : (uint16_t)weight;
-}
-
-/* Add a scheduling domain level to a CPU's topology. */
-static void sched_domain_add(uint32_t cpu, uint8_t level, uint16_t flags, uint32_t interval)
-{
-    sched_domain_cpu_t *topology = &cpu_sched_domains[cpu];
-    if (topology->nr_domains >= CONFIG_SCHED_DOMAIN_MAX_LEVELS) return;
-
-    sched_domain_t *domain   = &topology->domains[topology->nr_domains++];
-    domain->level            = level;
-    domain->flags            = flags;
-    domain->span_weight      = sched_domain_span_weight(cpu, level);
-    domain->group_count      = sched_domain_group_count(cpu, level);
-    domain->balance_interval = interval ? interval : 1;
-}
-
-/* Build a nested SMT -> package -> system domain chain for every logical CPU. */
-static void sched_domain_build(void)
-{
-    if (!cpu_scheduler_count) return;
-    cpu_sched_domains = calloc(cpu_scheduler_count, sizeof(*cpu_sched_domains));
-    if (!cpu_sched_domains) panic("sched: Cannot allocate scheduling domains.");
-    for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
-        uint16_t core_span    = sched_domain_span_weight(cpu, SCHED_DOMAIN_SMT);
-        uint16_t package_span = sched_domain_span_weight(cpu, SCHED_DOMAIN_PACKAGE);
-        uint16_t widest       = 1;
-
-        if (core_span > widest) {
-            sched_domain_add(cpu, SCHED_DOMAIN_SMT,
-                             SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC | SCHED_DOMAIN_WAKE_AFFINE | SCHED_DOMAIN_SHARE_CAPACITY
-                                 | SCHED_DOMAIN_SHARE_CACHE,
-                             CONFIG_SCHED_LOAD_BALANCE_INTERVAL > 2 ? CONFIG_SCHED_LOAD_BALANCE_INTERVAL / 4 : 1);
-            widest = core_span;
-        }
-        if (package_span > widest) {
-            sched_domain_add(cpu, SCHED_DOMAIN_PACKAGE, SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC | SCHED_DOMAIN_WAKE_AFFINE | SCHED_DOMAIN_SHARE_CACHE,
-                             CONFIG_SCHED_LOAD_BALANCE_INTERVAL);
-            widest = package_span;
-        }
-        if (cpu_scheduler_count > widest)
-            sched_domain_add(cpu, SCHED_DOMAIN_SYSTEM, SCHED_DOMAIN_BALANCE_WAKE | SCHED_DOMAIN_BALANCE_NEWIDLE | SCHED_DOMAIN_BALANCE_PERIODIC, CONFIG_SCHED_LOAD_BALANCE_INTERVAL * 4U);
-    }
-}
-
 /* Number of runnable entities including the currently executing non-idle task. Read locklessly (relaxed atomics) for the cross-CPU balancer. */
 static uint64_t rq_task_count(const eevdf_rq_t *rq)
 {
@@ -831,7 +733,10 @@ static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev
             score += SCHED_NICE_0_LOAD / 16ULL;
         }
 
-        /* different package: no locality bonus */
+        uint16_t from = numa_cpu_node(prev_cpu);
+        uint16_t to   = numa_cpu_node(cpu);
+        if (from != to) score += (uint64_t)(numa_distance(from, to) - NUMA_LOCAL_DISTANCE) * SCHED_NICE_0_LOAD / 20;
+        if (task && task->mempolicy.mode == NUMA_POLICY_PREFERRED && to != task->mempolicy.preferred) score += SCHED_NICE_0_LOAD / 2;
     }
 
     /* WF_SYNC-like hint: the waker may block/yield soon, so stacking is a bit cheaper. */
@@ -872,38 +777,29 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
      * cache miss on every batch.  Ordinary wakes still use the topology-aware
      * idle search below.
      */
-    if (sync) return prev_cpu;
-    if (rq_is_idle_cpu(prev_cpu)) return prev_cpu;
+    if (sync && sched_task_cpu_allowed(task, prev_cpu)) return prev_cpu;
+    if (sched_task_cpu_allowed(task, prev_cpu) && rq_is_idle_cpu(prev_cpu)) return prev_cpu;
 
     uint32_t            start    = __atomic_fetch_add(&next_task_cpu, 1, __ATOMIC_RELAXED) % cpu_scheduler_count;
     sched_domain_cpu_t *topology = &cpu_sched_domains[prev_cpu];
 
-    /* Search nearby idle physical cores before considering SMT siblings. */
-    for (uint8_t index = 0; index < topology->nr_domains; index++) {
-        sched_domain_t *domain = &topology->domains[index];
-        if (!(domain->flags & SCHED_DOMAIN_BALANCE_WAKE) || domain->level == SCHED_DOMAIN_SMT) continue;
-        for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
-            uint32_t cpu = (start + n) % cpu_scheduler_count;
-            if (!sched_domain_contains(prev_cpu, domain, cpu) || cpu_topology_same_core(prev_cpu, cpu)) continue;
-            if (rq_is_idle_cpu(cpu) && sched_core_is_idle(cpu)) return cpu;
-        }
-    }
-
-    /* Then accept any idle CPU, expanding one domain at a time. */
     for (uint8_t index = 0; index < topology->nr_domains; index++) {
         sched_domain_t *domain = &topology->domains[index];
         if (!(domain->flags & SCHED_DOMAIN_BALANCE_WAKE)) continue;
-        for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
-            uint32_t cpu = (start + n) % cpu_scheduler_count;
-            if (sched_domain_contains(prev_cpu, domain, cpu) && rq_is_idle_cpu(cpu)) return cpu;
+        for (unsigned pass = 0; pass < 2; pass++) {
+            for (uint32_t n = 0; n < cpu_scheduler_count; n++) {
+                uint32_t cpu = (start + n) % cpu_scheduler_count;
+                if (!sched_task_cpu_allowed(task, cpu) || !sched_domain_contains(prev_cpu, domain, cpu)) continue;
+                if (rq_is_idle_cpu(cpu) && (pass || sched_core_is_idle(cpu))) return cpu;
+            }
         }
     }
 
     uint32_t best       = prev_cpu;
-    uint64_t best_score = placement_score_locked(task, best, prev_cpu, sync);
+    uint64_t best_score = sched_task_cpu_allowed(task, best) ? placement_score_locked(task, best, prev_cpu, sync) : UINT64_MAX;
 
     for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
-        if (!cpu_rqs[cpu].online || cpu == best) continue;
+        if (!cpu_rqs[cpu].online || !sched_task_cpu_allowed(task, cpu) || (cpu == best && best_score != UINT64_MAX)) continue;
         uint64_t score = placement_score_locked(task, cpu, prev_cpu, sync);
         if (score < best_score) {
             best       = cpu;
@@ -911,6 +807,7 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
         }
     }
 
+    if (best_score == UINT64_MAX) panic("sched: Task %llu has no allowed CPU.", task ? task->pid : 0);
     return best;
 }
 
@@ -974,7 +871,7 @@ static rb_node_t *rb_prev_local(rb_node_t *node)
 }
 
 /* Pick a queued task that is cheap to migrate, preferring the least urgent. */
-static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
+static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, uint32_t dst_cpu, bool newly_idle)
 {
     rb_node_t *node = src->timeline.root;
     if (!node) return NULL;
@@ -984,22 +881,47 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     while (node && scanned++ < 8) {
         task_t *task = rb_entry(node, task_t, run_node);
         bool    hot  = scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN;
-        if (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2) return task;
+        if (sched_task_cpu_allowed(task, dst_cpu) && (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2)) return task;
         node = rb_prev_local(node);
     }
     return NULL;
 }
 
-/* Find the most overloaded source runqueue relative to dst. */
+/* Capacity-normalized group pressure prevents large nodes donating to small ones. */
+static uint64_t group_pressure(const sched_group_t *group)
+{
+    uint64_t load = 0, capacity = 0;
+    for (uint32_t cpu = cpumask_next(0, &group->span); cpu < cpu_scheduler_count; cpu = cpumask_next(cpu + 1, &group->span)) {
+        if (!__atomic_load_n(&cpu_rqs[cpu].online, __ATOMIC_ACQUIRE)) continue;
+        const cpu_processor_t *processor = get_cpu_processor(cpu);
+        capacity += processor && processor->capacity ? processor->capacity : SCHED_NICE_0_LOAD;
+        load += rq_weighted_load(&cpu_rqs[cpu]);
+    }
+    return capacity ? load * SCHED_NICE_0_LOAD / capacity : 0;
+}
+
+/* Compare groups before runqueues; domain masks contain only admitted CPUs. */
 static uint32_t find_busiest_cpu_locked(uint32_t dst, const sched_domain_t *domain)
 {
+    const sched_group_t *local = domain->groups;
+    for (uint32_t i = 0; i < domain->group_count; i++, local = local->next)
+        if (cpumask_test_cpu(dst, &local->span)) break;
+    uint64_t             local_load     = group_pressure(local);
+    const sched_group_t *busiest_group  = NULL;
+    uint64_t             max_group_load = local_load;
+    const sched_group_t *group          = domain->groups;
+    for (uint32_t i = 0; i < domain->group_count; i++, group = group->next) {
+        if (group == local) continue;
+        uint64_t load = group_pressure(group);
+        if (load * 100 <= local_load * domain->imbalance_pct || load <= max_group_load) continue;
+        busiest_group  = group;
+        max_group_load = load;
+    }
+    if (!busiest_group) return UINT32_MAX;
     uint32_t busiest  = UINT32_MAX;
     uint64_t max_load = 0;
-
-    for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
-        if (cpu == dst || !cpu_rqs[cpu].online || !sched_domain_contains(dst, domain, cpu) || sched_domain_same_group(domain, dst, cpu)
-            || __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) == 0)
-            continue;
+    for (uint32_t cpu = cpumask_next(0, &busiest_group->span); cpu < cpu_scheduler_count; cpu = cpumask_next(cpu + 1, &busiest_group->span)) {
+        if (cpu == dst || !cpu_rqs[cpu].online || !__atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED)) continue;
         uint64_t load = rq_pressure(cpu);
         if (load > max_load) {
             max_load = load;
@@ -1022,7 +944,7 @@ static task_t *migrate_one_locked(uint32_t src_cpu, uint32_t dst_cpu, bool newly
     if (!__atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) || !dst->online) return NULL;
 
     spin_lock(&src->lock);
-    task_t *task = pick_steal_candidate_locked(src, newly_idle);
+    task_t *task = pick_steal_candidate_locked(src, dst_cpu, newly_idle);
     if (!task || task->state != TASK_READY || __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
         spin_unlock(&src->lock);
         return NULL;
@@ -1074,7 +996,9 @@ static bool sched_domains_need_balance(uint32_t cpu, uint64_t now)
     sched_domain_cpu_t *topology = &cpu_sched_domains[cpu];
     for (uint8_t index = 0; index < topology->nr_domains; index++) {
         sched_domain_t *domain = &topology->domains[index];
-        if ((domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC) && now - cpu_rqs[cpu].last_domain_balance[index] >= domain->balance_interval) return true;
+        if ((domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC)
+            && now - cpu_rqs[cpu].last_domain_balance[index] >= (cpu_rqs[cpu].domain_interval[index] ? cpu_rqs[cpu].domain_interval[index] : domain->balance_interval))
+            return true;
     }
     return false;
 }
@@ -1089,10 +1013,16 @@ static task_t *rebalance_domains_locked(uint32_t dst_cpu)
     unsigned int        budget   = CONFIG_SCHED_BALANCE_BATCH;
     for (uint8_t index = 0; index < topology->nr_domains && budget; index++) {
         sched_domain_t *domain = &topology->domains[index];
-        if (!(domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC) || scheduler.ticks - cpu_rqs[dst_cpu].last_domain_balance[index] < domain->balance_interval) continue;
+        if (!(domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC)
+            || scheduler.ticks - cpu_rqs[dst_cpu].last_domain_balance[index] < (cpu_rqs[dst_cpu].domain_interval[index] ? cpu_rqs[dst_cpu].domain_interval[index] : domain->balance_interval))
+            continue;
 
         cpu_rqs[dst_cpu].last_domain_balance[index] = scheduler.ticks;
         uint32_t src_cpu                            = find_busiest_cpu_locked(dst_cpu, domain);
+        __atomic_add_fetch(&cpu_rqs[dst_cpu].domain_attempts[index], 1, __ATOMIC_RELAXED);
+        uint32_t interval = cpu_rqs[dst_cpu].domain_interval[index];
+        if (!interval) interval = domain->balance_interval;
+        cpu_rqs[dst_cpu].domain_interval[index] = interval < domain->max_interval / 2 ? interval * 2 : domain->max_interval;
         if (src_cpu == UINT32_MAX) continue;
 
         uint64_t imbalance = domain->level == SCHED_DOMAIN_SMT ? SCHED_NICE_0_LOAD / 2ULL : SCHED_NICE_0_LOAD;
@@ -1101,6 +1031,8 @@ static task_t *rebalance_domains_locked(uint32_t dst_cpu)
             task_t *moved = migrate_one_locked(src_cpu, dst_cpu, false);
             if (!moved) break;
             if (!first) first = moved;
+            __atomic_add_fetch(&cpu_rqs[dst_cpu].domain_moved[index], 1, __ATOMIC_RELAXED);
+            cpu_rqs[dst_cpu].domain_interval[index] = domain->balance_interval;
             budget--;
             if (rq_task_count(&cpu_rqs[src_cpu]) <= rq_task_count(&cpu_rqs[dst_cpu]) + 1) break;
         }
@@ -1218,8 +1150,16 @@ void sched_init(void)
      * mark APs online.)
      */
     for (uint32_t i = 0; i < cpu_scheduler_count; i++) cpu_rqs[i].online = 1;
-    sched_domain_build();
+    if (sched_domain_build(cpu_scheduler_count)) panic("sched: Invalid or unavailable scheduling topology.");
 
+    plogk("numa: %u node(s), topology=%s, memory mask=%#llx\n", numa_topology.nr_nodes, numa_topology.firmware ? "SRAT" : "UMA", frame_memory_nodes());
+    for (uint16_t node = 0; node < numa_topology.nr_nodes; node++) {
+        frame_stats_t stats;
+        (void)frame_get_node_stats(node, &stats);
+        plogk("numa: node %u proximity=%u cpus=%u pages=%zu free=%zu\n", node, numa_topology.nodes[node].proximity, cpumask_weight(&numa_topology.nodes[node].cpus), stats.total_frames,
+              stats.free_frames);
+    }
+    plogk("sched: Validated domains for %u CPUs.\n", cpu_scheduler_count);
     next_task_cpu = 0;
     __atomic_store_n(&cpu_rqs[0].curr, &boot_task, __ATOMIC_RELAXED);
     cpu_rqs[0].nr_running = 0;
@@ -1315,7 +1255,7 @@ void sched_ipi_reschedule(void)
 
     spin_lock(&cpu_rqs[cpu_id].lock);
     task_t *current = cpu_rqs[cpu_id].curr;
-    bool    ready   = has_ready_task() || (current && current->state != TASK_RUNNING && current != cpu_rqs[cpu_id].idle);
+    bool    ready   = (current && !sched_task_cpu_allowed(current, cpu_id)) || has_ready_task() || (current && current->state != TASK_RUNNING && current != cpu_rqs[cpu_id].idle);
     spin_unlock(&cpu_rqs[cpu_id].lock);
 
     /* A reschedule IPI is preemption, not a userspace voluntary yield. */
@@ -1328,10 +1268,115 @@ uint32_t sched_cpu_count(void)
     return cpu_scheduler_count;
 }
 
+/* Idle bootstrap tasks are exempt; ordinary tasks always have a nonempty mask. */
+bool sched_task_cpu_allowed(const task_t *task, uint32_t cpu)
+{
+    return cpu < cpu_scheduler_count && (!task || !task->pid || (cpumask_test_cpu(cpu, &task->cpus_allowed) && cpumask_test_cpu(cpu, &task->cpuset_cpus)));
+}
+
+/* Caller holds scheduler.lock; rq lock serializes against local switches. */
+static int set_task_masks_locked(task_t *task, const cpumask_t *affinity, const cpumask_t *cpuset, nodemask_t mems)
+{
+    cpumask_t effective;
+    cpumask_and(&effective, affinity, cpuset);
+    if (!cpumask_weight(&effective) || !mems || task->cpu_id >= cpu_scheduler_count) return -EINVAL;
+    uint32_t    old_cpu = task->cpu_id;
+    eevdf_rq_t *rq      = &cpu_rqs[old_cpu];
+    spin_lock(&rq->lock);
+    if (task->state == TASK_ZOMBIE || task->state == TASK_IDLE) {
+        spin_unlock(&rq->lock);
+        return -ESRCH;
+    }
+    for (size_t word = 0; word < CPUMASK_WORDS; word++) {
+        __atomic_store_n(&task->cpus_allowed.bits[word], affinity->bits[word], __ATOMIC_RELAXED);
+        __atomic_store_n(&task->cpuset_cpus.bits[word], cpuset->bits[word], __ATOMIC_RELAXED);
+    }
+    __atomic_store_n(&task->mems_allowed, mems, __ATOMIC_RELEASE);
+    uint32_t target = cpumask_test_cpu(old_cpu, &effective) ? old_cpu : cpumask_next(0, &effective);
+    bool     queued = task->on_rq && !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE);
+    if (target != old_cpu && queued) {
+        task->vlag = (int64_t)(avg_vruntime(rq) - task->vruntime);
+        (void)dequeue_entity(rq, task);
+    }
+    if (target != old_cpu) __atomic_store_n(&rq->need_resched, 1, __ATOMIC_RELEASE);
+    if (target != old_cpu && !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) task->cpu_id = target;
+    spin_unlock(&rq->lock);
+    if (target != old_cpu && queued) enqueue_task_on_cpu(task, target, 0);
+    if (target != old_cpu) {
+        request_cpu_reschedule(old_cpu);
+        request_cpu_reschedule(target);
+    }
+    return 0;
+}
+
+int sched_setaffinity(task_t *task, const cpumask_t *mask)
+{
+    if (!task || !mask) return -EINVAL;
+    cpumask_t system, affinity;
+    cpumask_fill(&system, cpu_scheduler_count);
+    cpumask_and(&affinity, mask, &system);
+    uint64_t flags  = spin_lock_irqsave(&scheduler.lock);
+    int      result = set_task_masks_locked(task, &affinity, &task->cpuset_cpus, task->mems_allowed);
+    spin_unlock_irqrestore(&scheduler.lock, flags);
+    if (!result && task == current_task() && !sched_task_cpu_allowed(task, get_current_cpu_id())) sched_yield();
+    return result;
+}
+
+int sched_getaffinity(task_t *task, cpumask_t *mask)
+{
+    if (!task || !mask) return -EINVAL;
+    uint64_t flags = spin_lock_irqsave(&scheduler.lock);
+    cpumask_and(mask, &task->cpus_allowed, &task->cpuset_cpus);
+    spin_unlock_irqrestore(&scheduler.lock, flags);
+    return 0;
+}
+
+int sched_set_cpuset_locked(task_t *task, const cpumask_t *mask, nodemask_t mems)
+{
+    return set_task_masks_locked(task, &task->cpus_allowed, mask, mems);
+}
+
+int sched_set_cpuset(task_t *task, const cpumask_t *mask, nodemask_t mems)
+{
+    if (!task || !mask) return -EINVAL;
+    uint64_t flags  = spin_lock_irqsave(&scheduler.lock);
+    int      result = set_task_masks_locked(task, &task->cpus_allowed, mask, mems);
+    spin_unlock_irqrestore(&scheduler.lock, flags);
+    return result;
+}
+
+/* A running stack cannot move until context_switch publishes on_cpu == 0. */
+static void drain_affinity_pending(uint32_t cpu)
+{
+    if (!cpu_rqs || cpu >= cpu_scheduler_count || !__atomic_load_n(&cpu_rqs[cpu].affinity_pending, __ATOMIC_ACQUIRE)) return;
+    uint64_t    flags = spin_lock_irqsave(&scheduler.lock);
+    eevdf_rq_t *rq    = &cpu_rqs[cpu];
+    spin_lock(&rq->lock);
+    task_t *task = rq->affinity_pending;
+    if (!task || __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
+        spin_unlock(&rq->lock);
+        spin_unlock_irqrestore(&scheduler.lock, flags);
+        return;
+    }
+    __atomic_store_n(&rq->affinity_pending, NULL, __ATOMIC_RELEASE);
+    spin_unlock(&rq->lock);
+    uint32_t target = select_wakeup_cpu_locked(task, false);
+    if (task->state == TASK_READY)
+        enqueue_task_on_cpu(task, target, 0);
+    else
+        task->cpu_id = target;
+    task->last_cpu          = cpu;
+    task->last_migrate_tick = scheduler.ticks;
+    task->migration_count++;
+    spin_unlock_irqrestore(&scheduler.lock, flags);
+    request_cpu_reschedule(target);
+    task_put(task);
+}
+
 /* task_set_cpu - migrate a task to a different CPU */
 int task_set_cpu(task_t *task, uint32_t cpu_id)
 {
-    if (!task || cpu_id >= cpu_scheduler_count) return -EINVAL;
+    if (!task || cpu_id >= cpu_scheduler_count || !sched_task_cpu_allowed(task, cpu_id)) return -EINVAL;
 
     spin_lock(&scheduler.lock);
     uint32_t old_cpu = task->cpu_id;
@@ -1381,6 +1426,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 /* Switch to the next runnable task on the current CPU */
 static void sched_switch(bool voluntary)
 {
+    drain_affinity_pending(get_current_cpu_id());
     eevdf_rq_t *rq           = local_rq();
     uint64_t    entry_rflags = spin_lock_irqsave(&rq->lock);
 
@@ -1388,6 +1434,14 @@ static void sched_switch(bool voluntary)
 
     task_t *prev = rq->curr;
     task_t *next;
+
+    /* A wake that raced blocking may have requeued a now-disallowed current. */
+    if (prev && prev != rq->idle && prev->state == TASK_READY && !sched_task_cpu_allowed(prev, get_current_cpu_id())) {
+        if (prev->on_rq) (void)dequeue_entity(rq, prev);
+        if (rq->affinity_pending) panic("sched: Affinity handoff slot is occupied.");
+        task_ref(prev);
+        __atomic_store_n(&rq->affinity_pending, prev, __ATOMIC_RELEASE);
+    }
 
     /* Advance vruntime and re-enqueue the current task if it was running */
     if (prev && prev->state == TASK_RUNNING && prev != rq->idle) {
@@ -1402,7 +1456,13 @@ static void sched_switch(bool voluntary)
         update_deadline(rq, prev);
         prev->vlag  = (int64_t)(avg_vruntime(rq) - prev->vruntime);
         prev->state = TASK_READY;
-        enqueue_entity(rq, prev);
+        if (!sched_task_cpu_allowed(prev, get_current_cpu_id())) {
+            if (rq->affinity_pending) panic("sched: Affinity handoff slot is occupied.");
+            task_ref(prev);
+            __atomic_store_n(&rq->affinity_pending, prev, __ATOMIC_RELEASE);
+        } else {
+            enqueue_entity(rq, prev);
+        }
     }
 
     next = pick_eevdf(rq);
@@ -2036,6 +2096,7 @@ static void sched_advance_global_ticks(void)
 /* sched_tick - periodic tick accounting and preemption */
 void sched_tick(bool user_mode)
 {
+    drain_affinity_pending(get_current_cpu_id());
     if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) || !cpu_rqs) return;
 
     uint32_t    cpu_id   = get_current_cpu_id();
@@ -2076,6 +2137,8 @@ void sched_tick(bool user_mode)
     /* Global time base and ordered sleep/timer queues: any CPU may drive them. */
     sched_advance_global_ticks();
 
+    if (curr && !sched_task_cpu_allowed(curr, cpu_id)) preempt = true;
+
     /* Each CPU periodically pulls work through its nested scheduling domains. */
     uint64_t now = __atomic_load_n(&scheduler.ticks, __ATOMIC_RELAXED);
     if (cpu_scheduler_count > 1 && sched_domains_need_balance(cpu_id, now)) {
@@ -2103,7 +2166,10 @@ void sched_maybe_preempt(void)
     spin_lock(&rq->lock);
     if (__atomic_exchange_n(&rq->need_resched, 0, __ATOMIC_ACQ_REL)) {
         task_t *curr = rq->curr;
-        if (curr && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0) preempt = curr == rq->idle || (curr->state == TASK_RUNNING && pick_eevdf(rq) != curr);
+        if (curr && !sched_task_cpu_allowed(curr, get_current_cpu_id()))
+            preempt = true;
+        else if (curr && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0)
+            preempt = curr == rq->idle || (curr->state == TASK_RUNNING && pick_eevdf(rq) != curr);
     }
     spin_unlock(&rq->lock);
 

@@ -881,7 +881,7 @@ static int pipe_vfs_stat(void *file, vfs_node_t node)
     pipe_ring_t *ring = (pipe_ring_t *)node->handle;
     if (ring) node->size = ring->size;
     node->type |= file_pipe;
-    node->mode = PIPE_DEFAULT_MODE;
+    /* Preserve the mode mkfifo(2) installed; callers fstat() it back. */
     return EOK;
 }
 

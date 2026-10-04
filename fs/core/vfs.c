@@ -29,11 +29,29 @@
 /* Largest slice of a userspace buffer moved in one VFS call. */
 #define VFS_USER_IO_CHUNK PAGE_4K_SIZE
 
-vfs_node_t      rootdir = 0;
-static mutex_t  vfs_namespace_lock;
-static mutex_t  vfs_rename_serial_lock;
-static uint64_t vfs_next_ino      = 1;
-static uint64_t vfs_next_mount_id = 1;
+vfs_node_t               rootdir = 0;
+static mutex_t           vfs_namespace_lock;
+static mutex_t           vfs_rename_serial_lock;
+static uint64_t          vfs_next_ino      = 1;
+static uint64_t          vfs_next_mount_id = 1;
+static uint64_t          mount_generation  = 1;
+static vfs_poll_source_t mount_poll_source;
+
+uint64_t vfs_mount_generation(void)
+{
+    return __atomic_load_n(&mount_generation, __ATOMIC_ACQUIRE);
+}
+
+vfs_poll_source_t *vfs_mount_poll_source(void)
+{
+    return &mount_poll_source;
+}
+
+void vfs_mount_changed(void)
+{
+    __atomic_add_fetch(&mount_generation, 1, __ATOMIC_RELEASE);
+    vfs_poll_source_notify(&mount_poll_source, 0x00a); // POLLPRI | POLLERR
+}
 
 struct vfs_callback vfs_empty_callback;
 vfs_callback_t      fs_callbacks[256] = {[0] = &vfs_empty_callback};
@@ -250,7 +268,7 @@ static int vfs_page_sync_backend(void *context)
 /* Whether the node can be served through the page cache. */
 static bool vfs_pagecache_eligible(vfs_node_t node)
 {
-    return node && (node->type & ~file_delete) == file_none && !(node->flags & VFS_NODE_NOCACHE) && node->handle && callbackof(node, read) != vfs_empty_callback.read;
+    return node && (node->type & ~file_delete) == file_none && !(node->flags & (VFS_NODE_NOCACHE | VFS_NODE_VIRTUAL)) && node->handle && callbackof(node, read) != vfs_empty_callback.read;
 }
 
 /* Look up a node's cache mapping, creating it on demand. */
@@ -832,6 +850,11 @@ static int vfs_prepare_create(const char *name, bool allow_trailing_slash, char 
         free(path);
         return -ENOTDIR;
     }
+    if (vfs_mount_is_readonly(dir)) {
+        vfs_close(dir);
+        free(path);
+        return -EROFS;
+    }
     if (vfs_access_check(dir, VFS_ACCESS_W | VFS_ACCESS_X) != EOK) {
         vfs_close(dir);
         free(path);
@@ -1401,11 +1424,20 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
         return -ENOMEM;
     }
 
-    old_fsid   = node->fsid;
-    node->fsid = fsid;
+    old_fsid                = node->fsid;
+    void      *old_handle   = node->handle;
+    vfs_node_t old_root     = node->root;
+    clist_t    old_children = node->child;
+    node->child             = NULL;
+    node->fsid              = fsid;
 
     status = fs_callbacks[fsid]->mount(src, node);
     if (status == EOK) {
+        node->covered_handle   = old_handle;
+        node->covered_root     = old_root;
+        node->covered_children = old_children;
+        node->covered_fsid     = old_fsid;
+        node->covered_valid    = true;
         free(node->mount_source);
         node->mount_source = source_copy;
         node->mount_id     = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
@@ -1418,11 +1450,15 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
         mutex_lock(&vfs_namespace_lock);
         node->flags &= ~VFS_NODE_INITIALIZING;
         mutex_unlock(&vfs_namespace_lock);
+        vfs_mount_changed();
         return EOK;
     }
 
     free(source_copy);
-    node->fsid = old_fsid;
+    node->fsid   = old_fsid;
+    node->handle = old_handle;
+    node->root   = old_root;
+    node->child  = old_children;
     mutex_lock(&vfs_namespace_lock);
     node->flags &= ~VFS_NODE_INITIALIZING;
     mutex_unlock(&vfs_namespace_lock);
@@ -1475,10 +1511,68 @@ static bool vfs_mount_tree_busy_locked(vfs_node_t node, vfs_node_t mount_root)
     return false;
 }
 
-/* Unmount the filesystem mounted at path. */
-int vfs_umount(const char *path)
+/* Move a mount by exchanging its namespace slot with an empty mountpoint. */
+int vfs_move_mount(vfs_node_t source, vfs_node_t target)
 {
-    vfs_node_t node = vfs_open(path);
+    if (!source || !target || source == target) return -EINVAL;
+    mutex_lock(&vfs_namespace_lock);
+    int result = -EINVAL;
+    if (!source->parent || !target->parent || !source->is_mount || target->is_mount || !(target->type & file_dir)) goto out;
+    for (vfs_node_t parent = target; parent; parent = parent->parent)
+        if (parent == source) goto out;
+    if (target->child || source->parent->fsid != target->fsid) {
+        result = -EBUSY;
+        goto out;
+    }
+    uint64_t busy = VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY;
+    if ((source->flags | target->flags | source->parent->flags | target->parent->flags) & busy) {
+        result = -EBUSY;
+        goto out;
+    }
+    clist_t source_link = source->parent->child, target_link = target->parent->child;
+    while (source_link && source_link->data != source) source_link = source_link->next;
+    while (target_link && target_link->data != target) target_link = target_link->next;
+    if (!source_link || !target_link) goto out;
+    vfs_dcache_remove(source);
+    vfs_dcache_remove(target);
+    void      *target_handle   = target->handle;
+    vfs_node_t target_root     = target->root;
+    uint16_t   target_fsid     = target->fsid;
+    clist_t    target_children = target->child;
+    if (source->covered_valid) {
+        target->handle = source->covered_handle;
+        target->root   = source->covered_root;
+        target->fsid   = source->covered_fsid;
+        target->child  = source->covered_children;
+        for (clist_t child = target->child; child; child = child->next) ((vfs_node_t)child->data)->parent = target;
+    }
+    source->covered_handle   = target_handle;
+    source->covered_root     = target_root;
+    source->covered_fsid     = target_fsid;
+    source->covered_children = target_children;
+    source->covered_valid    = true;
+    vfs_node_t old_parent    = source->parent;
+    char      *old_name      = source->name;
+    source->parent           = target->parent;
+    source->name             = target->name;
+    target->parent           = old_parent;
+    target->name             = old_name;
+    target->root             = old_parent->root;
+    source_link->data        = target;
+    target_link->data        = source;
+    vfs_dcache_invalidate_parent(source->parent);
+    vfs_dcache_invalidate_parent(target->parent);
+    result = EOK;
+out:
+    mutex_unlock(&vfs_namespace_lock);
+    if (!result) vfs_mount_changed();
+    return result;
+}
+
+/* Unmount the filesystem mounted at path. */
+int vfs_umount_flags(const char *path, bool nofollow)
+{
+    vfs_node_t node = nofollow ? vfs_open_nofollow(path) : vfs_open(path);
 
     if (!node) return -EINVAL;
     if (!node->fsid) {
@@ -1513,11 +1607,17 @@ int vfs_umount(const char *path)
     free(node->mount_source);
     node->mount_source = NULL;
     node->mount_id     = 0;
-    node->fsid         = parent->fsid;
-    node->root         = parent->root;
-    node->handle       = 0;
-    node->child        = 0;
-    node->is_mount     = 0;
+    node->fsid         = node->covered_valid ? node->covered_fsid : parent->fsid;
+    node->root         = node->covered_valid ? node->covered_root : parent->root;
+    node->handle       = node->covered_valid ? node->covered_handle : NULL;
+    node->child        = node->covered_valid ? node->covered_children : NULL;
+    for (clist_t child = node->child; child; child = child->next) ((vfs_node_t)child->data)->parent = node;
+    node->covered_handle   = NULL;
+    node->covered_root     = NULL;
+    node->covered_children = NULL;
+    node->covered_valid    = false;
+    node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
+    node->is_mount = 0;
     if (node->fsid) {
         do_update(node);
     } else {
@@ -1527,6 +1627,48 @@ int vfs_umount(const char *path)
     node->flags &= ~VFS_NODE_INITIALIZING;
     mutex_unlock(&vfs_namespace_lock);
     vfs_close(node);
+    vfs_mount_changed();
+    return EOK;
+}
+
+int vfs_umount(const char *path)
+{
+    return vfs_umount_flags(path, false);
+}
+
+/* Apply one attribute change to a mount point; the namespace lock is held. */
+static void vfs_mount_attr_apply(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags)
+{
+    if (!node || !node->is_mount) return;
+    node->flags = (node->flags & ~clr_flags) | set_flags;
+}
+
+/* Depth-first walk over the mounts nested below a mount point. */
+static void vfs_mount_attr_apply_recursive(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags)
+{
+    if (!node) return;
+    for (clist_t link = node->child; link; link = link->next) {
+        vfs_node_t child = link->data;
+        if (!child) continue;
+        vfs_mount_attr_apply(child, set_flags, clr_flags);
+        vfs_mount_attr_apply_recursive(child, set_flags, clr_flags);
+    }
+}
+
+/*
+ * Change the mount flags of an existing mount point, optionally across the
+ * whole subtree.  The caller supplies internal MOUNT_FLAG_* bits.
+ */
+int vfs_mount_setattr(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags, bool recursive)
+{
+    if (!node || !node->is_mount) return -EINVAL;
+
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_attr_apply(node, set_flags, clr_flags);
+    if (recursive) vfs_mount_attr_apply_recursive(node, set_flags, clr_flags);
+    mutex_unlock(&vfs_namespace_lock);
+
+    vfs_mount_changed();
     return EOK;
 }
 

@@ -199,32 +199,37 @@ typedef struct vfs_callback {
 } *vfs_callback_t;
 
 typedef struct vfs_node {
-        vfs_node_t           parent;       // Parent directory
-        vfs_node_t           linkto;       // Node pointed to by the symbolic link
-        char                *name;         // Name
-        char                *linkname;     // Symbolic link name
-        uint64_t             realsize;     // Actual space occupied by the project (optional)
-        uint64_t             size;         // File size or 0 if it is a folder
-        int64_t              createtime;   // Status-change time (legacy field name)
-        int64_t              readtime;     // Last read time
-        int64_t              writetime;    // Last write time
-        uint64_t             inode;        // Node number
-        uint32_t             nlink;        // Number of namespace links to the inode
-        uint64_t             blksz;        // Block size
-        uint32_t             owner;        // Owner
-        uint32_t             group;        // All groups
-        uint32_t             permissions;  // Permissions
-        uint16_t             type;         // Type
-        uint32_t             refcount;     // Reference count
-        uint16_t             mode;         // Mode
-        uint16_t             fsid;         // File system mount ID
-        void                *handle;       // Handle to the file
-        uint64_t             flags;        // File flags
-        clist_t              child;        // Child nodes
-        vfs_node_t           root;         // Root directory
-        int                  visited;      // Whether to synchronize with the specific file system
-        int                  is_mount;     // Whether it is a mount point
-        uint64_t             mount_id;     // Stable namespace mount identifier
+        vfs_node_t           parent;         // Parent directory
+        vfs_node_t           linkto;         // Node pointed to by the symbolic link
+        char                *name;           // Name
+        char                *linkname;       // Symbolic link name
+        uint64_t             realsize;       // Actual space occupied by the project (optional)
+        uint64_t             size;           // File size or 0 if it is a folder
+        int64_t              createtime;     // Status-change time (legacy field name)
+        int64_t              readtime;       // Last read time
+        int64_t              writetime;      // Last write time
+        uint64_t             inode;          // Node number
+        uint32_t             nlink;          // Number of namespace links to the inode
+        uint64_t             blksz;          // Block size
+        uint32_t             owner;          // Owner
+        uint32_t             group;          // All groups
+        uint32_t             permissions;    // Permissions
+        uint16_t             type;           // Type
+        uint32_t             refcount;       // Reference count
+        uint16_t             mode;           // Mode
+        uint16_t             fsid;           // File system mount ID
+        void                *handle;         // Handle to the file
+        uint64_t             flags;          // File flags
+        clist_t              child;          // Child nodes
+        vfs_node_t           root;           // Root directory
+        int                  visited;        // Whether to synchronize with the specific file system
+        int                  is_mount;       // Whether it is a mount point
+        uint64_t             mount_id;       // Stable namespace mount identifier
+        void                *covered_handle; // backing directory restored after unmount
+        vfs_node_t           covered_root;
+        clist_t              covered_children;
+        uint16_t             covered_fsid;
+        bool                 covered_valid;
         char                *mount_source; // Informational source shown by procfs
         dev_t                dev;          // Device number
         dev_t                rdev;         // Real device number
@@ -391,9 +396,19 @@ int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node);
 
 /* Unmount a file system from a directory */
 int vfs_umount(const char *path);
+/* Change mount flags of a mount point, optionally across its subtree. */
+int vfs_mount_setattr(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags, bool recursive);
+
+int vfs_umount_flags(const char *path, bool nofollow);
 
 /* Format the current namespace in /proc/mounts or mountinfo syntax. */
 size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo);
+
+/* Mount movement and generation events used by /proc/self/mountinfo. */
+int                vfs_move_mount(vfs_node_t source, vfs_node_t target);
+uint64_t           vfs_mount_generation(void);
+void               vfs_mount_changed(void);
+vfs_poll_source_t *vfs_mount_poll_source(void);
 
 /* Read data from a file node into the provided memory buffer */
 size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size);

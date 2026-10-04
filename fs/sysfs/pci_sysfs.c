@@ -279,9 +279,11 @@ void pci_sysfs_init(void)
             .write = pci_config_write,
         };
         psd->config_attrs[0]        = &psd->config;
+        psd->config_attrs[1]        = NULL;
         psd->config_group.bin_attrs = psd->config_attrs;
         psd->groups[0]              = &pci_dev_attr_group;
         psd->groups[1]              = &psd->config_group;
+        psd->groups[2]              = NULL;
 
         /* Format: 0000:bb:dd.f (domain:bus:slot.func) */
         (void)snprintf(name, sizeof(name), "%04x:%02x:%02x.%01x", item->device->domain, item->device->bus, item->device->slot, item->device->func);

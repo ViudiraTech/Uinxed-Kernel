@@ -41,7 +41,7 @@
 
 /* Compiler judgment */
 
-#if defined(__clang__)
+#ifdef __clang__
 #    define COMPILER_NAME    "clang"
 #    define STRINGIFY(x)     #x
 #    define EXPAND(x)        STRINGIFY(x)

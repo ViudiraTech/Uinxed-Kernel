@@ -11,9 +11,11 @@
 #include <arch/fpu.h>
 #include <cgroup/cgroup.h>
 #include <kernel/printk.h>
+#include <mem/frame.h>
 #include <mem/heap.h>
 #include <process/namespace.h>
 #include <process/sched.h>
+#include <security/capability.h>
 #include <security/seccomp.h>
 
 #define PID_HASH_BITS 8
@@ -217,7 +219,18 @@ task_t *task_alloc_status(const char *name, int *error)
     task->pi_owned_lock.rflags = 0;
     wait_queue_init(&task->kthread.exit_wait);
 
-    if (cgroup_root()) parent = current_task();
+    if (cpu_rqs) parent = current_task();
+    cpumask_fill(&task->cpus_allowed, sched_cpu_count());
+    cpumask_fill(&task->cpuset_cpus, sched_cpu_count());
+    task->mems_allowed = frame_memory_nodes();
+    if (parent && parent->pid) {
+        uint64_t flags             = spin_lock_irqsave(&scheduler.lock);
+        task->cpus_allowed         = parent->cpus_allowed;
+        task->mempolicy            = parent->mempolicy;
+        task->numa_interleave_next = parent->numa_interleave_next;
+        spin_unlock_irqrestore(&scheduler.lock, flags);
+    }
+    capability_inherit(task, parent);
     int status = cgroup_task_fork(task, parent);
     if (status != EOK) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);

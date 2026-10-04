@@ -63,6 +63,7 @@
 #include <fs/sysfs/pci_sysfs.h>
 #include <fs/sysfs/rtc_sysfs.h>
 #include <fs/sysfs/sound_sysfs.h>
+#include <fs/sysfs/topology_sysfs.h>
 #include <fs/sysfs/tpm_sysfs.h>
 #include <fs/sysfs/tty_sysfs.h>
 #include <fs/sysfs/usb_sysfs.h>
@@ -80,6 +81,7 @@
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/numa.h>
 #include <mem/swap.h>
 #include <net/core/loopback.h>
 #include <net/core/netdev.h>
@@ -250,6 +252,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     fpu_init();             // Floating-Point Unit / Streaming SIMD Extensions
                             //
     /* Memory Management */ //
+    numa_init();            // Early SRAT/SLIT topology
     init_frame();           // Physical Memory Frame
     page_init();            // Standard 4-Level Page Table
     init_heap();            // Standard Memory Heap
@@ -380,6 +383,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     init_cpio();                   // Copy In, Copy Out
                                    //
     /* Sysfs Population */         //
+    topology_sysfs_init();         // CPU/node topology and scheduling domains
     kernel_sysfs_init();           // /sys/kernel/{version,cmdline,hostname,...}
     pci_sysfs_init();              // /sys/bus/pci/ + /sys/devices/pci*
     i2c_sysfs_init();              // /sys/bus/i2c + /sys/class/i2c-dev

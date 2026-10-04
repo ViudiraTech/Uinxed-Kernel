@@ -22,7 +22,7 @@
 #if __has_builtin(__builtin_offsetof)
 #    define offsetof(s, m) __builtin_offsetof(s, m)
 #else
-#    define offsetof(s, m) ((size_t) & (((s *)0)->m))
+#    define offsetof(s, m) ((size_t)&(((s *)0)->m))
 #endif
 
 #ifndef container_of
@@ -42,7 +42,7 @@ typedef __SIZE_TYPE__    size_t;
 typedef __INTPTR_TYPE__  ssize_t;
 typedef __PTRDIFF_TYPE__ ptrdiff_t;
 
-#if defined(__WCHAR_TYPE__)
+#ifdef __WCHAR_TYPE__
 typedef __WCHAR_TYPE__ wchar_t;
 #endif
 

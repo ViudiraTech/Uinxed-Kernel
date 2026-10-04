@@ -14,6 +14,7 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/tty.h>
+#include <fs/cgroup/cgroupfs.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/math.h>
@@ -21,6 +22,7 @@
 #include <process/kthread.h>
 #include <process/process.h>
 #include <process/sched.h>
+#include <syscall/posix_timer.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
 
@@ -100,6 +102,8 @@ static void timer_deferred_service(void)
 {
     tty_deferred_flush();
     timerfd_tick();
+    posix_timer_tick();
+    cgroupfs_notify_events();
 
     uint64_t now = sched_ticks();
     signal_itimer_real_tick(now);
@@ -277,8 +281,8 @@ __attribute__((used)) void timer_handle_frame(syscall_frame_t *frame)
 
         uint64_t monotonic_ns = timer_monotonic_ns();
         uint64_t last         = __atomic_load_n(&timer_deferred_last_tick, __ATOMIC_RELAXED);
-        bool     due
-            = now_ticks - last >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns) || timerfd_deferred_due(monotonic_ns);
+        bool     due          = now_ticks - last >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns)
+                   || timerfd_deferred_due(monotonic_ns) || posix_timer_deferred_due(monotonic_ns);
         if (due && __atomic_compare_exchange_n(&timer_deferred_last_tick, &last, now_ticks, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) timer_queue_deferred_work();
     }
 

@@ -104,7 +104,7 @@
 
 #define UNIX_PATH_MAX 108
 
-#define CMSG_ALIGN(len)     (((len) + sizeof(size_t) - 1) & (size_t) ~(sizeof(size_t) - 1))
+#define CMSG_ALIGN(len)     (((len) + sizeof(size_t) - 1) & (size_t)~(sizeof(size_t) - 1))
 #define CMSG_LEN(len)       (CMSG_ALIGN(sizeof(cmsghdr_t)) + (size_t)(len))
 #define CMSG_SPACE(len)     (CMSG_ALIGN(sizeof(cmsghdr_t)) + CMSG_ALIGN(len))
 #define CMSG_DATA(cmsg)     ((void *)((uint8_t *)(cmsg) + sizeof(cmsghdr_t)))
@@ -238,6 +238,8 @@ struct socket {
         uint32_t pid;
         uint32_t uid;
         uint32_t gid;
+        ucred_t  peer_credentials; // snapshot survives the peer closing before accept
+        bool     peer_credentials_valid;
 
         /* Error */
         int so_error;

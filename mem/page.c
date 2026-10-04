@@ -519,18 +519,17 @@ int page_resolve_write_fault(process_t *proc, uintptr_t addr)
             spin_unlock(&proc->mmap_lock);
             return -ENOMEM;
         }
+        numa_policy_t policy = vma->mempolicy;
         spin_unlock(&directory->lock);
         spin_unlock(&proc->mmap_lock);
 
         frame_reclaim_if_needed(leaf.frame_count);
-        uint64_t new_frame;
-        if (leaf.size == PAGE_1G_SIZE) {
-            new_frame = alloc_frames_1G(1);
-        } else if (leaf.size == PAGE_2M_SIZE) {
-            new_frame = alloc_frames_2M(1);
-        } else {
-            new_frame = alloc_frames(1);
-        }
+        unsigned alignment = 0;
+        if (leaf.size == PAGE_1G_SIZE)
+            alignment = 18;
+        else if (leaf.size == PAGE_2M_SIZE)
+            alignment = 9;
+        uint64_t new_frame = alloc_frames_policy(leaf.frame_count, alignment, leaf.base / PAGE_4K_SIZE, &policy);
 
         if (!new_frame) {
             (void)frame_release_range(old_frame, leaf.frame_count);

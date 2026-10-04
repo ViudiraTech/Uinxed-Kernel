@@ -17,8 +17,9 @@ else
 endif
 
 # Source discovery
-C_SOURCES      := $(shell find * -name "*.c" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*")
-C_HEADERS      := $(shell find * -name "*.h" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*")
+C_SOURCES      := $(shell find * -name "*.c" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*" -not -path "build/*")
+C_HEADERS      := $(shell find * -name "*.h" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*" -not -path "build/*")
+JOBS           ?= $(shell nproc 2>/dev/null || echo 1)
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
 ELFS           := $(shell find * -name "*.elf")
@@ -120,7 +121,8 @@ clean: info
 	$(Q)$(RM) $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso System.map
 	$(Q)printf "Clean completed.\n"
 
-format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
+format: info
+	$(Q)$(MAKE) --no-print-directory -j$(JOBS) $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
 	$(Q)find . -type f ! -path './.git/*' -print0 | xargs -0 grep -IlZ '' | xargs -0 -r dos2unix -q
 	$(Q)for f in $(C_SOURCES) $(C_HEADERS); do if [ -s "$$f" ] && [ -n "$$(tail -c1 "$$f")" ]; then echo >> "$$f"; fi; done
 	$(Q)printf "\nCode Format complete.\n"

@@ -9,6 +9,7 @@
  */
 
 #include <arch/smp.h>
+#include <drivers/char/random.h>
 #include <fs/core/vfs.h>
 #include <ipc/pipe.h>
 #include <kernel/errno.h>
@@ -20,6 +21,7 @@
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
+#include <security/capability.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
@@ -71,7 +73,7 @@ typedef struct linux_tms {
  * query_module / quotactl / nfsservctl / getpmsg / putpmsg / afs_syscall /
  * tuxcall / lookup_dcookie / remap_file_pages / kexec_load /
  * add_key / request_key / keyctl / migrate_pages / move_pages /
- * mbind / set_mempolicy / get_mempolicy / kexec_file_load / bpf /
+ * kexec_file_load / bpf /
  * userfaultfd / io_uring_setup / io_uring_enter / io_uring_register /
  * open_tree / move_mount / fsopen / fsconfig / fsmount / fspick /
  * fanotify_init / fanotify_mark / get_thread_area / set_thread_area /
@@ -211,43 +213,82 @@ int64_t sys_setgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
     return 0;
 }
 
-/* capget syscall: read process capabilities */
+/* Decode all Linux capability ABI versions and negotiate an unknown version. */
+static int capability_header(uint64_t user, linux_cap_header_t *header, size_t *words)
+{
+    if (!user || copy_from_user(header, (const void *)user, sizeof(*header))) return -EFAULT;
+    if (header->version == 0x19980330)
+        *words = 1;
+    else if (header->version == 0x20071026 || header->version == 0x20080522)
+        *words = 2;
+    else {
+        header->version = 0x20080522;
+        return copy_to_user((void *)user, header, sizeof(*header)) ? -EFAULT : -EINVAL;
+    }
+    return 0;
+}
+
+/* capget exposes both 32-bit words, including capabilities 32..40. */
 int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (!header) return -EFAULT;
     linux_cap_header_t hdr;
-    if (copy_from_user(&hdr, (const void *)header, sizeof(hdr))) return -EFAULT;
-    if (hdr.version != 0x20080522) return -EINVAL;
+    size_t             words;
+    int                result = capability_header(header, &hdr, &words);
+    if (result) return result;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    process_t *target = (hdr.pid == 0 || hdr.pid == (int32_t)proc->task->pid) ? proc : process_find_get((pid_t)hdr.pid);
-    if (!target) return -ESRCH;
-    linux_cap_data_t caps = {0};
-    if (target->uid == 0) caps.effective = caps.permitted = caps.inheritable = 0xFFFFFFFFu;
-    if (target != proc) process_put(target);
-    if (data && copy_to_user((void *)data, &caps, sizeof(caps))) return -EFAULT;
-    return 0;
+    task_t    *target   = current_task();
+    process_t *owner    = NULL;
+    bool       retained = hdr.pid != 0 && hdr.pid != (int32_t)target->pid;
+    if (retained) {
+        target = pid_find_task_get((uint64_t)hdr.pid);
+        if (!target) return -ESRCH;
+        owner = process_find_get((pid_t)target->tgid);
+        if (!owner || target->process != owner) {
+            if (owner) process_put(owner);
+            task_put(target);
+            return -ESRCH;
+        }
+    }
+    linux_cap_data_t caps[2] = {{0}, {0}};
+    uint64_t         effective, permitted, inheritable;
+    capability_get(target, &effective, &permitted, &inheritable);
+    for (size_t word = 0; word < words; word++) {
+        caps[word].effective   = (uint32_t)(effective >> (word * 32));
+        caps[word].permitted   = (uint32_t)(permitted >> (word * 32));
+        caps[word].inheritable = (uint32_t)(inheritable >> (word * 32));
+    }
+    if (retained) {
+        process_put(owner);
+        task_put(target);
+    }
+    return data && copy_to_user((void *)data, caps, words * sizeof(caps[0])) ? -EFAULT : 0;
 }
 
-/* capset syscall: set process capabilities */
+/* A service that changed UID may still clear its already-empty capabilities. */
 int64_t sys_capset_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    (void)data;
-    if (!header) return -EFAULT;
     linux_cap_header_t hdr;
-    if (copy_from_user(&hdr, (const void *)header, sizeof(hdr))) return -EFAULT;
-    if (hdr.version != 0x20080522) return -EINVAL;
+    size_t             words;
+    int                result = capability_header(header, &hdr, &words);
+    if (result) return result;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
-    return 0;
+    if (!proc) return -ESRCH;
+    if (hdr.pid && hdr.pid != (int32_t)current_task()->pid) return -EPERM;
+    linux_cap_data_t caps[2] = {{0}, {0}};
+    if (!data || copy_from_user(caps, (const void *)data, words * sizeof(caps[0]))) return -EFAULT;
+    uint64_t effective   = caps[0].effective | ((uint64_t)caps[1].effective << 32);
+    uint64_t permitted   = caps[0].permitted | ((uint64_t)caps[1].permitted << 32);
+    uint64_t inheritable = caps[0].inheritable | ((uint64_t)caps[1].inheritable << 32);
+    return capability_set(current_task(), effective, permitted, inheritable);
 }
 
 /* flock syscall: validate the fd (no mandatory locks) */
@@ -483,36 +524,44 @@ int64_t sys_sched_rr_get_interval_impl(uint64_t pid, uint64_t tp, uint64_t arg2,
     return copy_to_user((void *)tp, &ts, sizeof(ts)) ? -EFAULT : 0;
 }
 
-/* sched_setaffinity syscall */
+/* sched_setaffinity: permission checks match ownership, with a bounded user copy. */
 int64_t sys_sched_setaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)pid;
-    (void)cpusetsize;
-    (void)mask;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
-    return 0;
-}
-
-/* sched_getaffinity syscall */
-int64_t sys_sched_getaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)pid;
     (void)arg3;
     (void)arg4;
     (void)arg5;
     if (!mask) return -EFAULT;
-    uint32_t ncpus    = get_cpu_count();
-    uint8_t  buf[128] = {0};
-    size_t   bytes    = (ncpus + 7) / 8;
-    if (bytes > cpusetsize) bytes = cpusetsize;
-    if (bytes > sizeof(buf)) bytes = sizeof(buf);
-    memset(buf, 0xFF, bytes);
-    if (ncpus % 8) buf[bytes - 1] &= (uint8_t)((1u << (ncpus % 8)) - 1u);
-    return copy_to_user((void *)mask, buf, cpusetsize) ? -EFAULT : (int64_t)bytes;
+    if (!cpusetsize) return -EINVAL;
+    cpumask_t affinity = {0};
+    size_t    bytes    = cpusetsize < sizeof(affinity) ? (size_t)cpusetsize : sizeof(affinity);
+    if (copy_from_user(&affinity, (const void *)mask, bytes)) return -EFAULT;
+    task_t *task = pid ? pid_find_task_get(pid) : current_task();
+    if (!task) return -ESRCH;
+    if (!pid) task_ref(task);
+    process_t *caller = process_current();
+    int        result = -EPERM;
+    if (caller && task->process && (!caller->uid || caller->uid == task->process->uid)) result = sched_setaffinity(task, &affinity);
+    task_put(task);
+    return result;
+}
+
+/* Return only the kernel's rounded CPU-mask length, never cpusetsize bytes. */
+int64_t sys_sched_getaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    size_t bytes = (sched_cpu_count() + 63) / 64 * sizeof(uint64_t);
+    if (cpusetsize < bytes || cpusetsize % sizeof(uint64_t)) return -EINVAL;
+    if (!mask) return -EFAULT;
+    task_t *task = pid ? pid_find_task_get(pid) : current_task();
+    if (!task) return -ESRCH;
+    if (!pid) task_ref(task);
+    cpumask_t affinity;
+    int       result = sched_getaffinity(task, &affinity);
+    task_put(task);
+    if (result) return result;
+    return copy_to_user((void *)mask, &affinity, bytes) ? -EFAULT : (int64_t)bytes;
 }
 
 /* sched_setattr syscall */
@@ -596,7 +645,7 @@ int64_t sys_set_robust_list_impl(uint64_t head, uint64_t len, uint64_t arg2, uin
     (void)arg5;
     if (len != 24) return -EINVAL; // sizeof(struct robust_list_head)
     task_t *task = current_task();
-    if (task) task->clear_child_tid = head;
+    if (task) __atomic_store_n(&task->robust_list, head, __ATOMIC_RELAXED);
     return 0;
 }
 
@@ -608,24 +657,33 @@ int64_t sys_get_robust_list_impl(uint64_t pid, uint64_t head_ptr, uint64_t len_p
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    process_t *target = proc;
-    if (pid != 0 && pid != proc->task->pid) {
-        target = process_find_get((pid_t)pid);
+    if (!head_ptr || !len_ptr) return -EFAULT;
+    task_t *target   = current_task();
+    bool    retained = pid != 0 && pid != target->pid;
+    if (retained) {
+        target = pid_find_task_get(pid);
         if (!target) return -ESRCH;
+        process_t *owner = process_find_get((pid_t)target->tgid);
+        if (!owner || target->process != owner || (owner->uid != proc->uid && !capability_has(current_task(), CAP_SYS_PTRACE))) {
+            if (owner) process_put(owner);
+            task_put(target);
+            return -EPERM;
+        }
+        process_put(owner);
     }
-    uint64_t head = target->task->clear_child_tid;
+    uint64_t head = __atomic_load_n(&target->robust_list, __ATOMIC_RELAXED);
     if (head_ptr && copy_to_user((void *)head_ptr, &head, sizeof(head))) {
-        if (target != proc) process_put(target);
+        if (retained) task_put(target);
         return -EFAULT;
     }
     if (len_ptr) {
         uint64_t sz = 24;
         if (copy_to_user((void *)len_ptr, &sz, sizeof(sz))) {
-            if (target != proc) process_put(target);
+            if (retained) task_put(target);
             return -EFAULT;
         }
     }
-    if (target != proc) process_put(target);
+    if (retained) task_put(target);
     return 0;
 }
 
@@ -746,9 +804,27 @@ int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3
 }
 
 /* Check whether a UID transition is permitted */
+/* Unprivileged callers may only restate one of their three user IDs. */
 static bool credential_uid_allowed(const process_t *proc, uint32_t uid)
 {
-    return uid == CREDENTIAL_ID_UNCHANGED || proc->uid == 0 || uid == proc->uid || uid == proc->fsuid;
+    return uid == CREDENTIAL_ID_UNCHANGED || proc->uid == 0 || uid == proc->uid || uid == proc->ruid || uid == proc->suid;
+}
+
+/* setfsuid(2) additionally accepts the current filesystem ID. */
+static bool credential_fsuid_allowed(const process_t *proc, uint32_t uid)
+{
+    return credential_uid_allowed(proc, uid) || uid == proc->fsuid;
+}
+
+/* Apply the capability transition for a credential change and commit it. */
+static void credential_uid_commit(process_t *proc, const uid_set_t *new_ids)
+{
+    uid_set_t old_ids = {proc->ruid, proc->uid, proc->suid};
+    capability_uid_change(current_task(), &old_ids, new_ids);
+    proc->ruid  = new_ids->real;
+    proc->uid   = new_ids->effective;
+    proc->suid  = new_ids->saved;
+    proc->fsuid = new_ids->effective;
 }
 
 /* Check whether a GID transition is permitted */
@@ -770,8 +846,8 @@ int64_t sys_setuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg
     uint32_t requested = (uint32_t)uid;
     if (requested == CREDENTIAL_ID_UNCHANGED) return -EINVAL;
     if (!credential_uid_allowed(proc, requested)) return -EPERM;
-    proc->uid   = requested;
-    proc->fsuid = requested;
+    /* setuid(2) sets all three IDs for a privileged caller. */
+    credential_uid_commit(proc, &(uid_set_t) {.real = requested, .effective = requested, .saved = requested});
     return 0;
 }
 
@@ -804,10 +880,14 @@ int64_t sys_setreuid_impl(uint64_t ruid, uint64_t euid, uint64_t arg2, uint64_t 
     if (!proc) return -ESRCH;
     uint32_t real = (uint32_t)ruid, effective = (uint32_t)euid;
     if (!credential_uid_allowed(proc, real) || !credential_uid_allowed(proc, effective)) return -EPERM;
+    uid_set_t new_ids = {proc->ruid, proc->uid, proc->suid};
+    if (real != CREDENTIAL_ID_UNCHANGED) new_ids.real = real;
     if (effective != CREDENTIAL_ID_UNCHANGED) {
-        proc->uid   = effective;
-        proc->fsuid = effective;
+        new_ids.effective = effective;
+        /* Setting the effective ID or a different real ID refreshes the saved ID. */
+        if (real != CREDENTIAL_ID_UNCHANGED || effective != proc->ruid) new_ids.saved = effective;
     }
+    credential_uid_commit(proc, &new_ids);
     return 0;
 }
 
@@ -839,10 +919,11 @@ int64_t sys_setresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t
     if (!proc) return -ESRCH;
     uint32_t real = (uint32_t)ruid, effective = (uint32_t)euid, saved = (uint32_t)suid;
     if (!credential_uid_allowed(proc, real) || !credential_uid_allowed(proc, effective) || !credential_uid_allowed(proc, saved)) return -EPERM;
-    if (effective != CREDENTIAL_ID_UNCHANGED) {
-        proc->uid   = effective;
-        proc->fsuid = effective;
-    }
+    uid_set_t new_ids = {proc->ruid, proc->uid, proc->suid};
+    if (real != CREDENTIAL_ID_UNCHANGED) new_ids.real = real;
+    if (effective != CREDENTIAL_ID_UNCHANGED) new_ids.effective = effective;
+    if (saved != CREDENTIAL_ID_UNCHANGED) new_ids.saved = saved;
+    credential_uid_commit(proc, &new_ids);
     return 0;
 }
 
@@ -874,7 +955,7 @@ int64_t sys_setfsuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t a
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     uint32_t old = proc->fsuid, requested = (uint32_t)uid;
-    if (requested != CREDENTIAL_ID_UNCHANGED && credential_uid_allowed(proc, requested)) proc->fsuid = requested;
+    if (requested != CREDENTIAL_ID_UNCHANGED && credential_fsuid_allowed(proc, requested)) proc->fsuid = requested;
     return old;
 }
 
@@ -1154,7 +1235,7 @@ int64_t sys_getcpu_impl(uint64_t cpu, uint64_t node, uint64_t tcache, uint64_t a
     (void)arg5;
     task_t  *task = current_task();
     uint32_t c    = task ? task->cpu_id : 0;
-    uint32_t n    = 0;
+    uint32_t n    = numa_cpu_node(c);
     if (cpu && copy_to_user((void *)cpu, &c, sizeof(c))) return -EFAULT;
     if (node && copy_to_user((void *)node, &n, sizeof(n))) return -EFAULT;
     return 0;
@@ -1171,25 +1252,13 @@ int64_t sys_getrandom_impl(uint64_t buf, uint64_t buflen, uint64_t flags, uint64
     if (!buflen) return 0;
     if (buflen > 33554431) return -EINVAL; // max: 32 MiB - 1
 
-    static spinlock_t random_lock;
-    static uint64_t   seed;
-    uint8_t           output[256];
-    uint64_t          done = 0;
+    uint8_t  output[256];
+    uint64_t done = 0;
     while (done < buflen) {
         size_t count = buflen - done;
         if (count > sizeof(output)) count = sizeof(output);
 
-        spin_lock(&random_lock);
-        uint64_t state = seed;
-        if (!state) state = (uint64_t)timer_realtime_ns() ^ sched_ticks() ^ 0x9e3779b97f4a7c15ULL;
-        for (size_t i = 0; i < count; i++) {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            output[i] = (uint8_t)state;
-        }
-        seed = state;
-        spin_unlock(&random_lock);
+        mem_random_bytes(output, count);
 
         if (copy_to_user((void *)(buf + done), output, count)) return done ? (int64_t)done : -EFAULT;
         done += count;

@@ -95,6 +95,8 @@ static uint32_t epoll_map_poll_result(int poll_result, uint32_t requested)
     uint32_t revents = 0;
 
     if (poll_result & POLLIN) revents |= EPOLLIN;
+    if (poll_result & POLLPRI) revents |= EPOLLPRI;
+    if (poll_result & POLLRDHUP) revents |= EPOLLRDHUP;
     if (poll_result & POLLOUT) revents |= EPOLLOUT;
     if (poll_result & POLLERR) revents |= EPOLLERR;
     if (poll_result & POLLHUP) revents |= EPOLLHUP;

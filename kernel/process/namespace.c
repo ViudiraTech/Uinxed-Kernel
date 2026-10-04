@@ -331,6 +331,11 @@ static cgroup_namespace_t *clone_cgroup_ns(cgroup_namespace_t *old, task_t *task
 /* Clone nsproxy */
 nsproxy_t *nsproxy_clone(nsproxy_t *orig, uint64_t flags, int *error)
 {
+    /* The VFS currently has one mount tree. A new ID is not isolation. */
+    if (flags & CLONE_NEWNS) {
+        *error = -EPERM;
+        return NULL;
+    }
     if (!orig) orig = &init_nsproxy;
     if (!(flags & (CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET))) {
         *error = EOK;

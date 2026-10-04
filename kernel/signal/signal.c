@@ -1392,7 +1392,7 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
 }
 
 /* sys_rt_sigaction - Examine and change a signal action */
-int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, size_t sigsetsize)
+int64_t sys_rt_sigaction(int sig, const linux_sigaction_t *act, linux_sigaction_t *oact, size_t sigsetsize)
 {
     if (!sig_valid(sig)) return -EINVAL;
     if (sig_is_uncatchable(sig)) return -EINVAL;
@@ -1402,8 +1402,17 @@ int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, siz
     if (!proc) return -ESRCH;
 
     /* The user copies can fault, so they stay outside the signal lock. */
-    sigaction_t new_sa;
-    if (act && copy_from_user(&new_sa, act, sizeof(sigaction_t))) return -EFAULT;
+    sigaction_t new_sa = {0};
+    if (act) {
+        linux_sigaction_t wire;
+        if (copy_from_user(&wire, act, sizeof(wire))) return -EFAULT;
+        new_sa.sa_handler  = wire.handler;
+        new_sa.sa_flags    = (int32_t)wire.flags;
+        new_sa.sa_restorer = wire.restorer;
+        new_sa.sa_mask[0]  = wire.mask;
+        sigdelset(&new_sa.sa_mask[0], SIGKILL);
+        sigdelset(&new_sa.sa_mask[0], SIGSTOP);
+    }
     if (act && new_sa.sa_handler == SIG_ERR) return -EINVAL;
     if (act && sig != SIGCHLD) new_sa.sa_flags &= ~(SA_NOCLDSTOP | SA_NOCLDWAIT);
 
@@ -1417,7 +1426,10 @@ int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, siz
 
     spin_unlock(&state->lock);
 
-    if (have_old && copy_to_user(oact, &old_sa, sizeof(sigaction_t))) return -EFAULT;
+    if (have_old) {
+        linux_sigaction_t wire = {.handler = old_sa.sa_handler, .flags = (uint32_t)old_sa.sa_flags, .restorer = old_sa.sa_restorer, .mask = old_sa.sa_mask[0]};
+        if (copy_to_user(oact, &wire, sizeof(wire))) return -EFAULT;
+    }
     return 0;
 }
 

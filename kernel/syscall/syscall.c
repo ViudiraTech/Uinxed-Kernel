@@ -35,12 +35,15 @@
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
+#include <security/capability.h>
 #include <security/seccomp.h>
 #include <syscall/eventfd.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/mmap.h>
+#include <syscall/numa.h>
 #include <syscall/poll.h>
+#include <syscall/posix_timer.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/syscall_basic.h>
@@ -103,9 +106,10 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define MS_REC         16384
 #define MS_SILENT      32768
 
-#define MNT_FORCE  1
-#define MNT_DETACH 2
-#define MNT_EXPIRE 4
+#define MNT_FORCE       1
+#define MNT_DETACH      2
+#define MNT_EXPIRE      4
+#define UMOUNT_NOFOLLOW 8
 
 /* personality */
 #define PER_LINUX 0x0000
@@ -146,6 +150,7 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define PR_CAPBSET_DROP        24
 #define PR_GET_SECUREBITS      27
 #define PR_SET_SECUREBITS      28
+#define PR_CAP_AMBIENT         47
 #define PR_SET_TIMERSLACK      29
 #define PR_GET_TIMERSLACK      30
 #define PR_SET_MM              35
@@ -1873,7 +1878,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
+    if (!capability_has(current_task(), CAP_SYS_ADMIN)) return -EPERM;
 
     char src[CONFIG_VFS_PATH_MAX] = {0};
     char tgt[CONFIG_VFS_PATH_MAX] = {0};
@@ -1897,9 +1902,9 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     if (!node) return -ENOENT;
 
     /* Bind mounts may target regular files, as used by systemd's namespace setup. */
-    if (flags & MS_BIND) {
+    if ((flags & MS_BIND) && !(flags & MS_REMOUNT)) {
         vfs_close(node);
-        return EOK;
+        return -EOPNOTSUPP;
     }
 
     if (!(node->type & file_dir)) {
@@ -1918,14 +1923,18 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
         if (flags & MS_NOSUID) node->flags |= MOUNT_FLAG_NOSUID;
         if (flags & MS_NODEV) node->flags |= MOUNT_FLAG_NODEV;
         if (flags & MS_NOEXEC) node->flags |= MOUNT_FLAG_NOEXEC;
+        vfs_mount_changed();
         vfs_close(node);
         return EOK;
     }
 
     /* Handle MS_MOVE: move an existing mount to a new location */
     if (flags & MS_MOVE) {
+        vfs_node_t mounted = source ? vfs_open(src) : NULL;
+        int        result  = mounted ? vfs_move_mount(mounted, node) : -ENOENT;
+        if (mounted) vfs_close(mounted);
         vfs_close(node);
-        return -ENOSYS;
+        return result;
     }
 
     /* Perform the mount */
@@ -1999,7 +2008,7 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
 
     if (ret != EOK) return ret;
-    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
+    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW)) return -EINVAL;
 
     /*
      * systemd's early umount of /proc with MNT_DETACH would detach the
@@ -2011,7 +2020,8 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
      */
     if (proc && proc->task && proc->task->pid == 1 && (flags & MNT_DETACH) && (!strcmp(tgt, "/proc") || !strcmp(tgt, "/sys") || !strcmp(tgt, "/dev"))) return -EBUSY;
 
-    int r = vfs_umount(tgt);
+    if (!capability_has(current_task(), CAP_SYS_ADMIN)) return -EPERM;
+    int r = vfs_umount_flags(tgt, (flags & UMOUNT_NOFOLLOW) != 0);
     return r;
 }
 
@@ -3205,6 +3215,7 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
     memset(&args, 0, sizeof(args));
     if (copy_from_user(&args, (const void *)cl_args, (size_t)size)) return -EFAULT;
 
+    if (args.flags & CLONE_NEWNS) return -EPERM;
     uint64_t flags       = args.flags;
     uint64_t exit_signal = args.exit_signal;
     bool     is_thread   = (flags & CLONE_THREAD) != 0;
@@ -3479,7 +3490,7 @@ static int64_t sys_rt_sigaction_wrap(uint64_t sig, uint64_t act, uint64_t oact, 
 {
     (void)arg4;
     (void)arg5;
-    return sys_rt_sigaction((int)sig, (const sigaction_t *)act, (sigaction_t *)oact, (size_t)sigsetsize);
+    return sys_rt_sigaction((int)sig, (const linux_sigaction_t *)act, (linux_sigaction_t *)oact, (size_t)sigsetsize);
 }
 
 /* System call handler for `rt_sigprocmask`. */
@@ -4469,6 +4480,7 @@ shebang_oom:
     }
 
     proc->task->clear_child_tid = 0;
+    proc->task->robust_list     = 0;
     switch_page_directory(proc->user_page_dir);
 
     proc->task->thread.fs_base = 0;
@@ -4810,14 +4822,17 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             if (arg2 && copy_to_user((void *)arg2, &(int) {0}, sizeof(int))) return -EFAULT;
             return 0;
         case PR_GET_DUMPABLE :
-            /* Return dumpable=1 */
-            if (arg2 && copy_to_user((void *)arg2, &(int) {1}, sizeof(int))) return -EFAULT;
-            return 0;
+            return 1;
         case PR_SET_DUMPABLE :
+            return 0;
         case PR_GET_KEEPCAPS :
         case PR_SET_KEEPCAPS :
-            /* Accept any value */
-            return 0;
+        case PR_CAPBSET_READ :
+        case PR_CAPBSET_DROP :
+        case PR_SET_SECUREBITS :
+        case PR_GET_SECUREBITS :
+        case PR_CAP_AMBIENT :
+            return capability_prctl(current_task(), option, arg2, arg3, arg4, arg5);
         case PR_SET_NAME : {
             /* Set process name - copy up to 15 bytes */
             if (arg2) {
@@ -4856,29 +4871,6 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             return seccomp_set_no_new_privs(arg2, arg3, arg4, arg5);
         case PR_GET_NO_NEW_PRIVS :
             return seccomp_get_no_new_privs(arg2, arg3, arg4, arg5);
-        case PR_CAPBSET_READ :
-            /* Report all capability bounding set bits as present. */
-            if (arg2 > 63) return -EINVAL;
-            return 1;
-        case PR_CAPBSET_DROP :
-            return 0;
-        case PR_SET_SECUREBITS : {
-            /*
-             * systemd-executor sets SECBIT_NO_SECUREBITS etc. before
-             * spawning services; without root privilege escalation on
-             * this kernel, accept and record the requested mask.
-             */
-            task_t *task = current_task();
-            if (!task) return -ESRCH;
-            if (arg2 & ~0xffULL) return -EINVAL;
-            task->securebits = (uint8_t)arg2;
-            return 0;
-        }
-        case PR_GET_SECUREBITS : {
-            task_t *task = current_task();
-            if (!task) return -ESRCH;
-            return (int64_t)task->securebits;
-        }
         case PR_SET_MM :
             /*
              * systemd-executor rewrites /proc/self/cmdline bounds
@@ -4907,13 +4899,12 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             if (!task) return -ESRCH;
 
             /* clear_child_tid holds the thread's tid address when set via clone */
-            uintptr_t addr = 0;
+            uintptr_t addr = task->clear_child_tid;
             if (copy_to_user((void *)arg2, &addr, sizeof(addr))) return -EFAULT;
             return 0;
         }
         default :
-            /* Be permissive for systemd's optional features (ambient caps, etc.) */
-            return 0;
+            return -EINVAL;
     }
 }
 
@@ -5282,11 +5273,11 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_RESTART_SYSCALL]         = sys_restart_syscall,
     [SYS_SEMTIMEDOP]              = sys_semtimedop_wrap,
     [SYS_FADVISE64]               = sys_fadvise64,
-    [SYS_TIMER_CREATE]            = sys_unimplemented,
-    [SYS_TIMER_SETTIME]           = sys_unimplemented,
-    [SYS_TIMER_GETTIME]           = sys_unimplemented,
-    [SYS_TIMER_GETOVERRUN]        = sys_unimplemented,
-    [SYS_TIMER_DELETE]            = sys_unimplemented,
+    [SYS_TIMER_CREATE]            = sys_timer_create,
+    [SYS_TIMER_SETTIME]           = sys_timer_settime,
+    [SYS_TIMER_GETTIME]           = sys_timer_gettime,
+    [SYS_TIMER_GETOVERRUN]        = sys_timer_getoverrun,
+    [SYS_TIMER_DELETE]            = sys_timer_delete,
     [SYS_CLOCK_SETTIME]           = sys_clock_settime_impl,
     [SYS_CLOCK_GETTIME]           = sys_clock_gettime_impl,
     [SYS_CLOCK_GETRES]            = sys_clock_getres_impl,
@@ -5297,9 +5288,9 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_TGKILL]                  = sys_tgkill_wrap,
     [SYS_UTIMES]                  = sys_utimes_impl,
     [SYS_VSERVER]                 = sys_unimplemented,
-    [SYS_MBIND]                   = sys_unimplemented,
-    [SYS_SET_MEMPOLICY]           = sys_unimplemented,
-    [SYS_GET_MEMPOLICY]           = sys_unimplemented,
+    [SYS_MBIND]                   = sys_mbind,
+    [SYS_SET_MEMPOLICY]           = sys_set_mempolicy,
+    [SYS_GET_MEMPOLICY]           = sys_get_mempolicy,
     [SYS_MQ_OPEN]                 = sys_mq_open_wrap,
     [SYS_MQ_UNLINK]               = sys_mq_unlink_wrap,
     [SYS_MQ_TIMEDSEND]            = sys_mq_timedsend_wrap,
@@ -5372,7 +5363,7 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_GETCPU]                  = sys_getcpu_impl,
     [SYS_PROCESS_VM_READV]        = sys_process_vm_readv_impl,
     [SYS_PROCESS_VM_WRITEV]       = sys_process_vm_writev_impl,
-    [SYS_KCMP]                    = sys_unimplemented,
+    [SYS_KCMP]                    = sys_kcmp,
     [SYS_FINIT_MODULE]            = sys_finit_module_impl,
     [SYS_SCHED_SETATTR]           = sys_sched_setattr_impl,
     [SYS_SCHED_GETATTR]           = sys_sched_getattr_impl,
@@ -5399,8 +5390,8 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_IO_URING_SETUP]          = sys_unimplemented,
     [SYS_IO_URING_ENTER]          = sys_unimplemented,
     [SYS_IO_URING_REGISTER]       = sys_unimplemented,
-    [SYS_OPEN_TREE]               = sys_unimplemented,
-    [SYS_MOVE_MOUNT]              = sys_unimplemented,
+    [SYS_OPEN_TREE]               = sys_open_tree,
+    [SYS_MOVE_MOUNT]              = sys_move_mount,
     [SYS_FSOPEN]                  = sys_unimplemented,
     [SYS_FSCONFIG]                = sys_unimplemented,
     [SYS_FSMOUNT]                 = sys_unimplemented,
@@ -5413,7 +5404,7 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FACCESSAT2]              = sys_faccessat2_impl,
     [SYS_PROCESS_MADVISE]         = sys_process_madvise_impl,
     [SYS_EPOLL_PWAIT2]            = sys_epoll_pwait2_impl,
-    [SYS_MOUNT_SETATTR]           = sys_unimplemented,
+    [SYS_MOUNT_SETATTR]           = sys_mount_setattr,
     [SYS_QUOTACTL_FD]             = sys_unimplemented,
     [SYS_LANDLOCK_CREATE_RULESET] = sys_unimplemented,
     [SYS_LANDLOCK_ADD_RULE]       = sys_unimplemented,
@@ -5494,8 +5485,12 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
 
     if (num == SYS_FORK || num == SYS_VFORK || num == SYS_CLONE) {
         uint64_t clone_flags = num == SYS_CLONE ? frame->rdi : SIGCHLD;
-        bool     vfork       = num == SYS_VFORK || (clone_flags & CLONE_VFORK);
-        uint64_t tid_flags   = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
+        if (clone_flags & CLONE_NEWNS) {
+            frame->rax = (uint64_t)(int64_t)-EPERM;
+            goto check_signals;
+        }
+        bool     vfork     = num == SYS_VFORK || (clone_flags & CLONE_VFORK);
+        uint64_t tid_flags = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
 
         /*
          * Be permissive: accept namespace/sandbox flags used by
@@ -5528,7 +5523,14 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
             uint64_t       *kstack      = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
             syscall_frame_t child_frame = *frame;
             child_frame.rax             = 0;
-            if (vfork && num == SYS_CLONE) child_frame.rsp = frame->rsi;
+            /*
+             * clone(2)'s second argument is the child's user stack; glibc's
+             * clone() wrapper pushes the entry function and its argument onto
+             * it and has the child pop them, so the child must resume there
+             * rather than on the parent's stack.  Matches Linux's
+             * copy_thread(): ax = 0 and `if (sp) childregs->sp = sp;`.
+             */
+            if (num == SYS_CLONE && frame->rsi) child_frame.rsp = frame->rsi;
             kstack -= sizeof(syscall_frame_t) / sizeof(uint64_t);
             memcpy(kstack, &child_frame, sizeof(syscall_frame_t));
             *(--kstack)              = (uint64_t)syscall_return;
@@ -5623,14 +5625,20 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
     if (num == SYS_EXECVE) {
         retval     = do_execve((const char *)frame->rdi, (char *const *)frame->rsi, (char *const *)frame->rdx, frame);
         frame->rax = (uint64_t)retval;
-        if (!retval) ptrace_exec_event(frame);
+        if (!retval) {
+            capability_exec(current_task());
+            ptrace_exec_event(frame);
+        }
         goto check_signals;
     }
 
     if (num == SYS_EXECVEAT) {
         retval     = do_execveat(frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame);
         frame->rax = (uint64_t)retval;
-        if (!retval) ptrace_exec_event(frame);
+        if (!retval) {
+            capability_exec(current_task());
+            ptrace_exec_event(frame);
+        }
         goto check_signals;
     }
 

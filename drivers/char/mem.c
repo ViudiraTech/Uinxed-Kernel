@@ -10,6 +10,7 @@
 
 #include <arch/common.h>
 #include <drivers/char/chrdev.h>
+#include <drivers/char/random.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
@@ -75,6 +76,19 @@ static uint64_t mem_random_word(void)
     return result;
 }
 
+/* Use one serialized byte source for /dev/random, getrandom and boot IDs. */
+void mem_random_bytes(void *buffer, size_t size)
+{
+    uint8_t *out = buffer;
+    while (size) {
+        uint64_t word  = mem_random_word();
+        size_t   chunk = size < sizeof(word) ? size : sizeof(word);
+        memcpy(out, &word, chunk);
+        out += chunk;
+        size -= chunk;
+    }
+}
+
 /* Read handler for /dev/null, zero, full and random. */
 static int64_t mem_read(void *ctx, void *private_data, uint64_t flags, void *buffer, size_t offset, size_t size)
 {
@@ -90,15 +104,8 @@ static int64_t mem_read(void *ctx, void *private_data, uint64_t flags, void *buf
         return (int64_t)size;
     }
 
-    uint8_t *out = buffer;
-    while (size) {
-        uint64_t word  = mem_random_word();
-        size_t   chunk = size < sizeof(word) ? size : sizeof(word);
-        memcpy(out, &word, chunk);
-        out += chunk;
-        size -= chunk;
-    }
-    return (int64_t)(out - (uint8_t *)buffer);
+    mem_random_bytes(buffer, size);
+    return (int64_t)size;
 }
 
 /* Write handler; /dev/full rejects writes with -ENOSPC. */

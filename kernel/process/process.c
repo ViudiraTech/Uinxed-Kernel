@@ -32,6 +32,7 @@
 #include <sync/mutex.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
+#include <syscall/posix_timer.h>
 #include <syscall/syscall.h>
 
 static process_t *process_table[CONFIG_PROCESS_TABLE_SIZE];
@@ -834,6 +835,7 @@ void process_file_put(process_file_t *file)
     if (refs != 1) return;
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
 
+    ofd_lock_release(file);
     inotify_notify(file->node, (file->flags & O_ACCMODE) == O_RDONLY ? IN_CLOSE_NOWRITE : IN_CLOSE_WRITE);
 
     /* Release per-open-instance private_data. */
@@ -956,6 +958,12 @@ process_file_t *process_fd_get_for_transfer(process_t *proc, int fd)
     process_file_fd_get(file);
     spin_unlock(&proc->fd_lock);
     return file;
+}
+
+/* Duplicate an existing in-flight reference when MSG_PEEK preserves the queue. */
+void process_file_get_transfer(process_file_t *file)
+{
+    process_file_fd_get(file);
 }
 
 /* Release a descriptor pinned for transfer */
@@ -2058,7 +2066,7 @@ __attribute__((noreturn)) void process_exit(int exit_code)
                 static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
                 if (ratelimit_allow(&ratelimit)) plogk("process: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
             } else {
-                sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
+                (void)sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
             }
         }
         if (!(current->flags & PF_KTHREAD)) ptrace_exit_notify(exit_code);
@@ -2067,6 +2075,7 @@ __attribute__((noreturn)) void process_exit(int exit_code)
 
     /* Process timers cease to exist when the final thread exits. */
     signal_itimer_cancel(proc);
+    posix_timer_release_process(proc);
 
     /* Reverse any SEM_UNDO adjustments held by this process. */
     sysv_sem_undo_release(proc);
@@ -2449,11 +2458,10 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         return NULL;
     }
 
-    /* Fork allocates page-table frames while VM/scheduler locks are held. */
+    /* Reclaim before taking VM locks. The unpublished child needs no rq lock. */
     frame_reclaim_if_needed(16);
 
     disable_intr();
-    spin_lock(&scheduler.lock);
     spin_lock(&parent->mmap_lock);
 
     process_t *child = calloc(1, sizeof(process_t));
@@ -2462,7 +2470,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (control block OOM)\n", parent->name);
         if (error) *error = -ENOMEM;
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
@@ -2474,7 +2481,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (error) *error = task_error;
         free(child);
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
@@ -2488,6 +2494,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     ilist_insert_before(&child->threads, &child_task->thread_node);
     child->task->state               = TASK_READY;
     child->uid                       = parent->uid;
+    child->ruid                      = parent->ruid;
+    child->suid                      = parent->suid;
     child->gid                       = parent->gid;
     child->fsuid                     = parent->fsuid;
     child->fsgid                     = parent->fsgid;
@@ -2516,7 +2524,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         task_free(child_task);
         free(child);
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
     child->mmap_lock.lock   = 0;
@@ -2553,7 +2560,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
@@ -2563,21 +2569,10 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
-    /*
-     * VMA file processing below (vfs_node_retain / vfs_cache_mapping_pin /
-     * memfd_vma_retain) can sleep on the VFS namespace lock.  It must NOT run
-     * while holding scheduler.lock with IRQs masked: a contended
-     * mutex_lock(&vfs_namespace_lock) calls wait_queue_prepare()/
-     * wait_queue_sleep(), which re-acquire scheduler.lock and self-deadlock
-     * the fork (recursive spin).  The parent's mmap_lock still guards
-     * mmap_list, so drop scheduler.lock and unmask IRQs for the duration of
-     * the copy, then restore both.
-     */
-    spin_unlock(&scheduler.lock);
+    /* VFS-backed VMA references may wait; leave IRQs enabled for the copy. */
     enable_intr();
 
     for (vm_area_t *vma = parent->mmap_list; vma; vma = vma->next) {
@@ -2590,6 +2585,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             spin_unlock(&parent->mmap_lock);
             return NULL;
         }
+        copy->mempolicy       = vma->mempolicy;
         copy->type            = vma->type;
         copy->vm_file         = vma->vm_file ? vfs_node_retain(vma->vm_file) : NULL;
         copy->vm_pgoff        = vma->vm_pgoff;
@@ -2878,10 +2874,10 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
             return -EEXIST;
         }
         vma->type = VM_REGION_MMAP;
-        if (previous && previous->end == addr && previous->flags == flags && !previous->vm_file && !previous->vm_private_data) {
+        if (previous && previous->end == addr && previous->flags == flags && !previous->mempolicy.mode && !previous->vm_file && !previous->vm_private_data) {
             previous->end = addr + bytes;
             free(vma);
-        } else if (cursor && cursor->start == addr + bytes && cursor->flags == flags && !cursor->vm_file && !cursor->vm_private_data) {
+        } else if (cursor && cursor->start == addr + bytes && cursor->flags == flags && !cursor->mempolicy.mode && !cursor->vm_file && !cursor->vm_private_data) {
             cursor->start    = addr;
             cursor->vm_pgoff = 0;
             free(vma);
@@ -2911,7 +2907,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
      */
     size_t allocated = 0;
     for (; allocated < pages; allocated++) {
-        frames[allocated] = alloc_frames(1);
+        frames[allocated] = alloc_frames_user(1, 0, addr / PAGE_4K_SIZE + allocated);
         if (!frames[allocated]) {
             plogk("process: %s: mmap frame allocation failed (%zu/%zu pages at %#lx)\n", proc->name, allocated, pages, addr);
             goto rollback_frames;
@@ -2986,11 +2982,13 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
         spin_unlock(&proc->mmap_lock);
         return -EFAULT;
     }
-    vm_flags_t flags     = vma->flags;
-    vfs_node_t vm_file   = vma->vm_file;
-    uint64_t   pgoff     = vma->vm_pgoff;
-    bool       pagecache = vma->vm_pagecache;
-    uintptr_t  vma_start = vma->start;
+    numa_policy_t policy    = vma->mempolicy;
+    vm_flags_t    flags     = vma->flags;
+    vfs_node_t    vm_file   = vma->vm_file;
+    uint64_t      pgoff     = vma->vm_pgoff;
+    bool          pagecache = vma->vm_pagecache;
+    uintptr_t     vma_start = vma->start;
+    uintptr_t     vma_end   = vma->end;
     if (vm_file) vm_file = vfs_node_retain(vm_file);
     spin_unlock(&proc->mmap_lock);
 
@@ -3009,8 +3007,8 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     if (!vm_file && !pagecache && (flags & VM_ANON)) {
         uintptr_t hbase = ALIGN_DOWN(page, PAGE_2M_SIZE);
         uintptr_t hend  = hbase + PAGE_2M_SIZE;
-        if (hbase >= vma_start && hend <= vma->end && page_count_present_range(proc->user_page_dir, hbase, hend) == 0) {
-            uint64_t hframe = alloc_frames_2M(1);
+        if (hbase >= vma_start && hend <= vma_end && page_count_present_range(proc->user_page_dir, hbase, hend) == 0) {
+            uint64_t hframe = alloc_frames_policy(512, 9, (hbase - vma_start) / PAGE_4K_SIZE, &policy);
             if (hframe) {
                 memset(phys_to_virt(hframe), 0, PAGE_2M_SIZE);
                 bool     try_shared = (flags & VM_SHARED) != 0;
@@ -3049,7 +3047,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
         int dirty = (flags & (VM_SHARED | VM_WRITE)) == (VM_SHARED | VM_WRITE);
         if (vfs_cache_map_page(vm_file, pgoff + (index / PAGE_4K_SIZE), dirty, &frame)) goto fail;
     } else if (vm_file) {
-        frame = alloc_frames(1);
+        frame = alloc_frames_policy(1, 0, (page - vma_start) / PAGE_4K_SIZE, &policy);
         if (!frame) goto fail;
         void *virt = phys_to_virt(frame);
         memset(virt, 0, PAGE_4K_SIZE);
@@ -3060,7 +3058,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
             vfs_read(vm_file, virt, read_offset, to_read);
         }
     } else {
-        frame = alloc_frames(1);
+        frame = alloc_frames_policy(1, 0, (page - vma_start) / PAGE_4K_SIZE, &policy);
         if (!frame) goto fail;
         memset(phys_to_virt(frame), 0, PAGE_4K_SIZE);
     }

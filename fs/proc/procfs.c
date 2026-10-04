@@ -9,8 +9,10 @@
  */
 
 #include <arch/cpuid.h>
+#include <arch/cpumask.h>
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
+#include <drivers/char/random.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/tty_core.h>
 #include <fs/core/vfs.h>
@@ -26,16 +28,20 @@
 #include <libs/util/byteorder.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
+#include <mem/numa.h>
 #include <mem/pagecache.h>
 #include <mem/swap.h>
 #include <net/abi/inet.h>
 #include <net/core/netdev.h>
 #include <net/socket.h>
+#include <process/namespace.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
+#include <security/capability.h>
 #include <security/seccomp.h>
 #include <syscall/fcntl.h>
+#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
 #define PROCFS_LOAD_FRAC_BITS 11U
@@ -50,6 +56,7 @@
 #define PROCFS_SYSCTL_NET_COUNT        (sizeof(procfs_sysctl_net) / sizeof(procfs_sysctl_net[0]))
 #define PROCFS_SYSCTL_NET_UNIX_COUNT   (sizeof(procfs_sysctl_net_unix) / sizeof(procfs_sysctl_net_unix[0]))
 #define PROC_SYS_ROOT                  0
+#define PROC_SYS_RANDOM                7
 #define PROC_SYS_KERNEL                1
 #define PROC_SYS_FS                    2
 #define PROC_SYS_NET                   3
@@ -108,6 +115,8 @@ typedef enum procfs_pid_file_type {
     PROC_PID_LIMITS,
     PROC_PID_IO,
     PROC_PID_OOM_SCORE_ADJ,
+    PROC_PID_UID_MAP,
+    PROC_PID_GID_MAP,
 } procfs_pid_file_type_t;
 
 typedef enum procfs_type {
@@ -141,6 +150,7 @@ typedef struct procfs_file {
         char         *content;
         size_t        size;
         size_t        capacity;
+        uint64_t      mount_generation; // last table consumed by this open description
 } procfs_file_t;
 
 /* Lightweight sysctl table for /proc/sys */
@@ -221,6 +231,49 @@ static procfs_sysctl_t procfs_sysctl_net[] = {
 static procfs_sysctl_t procfs_sysctl_net_unix[] = {
     {.name = "max_dgram_qlen", .kind = PROC_SYS_UINT, .values = {512}, .count = 1},
 };
+
+static procfs_sysctl_t procfs_sysctl_random[] = {
+    {.name = "boot_id", .kind = PROC_SYS_STR, .readonly = 1},
+    {.name = "uuid",    .kind = PROC_SYS_STR, .readonly = 1},
+};
+static spinlock_t boot_id_lock;
+static char       boot_id[37];
+
+/* UUID v4 formatting; the boot ID is generated once and remains stable. */
+static void procfs_random_uuid(char output[37])
+{
+    uint8_t bytes[16];
+    mem_random_bytes(bytes, sizeof(bytes));
+    bytes[6]                = (bytes[6] & 15U) | 64U;
+    bytes[8]                = (bytes[8] & 63U) | 128U;
+    static const char hex[] = "0123456789abcdef";
+    size_t            at    = 0;
+    for (size_t i = 0; i < sizeof(bytes); i++) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) output[at++] = '-';
+        output[at++] = hex[bytes[i] >> 4];
+        output[at++] = hex[bytes[i] & 15U];
+    }
+    output[at] = '\0';
+}
+
+static void gen_random_file(procfs_file_t *pf)
+{
+    char uuid[37];
+    if (pf->pid == 0) {
+        uint64_t flags = spin_lock_irqsave(&boot_id_lock);
+        if (!boot_id[0]) procfs_random_uuid(boot_id);
+        memcpy(uuid, boot_id, sizeof(uuid));
+        spin_unlock_irqrestore(&boot_id_lock, flags);
+    } else
+        procfs_random_uuid(uuid);
+    pf->content = malloc(38);
+    if (!pf->content) return;
+    memcpy(pf->content, uuid, 36);
+    pf->content[36] = '\n';
+    pf->content[37] = '\0';
+    pf->size        = 37;
+    pf->capacity    = 38;
+}
 
 /*
  * procfs directory nodes are namespace objects, not disposable directory
@@ -490,15 +543,24 @@ static void gen_info_modules(procfs_file_t *pf)
     pf->capacity = capacity;
 }
 
+/* Mount streams refresh on rewind and notify only on namespace changes. */
+static bool procfs_is_mount_file(const procfs_file_t *pf)
+{
+    return pf
+           && ((pf->type == PROCFS_INFO_FILE && (pf->subtype == PROC_INFO_MOUNTS || pf->subtype == PROC_INFO_MOUNTINFO))
+               || (pf->type == PROCFS_PID_FILE && (pf->subtype == PROC_PID_MOUNTS || pf->subtype == PROC_PID_MOUNTINFO)));
+}
+
 /* Generate /proc/mounts or /proc/self/mountinfo content. */
 static void gen_mount_table(procfs_file_t *pf, bool mountinfo)
 {
     size_t capacity = (size_t)64 * 1024;
     char  *buffer   = malloc(capacity);
     if (!buffer) return;
-    pf->size     = vfs_format_mount_table(buffer, capacity, mountinfo);
-    pf->content  = buffer;
-    pf->capacity = capacity;
+    pf->mount_generation = vfs_mount_generation();
+    pf->size             = vfs_format_mount_table(buffer, capacity, mountinfo);
+    pf->content          = buffer;
+    pf->capacity         = capacity;
 }
 
 /* Generate /proc/filesystems content. */
@@ -1034,6 +1096,7 @@ static void gen_tty_ldiscs(procfs_file_t *pf)
 /* Return the sysctl entry for a directory index. */
 static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
 {
+    if (dir == PROC_SYS_RANDOM && index < 2) return &procfs_sysctl_random[index];
     if (dir == PROC_SYS_KERNEL && index < PROCFS_SYSCTL_KERNEL_COUNT) return &procfs_sysctl_kernel[index];
     if (dir == PROC_SYS_FS && index < PROCFS_SYSCTL_FS_COUNT) return &procfs_sysctl_fs[index];
     if (dir == PROC_SYS_FS_INOTIFY && index < PROCFS_SYSCTL_FS_INOTIFY_COUNT) return &procfs_sysctl_fs_inotify[index];
@@ -1276,6 +1339,171 @@ static void procfs_get_memory_stats(process_t *proc, procfs_memory_stats_t *stat
     spin_unlock(&proc->mmap_lock);
 }
 
+/* Effective user namespace of a process, or NULL when it has none. */
+static user_namespace_t *procfs_user_ns(process_t *proc)
+{
+    if (!proc || !proc->nsproxy) return NULL;
+    return proc->nsproxy->user_ns;
+}
+
+/*
+ * /proc/<pid>/{uid,gid}_map.  A freshly cloned user namespace starts with an
+ * empty map that must be written before the namespace can be used, which is how
+ * systemd's userns_acquire() obtains a user namespace file descriptor.
+ */
+static void gen_pid_id_map(procfs_file_t *pf, bool gid)
+{
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc) return;
+
+    char *buf = malloc(256);
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
+    size_t            at = 0;
+    user_namespace_t *ns = procfs_user_ns(proc);
+    if (ns) {
+        uint32_t                count   = gid ? ns->gid_extent_count : ns->uid_extent_count;
+        const uid_gid_extent_t *extents = gid ? ns->gid_map : ns->uid_map;
+        if (count > UID_GID_MAP_MAX) count = UID_GID_MAP_MAX;
+        for (uint32_t i = 0; i < count; i++) {
+            int written = snprintf(buf + at, 256 - at, "%u %u %u\n", extents[i].first, extents[i].lower_first, extents[i].count);
+            if (written < 0 || (size_t)written >= 256 - at) break;
+            at += (size_t)written;
+        }
+    }
+    process_put(proc);
+
+    pf->content  = buf;
+    pf->size     = at;
+    pf->capacity = 256;
+}
+
+/* Parse one "inside outside count" extent; returns the count of bytes consumed. */
+static int procfs_parse_id_extent(const char *data, size_t size, size_t *used, uid_gid_extent_t *extent)
+{
+    size_t   at = 0;
+    uint32_t values[3];
+    for (unsigned field = 0; field < 3; field++) {
+        while (at < size && (data[at] == ' ' || data[at] == '\t')) at++;
+        if (at >= size || data[at] < '0' || data[at] > '9') return -EINVAL;
+        uint64_t value = 0;
+        while (at < size && data[at] >= '0' && data[at] <= '9') {
+            value = value * 10 + (uint64_t)(data[at] - '0');
+            if (value > UINT32_MAX) return -EINVAL;
+            at++;
+        }
+        if (at < size && data[at] != ' ' && data[at] != '\t' && data[at] != '\n') return -EINVAL;
+        values[field] = (uint32_t)value;
+    }
+    while (at < size && (data[at] == ' ' || data[at] == '\t')) at++;
+    if (at < size && data[at] != '\n') return -EINVAL;
+    if (at < size) at++;
+    if (!values[2]) return -EINVAL;
+    if (values[0] > UINT32_MAX - values[2] || values[1] > UINT32_MAX - values[2]) return -EINVAL;
+
+    extent->first       = values[0];
+    extent->lower_first = values[1];
+    extent->count       = values[2];
+    *used               = at;
+    return EOK;
+}
+
+/* Apply one written map to the target namespace, rejecting overlap. */
+static int procfs_write_id_map(procfs_file_t *pf, const char *data, size_t size)
+{
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc) return -ESRCH;
+    user_namespace_t *ns = procfs_user_ns(proc);
+    if (!ns) {
+        process_put(proc);
+        return -ESRCH;
+    }
+
+    bool              gid     = pf->subtype == PROC_PID_GID_MAP;
+    uint32_t         *count   = gid ? &ns->gid_extent_count : &ns->uid_extent_count;
+    uid_gid_extent_t *extents = gid ? ns->gid_map : ns->uid_map;
+    /* A map may be written exactly once, as in Linux. */
+    if (*count) {
+        process_put(proc);
+        return -EPERM;
+    }
+
+    uint32_t parsed = 0;
+    size_t   at     = 0;
+    while (at < size) {
+        while (at < size && (data[at] == '\n' || data[at] == ' ' || data[at] == '\t')) at++;
+        if (at >= size) break;
+        if (parsed >= UID_GID_MAP_MAX) {
+            process_put(proc);
+            return -EINVAL;
+        }
+        uid_gid_extent_t extent;
+        size_t           used   = 0;
+        int              result = procfs_parse_id_extent(data + at, size - at, &used, &extent);
+        if (result != EOK) {
+            process_put(proc);
+            return result;
+        }
+        /* The inside range must not overlap an extent accepted earlier. */
+        for (uint32_t i = 0; i < parsed; i++)
+            if (extent.first < extents[i].first + extents[i].count && extents[i].first < extent.first + extent.count) {
+                process_put(proc);
+                return -EINVAL;
+            }
+        extents[parsed++] = extent;
+        at += used;
+    }
+    if (!parsed) {
+        process_put(proc);
+        return -EINVAL;
+    }
+    *count = parsed;
+    process_put(proc);
+    return EOK;
+}
+
+/*
+ * Linux renders these masks most-significant 32-bit chunk first, every chunk
+ * of a multi-chunk mask zero padded to eight hex digits; a mask that fits in a
+ * single chunk is printed unpadded.
+ */
+static void format_mask_chunks(char *buf, size_t size, const uint64_t *words, uint32_t nwords, uint32_t bits)
+{
+    uint32_t chunks = bits > 32 ? (bits + 31) / 32 : 1;
+    size_t   at     = 0;
+    buf[0]          = '\0';
+    for (uint32_t chunk = chunks; chunk-- > 0;) {
+        uint32_t word_index = chunk / 2;
+        uint32_t value      = word_index < nwords ? (uint32_t)(words[word_index] >> ((chunk % 2) * 32)) : 0;
+        int      n;
+        if (chunks == 1)
+            n = snprintf(buf + at, size - at, "%x", value);
+        else
+            n = snprintf(buf + at, size - at, "%s%08x", at ? "," : "", value);
+        if (n < 0 || (size_t)n >= size - at) return;
+        at += (size_t)n;
+    }
+}
+
+/* Canonical range list for a node mask, matching the CPU list syntax. */
+static void format_node_list(char *buf, size_t size, nodemask_t nodes, uint32_t max_nodes)
+{
+    size_t at = 0;
+    buf[0]    = '\0';
+    if (max_nodes > 64) max_nodes = 64;
+    for (uint32_t node = 0; node < max_nodes; node++) {
+        if (!(nodes & (1ULL << node))) continue;
+        uint32_t last = node;
+        while (last + 1 < max_nodes && (nodes & (1ULL << (last + 1)))) last++;
+        int n = last == node ? snprintf(buf + at, size - at, "%s%u", at ? "," : "", node) : snprintf(buf + at, size - at, "%s%u-%u", at ? "," : "", node, last);
+        if (n < 0 || (size_t)n >= size - at) return;
+        at += (size_t)n;
+        node = last;
+    }
+}
+
 /* Generate /proc/<pid>/status content. */
 static void gen_pid_status(procfs_file_t *pf)
 {
@@ -1324,21 +1552,40 @@ static void gen_pid_status(procfs_file_t *pf)
     uint32_t seccomp_filters;
     seccomp_task_get_status(proc->task, &no_new_privs, &seccomp_mode, &seccomp_filters);
 
-    uint32_t cpu_count = sched_cpu_count();
-    uint64_t cpu_mask;
-    if (cpu_count >= 64) {
-        cpu_mask = UINT64_MAX;
-    } else if (cpu_count) {
-        cpu_mask = (1ULL << cpu_count) - 1;
-    } else {
-        cpu_mask = 1;
+    /*
+     * Both masks are reported the way Linux does: the effective (affinity and
+     * cpuset intersected) CPU set and the cgroup-restricted node set of this
+     * task, not the machine-wide defaults.
+     */
+    capability_status_t caps;
+    capability_get_status(proc->task, &caps);
+
+    uint32_t  cpu_count = sched_cpu_count();
+    cpumask_t affinity;
+    if (sched_getaffinity(proc->task, &affinity) != 0) cpumask_fill(&affinity, cpu_count);
+    nodemask_t mems = __atomic_load_n(&proc->task->mems_allowed, __ATOMIC_ACQUIRE);
+    if (!mems) mems = frame_memory_nodes();
+
+    char cpu_mask[CPUMASK_WORDS * 18 + 2];
+    char mems_mask[18];
+    format_mask_chunks(cpu_mask, sizeof(cpu_mask), affinity.bits, CPUMASK_WORDS, cpu_count);
+    uint64_t mems_word = mems;
+    format_mask_chunks(mems_mask, sizeof(mems_mask), &mems_word, 1, CONFIG_NUMA_MAX_NODES);
+
+    size_t cpu_list_size  = (size_t)cpu_count * 5 + 2;
+    size_t mems_list_size = (size_t)CONFIG_NUMA_MAX_NODES * 5 + 2;
+    char  *lists          = malloc(cpu_list_size + mems_list_size);
+    if (!lists) {
+        free(buf);
+        process_put(proc);
+        return;
     }
-    char cpu_list[32];
-    if (cpu_count > 1) {
-        (void)snprintf(cpu_list, sizeof(cpu_list), "0-%u", cpu_count - 1);
-    } else {
-        strcpy(cpu_list, "0");
-    }
+    char *cpu_list  = lists;
+    char *mems_list = lists + cpu_list_size;
+    if (cpumask_format_list(cpu_list, cpu_list_size, &affinity) < 0) cpu_list[0] = '\0';
+    size_t cpu_len = strlen(cpu_list);
+    if (cpu_len && cpu_list[cpu_len - 1] == '\n') cpu_list[cpu_len - 1] = '\0';
+    format_node_list(mems_list, mems_list_size, mems, CONFIG_NUMA_MAX_NODES);
 
     pid_t ppid = process_parent_pid(proc);
     int   n    = snprintf(buf, PROCFS_BUF_SIZE,
@@ -1364,23 +1611,31 @@ static void gen_pid_status(procfs_file_t *pf)
                                "Seccomp:\t%u\n"
                                "Seccomp_filters:\t%u\n"
                                "SigQ:\t0/0\n"
-                               "CapInh:\t0000000000000000\n"
-                               "CapPrm:\t0000000000000000\n"
-                               "CapEff:\t0000000000000000\n"
-                               "CapBnd:\t0000000000000000\n"
-                               "Cpus_allowed:\t%llx\n"
+                               "CapInh:\t%016llx\n"
+                               "CapPrm:\t%016llx\n"
+                               "CapEff:\t%016llx\n"
+                               "CapBnd:\t%016llx\n"
+                               "CapAmb:\t%016llx\n"
+                               "Cpus_allowed:\t%s\n"
                                "Cpus_allowed_list:\t%s\n"
-                               "Mems_allowed:\t1\n"
-                               "Mems_allowed_list:\t0\n"
+                               "Mems_allowed:\t%s\n"
+                               "Mems_allowed_list:\t%s\n"
                                "voluntary_ctxt_switches:\t%llu\n"
                                "nonvoluntary_ctxt_switches:\t%llu\n",
                           proc->task->name, state_str, pf->pid, pf->pid, ppid, ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U,
                           0U, memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024, (memory.data_bytes / 1024), (memory.stack_bytes / 1024), (memory.text_bytes / 1024),
-                     stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, seccomp_mode, seccomp_filters, cpu_mask, cpu_list, stats.voluntary_switches, stats.involuntary_switches);
+                     stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, seccomp_mode, seccomp_filters, (unsigned long long)caps.inheritable, (unsigned long long)caps.permitted,
+                          (unsigned long long)caps.effective, (unsigned long long)caps.bounding, (unsigned long long)caps.ambient, cpu_mask, cpu_list, mems_mask, mems_list, stats.voluntary_switches,
+                          stats.involuntary_switches);
+    free(lists);
     process_put(proc);
 
+    /* snprintf reports what it would have written; never publish past the buffer. */
+    size_t written = n < 0 ? 0 : (size_t)n;
+    if (written >= PROCFS_BUF_SIZE) written = PROCFS_BUF_SIZE - 1;
+
     pf->content  = buf;
-    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->size     = written;
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
@@ -1955,6 +2210,12 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                 case PROC_PID_OOM_SCORE_ADJ :
                     gen_pid_oom_score_adj(pf);
                     break;
+                case PROC_PID_UID_MAP :
+                    gen_pid_id_map(pf, false);
+                    break;
+                case PROC_PID_GID_MAP :
+                    gen_pid_id_map(pf, true);
+                    break;
                 default :
                     break;
             }
@@ -1966,7 +2227,10 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
             gen_net_file(pf);
             break;
         case PROCFS_SYS_FILE :
-            gen_sysctl_file(pf);
+            if (pf->subtype == PROC_SYS_RANDOM)
+                gen_random_file(pf);
+            else
+                gen_sysctl_file(pf);
             break;
         case PROCFS_TTY_FILE :
             if (pf->subtype == 0) {
@@ -2388,6 +2652,11 @@ static int64_t procfs_file_read(vfs_node_t node, void *private_data, uint64_t fl
         pf = NULL;
     }
     if (!pf || !addr) return -EINVAL;
+    if (!offset && procfs_is_mount_file(pf)) {
+        free(pf->content);
+        pf->content = NULL;
+        pf->size = pf->capacity = 0;
+    }
     if (!pf->content) procfs_gen_content(pf, NULL);
     if (!pf->content || offset >= pf->size) return 0;
     size_t actual = size < pf->size - offset ? size : pf->size - offset;
@@ -2524,6 +2793,8 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"limits",        PROC_PID_LIMITS       },
                 {"io",            PROC_PID_IO           },
                 {"oom_score_adj", PROC_PID_OOM_SCORE_ADJ},
+                {"uid_map",       PROC_PID_UID_MAP      },
+                {"gid_map",       PROC_PID_GID_MAP      },
             };
             for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++) (void)procfs_ensure_child(node, pid_tab[i].name, PROCFS_PID_FILE, pf->pid, pid_tab[i].subtype, file_none);
 
@@ -2618,7 +2889,11 @@ static int procfs_stat(void *file, vfs_node_t node)
                 (void)procfs_ensure_child(node, "fs", PROCFS_SYS_DIR, 0, PROC_SYS_FS, file_dir);
                 (void)procfs_ensure_child(node, "net", PROCFS_SYS_DIR, 0, PROC_SYS_NET, file_dir);
                 (void)procfs_ensure_child(node, "vm", PROCFS_SYS_DIR, 0, PROC_SYS_VM, file_dir);
+            } else if (pf->subtype == PROC_SYS_RANDOM) {
+                (void)procfs_ensure_child(node, "boot_id", PROCFS_SYS_FILE, 0, PROC_SYS_RANDOM, file_none);
+                (void)procfs_ensure_child(node, "uuid", PROCFS_SYS_FILE, 1, PROC_SYS_RANDOM, file_none);
             } else if (pf->subtype == PROC_SYS_KERNEL) {
+                (void)procfs_ensure_child(node, "random", PROCFS_SYS_DIR, 0, PROC_SYS_RANDOM, file_dir);
                 for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++) (void)procfs_ensure_child(node, procfs_sysctl_kernel[i].name, PROCFS_SYS_FILE, (pid_t)i, PROC_SYS_KERNEL, file_none);
             } else if (pf->subtype == PROC_SYS_FS) {
                 for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++) {
@@ -2773,6 +3048,11 @@ static int64_t procfs_file_write(vfs_node_t node, void *private_data, uint64_t f
      * write.
      */
     if (pf->type == PROCFS_PID_FILE && pf->subtype == PROC_PID_OOM_SCORE_ADJ) return (int64_t)size;
+
+    if (pf->type == PROCFS_PID_FILE && (pf->subtype == PROC_PID_UID_MAP || pf->subtype == PROC_PID_GID_MAP)) {
+        int result = procfs_write_id_map(pf, (const char *)addr, size);
+        return result == EOK ? (int64_t)size : result;
+    }
     return -EACCES;
 }
 
@@ -2845,31 +3125,50 @@ static int procfs_ioctl(void *file, size_t req, void *arg)
     return EOK;
 }
 
+/* mountinfo is readable as a file, with POLLPRI reserved for actual changes. */
+static int procfs_file_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
+{
+    (void)flags;
+    procfs_file_t *pf = private_data ? private_data : node->handle;
+    if (!procfs_is_mount_file(pf)) return vfs_poll_ready(node->handle, events);
+    int ready = (int)(events & (POLLIN | POLLOUT));
+    if (pf->mount_generation != vfs_mount_generation()) ready |= POLLPRI | POLLERR;
+    return ready;
+}
+
+static vfs_poll_source_t *procfs_file_poll_source(vfs_node_t node, void *private_data)
+{
+    procfs_file_t *pf = private_data ? private_data : node->handle;
+    return procfs_is_mount_file(pf) ? vfs_mount_poll_source() : &node->poll_source;
+}
+
 /* Callback table */
 static struct vfs_callback procfs_callbacks = {
-    .mount        = procfs_mount,
-    .unmount      = procfs_umount,
-    .open         = procfs_open,
-    .close        = vfs_stub_close,
-    .read         = procfs_read,
-    .write        = procfs_write,
-    .readlink     = procfs_readlink,
-    .mkdir        = procfs_mkdir,
-    .mkfile       = vfs_stub_mk_readonly,
-    .link         = vfs_stub_mk_readonly,
-    .symlink      = vfs_stub_mk_readonly,
-    .stat         = procfs_stat,
-    .ioctl        = procfs_ioctl,
-    .dup          = procfs_dup,
-    .poll         = vfs_poll_ready,
-    .free         = procfs_free,
-    .delete       = vfs_stub_del_readonly,
-    .rename       = vfs_stub_rename_readonly,
-    .file_open    = procfs_file_open,
-    .file_release = procfs_file_release,
-    .file_read    = procfs_file_read,
-    .file_write   = procfs_file_write,
-    .resize       = procfs_resize,
+    .mount            = procfs_mount,
+    .unmount          = procfs_umount,
+    .open             = procfs_open,
+    .close            = vfs_stub_close,
+    .read             = procfs_read,
+    .write            = procfs_write,
+    .readlink         = procfs_readlink,
+    .mkdir            = procfs_mkdir,
+    .mkfile           = vfs_stub_mk_readonly,
+    .link             = vfs_stub_mk_readonly,
+    .symlink          = vfs_stub_mk_readonly,
+    .stat             = procfs_stat,
+    .ioctl            = procfs_ioctl,
+    .dup              = procfs_dup,
+    .poll             = vfs_poll_ready,
+    .free             = procfs_free,
+    .delete           = vfs_stub_del_readonly,
+    .rename           = vfs_stub_rename_readonly,
+    .file_open        = procfs_file_open,
+    .file_release     = procfs_file_release,
+    .file_read        = procfs_file_read,
+    .file_poll        = procfs_file_poll,
+    .file_poll_source = procfs_file_poll_source,
+    .file_write       = procfs_file_write,
+    .resize           = procfs_resize,
 };
 
 /* Register the proc filesystem with the VFS layer. */

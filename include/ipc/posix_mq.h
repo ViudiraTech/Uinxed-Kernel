@@ -16,9 +16,7 @@
 #include <libs/std/stdint.h>
 #include <sync/signal.h>
 
-#define SIGEV_NONE   1
-#define SIGEV_SIGNAL 2
-#define SIGEV_THREAD 3
+/* sigev_notify values live in <sync/signal.h> with the rest of the signal ABI. */
 
 /* mq_attr structure */
 

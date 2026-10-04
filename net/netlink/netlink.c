@@ -169,7 +169,9 @@ static int rtnl_queue_message(struct socket *sk, uint16_t type, uint16_t flags, 
     header->nlmsg_type  = type;
     header->nlmsg_flags = flags;
     header->nlmsg_seq   = seq;
-    header->nlmsg_pid   = 0;
+    /* Unicast reply header identifies its recipient; sockaddr still says kernel PID 0. */
+    nl_sock_t *recipient = nl_sk(sk);
+    header->nlmsg_pid    = recipient ? recipient->nl_pid : 0;
     if (payload_length) memcpy(NLMSG_DATA(header), payload, payload_length);
     int result = netlink_unicast(sk, buffer, NLMSG_ALIGN(length), 0);
     free(buffer);
@@ -332,10 +334,38 @@ static int rtnl_parse_route_request(const nlmsghdr_t *request, rtnl_dump_context
     return EOK;
 }
 
+typedef struct {
+        int32_t  ifindex;
+        uint32_t flags;
+        uint32_t change;
+        int      result;
+} rtnl_link_change_t;
+
+/* Change only flags backed by an actual netdev operation. */
+static void rtnl_change_link(net_device_t *device, void *opaque)
+{
+    rtnl_link_change_t *change = opaque;
+    if ((int32_t)device->ifindex != change->ifindex) return;
+    change->result = change->change & IFF_UP ? netdev_set_up(device, (change->flags & IFF_UP) != 0) : EOK;
+}
+
+static int rtnl_set_link(struct socket *sk, const nlmsghdr_t *request)
+{
+    if (sk->uid != 0) return rtnl_queue_error(sk, request, -EPERM);
+    if (NLMSG_PAYLOAD(request, 0) != sizeof(ifinfomsg_t)) return rtnl_queue_error(sk, request, -EOPNOTSUPP);
+    const ifinfomsg_t *info = NLMSG_DATA(request);
+    if (info->ifi_index <= 0 || (info->ifi_change & ~IFF_UP)) return rtnl_queue_error(sk, request, -EINVAL);
+    rtnl_link_change_t change = {.ifindex = info->ifi_index, .flags = info->ifi_flags, .change = info->ifi_change, .result = -ENODEV};
+    netdev_iterate(rtnl_change_link, &change);
+    if (change.result || (request->nlmsg_flags & NLM_F_ACK)) return rtnl_queue_error(sk, request, change.result);
+    return EOK;
+}
+
 /* Serve one RTM_GETLINK/GETADDR/GETROUTE request, dumping matching data. */
 static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
 {
     if (!(request->nlmsg_flags & NLM_F_REQUEST)) return rtnl_queue_error(sk, request, -EINVAL);
+    if (request->nlmsg_type == RTM_SETLINK) return rtnl_set_link(sk, request);
     rtnl_dump_context_t context = {
         .sk              = sk,
         .seq             = request->nlmsg_seq,
@@ -1114,6 +1144,19 @@ int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *add
     return ret;
 }
 
+/* FIONREAD reports the next datagram length without consuming it. */
+int netlink_readable_bytes(struct socket *sk)
+{
+    nl_sock_t *ns = nl_sk(sk);
+    if (!ns) return -EINVAL;
+    spin_lock(&ns->recv_lock);
+    clist_t   head    = clist_head(ns->recv_queue);
+    nl_msg_t *message = head ? head->data : NULL;
+    int       length  = message ? (int)message->len : 0;
+    spin_unlock(&ns->recv_lock);
+    return length;
+}
+
 /* Report the socket's readable/writable/error poll status. */
 int netlink_poll(struct socket *sk, size_t events)
 {
@@ -1216,12 +1259,20 @@ int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *o
     uint32_t   koptlen;
 
     if (!sk) return -EBADF;
-    if (!optval || !optlen) return -EINVAL;
+    if (!optlen) return -EFAULT;
 
     ns = nl_sk(sk);
     if (!ns) return -EINVAL;
 
+    uint32_t userlen;
+    if (copy_from_user(&userlen, optlen, sizeof(userlen))) return -EFAULT;
     switch (optname) {
+        case NETLINK_LIST_MEMBERSHIPS :
+            spin_lock(&sk->lock);
+            ival = (int)ns->nl_groups;
+            spin_unlock(&sk->lock);
+            koptlen = sizeof(uint32_t);
+            break;
         case NETLINK_PKTINFO :
             ival    = ns->packet_info;
             koptlen = sizeof(int);
@@ -1242,7 +1293,8 @@ int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *o
             return -ENOPROTOOPT;
     }
 
-    if (copy_to_user(optval, &ival, sizeof(int))) return -EFAULT;
+    uint32_t copylen = userlen < koptlen ? userlen : koptlen;
+    if (copylen && (!optval || copy_to_user(optval, &ival, copylen))) return -EFAULT;
     if (copy_to_user(optlen, &koptlen, sizeof(uint32_t))) return -EFAULT;
     return EOK;
 }

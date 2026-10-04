@@ -41,6 +41,7 @@ int buddy_init(buddy_allocator_t *allocator, buddy_page_t *metadata, size_t page
     allocator->pages      = metadata;
     allocator->page_count = page_count;
     allocator->free_pages = 0;
+    allocator->node       = 0;
     allocator->max_order  = (uint8_t)max_order;
 
     for (unsigned order = 0; order <= CONFIG_BUDDY_MAX_ORDER; order++) {
@@ -101,6 +102,7 @@ static void add_block(buddy_allocator_t *allocator, size_t index, unsigned order
         if (buddy >= allocator->page_count) break;
 
         buddy_page_t *buddy_page = &allocator->pages[buddy];
+        if ((__atomic_load_n(&buddy_page->reserved, __ATOMIC_RELAXED) >> 1) != allocator->node) break;
         if (buddy_page->state != BUDDY_PAGE_FREE_HEAD || buddy_page->order != order) break;
 
         list_remove(allocator, buddy, order);
@@ -116,7 +118,7 @@ int buddy_add_range(buddy_allocator_t *allocator, size_t start, size_t count)
     if (!allocator || !count || start >= allocator->page_count || count > allocator->page_count - start) return -EINVAL;
 
     for (size_t i = start; i < start + count; i++)
-        if (allocator->pages[i].state != BUDDY_PAGE_RESERVED) return -EINVAL;
+        if (allocator->pages[i].state != BUDDY_PAGE_RESERVED || (__atomic_load_n(&allocator->pages[i].reserved, __ATOMIC_RELAXED) >> 1) != allocator->node) return -EINVAL;
 
     while (count) {
         unsigned order = buddy_order_for_units(count);
@@ -164,6 +166,7 @@ int buddy_free(buddy_allocator_t *allocator, size_t index, unsigned order)
 {
     if (!allocator || order > allocator->max_order || index >= allocator->page_count) return -EINVAL;
     size_t units = order_units(order);
+    if ((__atomic_load_n(&allocator->pages[index].reserved, __ATOMIC_RELAXED) >> 1) != allocator->node) return -EINVAL;
     if ((index & (units - 1)) || units > allocator->page_count - index) return -EINVAL;
     if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) {
         plogk_once("buddy: Invalid free at page 0x%zx order %u (state %u, stored order %u)\n", index, order, allocator->pages[index].state, allocator->pages[index].order);
@@ -237,13 +240,16 @@ int buddy_validate(const buddy_allocator_t *allocator)
             size_t              index = (size_t)node;
             size_t              units = order_units(order);
             const buddy_page_t *page  = &allocator->pages[index];
+            if ((__atomic_load_n(&page->reserved, __ATOMIC_RELAXED) >> 1) != allocator->node) return -EFAULT;
             if (page->state != BUDDY_PAGE_FREE_HEAD || page->order != order || page->prev != previous) return -EFAULT;
             if ((index & (units - 1)) || units > allocator->page_count - index) return -EFAULT;
             for (size_t i = 1; i < units; i++)
                 if (allocator->pages[index + i].state == BUDDY_PAGE_FREE_HEAD) return -EFAULT;
             if (order < allocator->max_order) {
                 size_t buddy = index ^ units;
-                if (buddy < allocator->page_count && allocator->pages[buddy].state == BUDDY_PAGE_FREE_HEAD && allocator->pages[buddy].order == order) return -EFAULT; // Coalescing invariant violated.
+                if (buddy < allocator->page_count && (__atomic_load_n(&allocator->pages[buddy].reserved, __ATOMIC_RELAXED) >> 1) == allocator->node
+                    && allocator->pages[buddy].state == BUDDY_PAGE_FREE_HEAD && allocator->pages[buddy].order == order)
+                    return -EFAULT; // Coalescing invariant violated.
             }
             previous = node;
             node     = page->next;
@@ -258,7 +264,7 @@ int buddy_validate(const buddy_allocator_t *allocator)
 
     size_t observed_heads = 0;
     for (size_t i = 0; i < allocator->page_count; i++) {
-        if (allocator->pages[i].state == BUDDY_PAGE_FREE_HEAD) {
+        if ((__atomic_load_n(&allocator->pages[i].reserved, __ATOMIC_RELAXED) >> 1) == allocator->node && allocator->pages[i].state == BUDDY_PAGE_FREE_HEAD) {
             unsigned order = allocator->pages[i].order;
             if (order > allocator->max_order || !node_in_list(allocator, i, order)) return -EFAULT;
             observed_heads++;
