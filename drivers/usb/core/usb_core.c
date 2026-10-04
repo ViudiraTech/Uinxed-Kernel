@@ -371,6 +371,10 @@ int usb_enumerate_device(usb_device_t *hub, uint8_t port, usb_speed_t speed, usb
     dev->address = addr;
     msleep(2); // TRSTRCY + recovery per USB 2.0 §9.2.6.3
 
+    /* Read 8 bytes first: bMaxPacketSize0 (offset 7) is not known yet. */
+    ret = usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &dev->descriptor, 8, USB_CTRL_TIMEOUT_MS);
+    if (ret != EOK) goto fail;
+
     /* GET_DESCRIPTOR device (18) at new address. */
     ret = usb_control_msg(dev, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &dev->descriptor, sizeof(dev->descriptor), USB_CTRL_TIMEOUT_MS);
     if (ret != EOK || dev->descriptor.length < sizeof(dev->descriptor)) {

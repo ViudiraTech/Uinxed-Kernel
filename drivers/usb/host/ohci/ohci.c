@@ -570,6 +570,10 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
     msleep(10);
     device->address = address;
 
+    /* Read 8 bytes first: bMaxPacketSize0 (offset 7) is not known yet. */
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &device->descriptor, 8, USB_CTRL_TIMEOUT_MS);
+    if (result != EOK) goto fail;
+
     result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &device->descriptor, sizeof(device->descriptor),
                              USB_CTRL_TIMEOUT_MS);
     if (result != EOK || device->descriptor.length < sizeof(device->descriptor) || device->descriptor.descriptor_type != USB_DT_DEVICE) {
