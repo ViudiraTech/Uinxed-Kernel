@@ -242,8 +242,16 @@ static void destroy_table(page_table_t *table, int level)
         }
 
         if (level == 1 || (value & PTE_HUGE)) {
-            uint64_t mask = leaf_address_mask(level);
-            (void)frame_release_range(value & mask, leaf_frame_count(level));
+            /*
+             * A PTE_SHARED leaf points at a frame somebody else owns and merely
+             * lent to this address space -- the vDSO image and its data page are
+             * the standing example.  Releasing it would hand a live page back to
+             * the allocator while other address spaces still map it.
+             */
+            if (!(value & PTE_SHARED)) {
+                uint64_t mask = leaf_address_mask(level);
+                (void)frame_release_range(value & mask, leaf_frame_count(level));
+            }
         } else {
             page_table_t *next = phys_to_virt(value & PAGE_4K_MASK);
             destroy_table(next, level - 1);
@@ -290,6 +298,16 @@ static int clone_table_cow(page_table_t *destination, const page_table_t *source
         if (level == 1 || (value & PTE_HUGE)) {
             uint64_t mask  = leaf_address_mask(level);
             size_t   count = leaf_frame_count(level);
+
+            /*
+             * A PTE_SHARED leaf is a frame this address space only borrowed, so
+             * it is neither retained here nor released on teardown; copying the
+             * entry verbatim keeps the two sides in balance.
+             */
+            if (value & PTE_SHARED) {
+                destination->entries[i].value = value;
+                continue;
+            }
             if (frame_retain_range(value & mask, count)) return -ENOMEM;
             destination->entries[i].value = cow_leaf_value(value);
             continue;
@@ -636,7 +654,13 @@ void free_page_table_recursive(page_table_t *table, int level)
         page_table_entry_t *entry = &table->entries[i];
         if (entry->value == 0 || is_huge_page(entry)) continue;
         if (level == 1) {
-            if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) free_frame(entry->value & PAGE_4K_MASK);
+            /*
+             * A PTE_SHARED leaf is a frame somebody else owns and merely lent to
+             * this address space -- the vDSO data page is the standing example.
+             * Releasing it here hands a live page back to the allocator while
+             * other address spaces still map it.
+             */
+            if ((entry->value & PTE_PRESENT) && (entry->value & PTE_WRITEABLE) && (entry->value & PTE_USER) && !(entry->value & PTE_SHARED)) free_frame(entry->value & PAGE_4K_MASK);
         } else {
             free_page_table_recursive(phys_to_virt(entry->value & PAGE_4K_MASK), level - 1);
         }

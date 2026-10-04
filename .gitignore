@@ -1,6 +1,11 @@
 # Uinxed-Kernel .gitignore: source + required build deps only. Libraries
 # (*.a, *.so, ...) stay committable; compiled output, tooling and junk ignored.
 
+# Generated vDSO artefacts (built from vdso/vdso.c + vdso/vdso.lds)
+/vdso/vdso.so
+/vdso/vdso.so.dbg
+/vdso/vdso_image.c
+
 # Build output
 *.app
 *.bc

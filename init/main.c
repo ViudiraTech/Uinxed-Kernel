@@ -77,6 +77,7 @@
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
 #include <kernel/timer/timer.h>
+#include <kernel/vdso/vdso.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
@@ -421,6 +422,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     rtl8139_start_workers();      // Register rtl8139 workers
     usb_host_start_workers();     // Register USB host workers
     video_start_refresh_worker(); // Register display refresh worker
+    vdso_init();                  // Publish the shared time page and vDSO image
     timer_deferred_init();        // Register timer bottom-half processing
     kernel_workers_start();       // Create every registered kernel worker
     swapper_enqueue_init();       // Finally make init runnable

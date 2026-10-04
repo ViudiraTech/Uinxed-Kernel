@@ -17,6 +17,7 @@
 #include <fs/cgroup/cgroupfs.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
+#include <kernel/vdso/vdso.h>
 #include <libs/std/math.h>
 #include <net/core/netdev.h>
 #include <process/kthread.h>
@@ -47,7 +48,7 @@ bool timer_timespec_to_ns(const linux_timespec_t *ts, uint64_t *ns)
     if (!ts || !ns || ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= (int64_t)TIMER_NSEC_PER_SEC) return false;
     if ((uint64_t)ts->tv_sec > (UINT64_MAX - (uint64_t)ts->tv_nsec) / TIMER_NSEC_PER_SEC) return false;
 
-    *ns = (uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC + (uint64_t)ts->tv_nsec;
+    *ns = ((uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC) + (uint64_t)ts->tv_nsec;
     return true;
 }
 
@@ -108,6 +109,7 @@ static void timer_deferred_service(void)
     uint64_t now = sched_ticks();
     signal_itimer_real_tick(now);
     drm_vblank_tick();
+    vdso_tick();
 
     uint64_t interval = CONFIG_TIMER_HZ / 100U;
     if (!interval) interval = 1;
