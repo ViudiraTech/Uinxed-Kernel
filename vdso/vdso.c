@@ -30,6 +30,9 @@ struct timeval {
  */
 __attribute__((section(".vvar"), used)) static struct vdso_data vdso_data;
 
+/* Longest uptime a monotonic reading may report before it is clearly not one. */
+#define VDSO_MONO_MAX_SEC 1000000ULL
+
 /* Read the cycle counter, ordered against the surrounding loads. */
 static inline uint64_t vdso_cycles(void)
 {
@@ -74,6 +77,15 @@ static int vdso_clock(int clockid, struct timespec *ts)
         case 7 : // CLOCK_BOOTTIME
             sec  = data.mono_sec;
             nsec = data.mono_nsec;
+            /*
+             * A monotonic reading counts from boot, so one in the epoch range is
+             * not a monotonic reading.  Callers do react to a failed call --
+             * coreutils' dd retries with CLOCK_REALTIME -- and it then measures
+             * an elapsed time of decades, so refuse to answer instead of handing
+             * out a value who knows what it means; the caller's syscall
+             * fallback is always right.
+             */
+            if (sec > VDSO_MONO_MAX_SEC || nsec >= 1000000000UL) return -1;
             break;
         default :
             return -1;
@@ -81,12 +93,24 @@ static int vdso_clock(int clockid, struct timespec *ts)
 
     /* The coarse clocks report tick granularity by definition, so leave them alone. */
     if (data.clock_mode == VDSO_CLOCKMODE_CYCLES && data.shift && clockid != 4 && clockid != 5 && clockid != 6) {
-        uint64_t delta = vdso_cycles() - data.cycle_last;
-        uint64_t added = (delta * data.mult) >> data.shift;
+        uint64_t now   = vdso_cycles();
+        uint64_t delta = now - data.cycle_last;
 
-        nsec += added;
-        sec += nsec / 1000000000ULL;
-        nsec %= 1000000000ULL;
+        /*
+         * Interpolate only over a counter that moved forward by a plausible
+         * amount.  The counter is per-CPU, so a reader can land on one whose
+         * value trails the CPU that published the snapshot; the unsigned
+         * difference would then wrap into a jump of centuries, and nothing
+         * downstream can tell that apart from a real reading.  Falling back to
+         * the snapshot is always correct -- it is at most one tick old.
+         */
+        if (now >= data.cycle_last && delta <= data.max_cycles) {
+            uint64_t added = (delta * data.mult) >> data.shift;
+
+            nsec += added;
+            sec += nsec / 1000000000ULL;
+            nsec %= 1000000000ULL;
+        }
     }
 
     ts->tv_sec  = (long)sec;
@@ -120,10 +144,12 @@ int __vdso_gettimeofday(struct timeval *tv, void *tz)
     struct timespec ts;
 
     (void)tz;
-    if (tv && !vdso_clock(0, &ts)) {
-        tv->tv_sec  = ts.tv_sec;
-        tv->tv_usec = ts.tv_nsec / 1000;
-    }
+    if (!tv) return 0;
+    /* Report failure rather than succeeding with the caller's buffer untouched. */
+    if (vdso_clock(0, &ts)) return -1;
+
+    tv->tv_sec  = ts.tv_sec;
+    tv->tv_usec = ts.tv_nsec / 1000;
     return 0;
 }
 

@@ -36,6 +36,7 @@ struct vdso_data {
         uint64_t cycle_last; // cycle counter at the snapshot below
         uint32_t mult;       // ns = (delta cycles * mult) >> shift
         uint32_t shift;
+        uint64_t max_cycles; // largest counter advance worth interpolating over
         uint64_t real_sec;   // CLOCK_REALTIME at cycle_last
         uint64_t real_nsec;
         uint64_t mono_sec;   // CLOCK_MONOTONIC at cycle_last

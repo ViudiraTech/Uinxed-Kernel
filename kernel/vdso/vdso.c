@@ -146,6 +146,11 @@ static void vdso_publish(void)
     page->cycle_last = vdso_ns_per_sec ? rdtsc() : 0;
     page->mult       = vdso_ns_per_sec ? (uint32_t)(((1000000000ULL << 32) / vdso_ns_per_sec)) : 0;
     page->shift      = 32;
+    /*
+     * A snapshot is republished every tick, so a reader whose counter is more
+     * than a few tens of milliseconds ahead is not reading a comparable one.
+     */
+    page->max_cycles = vdso_ns_per_sec / 50;
     page->real_sec   = (uint64_t)(real / 1000000000LL);
     page->real_nsec  = (uint64_t)(real % 1000000000LL);
     page->mono_sec   = mono / 1000000000ULL;
