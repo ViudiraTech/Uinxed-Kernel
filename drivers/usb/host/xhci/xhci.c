@@ -962,7 +962,7 @@ static int xhci_read_device_descriptor(usb_device_t *device)
         uint32_t *output_ep0 = xhci_output_context(slot, 1);
         if ((output_ep0[1] >> XHCI_ENDPOINT_MAX_PACKET_SHIFT) != max_packet) {
             memset(slot->input_context, 0, PAGE_4K_SIZE);
-            slot->input_context[1] = 1U << 1; /* Add EP0 only; no dropped contexts. */
+            slot->input_context[1] = 1U << 1; // Add EP0 only; no dropped contexts.
             uint32_t *input_ep0    = xhci_input_context(slot, 1);
             memcpy(input_ep0, output_ep0, slot->controller->context_size);
             input_ep0[0] &= ~XHCI_ENDPOINT_STATE_MASK; // EP State must be 0 in an input context.
