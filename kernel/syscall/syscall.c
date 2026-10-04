@@ -3093,6 +3093,32 @@ int64_t pidfd_get_pid(vfs_node_t node)
     return (int64_t)target->task->tgid;
 }
 
+/*
+ * A pidfd becomes readable once the process it refers to has exited; that is
+ * the only condition Linux ever reports for one.  The process publishes the
+ * transition by closing its shared poll source, so the closed flag doubles as
+ * the exit flag and no separate state has to be inspected here.
+ */
+static int pidfd_vfs_poll(void *file, size_t events)
+{
+    process_t *target = (process_t *)file;
+    if (!target) return 0;
+    if (!__atomic_load_n(&target->pidfd_source.closed, __ATOMIC_ACQUIRE)) return 0;
+    return (int)(0x001U & events);
+}
+
+/*
+ * Route every pidfd of a process onto that process's own source.  epoll and
+ * poll subscribe to what this returns, so the exit path only has to close one
+ * object per process instead of walking descriptor tables looking for nodes.
+ */
+static vfs_poll_source_t *pidfd_vfs_poll_source(vfs_node_t node, void *private_data)
+{
+    (void)private_data;
+    process_t *target = pidfd_get_target(node);
+    return target ? &target->pidfd_source : NULL;
+}
+
 /* Register pidfs during boot, before userspace can issue concurrent opens. */
 void pidfd_init(void)
 {
@@ -3124,6 +3150,8 @@ void pidfd_init(void)
     cb->dup        = vfs_stub_dup;
     cb->delete     = vfs_stub_del;
     cb->rename     = vfs_stub_rename;
+    cb->poll       = pidfd_vfs_poll;
+    cb->file_poll_source = pidfd_vfs_poll_source;
     cb->file_read  = vfs_stub_file_read;
     cb->file_write = vfs_stub_file_write;
 
@@ -4440,6 +4468,15 @@ shebang_oom:
     uintptr_t rsp         = 0;
     uint32_t  image_magic = total >= sizeof(uint32_t) ? *(const uint32_t *)elf_data : 0U;
     int       ret         = elf_loader_load_user_node(proc, exec_node, kargv, kenvp, &entry, &rsp);
+
+    /*
+     * Capture the set-user-ID state before releasing the node.  extfs folds the
+     * raw inode mode into ->mode, so S_ISUID survives here alongside the owning
+     * credentials; it is applied once the image is known to be loadable.
+     */
+    bool     set_uid  = (exec_node->mode & 04000U) != 0;
+    uint32_t file_uid = exec_node->owner;
+
     vfs_close(exec_node);
     free(elf_data);
     free_string_array(kargv);
@@ -4495,6 +4532,21 @@ shebang_oom:
         free(old_dir);
     }
     process_mmap_destroy_detached(proc, old_mmaps);
+
+    /*
+     * Apply set-user-ID.  execve(2) raises the effective and saved IDs to the
+     * file's owner and leaves the real ID alone.  Without this a setuid-root
+     * helper such as /bin/su runs with the caller's credentials, cannot read
+     * /etc/shadow, and reports an authentication failure rather than checking
+     * the password.
+     */
+    if (set_uid) {
+        uid_set_t old_ids = {.real = proc->ruid, .effective = proc->uid, .saved = proc->suid};
+        uid_set_t new_ids = {.real = old_ids.real, .effective = file_uid, .saved = file_uid};
+        capability_uid_change(proc->task, &old_ids, &new_ids);
+        proc->uid  = new_ids.effective;
+        proc->suid = new_ids.saved;
+    }
 
     /* Reset signal state for new program image (per POSIX) */
     signal_exec_reset(proc);

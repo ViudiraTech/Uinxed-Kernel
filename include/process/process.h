@@ -146,6 +146,14 @@ typedef struct process {
         slist_t           children;
         wait_queue_t      child_wait; // fork/exit/wait condition queue
 
+        /*
+         * Readiness source shared by every pidfd that refers to this process.
+         * It is closed on exit, which both wakes current epoll/poll waiters and
+         * makes later subscribers report ready immediately.  Zero-initialised
+         * by calloc(), which is the correct initial state for a poll source.
+         */
+        vfs_poll_source_t pidfd_source;
+
         /* Persistent queue for pause/sigsuspend; never points into a syscall stack. */
         wait_queue_t signal_wait;
 

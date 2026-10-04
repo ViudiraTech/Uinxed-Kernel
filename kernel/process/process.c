@@ -2177,6 +2177,15 @@ __attribute__((noreturn)) void process_exit(int exit_code)
         process_put(parent);
     }
 
+    /*
+     * A pidfd is readable once its process has exited.  Closing the shared
+     * source wakes every epoll/poll waiter blocked on one of our pidfds and
+     * makes any subscriber that arrives later report ready on subscribe, so a
+     * waiter that starts polling after this point still sees the exit instead
+     * of sleeping forever.
+     */
+    vfs_poll_source_close(&proc->pidfd_source, 0x001U);
+
     task_exit();
 }
 
@@ -2907,7 +2916,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
      */
     size_t allocated = 0;
     for (; allocated < pages; allocated++) {
-        frames[allocated] = alloc_frames_user(1, 0, addr / PAGE_4K_SIZE + allocated);
+        frames[allocated] = alloc_frames_user(1, 0, (addr / PAGE_4K_SIZE) + allocated);
         if (!frames[allocated]) {
             plogk("process: %s: mmap frame allocation failed (%zu/%zu pages at %#lx)\n", proc->name, allocated, pages, addr);
             goto rollback_frames;
@@ -3067,7 +3076,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     vma = proc->mmap_list;
     while (vma && vma->end <= page) vma = vma->next;
     if (!vma || vma->start > page || page >= vma->end || vma->flags != flags || vma->vm_file != vm_file || vma->vm_pagecache != pagecache
-        || (vm_file && vma->vm_pgoff + (page - vma->start) / PAGE_4K_SIZE != pgoff + index / PAGE_4K_SIZE)) {
+        || (vm_file && vma->vm_pgoff + ((page - vma->start) / PAGE_4K_SIZE) != pgoff + (index / PAGE_4K_SIZE))) {
         spin_unlock(&proc->mmap_lock);
         (void)frame_release_range(frame, 1);
         goto fail_perm;
