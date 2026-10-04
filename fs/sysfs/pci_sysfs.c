@@ -11,14 +11,83 @@
 #include <drivers/base/device.h>
 #include <drivers/bus/pci.h>
 #include <kernel/errno.h>
+#include <libs/std/stdlib.h>
+#include <libs/util/byteorder.h>
 #include <mem/heap.h>
 
 #if CONFIG_SYSFS
 
 /* Per-device private data */
 typedef struct pci_sysfs_dev {
-        pci_device_cache_t *cache;
+        pci_device_cache_t           *cache;
+        struct bin_attribute          config;
+        struct bin_attribute         *config_attrs[2];
+        struct attribute_group        config_group;
+        const struct attribute_group *groups[3];
 } pci_sysfs_dev_t;
+
+/* Expose raw little-endian bytes, including unaligned pread() requests. */
+static ssize_t pci_config_read(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count)
+{
+    struct device   *dev = container_of(kobj, struct device, kobj);
+    pci_sysfs_dev_t *psd = dev->driver_data;
+    if (!psd || !psd->cache) return -ENODEV;
+    if (pos < 0) return -EINVAL;
+    if ((uint64_t)pos >= attr->size) return 0;
+    size_t offset = (size_t)pos;
+    count         = MIN(count, attr->size - offset);
+
+    size_t copied = 0;
+    while (copied < count) {
+        pci_device_reg_t reg   = {.parent = psd->cache, .offset = (uint32_t)(offset & ~(size_t)3)};
+        uint32_t         value = read_pci(reg);
+        size_t           byte  = offset & 3;
+        size_t           chunk = MIN(count - copied, 4 - byte);
+        if (chunk == 4) {
+            store_le32(buffer + copied, value);
+        } else {
+            for (size_t i = 0; i < chunk; i++) buffer[copied + i] = (char)(value >> ((byte + i) * 8));
+        }
+        copied += chunk;
+        offset += chunk;
+    }
+    return (ssize_t)copied;
+}
+
+/* Split arbitrary pwrite() requests into naturally aligned hardware accesses. */
+static ssize_t pci_config_write(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count)
+{
+    struct device   *dev = container_of(kobj, struct device, kobj);
+    pci_sysfs_dev_t *psd = dev->driver_data;
+    if (!psd || !psd->cache) return -ENODEV;
+    if (pos < 0) return -EINVAL;
+    if ((uint64_t)pos >= attr->size) return 0;
+    size_t offset = (size_t)pos;
+    count         = MIN(count, attr->size - offset);
+
+    size_t copied = 0;
+    while (copied < count) {
+        size_t  remaining = count - copied;
+        uint8_t size      = 4;
+        if ((offset & 1) || remaining == 1)
+            size = 1;
+        else if ((offset & 3) || remaining < 4)
+            size = 2;
+        uint32_t value;
+        if (size == 1)
+            value = (uint8_t)buffer[copied];
+        else if (size == 2)
+            value = load_le16(buffer + copied);
+        else
+            value = load_le32(buffer + copied);
+        pci_device_reg_t reg    = {.parent = psd->cache, .offset = (uint32_t)offset};
+        int              result = pci_write_config(reg, value, size);
+        if (result != EOK) return copied ? (ssize_t)copied : result;
+        copied += size;
+        offset += size;
+    }
+    return (ssize_t)copied;
+}
 
 /* Emit PCI uevent environment variables. */
 static int pci_device_uevent(struct device *dev, struct kobj_uevent_env *env)
@@ -164,11 +233,6 @@ static struct attribute_group pci_dev_attr_group = {
     .attrs = pci_dev_attrs,
 };
 
-static const struct attribute_group *pci_dev_groups[] = {
-    &pci_dev_attr_group,
-    NULL,
-};
-
 /* Release a PCI sysfs device and its private data. */
 static void pci_dev_release(struct device *dev)
 {
@@ -207,7 +271,17 @@ void pci_sysfs_init(void)
         psd = calloc(1, sizeof(*psd));
         if (!psd) continue;
 
-        psd->cache = item;
+        psd->cache  = item;
+        psd->config = (struct bin_attribute) {
+            .attr  = __ATTR(config, 0644),
+            .size  = pci_config_size(item),
+            .read  = pci_config_read,
+            .write = pci_config_write,
+        };
+        psd->config_attrs[0]        = &psd->config;
+        psd->config_group.bin_attrs = psd->config_attrs;
+        psd->groups[0]              = &pci_dev_attr_group;
+        psd->groups[1]              = &psd->config_group;
 
         /* Format: 0000:bb:dd.f (domain:bus:slot.func) */
         (void)snprintf(name, sizeof(name), "%04x:%02x:%02x.%01x", item->device->domain, item->device->bus, item->device->slot, item->device->func);
@@ -222,7 +296,7 @@ void pci_sysfs_init(void)
         dev->parent      = NULL;
         dev->driver_data = psd;
         dev->release     = pci_dev_release;
-        dev->groups      = pci_dev_groups;
+        dev->groups      = psd->groups;
 
         /* devid encodes the BDF for identification */
         dev->devid = ((uint64_t)item->device->bus << 8) | ((uint64_t)item->device->slot << 3) | ((uint64_t)item->device->func);

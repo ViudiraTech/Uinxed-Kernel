@@ -220,6 +220,12 @@ uint32_t read_pci(pci_device_reg_t reg);
 /* Write values to PCI device registers */
 void write_pci(pci_device_reg_t reg, uint32_t value);
 
+/* Write exactly 1, 2 or 4 aligned bytes without modifying adjacent registers. */
+int pci_write_config(pci_device_reg_t reg, uint32_t value, uint8_t size);
+
+/* Size of this function's configuration space (256 or 4096 bytes). */
+uint32_t pci_config_size(pci_device_cache_t *cache);
+
 /* Read the value from the PCI device command status register */
 uint32_t pci_read_command_status(pci_device_cache_t *device);
 
