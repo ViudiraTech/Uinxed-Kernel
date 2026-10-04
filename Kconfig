@@ -1327,6 +1327,16 @@ menu "Device Drivers"
         PC internal speaker support via PIT channel 2 for basic
         beep functionality.
 
+    config AUDIO_VIRTIO_SND
+      bool "VirtIO sound (virtio-snd) driver"
+      depends on AUDIO && VIRTIO_PCI
+      default n
+      help
+        Paravirtual sound card driver for the virtio-snd device,
+        as emulated by QEMU (-device virtio-sound-pci).  Provides
+        one playback and one capture PCM stream through the audio
+        core.
+
     config AUDIO_MAX_CARDS
       int "Maximum sound cards"
       depends on AUDIO
