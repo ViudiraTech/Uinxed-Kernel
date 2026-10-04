@@ -245,6 +245,10 @@
 #    define CONFIG_SIMPLEDRM 1
 #endif
 
+#ifndef CONFIG_VMFGFX
+#    define CONFIG_VMFGFX 1
+#endif
+
 #ifndef CONFIG_DRM_DEFAULT_WIDTH
 #    define CONFIG_DRM_DEFAULT_WIDTH 1024
 #endif

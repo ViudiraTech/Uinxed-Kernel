@@ -10,6 +10,7 @@
 
 #include <drivers/gpu/drm/simpledrm/simpledrm.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
+#include <drivers/gpu/vmware/vmfgfx.h>
 
 /*
  * The bus owns driver discovery, keeping the DRM core free of any knowledge
@@ -25,7 +26,7 @@ static struct gpu_driver {
 
 static int gpu_driver_count;
 
-#if CONFIG_DRM && (CONFIG_VIRTIO_GPU || CONFIG_SIMPLEDRM)
+#if CONFIG_DRM && (CONFIG_VIRTIO_GPU || CONFIG_SIMPLEDRM || CONFIG_VMFGFX)
 
 static spinlock_t gpu_driver_lock = {.lock = 0, .rflags = 0};
 
@@ -83,6 +84,9 @@ void gpu_drivers_init(void)
 {
 #if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
     gpu_driver_register("virtio_gpu", virtio_gpu_probe, false);
+#endif
+#if CONFIG_VMFGFX && CONFIG_DRM
+    gpu_driver_register("vmfgfx", vmfgfx_probe, false);
 #endif
 #if CONFIG_SIMPLEDRM && CONFIG_DRM
     gpu_driver_register("simpledrm", simpledrm_probe, true);

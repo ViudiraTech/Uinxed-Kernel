@@ -1236,6 +1236,16 @@ menu "Device Drivers"
         probe, giving userspace compositors (Weston) a working KMS
         device without dedicated GPU hardware.
 
+    config VMFGFX
+      bool "VMware SVGA II (vmfgfx) DRM driver"
+      depends on DRM
+      default y
+      help
+        DRM/KMS driver for the VMware SVGA II paravirtual display
+        adapter (PCI 15ad:0405), as provided by VMware and by QEMU
+        with -vga vmware.  Scans framebuffers out of video RAM through
+        the SVGA command FIFO and drives a hardware cursor.
+
     config DRM_MAX_DEVICES
       int "Maximum DRM devices"
       depends on DRM
