@@ -348,6 +348,39 @@ void write_pci(pci_device_reg_t reg, uint32_t value)
     return pci_ops.write(reg, value);
 }
 
+/* Width-specific configuration writes must not read-modify-write W1C neighbors. */
+int pci_write_config(pci_device_reg_t reg, uint32_t value, uint8_t size)
+{
+    if (!reg.parent || !reg.parent->device || (size != 1 && size != 2 && size != 4)) return -EINVAL;
+    uint32_t limit = reg.parent->ecam_ptr ? 4096 : 256;
+    if ((reg.offset & (size - 1U)) || reg.offset >= limit || size > limit - reg.offset) return -EINVAL;
+
+    if (reg.parent->ecam_ptr) {
+        volatile uint8_t *address = (volatile uint8_t *)reg.parent->ecam_ptr + reg.offset;
+        if (size == 1)
+            mmio_write8(address, (uint8_t)value);
+        else if (size == 2)
+            mmio_write16(address, (uint16_t)value);
+        else
+            mmio_write32(address, value);
+        return EOK;
+    }
+
+    pci_device_t *device  = reg.parent->device;
+    uint32_t      address = (1U << 31) | ((uint32_t)device->bus << 16) | ((uint32_t)device->slot << 11) | ((uint32_t)device->func << 8) | (reg.offset & 0xfc);
+    uint64_t      flags   = spin_lock_irqsave(&pci_legacy_lock);
+    outl(PCI_COMMAND_PORT, address);
+    uint16_t port = PCI_DATA_PORT + (reg.offset & 3);
+    if (size == 1)
+        outb(port, (uint8_t)value);
+    else if (size == 2)
+        outw(port, (uint16_t)value);
+    else
+        outl(port, value);
+    spin_unlock_irqrestore(&pci_legacy_lock, flags);
+    return EOK;
+}
+
 /* Read the value from the PCI device command status register */
 uint32_t pci_read_command_status(pci_device_cache_t *device)
 {
