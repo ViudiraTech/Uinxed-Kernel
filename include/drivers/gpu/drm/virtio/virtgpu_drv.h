@@ -665,6 +665,16 @@ struct virtio_gpu_device {
         spinlock_t context_idr_lock;
         uint32_t   next_context_id;
 
+        /*
+         * Kernel-owned virgl context.  In 3D mode a resource is only usable by
+         * the host renderer once it belongs to a context, and that includes the
+         * scanout framebuffers the driver creates for itself.  Userspace objects
+         * use the context of the file that asked for them instead.  Created on
+         * first use.
+         */
+        uint32_t   kernel_ctx_id;
+        bool       kernel_ctx_created;
+
         /* Fence tracking */
         spinlock_t             fence_lock;
         struct list_head_fence pending_fences;
@@ -746,6 +756,12 @@ int virtgpu_cmd_ctx_detach_resource(struct virtio_gpu_device *vgdev, uint32_t ct
 
 /* VirtIO GPU object attach context. */
 int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id);
+
+/* Create the per-file 3D context on first use (3D mode only). */
+int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_fpriv *vfpriv);
+
+/* Create the driver-owned 3D context used by scanout framebuffers. */
+int virtgpu_kernel_context_ensure(struct virtio_gpu_device *vgdev);
 
 /* VirtIO GPU object detach context. */
 int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id);

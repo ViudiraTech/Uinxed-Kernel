@@ -140,6 +140,7 @@ typedef struct {
 /* PCI cached searching */
 typedef struct pci_device_cache {
         pci_device_t            *device;
+        struct device           *sysfs_dev; // /sys/bus/pci/devices/<BDF> device object
         mcfg_entry_t            *entry;
         uint32_t                 vendor_id;
         uint32_t                 device_id;

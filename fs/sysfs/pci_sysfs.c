@@ -317,6 +317,8 @@ void pci_sysfs_init(void)
             continue;
         }
 
+        /* Published so child devices (DRM cards) can name their parent bus. */
+        item->sysfs_dev = dev;
         dev_count++;
     }
 

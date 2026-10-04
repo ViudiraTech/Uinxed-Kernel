@@ -466,24 +466,34 @@ out_unlock:
      */
     switch (log_reason) {
         case CTRL_LOG_NO_DESCRIPTORS :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Ctrl_cmd_batch: not enough free descriptors (count=%u, num_free=%u)\n", count, vq->num_free);
+            {
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Ctrl_cmd_batch: not enough free descriptors (count=%u, num_free=%u)\n", count, vq->num_free);
+            }
             break;
         case CTRL_LOG_QUEUE_ADD :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Ctrl_cmd_batch: queue add failed (index=%u, err=%d)\n", log_index, log_error);
+            {
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Ctrl_cmd_batch: queue add failed (index=%u, err=%d)\n", log_index, log_error);
+            }
             break;
         case CTRL_LOG_TIMEOUT :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Timed out waiting for GPU command batch (%u/%u complete)\n", completed, submitted);
+            {
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Timed out waiting for GPU command batch (%u/%u complete)\n", completed, submitted);
+            }
             break;
         case CTRL_LOG_BAD_RESPONSE :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: GPU command 0x%04x returned 0x%04x, expected 0x%04x\n", log_type, log_reply, log_expected);
+            {
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("virtgpu: GPU command 0x%04x returned 0x%04x, expected 0x%04x\n", log_type, log_reply, log_expected);
+            }
             break;
         case CTRL_LOG_BAD_FENCE :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: GPU command 0x%04x returned an invalid fence response.\n", log_type);
+            {
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("virtgpu: GPU command 0x%04x returned an invalid fence response.\n", log_type);
+            }
             break;
         default :
             break;

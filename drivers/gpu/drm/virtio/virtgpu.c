@@ -115,7 +115,7 @@ static int virtgpu_open(struct drm_device *dev, struct drm_file *file)
 }
 
 /* Lazily create the 3D context if it has not been created yet. */
-static int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_fpriv *vfpriv)
+int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_fpriv *vfpriv)
 {
     int  ret         = 0;
     bool need_create = false;
@@ -143,6 +143,49 @@ static int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio
         spin_unlock(&vfpriv->context_lock);
     }
     return ret;
+}
+
+/*
+ * Create the driver's own virgl context.  In 3D mode the host renderer only
+ * accepts resources that belong to a context, so the scanout framebuffers the
+ * driver allocates need one; without it the host never activates the scanout
+ * and the display stays blank.  Idempotent, and a no-op in 2D mode.
+ */
+int virtgpu_kernel_context_ensure(struct virtio_gpu_device *vgdev)
+{
+    uint32_t ctx_id;
+    int      ret;
+
+    if (!vgdev || !vgdev->has_virgl) return 0;
+
+    spin_lock(&vgdev->context_idr_lock);
+    if (vgdev->kernel_ctx_created) {
+        spin_unlock(&vgdev->context_idr_lock);
+        return 0;
+    }
+    ctx_id = vgdev->next_context_id++;
+    if (!ctx_id) ctx_id = vgdev->next_context_id++;
+    spin_unlock(&vgdev->context_idr_lock);
+
+    /* The host command sleeps on the response, so it must run without the lock held. */
+    ret = virtgpu_cmd_ctx_create(vgdev, ctx_id, 0, "kernel", 0);
+    if (ret) {
+        DRM_ERROR("Failed to create the kernel virgl context (ret=%d)\n", ret);
+        return ret;
+    }
+
+    spin_lock(&vgdev->context_idr_lock);
+    /* A racing caller may have published its own context; keep exactly one. */
+    if (!vgdev->kernel_ctx_created) {
+        vgdev->kernel_ctx_id      = ctx_id;
+        vgdev->kernel_ctx_created = true;
+    } else {
+        spin_unlock(&vgdev->context_idr_lock);
+        (void)virtgpu_cmd_ctx_destroy(vgdev, ctx_id);
+        return 0;
+    }
+    spin_unlock(&vgdev->context_idr_lock);
+    return 0;
 }
 
 /* Resource ID management */
@@ -352,10 +395,13 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
     obj = to_virtio_gpu_object(fb->obj[0]);
 
     /*
-     * Off-screen buffers will be uploaded in full when they are flipped
-     * onto the scanout, so avoid wasting host bandwidth here.
+     * A dirtyfb call is userspace stating that a region changed, so it must be
+     * pushed even when this buffer is not the one the driver currently believes
+     * is scanned out.  That belief is only refreshed on SETCRTC, so it goes
+     * stale as soon as userspace flips between buffers; trusting it here drops
+     * every partial update, which is what made the software cursor (drawn into
+     * the scanout and reported one small rect at a time) invisible.
      */
-    if (obj != vgdev->current_scanout_obj) return 0;
     if (!virtgpu_2d_formats_compatible(obj->format, fb->format)) return -EINVAL;
     if (!num_clips) {
         rects[0]   = (struct virtio_gpu_rect) {0, 0, fb->width, fb->height};
@@ -405,7 +451,7 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
      */
     if (obj->created_blob) return virtgpu_cmd_resource_flush(vgdev, obj, &flush_rect);
 
-    for (uint32_t i = 0; i < rect_count; i++) offsets[i] = fb->offsets[0] + (uint64_t)rects[i].y * obj->stride + (uint64_t)rects[i].x * sizeof(uint32_t);
+    for (uint32_t i = 0; i < rect_count; i++) offsets[i] = fb->offsets[0] + ((uint64_t)rects[i].y * obj->stride) + ((uint64_t)rects[i].x * sizeof(uint32_t));
     return virtgpu_cmd_update_2d_rects(vgdev, obj, rects, offsets, rect_count, &flush_rect);
 }
 
@@ -1197,7 +1243,7 @@ int virtio_gpu_driver_init(void)
     }
 
     /* Allocate the DRM device that carries driver-private state. */
-    vgdev->drm_dev = drm_dev_alloc(&virtgpu_drm_driver);
+    vgdev->drm_dev = drm_dev_alloc(&virtgpu_drm_driver, (vp && vp->pci_dev) ? vp->pci_dev->sysfs_dev : NULL);
     if (!vgdev->drm_dev) {
         DRM_ERROR("failed to allocate DRM device.\n");
         virtgpu_vq_fini(vgdev);
