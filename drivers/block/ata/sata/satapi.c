@@ -52,11 +52,11 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
     hdr->a   = 1;
 
     /*
-     * For ATAPI, w=0 means device-to-host (read), w=1 means host-to-device (write).
-     * Currently all SATAPI commands are reads; for write support this must be
-     * determined from the SCSI command opcode.
+     * For ATAPI, w=0 means device-to-host (read), w=1 means host-to-device
+     * (write).  The direction follows the SCSI command opcode, so a write CDB
+     * sets the bit here instead of the transfer being assumed read-only.
      */
-    hdr->w     = 0;
+    hdr->w     = (ahci_satapi_cmd_type(cdb[0]) == ATAPI_WRITE) ? 1 : 0;
     hdr->prdtl = byte_count ? 1 : 0;
     hdr->prdbc = 0;
     hdr->p     = 1;
