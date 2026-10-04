@@ -200,13 +200,25 @@ static size_t frame_bytes(const audio_pcm_format_t *fmt)
     return (size_t)(fmt->bits / 8) * fmt->channels;
 }
 
-/* Number of recorded frames available for the application. */
+/*
+ * Number of frames queued in the ring but not consumed yet.
+ *
+ * appl_ptr is the producer cursor (the application for playback, the driver
+ * for capture) and hw_ptr is the consumer cursor, so the backlog is
+ * appl_ptr - hw_ptr taken forwards through the boundary.  Everything else is
+ * expressed in terms of this value: pcm_ring_buffer_space() returns
+ * boundary - avail - 1 as the free room, the read/write paths use it as
+ * "frames to consume" and "frames already queued", and poll uses it as
+ * POLLIN readiness.  Walking the difference the other way round reports a
+ * ring as full when it is empty, which lets playback overwrite frames the
+ * device has not played yet.
+ */
 snd_pcm_sframes_t pcm_ring_buffer_avail(audio_pcm_file_t *pf)
 {
     snd_pcm_uframes_t hw  = pf->hw_ptr;
     snd_pcm_uframes_t app = pf->appl_ptr;
-    if (hw < app) hw += pf->boundary;
-    return (snd_pcm_sframes_t)(hw - app);
+    if (app < hw) app += pf->boundary;
+    return (snd_pcm_sframes_t)(app - hw);
 }
 
 /* Free frame capacity left in the ring. */
@@ -301,6 +313,21 @@ static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
     wait_queue_init(&pf->read_wait);
     wait_queue_init(&pf->write_wait);
 
+    /*
+     * Publish the file on the card's open-file list.  card->pcm_files was
+     * never populated before, so drivers had no way to find the ring they
+     * have to pump; the list and its lock exist exactly for that purpose.
+     * Drivers look a file up under card->pcm_lock and keep the lock for as
+     * long as they touch it, which is what makes this pointer safe to hand
+     * out to them.
+     */
+    {
+        uint64_t rflags     = spin_lock_irqsave(&pf->card->pcm_lock);
+        pf->next            = pf->card->pcm_files;
+        pf->card->pcm_files = pf;
+        spin_unlock_irqrestore(&pf->card->pcm_lock, rflags);
+    }
+
     return pf;
 }
 
@@ -308,6 +335,17 @@ static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
 static void audio_pcm_destroy(audio_pcm_file_t *pf)
 {
     if (!pf) return;
+
+    /* Unpublish first so no driver can pick the file up from now on. */
+    if (pf->card) {
+        uint64_t           rflags = spin_lock_irqsave(&pf->card->pcm_lock);
+        audio_pcm_file_t **link   = &pf->card->pcm_files;
+        while (*link && *link != pf) link = &(*link)->next;
+        if (*link) *link = pf->next;
+        spin_unlock_irqrestore(&pf->card->pcm_lock, rflags);
+    }
+    pf->next = NULL;
+
     pf->lock.lock = 0;
     pcm_ring_buffer_destroy(pf);
     pf->state = SNDRV_PCM_STATE_OPEN;
@@ -371,6 +409,18 @@ int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags, void *add
 
     if (pf->type != audio_node_pcm_capture) return 0;
     if (pf->state < SNDRV_PCM_STATE_PREPARED) return 0;
+
+    /*
+     * Mirror the playback auto-start in audio_file_write(): hand the capture
+     * stream to the driver on the first read() instead of requiring a prior
+     * SNDRV_PCM_IOCTL_START, otherwise a plain read() has nothing to wait
+     * for.  The call runs without pf->lock, the same ordering rule the write
+     * path documents for card->ops->start.
+     */
+    if (pf->state == SNDRV_PCM_STATE_PREPARED && card->ops->start) {
+        pf->state = SNDRV_PCM_STATE_RUNNING;
+        card->ops->start(card);
+    }
 
     size_t fb     = frame_bytes(&pf->fmt);
     size_t frames = size / fb;
