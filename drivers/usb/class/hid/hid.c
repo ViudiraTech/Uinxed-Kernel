@@ -276,6 +276,7 @@ int usb_hid_probe(usb_interface_t *interface)
     if (result != EOK) goto fail;
 
     (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_IDLE, 0, interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
+
     /* HID 1.11 section 7.2.6: Set_Protocol applies only to Boot interfaces. */
     if (interface->descriptor.interface_subclass == USB_HID_BOOT_SUBCLASS)
         (void)usb_control_msg(interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_HID_REQ_SET_PROTOCOL, USB_HID_REPORT_PROTOCOL, interface->descriptor.interface_number, NULL, 0,
