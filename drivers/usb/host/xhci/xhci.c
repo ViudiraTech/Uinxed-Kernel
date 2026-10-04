@@ -88,6 +88,7 @@
 #    define XHCI_ENDPOINT_MAX_PACKET_MASK   (0xffffU << XHCI_ENDPOINT_MAX_PACKET_SHIFT)
 #    define XHCI_ENDPOINT_INTERVAL_SHIFT    16
 #    define XHCI_ENDPOINT_ERROR_COUNT_SHIFT 1
+#    define XHCI_ENDPOINT_STATE_MASK        0x7U
 
 #    define XHCI_SLOT_HUB               (1U << 26)
 #    define XHCI_SLOT_MTT               (1U << 25)
@@ -350,7 +351,7 @@ static void xhci_handle_transfer_event(xhci_controller_t *controller, const xhci
     if (!transfer) return;
     uint8_t completion = event->status >> 24;
     if (transfer->trb_physical != event->parameter) {
-        /* Control errors can point to Setup/Data instead of the final Status TRB. */
+        /* Control errors can point to Setup/Data; EOK must match the Status TRB. */
         bool control_stage = !transfer->endpoint && event->parameter && (transfer->setup_trb_physical == event->parameter || transfer->data_trb_physical == event->parameter);
         if (!control_stage || xhci_completion_status(completion) == EOK) return;
     }
@@ -486,9 +487,6 @@ static int xhci_wait_transfer(xhci_transfer_t *transfer, uint32_t timeout_ms)
         (void)xhci_command(transfer->slot->controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_STOP_ENDPOINT) | ((uint32_t)dci << 16) | ((uint32_t)transfer->slot->slot_id << 24), NULL);
         return result;
     }
-    if (transfer->status != EOK)
-        plogk("usb-xhci: Transfer failed on bus %u slot %u endpoint %u (%d, completion code %u)\n", transfer->slot->controller->bus_number, transfer->slot->slot_id,
-              transfer->endpoint ? xhci_endpoint_dci(transfer->endpoint) : 1, transfer->status, transfer->completion_code);
     return transfer->status;
 }
 
@@ -967,6 +965,7 @@ static int xhci_read_device_descriptor(usb_device_t *device)
             slot->input_context[1] = 1U << 1; /* Add EP0 only; no dropped contexts. */
             uint32_t *input_ep0    = xhci_input_context(slot, 1);
             memcpy(input_ep0, output_ep0, slot->controller->context_size);
+            input_ep0[0] &= ~XHCI_ENDPOINT_STATE_MASK; // EP State must be 0 in an input context.
             input_ep0[1] = (input_ep0[1] & ~XHCI_ENDPOINT_MAX_PACKET_MASK) | ((uint32_t)max_packet << XHCI_ENDPOINT_MAX_PACKET_SHIFT);
             dma_write_barrier();
             result = xhci_command(slot->controller, slot->input_context_physical, 0, XHCI_TRB_TYPE(XHCI_TRB_EVALUATE_CONTEXT) | ((uint32_t)slot->slot_id << 24), NULL);
