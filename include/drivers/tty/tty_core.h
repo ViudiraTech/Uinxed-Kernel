@@ -69,6 +69,14 @@ void tty_core_mark_virtual_console(tty_core_t *tty);
 /* True when this VT is in KD_GRAPHICS mode. */
 bool tty_core_graphics_mode(tty_core_t *tty);
 
+/*
+ * True when the framebuffer console must stop painting.  Every VT shares one
+ * console device here, so once a VT other than the console's own becomes
+ * active, or any VT switches to KD_GRAPHICS, console output would overwrite
+ * the scanout its owner has taken over.
+ */
+bool tty_core_console_suspended(void);
+
 /* Return the current keyboard translation mode (K_UNICODE, K_RAW, ...). */
 uint8_t tty_core_keyboard_mode(tty_core_t *tty);
 
