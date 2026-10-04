@@ -1109,24 +1109,39 @@ static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
     return NULL;
 }
 
-/* Find a sysctl entry by name. */
-static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
+/* Find a sysctl entry by name, reporting its index within the array that backs the directory. */
+static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name, size_t *out_index)
 {
     if (dir == PROC_SYS_KERNEL) {
         for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++)
-            if (streq(procfs_sysctl_kernel[i].name, name)) return &procfs_sysctl_kernel[i];
+            if (streq(procfs_sysctl_kernel[i].name, name)) {
+                if (out_index) *out_index = i;
+                return &procfs_sysctl_kernel[i];
+            }
     } else if (dir == PROC_SYS_FS) {
         for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++)
-            if (streq(procfs_sysctl_fs[i].name, name)) return &procfs_sysctl_fs[i];
+            if (streq(procfs_sysctl_fs[i].name, name)) {
+                if (out_index) *out_index = i;
+                return &procfs_sysctl_fs[i];
+            }
     } else if (dir == PROC_SYS_FS_INOTIFY) {
         for (size_t i = 0; i < PROCFS_SYSCTL_FS_INOTIFY_COUNT; i++)
-            if (streq(procfs_sysctl_fs_inotify[i].name, name)) return &procfs_sysctl_fs_inotify[i];
+            if (streq(procfs_sysctl_fs_inotify[i].name, name)) {
+                if (out_index) *out_index = i;
+                return &procfs_sysctl_fs_inotify[i];
+            }
     } else if (dir == PROC_SYS_NET) {
         for (size_t i = 0; i < PROCFS_SYSCTL_NET_COUNT; i++)
-            if (streq(procfs_sysctl_net[i].name, name)) return &procfs_sysctl_net[i];
+            if (streq(procfs_sysctl_net[i].name, name)) {
+                if (out_index) *out_index = i;
+                return &procfs_sysctl_net[i];
+            }
     } else if (dir == PROC_SYS_NET_UNIX) {
         for (size_t i = 0; i < PROCFS_SYSCTL_NET_UNIX_COUNT; i++)
-            if (streq(procfs_sysctl_net_unix[i].name, name)) return &procfs_sysctl_net_unix[i];
+            if (streq(procfs_sysctl_net_unix[i].name, name)) {
+                if (out_index) *out_index = i;
+                return &procfs_sysctl_net_unix[i];
+            }
     }
 
     /*
@@ -1206,7 +1221,7 @@ static int procfs_sysctl_apply(procfs_sysctl_t *sc, const char *data, size_t siz
             valid          = true;
             uint64_t digit = (uint64_t)(*cursor - '0');
             if (value > (UINT64_MAX - digit) / 10) return -ERANGE;
-            value = value * 10 + digit;
+            value = (value * 10) + digit;
             cursor++;
             left--;
         }
@@ -1390,7 +1405,7 @@ static int procfs_parse_id_extent(const char *data, size_t size, size_t *used, u
         if (at >= size || data[at] < '0' || data[at] > '9') return -EINVAL;
         uint64_t value = 0;
         while (at < size && data[at] >= '0' && data[at] <= '9') {
-            value = value * 10 + (uint64_t)(data[at] - '0');
+            value = (value * 10) + (uint64_t)(data[at] - '0');
             if (value > UINT32_MAX) return -EINVAL;
             at++;
         }
@@ -1566,14 +1581,14 @@ static void gen_pid_status(procfs_file_t *pf)
     nodemask_t mems = __atomic_load_n(&proc->task->mems_allowed, __ATOMIC_ACQUIRE);
     if (!mems) mems = frame_memory_nodes();
 
-    char cpu_mask[CPUMASK_WORDS * 18 + 2];
+    char cpu_mask[(CPUMASK_WORDS * 18) + 2];
     char mems_mask[18];
     format_mask_chunks(cpu_mask, sizeof(cpu_mask), affinity.bits, CPUMASK_WORDS, cpu_count);
     uint64_t mems_word = mems;
     format_mask_chunks(mems_mask, sizeof(mems_mask), &mems_word, 1, CONFIG_NUMA_MAX_NODES);
 
-    size_t cpu_list_size  = (size_t)cpu_count * 5 + 2;
-    size_t mems_list_size = (size_t)CONFIG_NUMA_MAX_NODES * 5 + 2;
+    size_t cpu_list_size  = ((size_t)cpu_count * 5) + 2;
+    size_t mems_list_size = ((size_t)CONFIG_NUMA_MAX_NODES * 5) + 2;
     char  *lists          = malloc(cpu_list_size + mems_list_size);
     if (!lists) {
         free(buf);
@@ -2535,7 +2550,8 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 node->type  = file_dir;
                 break;
             }
-            procfs_sysctl_t *sc = procfs_sysctl_find(ppf->subtype, name);
+            size_t           sc_index = 0;
+            procfs_sysctl_t *sc       = procfs_sysctl_find(ppf->subtype, name, &sc_index);
             if (!sc) {
                 pf->type    = PROCFS_SYS_FILE;
                 pf->subtype = ppf->subtype;
@@ -2545,7 +2561,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             }
             pf->type    = PROCFS_SYS_FILE;
             pf->subtype = ppf->subtype;
-            pf->pid     = (pid_t)(sc - procfs_sysctl_kernel);
+            pf->pid     = (pid_t)sc_index;
             node->type  = file_none;
             break;
         }

@@ -142,6 +142,7 @@ static void fpu_save(void *state)
         uint32_t high = (uint32_t)(fpu_xstate_mask >> 32);
 
         /* AP feature validation may conservatively disable XSAVEOPT. */
+        /* NOLINTNEXTLINE(bugprone-branch-clone): the branches issue different instructions (XSAVEOPT vs XSAVE). */
         if (__atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE)) {
             __asm__ volatile("xsaveopt64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
         } else {

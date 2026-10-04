@@ -206,7 +206,7 @@ void signal_itimer_real_tick(uint64_t now)
             if (periods > (UINT64_MAX - deadline) / interval) {
                 proc->itimer_value[0] = UINT64_MAX;
             } else {
-                proc->itimer_value[0] = deadline + periods * interval;
+                proc->itimer_value[0] = deadline + (periods * interval);
             }
             link = &proc->itimer_real_next;
         }

@@ -73,7 +73,7 @@ static int parse_u64(const char *value, size_t size, uint64_t *result)
     for (; i < size && value[i] >= '0' && value[i] <= '9'; i++) {
         uint64_t digit = (uint64_t)(value[i] - '0');
         if (n > (UINT64_MAX - digit) / 10) return -ERANGE;
-        n = n * 10 + digit;
+        n = (n * 10) + digit;
     }
     while (i < size && (value[i] == ' ' || value[i] == '\t' || value[i] == '\n')) i++;
     if (i != size) return -EINVAL;
@@ -136,8 +136,11 @@ static int charge_locked(cgroup_t *cgroup)
 /* Release one task's charge from the cgroup and its ancestors */
 static void uncharge_locked(cgroup_t *cgroup)
 {
-    for (cgroup_t *cg = cgroup; cg; cg = cg->parent)
-        if (cg->pids_current && --cg->pids_current == 0) __atomic_add_fetch(&cg->events_sequence, 1, __ATOMIC_RELEASE);
+    for (cgroup_t *cg = cgroup; cg; cg = cg->parent) {
+        if (!cg->pids_current) continue;
+        cg->pids_current--;
+        if (!cg->pids_current) __atomic_add_fetch(&cg->events_sequence, 1, __ATOMIC_RELEASE);
+    }
 }
 
 /* Find a task by PID, descending into child cgroups */

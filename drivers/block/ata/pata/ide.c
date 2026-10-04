@@ -92,10 +92,10 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
     plogk("ide: BAR0 = 0x%03x, BAR1 = 0x%03x, BAR2 = 0x%03x, BAR3 = 0x%03x, BAR4 = 0x%03x\n", BAR0, BAR1, BAR2, BAR3, BAR4);
 
     /* Detect the I/O ports of the IDE controller */
-    channels[ATA_PRIMARY].base    = (BAR0 & 0xfffffffc) + 0x1f0 * (!BAR0);
-    channels[ATA_PRIMARY].ctrl    = (BAR1 & 0xfffffffc) + 0x3f4 * (!BAR1);
-    channels[ATA_SECONDARY].base  = (BAR2 & 0xfffffffc) + 0x170 * (!BAR2);
-    channels[ATA_SECONDARY].ctrl  = (BAR3 & 0xfffffffc) + 0x374 * (!BAR3);
+    channels[ATA_PRIMARY].base    = (BAR0 & 0xfffffffc) + (0x1f0 * (!BAR0));
+    channels[ATA_PRIMARY].ctrl    = (BAR1 & 0xfffffffc) + (0x3f4 * (!BAR1));
+    channels[ATA_SECONDARY].base  = (BAR2 & 0xfffffffc) + (0x170 * (!BAR2));
+    channels[ATA_SECONDARY].ctrl  = (BAR3 & 0xfffffffc) + (0x374 * (!BAR3));
     channels[ATA_PRIMARY].bmide   = (BAR4 & 0xfffffffc) + 0;
     channels[ATA_SECONDARY].bmide = (BAR4 & 0xfffffffc) + 8;
 

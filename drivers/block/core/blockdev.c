@@ -436,7 +436,7 @@ static int parse_uint(const char **cursor, uint32_t *value)
     do {
         uint32_t digit = (uint32_t)(*position - '0');
         if (result > (UINT32_MAX - digit) / 10) return -EOVERFLOW;
-        result = result * 10 + digit;
+        result = (result * 10) + digit;
         position++;
     } while (*position >= '0' && *position <= '9');
 
@@ -467,7 +467,7 @@ static int parse_device_name(const char *name, uint8_t *drive, uint32_t *partiti
         while (*cursor >= 'a' && *cursor <= 'z') {
             uint32_t digit = (uint32_t)(*cursor - 'a' + 1);
             if (encoded_index > (UINT32_MAX - digit) / 26) return -EOVERFLOW;
-            encoded_index = encoded_index * 26 + digit;
+            encoded_index = (encoded_index * 26) + digit;
             cursor++;
         }
         encoded_index--;
@@ -567,7 +567,7 @@ int blockdev_format_disk_name(char *buffer, size_t size, uint32_t index)
         if (length >= sizeof(suffix) - 1) return -EOVERFLOW;
         suffix[length++] = (char)('a' + (value % 26));
         if (value < 26) break;
-        value = value / 26 - 1;
+        value = (value / 26) - 1;
     }
     if (size < length + 3) return -ENOSPC;
 

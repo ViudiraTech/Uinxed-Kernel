@@ -523,7 +523,12 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
         return 0;
     }
 
-    protect_change_t *changes = calloc(count, sizeof(*changes));
+    /*
+     * The first and last VMA are split after this count is taken, and each
+     * split inserts one more VMA into the range that the rollback loop walks,
+     * so reserve room for both to keep the fill loop inside the allocation.
+     */
+    protect_change_t *changes = calloc(count + 2, sizeof(*changes));
     if (!changes) {
         spin_unlock(&proc->mmap_lock);
         return -ENOMEM;
@@ -615,7 +620,7 @@ int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
         uintptr_t overlap_start = addr > vma->start ? addr : vma->start;
         uintptr_t overlap_end   = end < vma->end ? end : vma->end;
         ranges[used].file       = vfs_node_retain(vma->vm_file);
-        ranges[used].start      = vma->vm_pgoff * PAGE_4K_SIZE + overlap_start - vma->start;
+        ranges[used].start      = (vma->vm_pgoff * PAGE_4K_SIZE) + overlap_start - vma->start;
         ranges[used].end        = ranges[used].start + overlap_end - overlap_start - 1;
         ranges[used].shared     = (vma->flags & VM_SHARED) != 0;
         ranges[used].writable   = (vma->flags & VM_WRITE) != 0;

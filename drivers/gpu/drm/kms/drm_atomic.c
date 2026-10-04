@@ -313,18 +313,24 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         free(state->connectors);
         free(state->connector_states);
 
-        state->connectors                       = new_connectors;
-        state->connector_states                 = new_states;
-        state->connectors[state->num_connector] = connector;
+        /*
+         * Index with the slot the arrays were just sized for, not with the
+         * (signed) counter, so the access is provably inside the allocation.
+         */
+        size_t slot = new_count - 1;
+
+        state->connectors       = new_connectors;
+        state->connector_states = new_states;
+        state->connectors[slot] = connector;
 
         /* Allocate new connector state */
-        state->connector_states[state->num_connector] = malloc(sizeof(*state->connector_states[0]));
-        if (!state->connector_states[state->num_connector]) {
+        state->connector_states[slot] = malloc(sizeof(*state->connector_states[0]));
+        if (!state->connector_states[slot]) {
             DRM_ERROR("Failed to allocate connector state for connector %p\n", connector);
             return NULL;
         }
-        memset(state->connector_states[state->num_connector], 0, sizeof(*state->connector_states[0]));
-        state->connector_states[state->num_connector]->connector = connector;
+        memset(state->connector_states[slot], 0, sizeof(*state->connector_states[0]));
+        state->connector_states[slot]->connector = connector;
 
         /* Copy from existing connector state if available */
         if (connector->state) {

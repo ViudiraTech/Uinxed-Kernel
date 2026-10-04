@@ -1499,7 +1499,7 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
                 uint32_t flight    = endpoint->snd_nxt - endpoint->snd_una;
                 endpoint->ssthresh = flight / 2;
                 if (endpoint->ssthresh < 2U * endpoint->peer_mss) endpoint->ssthresh = 2U * endpoint->peer_mss;
-                endpoint->cwnd          = endpoint->ssthresh + 3U * endpoint->peer_mss;
+                endpoint->cwnd          = endpoint->ssthresh + (3U * endpoint->peer_mss);
                 endpoint->recover       = endpoint->snd_nxt;
                 endpoint->fast_recovery = 1;
                 tcp_tx_record_t *record = endpoint->tx_head;

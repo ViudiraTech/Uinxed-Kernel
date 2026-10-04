@@ -139,7 +139,7 @@ void tsc_init(void)
     uint64_t hpet_after  = nano_time();
 
     tsc_epoch_value = tsc_epoch;
-    tsc_epoch_ns    = hpet_before + (hpet_after - hpet_before) / 2ULL;
+    tsc_epoch_ns    = hpet_before + ((hpet_after - hpet_before) / 2ULL);
 
     if (!tsc_invariant) {
         plogk("tsc: calibrated but not invariant; keeping HPET as CLOCK_MONOTONIC source.\n");

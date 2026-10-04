@@ -71,7 +71,7 @@ static void dumb_bitmap_set(uint32_t slot)
 /* Mark a dumb-buffer offset slot as free. */
 static void dumb_bitmap_clear(uint32_t slot)
 {
-    if (slot < DUMB_OFFSET_MAX_SLOTS) dumb_bitmap[slot / 8] &= (uint8_t) ~(1U << (slot % 8));
+    if (slot < DUMB_OFFSET_MAX_SLOTS) dumb_bitmap[slot / 8] &= (uint8_t)~(1U << (slot % 8));
 }
 
 /* Allocate a dumb-buffer range node. */

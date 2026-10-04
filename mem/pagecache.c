@@ -835,6 +835,8 @@ int pagecache_writeback_all(uint32_t flags)
     size_t used = 0;
     for (pagecache_mapping_t *mapping = pagecache.mappings; mapping; mapping = mapping->global_next) {
         if (mapping->dying) continue;
+        /* The list cannot grow under this lock, but never write past the array. */
+        if (used >= slots) break;
         __atomic_add_fetch(&mapping->references, 1, __ATOMIC_ACQ_REL);
         mappings[used++] = mapping;
     }

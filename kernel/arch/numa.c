@@ -46,7 +46,7 @@ void numa_init(void)
     numa_reset();
     if (!CONFIG_NUMA || !rsdp_request.response || !rsdp_request.response->address) return;
     const rsdp_t *rsdp = rsdp_request.response->address;
-    if (memcmp(rsdp->signature, "RSD PTR ", 8)) return;
+    if (memcmp(rsdp->signature, "RSD PTR ", 8) != 0) return;
     uint8_t        sum   = 0;
     const uint8_t *bytes = (const uint8_t *)rsdp;
     for (size_t i = 0; i < 20; i++) sum += bytes[i];
@@ -58,7 +58,7 @@ void numa_init(void)
     }
     bool                     xsdt = rsdp->revision >= 2 && rsdp->xsdt_address;
     const acpi_sdt_header_t *root = firmware_table(xsdt ? rsdp->xsdt_address : rsdp->rsdt_address);
-    if (!root || memcmp(root->signature, xsdt ? "XSDT" : "RSDT", 4)) return;
+    if (!root || memcmp(root->signature, xsdt ? "XSDT" : "RSDT", 4) != 0) return;
     size_t width = xsdt ? 8 : 4;
     size_t size  = root->length - sizeof(*root);
     if (size % width) return;

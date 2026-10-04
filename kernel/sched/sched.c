@@ -982,7 +982,7 @@ static task_t *newidle_balance_locked(uint32_t dst_cpu)
 
         uint32_t src_cpu = find_busiest_cpu_locked(dst_cpu, domain);
         if (src_cpu == UINT32_MAX) continue;
-        if (rq_pressure(src_cpu) <= rq_pressure(dst_cpu) + SCHED_NICE_0_LOAD / 2ULL) continue;
+        if (rq_pressure(src_cpu) <= rq_pressure(dst_cpu) + (SCHED_NICE_0_LOAD / 2ULL)) continue;
 
         task_t *moved = migrate_one_locked(src_cpu, dst_cpu, true);
         if (moved) return moved;

@@ -61,8 +61,8 @@ static int ntfs_record_layout(ntfs_mount_t *mnt, uint8_t *record, uint32_t recor
 
     *usa_offset = load_le16(record + 4);
     *usa_count  = load_le16(record + 6);
-    usa_end     = (uint32_t)*usa_offset + (uint32_t)*usa_count * sizeof(uint16_t);
-    if (*usa_offset < 8 || (*usa_offset & 1) || *usa_count != record_size / mnt->sector_size + 1 || usa_end > record_size || usa_end > mnt->sector_size - sizeof(uint16_t)) return -EIO;
+    usa_end     = (uint32_t)*usa_offset + ((uint32_t)*usa_count * sizeof(uint16_t));
+    if (*usa_offset < 8 || (*usa_offset & 1) || *usa_count != (record_size / mnt->sector_size) + 1 || usa_end > record_size || usa_end > mnt->sector_size - sizeof(uint16_t)) return -EIO;
     return 0;
 }
 
@@ -340,7 +340,7 @@ int ntfs_mft_bitmap_set(ntfs_mount_t *mnt, uint64_t record_number, int allocated
     if (allocated) {
         bitmap |= (uint8_t)(1U << (record_number & 7));
     } else {
-        bitmap &= (uint8_t) ~(1U << (record_number & 7));
+        bitmap &= (uint8_t)~(1U << (record_number & 7));
     }
     if (attribute->non_resident) {
         uint32_t length         = load_le32((uint8_t *)&attribute->length);

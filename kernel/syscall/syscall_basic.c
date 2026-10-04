@@ -97,7 +97,7 @@ static int itimer_time_to_ticks(int64_t sec, int64_t usec, uint64_t *ticks)
     if (!ticks || sec < 0 || usec < 0 || usec >= 1000000) return -EINVAL;
     uint64_t sub_ticks = ((uint64_t)usec * CONFIG_TIMER_HZ + 999999ULL) / 1000000ULL;
     if ((uint64_t)sec > (UINT64_MAX - sub_ticks) / CONFIG_TIMER_HZ) return -EINVAL;
-    *ticks = (uint64_t)sec * CONFIG_TIMER_HZ + sub_ticks;
+    *ticks = ((uint64_t)sec * CONFIG_TIMER_HZ) + sub_ticks;
     return 0;
 }
 
