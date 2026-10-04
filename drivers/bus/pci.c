@@ -348,11 +348,17 @@ void write_pci(pci_device_reg_t reg, uint32_t value)
     return pci_ops.write(reg, value);
 }
 
+/* 4 KiB for PCI Express over ECAM, 256 bytes otherwise. */
+uint32_t pci_config_size(pci_device_cache_t *cache)
+{
+    return cache->ecam_ptr && pci_find_capability(cache, 0x10) ? 4096 : 256;
+}
+
 /* Width-specific configuration writes must not read-modify-write W1C neighbors. */
 int pci_write_config(pci_device_reg_t reg, uint32_t value, uint8_t size)
 {
     if (!reg.parent || !reg.parent->device || (size != 1 && size != 2 && size != 4)) return -EINVAL;
-    uint32_t limit = reg.parent->ecam_ptr ? 4096 : 256;
+    uint32_t limit = pci_config_size(reg.parent);
     if ((reg.offset & (size - 1U)) || reg.offset >= limit || size > limit - reg.offset) return -EINVAL;
 
     if (reg.parent->ecam_ptr) {
@@ -367,7 +373,7 @@ int pci_write_config(pci_device_reg_t reg, uint32_t value, uint8_t size)
     }
 
     pci_device_t *device  = reg.parent->device;
-    uint32_t      address = (1U << 31) | ((uint32_t)device->bus << 16) | ((uint32_t)device->slot << 11) | ((uint32_t)device->func << 8) | (reg.offset & 0xfc);
+    uint32_t      address = (1U << 31) | (((uint32_t)device->bus & 0xff) << 16) | (((uint32_t)device->slot & 0x1f) << 11) | (((uint32_t)device->func & 0x07) << 8) | (reg.offset & 0xfc);
     uint64_t      flags   = spin_lock_irqsave(&pci_legacy_lock);
     outl(PCI_COMMAND_PORT, address);
     uint16_t port = PCI_DATA_PORT + (reg.offset & 3);

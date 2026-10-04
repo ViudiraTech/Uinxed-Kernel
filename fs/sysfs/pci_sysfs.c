@@ -11,6 +11,8 @@
 #include <drivers/base/device.h>
 #include <drivers/bus/pci.h>
 #include <kernel/errno.h>
+#include <libs/std/stdlib.h>
+#include <libs/util/byteorder.h>
 #include <mem/heap.h>
 
 #if CONFIG_SYSFS
@@ -24,12 +26,6 @@ typedef struct pci_sysfs_dev {
         const struct attribute_group *groups[3];
 } pci_sysfs_dev_t;
 
-/* Extended configuration space needs both ECAM and a PCI Express device. */
-static size_t pci_config_size(pci_device_cache_t *cache)
-{
-    return cache->ecam_ptr && pci_find_capability(cache, 0x10) ? 4096 : 256;
-}
-
 /* Expose raw little-endian bytes, including unaligned pread() requests. */
 static ssize_t pci_config_read(struct kobject *kobj, struct bin_attribute *attr, char *buffer, int64_t pos, size_t count)
 {
@@ -39,18 +35,21 @@ static ssize_t pci_config_read(struct kobject *kobj, struct bin_attribute *attr,
     if (pos < 0) return -EINVAL;
     if ((uint64_t)pos >= attr->size) return 0;
     size_t offset = (size_t)pos;
-    if (count > attr->size - offset) count = attr->size - offset;
+    count         = MIN(count, attr->size - offset);
 
     size_t copied = 0;
     while (copied < count) {
         pci_device_reg_t reg   = {.parent = psd->cache, .offset = (uint32_t)(offset & ~(size_t)3)};
         uint32_t         value = read_pci(reg);
         size_t           byte  = offset & 3;
-        do {
-            buffer[copied++] = (char)(value >> (byte * 8));
-            offset++;
-            byte++;
-        } while (byte < 4 && copied < count);
+        size_t           chunk = MIN(count - copied, 4 - byte);
+        if (chunk == 4) {
+            store_le32(buffer + copied, value);
+        } else {
+            for (size_t i = 0; i < chunk; i++) buffer[copied + i] = (char)(value >> ((byte + i) * 8));
+        }
+        copied += chunk;
+        offset += chunk;
     }
     return (ssize_t)copied;
 }
@@ -64,7 +63,7 @@ static ssize_t pci_config_write(struct kobject *kobj, struct bin_attribute *attr
     if (pos < 0) return -EINVAL;
     if ((uint64_t)pos >= attr->size) return 0;
     size_t offset = (size_t)pos;
-    if (count > attr->size - offset) count = attr->size - offset;
+    count         = MIN(count, attr->size - offset);
 
     size_t copied = 0;
     while (copied < count) {
@@ -74,8 +73,13 @@ static ssize_t pci_config_write(struct kobject *kobj, struct bin_attribute *attr
             size = 1;
         else if ((offset & 3) || remaining < 4)
             size = 2;
-        uint32_t value = 0;
-        for (uint8_t byte = 0; byte < size; byte++) value |= (uint32_t)(uint8_t)buffer[copied + byte] << (byte * 8);
+        uint32_t value;
+        if (size == 1)
+            value = (uint8_t)buffer[copied];
+        else if (size == 2)
+            value = load_le16(buffer + copied);
+        else
+            value = load_le32(buffer + copied);
         pci_device_reg_t reg    = {.parent = psd->cache, .offset = (uint32_t)offset};
         int              result = pci_write_config(reg, value, size);
         if (result != EOK) return copied ? (ssize_t)copied : result;
