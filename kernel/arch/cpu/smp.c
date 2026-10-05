@@ -10,6 +10,7 @@
 
 #include <arch/cpu/cpuid.h>
 #include <arch/cpu/fpu.h>
+#include <arch/cpu/microcode/microcode.h>
 #include <arch/cpu/smp.h>
 #include <arch/misc/common.h>
 #include <arch/tables/idt.h>
@@ -493,6 +494,9 @@ __attribute__((noreturn)) void ap_entry(struct limine_smp_info *info)
     cpu_processor_t *cpu = (cpu_processor_t *)cast.ptr;
 
     if (cpu_support_rdtscp()) wrmsr(0xC0000103, cpu->id); // IA32_TSC_AUX
+
+    /* The blob is reachable here, and a report from this CPU needs its id. */
+    init_microcode_ap();
 
     /* Initializing the GDT */
     ap_init_gdt(cpu);

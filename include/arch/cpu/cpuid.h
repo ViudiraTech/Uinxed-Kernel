@@ -14,23 +14,26 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-/* Safe CPUID wrapper (avoids register clobber issues with pointer params) */
-void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d);
-
-/* Build a space-separated CPU feature flag string from real CPUID bits */
-void cpu_build_flags(char *buf, size_t size);
-
 /* Get CPUID */
 void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx);
 
 /* Get CPUID with a subleaf */
 void cpuid_count(uint32_t code, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx);
 
+/* Safe CPUID wrapper (avoids register clobber issues with pointer params) */
+void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d);
+
 /* Get CPU manufacturer name */
 char *get_vendor_name(void);
 
 /* Get the CPU model name */
 char *get_model_name(void);
+
+/* Get the CPU family number from CPUID.1:EAX, extended encoding included */
+uint32_t get_cpu_family(void);
+
+/* Get the CPU model number from CPUID.1:EAX, extended encoding included */
+uint32_t get_cpu_model(void);
 
 /* Get the CPU physical address size */
 uint32_t get_cpu_phys_bits(void);
@@ -103,5 +106,8 @@ int cpu_support_avx2(void);
 
 /* Check CPU supports AVX-512F (base AVX-512) */
 int cpu_support_avx512f(void);
+
+/* Build a space-separated CPU feature flag string from real CPUID bits */
+void cpu_build_flags(char *buf, size_t size);
 
 #endif // INCLUDE_CPUID_H_
