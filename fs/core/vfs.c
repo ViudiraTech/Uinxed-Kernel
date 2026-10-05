@@ -3962,7 +3962,8 @@ static int vfs_close_impl(vfs_node_t node)
         if (anonymous) vfs_poll_notify(node, UINT32_MAX);
         if (node->mapping) (void)pagecache_writeback(node->mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC);
         if (anonymous) vfs_pagecache_destroy(node);
-        callbackof(node, close)(node->handle);
+        /* Named FIFOs remain reopenable until their inode is unlinked. */
+        if (anonymous || !(node->type & file_pipe)) callbackof(node, close)(node->handle);
         if (anonymous) {
             callbackof(node, free)(node->handle);
             node->handle = 0;

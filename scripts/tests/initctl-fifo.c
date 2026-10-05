@@ -58,6 +58,13 @@ static void fifo(const char *directory)
             check((st.st_mode & 0777) == (0600 & ~previous), "FIFO mode");
             check(st.st_uid == getuid() && st.st_gid == getgid(), "FIFO credentials");
         }
+        if (i == 0) {
+            check(write(fd, "x", 1) == 1, "buffer FIFO data");
+        } else {
+            char byte;
+            errno = 0;
+            check(read(fd, &byte, 1) == -1 && errno == EAGAIN, "discard data after last close");
+        }
         close(fd);
     }
     check(unlink(path) == 0, "remove FIFO");
@@ -65,6 +72,14 @@ static void fifo(const char *directory)
 
 int main(void)
 {
+    int descriptors[2];
+    check(pipe(descriptors) == 0, "anonymous pipe");
+    check(write(descriptors[1], "x", 1) == 1, "anonymous pipe write");
+    close(descriptors[1]);
+    char byte;
+    check(read(descriptors[0], &byte, 1) == 1 && byte == 'x', "anonymous pipe buffered read");
+    check(read(descriptors[0], &byte, 1) == 0, "anonymous pipe EOF");
+    close(descriptors[0]);
     credentials();
     fifo("/run");
     fifo("/tmp");
