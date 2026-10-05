@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/cpuid.h>
 #include <arch/misc/common.h>
 #include <libs/std/string.h>
 
@@ -24,6 +25,23 @@ void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t 
 void cpuid_count(uint32_t code, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
 {
     __asm__ volatile("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(code), "c"(subleaf) : "memory");
+}
+
+/* Check whether a CPUID leaf reports bit @bit of the @reg register */
+int cpu_has_feature(uint32_t leaf, cpuid_reg_t reg, uint32_t bit)
+{
+    uint32_t eax, ebx, ecx, edx;
+    uint32_t regs[4];
+
+    if (reg > CPUID_REG_EDX || bit > 31) return 0;
+
+    cpuid_safe(leaf, 0, &eax, &ebx, &ecx, &edx);
+    regs[CPUID_REG_EAX] = eax;
+    regs[CPUID_REG_EBX] = ebx;
+    regs[CPUID_REG_ECX] = ecx;
+    regs[CPUID_REG_EDX] = edx;
+
+    return ((regs[reg] >> bit) & 1) != 0;
 }
 
 /* Get CPU manufacturer name */
@@ -46,6 +64,30 @@ char *get_model_name(void)
     cpuid(0x80000004, &p[8], &p[9], &p[10], &p[11]);
     model_name[48] = 0;
     return model_name;
+}
+
+/* Get the CPU family number from CPUID.1:EAX, extended encoding included */
+uint32_t get_cpu_family(void)
+{
+    uint32_t eax, ebx, ecx, edx, family;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+    family = (eax >> 8) & 0xf;
+    return family == 0xf ? family + ((eax >> 20) & 0xff) : family;
+}
+
+/* Get the CPU model number from CPUID.1:EAX, extended encoding included */
+uint32_t get_cpu_model(void)
+{
+    uint32_t eax, ebx, ecx, edx, family, model;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+
+    family = (eax >> 8) & 0xf;
+    if (family == 0xf) family += (eax >> 20) & 0xff;
+
+    model = (eax >> 4) & 0xf;
+    if (family >= 0x6) model |= ((eax >> 16) & 0xf) << 4;
+
+    return model;
 }
 
 /* Get the CPU physical address size */
