@@ -124,11 +124,9 @@ static uint32_t amd_patch_level(void)
     return (uint32_t)rdmsr(AMD_MSR_PATCH_LEVEL);
 }
 
-/* Is the installed revision one that must never be overwritten? */
-static int amd_patch_level_final(void)
+/* Is @level one of the revisions that must never be overwritten? */
+static int amd_patch_level_final(uint32_t level)
 {
-    uint32_t level = amd_patch_level();
-
     for (size_t i = 0; amd_final_levels[i]; i++)
         if (level == amd_final_levels[i]) return 1;
 
@@ -529,7 +527,7 @@ static microcode_state_t amd_microcode_load(const microcode_blob_t *blob)
     amd_bsp_cpuid_1_eax = amd_cpuid_1_eax();
     amd_bsp_family      = get_cpu_family();
     amd_bsp_model       = get_cpu_model();
-    if (amd_patch_level_final()) {
+    if (amd_patch_level_final(before)) {
         plogk("microcode: AMD revision 0x%08x is final and is not updated.\n", before);
         return MICROCODE_OK;
     }
@@ -574,6 +572,7 @@ static microcode_state_t amd_microcode_load_ap(void)
     uint32_t                     rev = amd_patch_level();
     int                          err;
 
+    if (amd_patch_level_final(rev)) return MICROCODE_OK;
     patch = amd_find_patch(sig);
     if (!patch) return MICROCODE_NFOUND;
 
