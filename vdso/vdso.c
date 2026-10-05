@@ -116,8 +116,9 @@ static int vdso_clock(int clockid, struct timespec *ts)
          * amount.  The counter is per-CPU, so a reader can land on one whose
          * value trails the CPU that published the snapshot; the unsigned
          * difference would then wrap into a jump of centuries, and nothing
-         * downstream can tell that apart from a real reading.  Falling back to
-         * the snapshot is always correct -- it is at most one tick old.
+         * downstream can tell that apart from a real reading.  Fall back to
+         * the same clock's syscall rather than return a stale high-resolution
+         * timestamp.
          */
         if (now >= data.cycle_last && delta <= data.max_cycles && (!data.mult || delta <= ~(uint64_t)0 / data.mult)) {
             uint64_t added = (delta * data.mult) >> data.shift;
@@ -125,7 +126,8 @@ static int vdso_clock(int clockid, struct timespec *ts)
             nsec += added;
             sec += nsec / 1000000000ULL;
             nsec %= 1000000000ULL;
-        } else return -1;
+        } else
+            return -1;
     }
 
     ts->tv_sec  = (long)sec;

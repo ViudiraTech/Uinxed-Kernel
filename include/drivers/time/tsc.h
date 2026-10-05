@@ -31,6 +31,9 @@ uint64_t tsc_resolution_ns(void);
 /* Returns TSC time aligned to the boot-relative monotonic epoch */
 uint64_t tsc_nano_time(void);
 
+/* Convert an already sampled TSC using the same monotonic epoch and scale. */
+uint64_t tsc_nano_time_at(uint64_t cycles);
+
 /* Initialize TSC */
 void tsc_init(void);
 

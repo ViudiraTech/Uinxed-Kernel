@@ -178,12 +178,15 @@ void timer_deferred_init(void)
  * The atomic floor also prevents a tiny cross-CPU TSC skew from making time
  * move backwards when a task migrates between CPUs.
  */
-uint64_t timer_monotonic_ns(void)
+uint64_t timer_monotonic_sample(uint64_t *cycles)
 {
     uint64_t now;
 
+    if (cycles) *cycles = 0;
     if (tsc_clocksource_available()) {
-        now = tsc_nano_time();
+        uint64_t sample = rdtsc_serialized();
+        now             = tsc_nano_time_at(sample);
+        if (cycles) *cycles = sample;
     } else if (hpet_available()) {
         now = nano_time();
     } else {
@@ -195,6 +198,12 @@ uint64_t timer_monotonic_ns(void)
         if (now <= floor) return floor;
         if (__atomic_compare_exchange_n(&timer_monotonic_floor_ns, &floor, now, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return now;
     }
+}
+
+/* Read monotonic time without retaining the counter anchor. */
+uint64_t timer_monotonic_ns(void)
+{
+    return timer_monotonic_sample(NULL);
 }
 
 /* Resolution of the clocksource currently backing CLOCK_MONOTONIC. */
@@ -222,12 +231,17 @@ int timer_monotonic_highres(void)
 }
 
 /* Return the realtime clock in nanoseconds, saturating at INT64_MAX */
-int64_t timer_realtime_ns(void)
+int64_t timer_realtime_from_monotonic_ns(uint64_t monotonic)
 {
-    uint64_t monotonic = timer_monotonic_ns();
-    int64_t  base      = __atomic_load_n(&timer_realtime_base_ns, __ATOMIC_ACQUIRE);
+    int64_t base = __atomic_load_n(&timer_realtime_base_ns, __ATOMIC_ACQUIRE);
     if (base >= 0 && monotonic > (uint64_t)INT64_MAX - (uint64_t)base) return INT64_MAX;
     return (int64_t)monotonic + base;
+}
+
+/* Read wall-clock time from one monotonic sample. */
+int64_t timer_realtime_ns(void)
+{
+    return timer_realtime_from_monotonic_ns(timer_monotonic_ns());
 }
 
 /* Set the realtime clock to an absolute nanosecond value */

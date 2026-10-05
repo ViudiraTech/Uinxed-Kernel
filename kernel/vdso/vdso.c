@@ -10,13 +10,13 @@
 
 #include <arch/common.h>
 #include <drivers/time/tsc.h>
+#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
+#include <kernel/vdso/vdso.h>
+#include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
-#include <kernel/printk.h>
-#include <kernel/vdso/vdso.h>
-#include <libs/std/string.h>
 #include <mem/page.h>
 #include <process/process.h>
 
@@ -53,7 +53,7 @@ typedef struct {
 
 /* The single data page every process maps; written by the tick, read by userspace. */
 static struct vdso_data *vdso_page;
-static uint64_t           vdso_page_phys;
+static uint64_t          vdso_page_phys;
 
 /*
  * The code half of the image is identical for every process and never written,
@@ -91,8 +91,8 @@ static uint32_t vdso_read32(const uint8_t *base, uint64_t offset)
  */
 static int vdso_locate_segments(void)
 {
-    const vdso_ehdr_t *ehdr       = (const vdso_ehdr_t *)vdso_image;
-    int                loads      = 0;
+    const vdso_ehdr_t *ehdr  = (const vdso_ehdr_t *)vdso_image;
+    int                loads = 0;
 
     if (vdso_image_len < sizeof(*ehdr) || ehdr->ident[0] != 0x7f || ehdr->ident[1] != 'E' || ehdr->ident[2] != 'L' || ehdr->ident[3] != 'F') return -1;
     if (ehdr->phentsize < sizeof(vdso_phdr_t)) return -1;
@@ -131,8 +131,9 @@ static int vdso_locate_segments(void)
 static void vdso_publish(void)
 {
     struct vdso_data *page = vdso_page;
-    int64_t           real = timer_realtime_ns();
-    uint64_t          mono = timer_monotonic_ns();
+    uint64_t          cycles;
+    uint64_t          mono = timer_monotonic_sample(&cycles);
+    int64_t           real = timer_realtime_from_monotonic_ns(mono);
 
     if (!page) return;
 
@@ -141,7 +142,8 @@ static void vdso_publish(void)
     __atomic_thread_fence(__ATOMIC_RELEASE);
 
     page->clock_mode = vdso_ns_per_sec ? VDSO_CLOCKMODE_CYCLES : VDSO_CLOCKMODE_NONE;
-    page->cycle_last = vdso_ns_per_sec ? rdtsc_serialized() : 0;
+    /* A separate counter read could be delayed by preemption after the time read. */
+    page->cycle_last = vdso_ns_per_sec ? cycles : 0;
     page->mult       = vdso_ns_per_sec ? (uint32_t)(((1000000000ULL << 32) / vdso_ns_per_sec)) : 0;
     page->shift      = 32;
     /*

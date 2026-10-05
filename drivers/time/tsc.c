@@ -99,17 +99,22 @@ uint64_t tsc_resolution_ns(void)
  * captured after calibration instead of treating tsc_init() as time zero;
  * this keeps TSC, HPET and DRM presentation timestamps interchangeable.
  */
-uint64_t tsc_nano_time(void)
+uint64_t tsc_nano_time_at(uint64_t current_tsc)
 {
     if (!tsc_frequency || !tsc_epoch_value) return 0;
 
-    uint64_t current_tsc = rdtsc_serialized();
     if (current_tsc < tsc_epoch_value) return tsc_epoch_ns;
 
     uint64_t elapsed_tsc = current_tsc - tsc_epoch_value;
     uint64_t elapsed_ns  = (uint64_t)(((__uint128_t)elapsed_tsc * tsc_ns_ratio) >> 32);
     if (elapsed_ns > UINT64_MAX - tsc_epoch_ns) return UINT64_MAX;
     return tsc_epoch_ns + elapsed_ns;
+}
+
+/* Read and convert one serialized counter sample. */
+uint64_t tsc_nano_time(void)
+{
+    return tsc_nano_time_at(rdtsc_serialized());
 }
 
 /* Initialize and, when safe, select TSC as the high-resolution clocksource. */
