@@ -54,7 +54,7 @@ The unchanged `initramfs.cpio` SHA-256 is
 The validated PR `UxImage` SHA-256 is
 `23256e2ad0702c79971e047a3975a49adf12d9abb15f078c06e333183846b35d`.
 The delivery ISO SHA-256 is
-`dca0b1db06f86079ff1a53cd35a12933e1e0f120fd03cc790407630c82281524`.
+`a3ae39b68d5d4bccba78827c64a80ac79640c835e2b79d6ea67449978f7dce30`.
 `scripts/update-desktop-iso.sh` checks both the embedded kernel and base archive.
 
 The delivery target is `build/xfce/xfce_clean.iso`; the prior delivery image is
@@ -86,3 +86,9 @@ CI repair kernel repeated all seven guest checks with zero failures, including
 initctl restart and 2,000,000 vDSO samples. Logs are `ci-guest-acceptance.txt`,
 `ci-guest-serial.log`, `ci-fix-full-clang19.log` and `ci-fix-vfs-local.log` in the
 delivery evidence directory. The hashes above identify the updated kernel/ISO.
+
+The final remaining sizeof spelling was corrected in the copies table as well.
+The updated ELF entry and every PT_LOAD segment (flags, addresses, sizes and
+payload bytes) are identical to the kernel exercised by the latest guest run;
+only nonloaded debug metadata changed. This comparison is recorded in
+`ci-final-load-segments.json`.
