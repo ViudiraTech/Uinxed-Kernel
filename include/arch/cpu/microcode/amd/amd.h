@@ -31,7 +31,7 @@
 
 /* Model specific registers of the update algorithm. */
 #define AMD_MSR_PATCH_LOADER 0xC0010020 // takes the linear address of the patch
-#define AMD_MSR_PATCH_LEVEL  0xC0010021 // revision currently installed
+#define AMD_MSR_PATCH_LEVEL  0x0000008B // the patch level the processor currently runs, in EAX
 
 /* One equivalence table entry: an installed processor and its internal id. */
 struct amd_equiv_cpu_entry {
