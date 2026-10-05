@@ -9,6 +9,7 @@
  */
 
 #include <arch/common.h>
+#include <drivers/time/tsc.h>
 #include <kernel/timer/timer.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
@@ -64,10 +65,7 @@ static uint32_t vdso_image_filesz; // bytes of image the ELF actually contains
 static uint32_t vdso_image_size;   // bytes of image to map, page rounded
 static uint32_t vdso_data_offset;  // where the data page sits inside the image
 
-static uint64_t vdso_cal_start_cycles;
-static uint64_t vdso_cal_start_mono;
-static uint32_t vdso_cal_ticks;
-static uint64_t vdso_ns_per_sec; // cycles per second once calibrated
+static uint64_t vdso_ns_per_sec; // cycles per second for the selected invariant TSC
 static bool     vdso_ready;
 
 /* Read a little-endian 64-bit field out of the image. */
@@ -100,7 +98,7 @@ static int vdso_locate_segments(void)
     if (ehdr->phentsize < sizeof(vdso_phdr_t)) return -1;
 
     for (uint16_t i = 0; i < ehdr->phnum; i++) {
-        uint64_t    offset = ehdr->phoff + (uint64_t)i * ehdr->phentsize;
+        uint64_t    offset = ehdr->phoff + ((uint64_t)i * (uint64_t)ehdr->phentsize);
         vdso_phdr_t phdr;
 
         if (offset + sizeof(phdr) > vdso_image_len) return -1;
@@ -143,7 +141,7 @@ static void vdso_publish(void)
     __atomic_thread_fence(__ATOMIC_RELEASE);
 
     page->clock_mode = vdso_ns_per_sec ? VDSO_CLOCKMODE_CYCLES : VDSO_CLOCKMODE_NONE;
-    page->cycle_last = vdso_ns_per_sec ? rdtsc() : 0;
+    page->cycle_last = vdso_ns_per_sec ? rdtsc_serialized() : 0;
     page->mult       = vdso_ns_per_sec ? (uint32_t)(((1000000000ULL << 32) / vdso_ns_per_sec)) : 0;
     page->shift      = 32;
     /*
@@ -162,38 +160,12 @@ static void vdso_publish(void)
     __atomic_store_n(&page->seq, seq + 1, __ATOMIC_RELEASE); // even: consistent
 }
 
-/*
- * Derive cycles per second from the monotonic clock over a settling window.  The
- * exact TSC frequency is not advertised on this platform, so it is measured
- * instead; until the window closes the vDSO serves the tick snapshot alone.
- */
-static void vdso_calibrate(void)
-{
-    if (vdso_ns_per_sec || !vdso_page) return;
-
-    if (!vdso_cal_ticks) {
-        vdso_cal_start_cycles = rdtsc();
-        vdso_cal_start_mono   = timer_monotonic_ns();
-        vdso_cal_ticks        = 1;
-        return;
-    }
-
-    if (++vdso_cal_ticks < 200) return; // ~200 ms at CONFIG_TIMER_HZ=1000
-
-    uint64_t elapsed_ns = timer_monotonic_ns() - vdso_cal_start_mono;
-    uint64_t cycles     = rdtsc() - vdso_cal_start_cycles;
-
-    if (elapsed_ns >= 100000000ULL) {
-        vdso_ns_per_sec = (cycles * 1000000000ULL) / elapsed_ns;
-        plogk("vdso: cycle counter calibrated at %llu Hz\n", (unsigned long long)vdso_ns_per_sec);
-    }
-}
-
-/* Called from the timer tick: keep the published snapshot current. */
+/* Called by the single deferred timer worker. */
 void vdso_tick(void)
 {
     if (!vdso_ready) return;
-    vdso_calibrate();
+    /* A separately calibrated, non-invariant counter is not the kernel's clocksource. */
+    vdso_ns_per_sec = tsc_clocksource_available() ? tsc_get_cpu_frequency() : 0;
     vdso_publish();
 }
 

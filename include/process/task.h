@@ -20,6 +20,7 @@
 #include <process/ptrace.h>
 
 #define TASK_NAME_LEN 32
+#define PID_NS_MAX_LEVEL 32
 
 /*
  * PF_KTHREAD marks a kernel thread.  Kernel threads have
@@ -92,6 +93,10 @@ typedef struct kthread_info {
 struct task {
         uint64_t           pid;
         uint64_t           tgid;
+        /* Global IDs above remain kernel identities; these numbers are userspace IDs. */
+        struct pid_namespace *pid_ns; // active namespace, unlike nsproxy->pid_ns (for children)
+        uint32_t           pid_numbers[PID_NS_MAX_LEVEL + 1];
+        uint32_t           tgid_numbers[PID_NS_MAX_LEVEL + 1];
         task_state_t       state;
         volatile uint64_t  on_cpu; // cleared only after switching off this task's stack
         bool               on_rq;  // protected by the owning runqueue lock

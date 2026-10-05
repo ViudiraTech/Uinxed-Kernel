@@ -103,6 +103,7 @@ typedef struct vm_area {
 
 typedef struct process_file {
         vfs_node_t             node;
+        uint64_t               mount_id;
         size_t                 offset;
         uint64_t               flags;
         uint32_t               refcount;
@@ -176,7 +177,9 @@ typedef struct process {
         uint32_t        ruid;
         uint32_t        uid; // effective user ID
         uint32_t        suid;
+        uint32_t        rgid;
         uint32_t        gid;
+        uint32_t        sgid;
         uint32_t        fsuid;
         uint32_t        fsgid;
         uint32_t        supplementary_groups[CONFIG_PROCESS_MAX_GROUPS];
@@ -214,6 +217,8 @@ typedef struct process {
         spinlock_t      seccomp_lock;
         pid_t           pgid;
         pid_t           sid;
+        uint32_t        pgid_numbers[PID_NS_MAX_LEVEL + 1];
+        uint32_t        sid_numbers[PID_NS_MAX_LEVEL + 1];
         bool            is_child_subreaper;
         tty_core_t     *controlling_tty;
         char            name[PROCESS_NAME_LEN];
@@ -377,6 +382,7 @@ void process_mmap_destroy_detached(process_t *proc, vm_area_t *list);
 
 /* Attach an opened VFS node to a file descriptor table */
 int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags);
+int process_fd_install_at(process_t *proc, vfs_node_t node, uint64_t flags, uint64_t mount_id);
 
 /* Install another reference to an existing open-file description. */
 int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flags);

@@ -17,15 +17,16 @@ else
 endif
 
 # Source discovery
-C_SOURCES      := $(shell find * -name "*.c" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*" -not -path "build/*" -not -path "vdso/*")
-C_HEADERS      := $(shell find * -name "*.h" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*" -not -path "build/*" -not -path "vdso/*")
+SOURCE_PRUNE   := \( -path assets -o -path docs -o -path scripts -o -path tools -o -path build -o -path vdso \) -prune
+C_SOURCES      := $(shell find * $(SOURCE_PRUNE) -o -name "*.c" -print)
+C_HEADERS      := $(shell find * $(SOURCE_PRUNE) -o -name "*.h" -print)
 JOBS           ?= $(shell nproc 2>/dev/null || echo 1)
 OBJS           := $(C_SOURCES:%.c=%.o)
 # The vDSO image is generated at build time, so it is not in C_SOURCES.
 VDSO_IMAGE     := vdso/vdso_image.c
 OBJS           += $(VDSO_IMAGE:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
-ELFS           := $(shell find * -name "*.elf")
+ELFS           := $(shell find * -path build -prune -o -name "*.elf" -print)
 LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
 
@@ -59,7 +60,7 @@ all: Uinxed-x64.iso
 info:
 	$(Q)printf "Uinxed Compiling Script - Apache License Version 2.0.\n\n"
 
-VDSO_CFLAGS    := -O2 -fPIC -fno-stack-protector -fno-common -fno-builtin -fno-asynchronous-unwind-tables
+VDSO_CFLAGS    := -O2 -fPIC -mno-sse -mno-mmx -mno-80387 -fno-stack-protector -fno-common -fno-builtin -fno-asynchronous-unwind-tables
 VDSO_LD_FLAGS  := -nostdlib -shared -Bsymbolic -Wl,--hash-style=sysv -Wl,--build-id=none
 VDSO_CC        ?= cc
 

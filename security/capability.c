@@ -10,6 +10,7 @@
 
 #include <kernel/errno.h>
 #include <process/process.h>
+#include <process/namespace.h>
 #include <security/capability.h>
 
 #define SECBIT_NOROOT               1U
@@ -57,7 +58,7 @@ void capability_get_status(task_t *task, capability_status_t *status)
     spin_unlock_irqrestore(&task->cap_lock, flags);
 }
 
-bool capability_has(task_t *task, unsigned capability)
+static bool capability_effective(task_t *task, unsigned capability)
 {
     if (!task || capability > CAP_LAST_SUPPORTED) return false;
     uint64_t flags = spin_lock_irqsave(&task->cap_lock);
@@ -65,6 +66,33 @@ bool capability_has(task_t *task, unsigned capability)
     bool present = (task->cap_effective & (1ULL << capability)) != 0;
     spin_unlock_irqrestore(&task->cap_lock, flags);
     return present;
+}
+
+/* Capabilities in a child user namespace never confer authority in its parent. */
+bool capability_ns(task_t *task, user_namespace_t *target, unsigned capability)
+{
+    if (!task || !target || capability > CAP_LAST_SUPPORTED) return false;
+    user_namespace_t *own = task->nsproxy ? task->nsproxy->user_ns : &init_user_ns;
+    for (user_namespace_t *ns = target; ns; ns = ns->parent) {
+        if (ns == own) return capability_effective(task, capability);
+        if (ns->parent == own && task->process && task->process->uid == ns->owner_uid) return true;
+    }
+    return false;
+}
+
+bool capability_has(task_t *task, unsigned capability)
+{
+    return capability_ns(task, &init_user_ns, capability);
+}
+
+void capability_enter_userns(task_t *task)
+{
+    uint64_t flags = spin_lock_irqsave(&task->cap_lock);
+    task->cap_effective = task->cap_permitted = task->cap_bounding = CAP_SUPPORTED_MASK;
+    task->cap_inheritable = task->cap_ambient = 0;
+    task->securebits = 0;
+    task->caps_initialized = true;
+    spin_unlock_irqrestore(&task->cap_lock, flags);
 }
 
 /* Effective capabilities must be permitted; capset cannot grow permitted. */
@@ -119,17 +147,18 @@ void capability_uid_change(task_t *task, const uid_set_t *old_ids, const uid_set
 {
     uint64_t flags = spin_lock_irqsave(&task->cap_lock);
     capability_init_locked(task);
+    uint32_t root_id = user_ns_map_id(task->nsproxy ? task->nsproxy->user_ns : &init_user_ns, 0, false);
     if (!(task->securebits & SECBIT_NO_SETUID_FIXUP)) {
-        bool was_root         = old_ids->real == 0 || old_ids->effective == 0 || old_ids->saved == 0;
-        bool now_unprivileged = new_ids->real != 0 && new_ids->effective != 0 && new_ids->saved != 0;
+        bool was_root         = old_ids->real == root_id || old_ids->effective == root_id || old_ids->saved == root_id;
+        bool now_unprivileged = new_ids->real != root_id && new_ids->effective != root_id && new_ids->saved != root_id;
         if (was_root && now_unprivileged) {
             if (!(task->securebits & SECBIT_KEEP_CAPS)) task->cap_permitted = 0;
             task->cap_effective = 0;
             task->cap_ambient   = 0;
-        } else if (old_ids->effective == 0 && new_ids->effective != 0) {
+        } else if (old_ids->effective == root_id && new_ids->effective != root_id) {
             task->cap_effective = 0;
         }
-        if (old_ids->effective != 0 && new_ids->effective == 0) task->cap_effective = task->cap_permitted;
+        if (old_ids->effective != root_id && new_ids->effective == root_id) task->cap_effective = task->cap_permitted;
     }
     task->cap_uid = new_ids->effective;
     spin_unlock_irqrestore(&task->cap_lock, flags);
@@ -140,7 +169,7 @@ void capability_exec(task_t *task)
 {
     uint64_t flags = spin_lock_irqsave(&task->cap_lock);
     capability_init_locked(task);
-    if (task->process->uid == 0 && !(task->securebits & SECBIT_NOROOT)) {
+    if (task->process->uid == user_ns_map_id(task->nsproxy ? task->nsproxy->user_ns : &init_user_ns, 0, false) && !(task->securebits & SECBIT_NOROOT)) {
         task->cap_permitted = task->cap_bounding | task->cap_inheritable;
         task->cap_effective = task->cap_permitted;
     } else {

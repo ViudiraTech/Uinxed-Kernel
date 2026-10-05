@@ -53,6 +53,7 @@
 #define DRM_AUTH      0x1
 #define DRM_MASTER    0x2
 #define DRM_ROOT_ONLY 0x4
+#define DRM_RENDER_ALLOW 0x8
 #define DRM_UNLOCKED  0x8
 
 /* DRM_MAJOR */
@@ -702,6 +703,7 @@ struct drm_gem_handle_entry {
 
 struct drm_file {
         bool authenticated;
+        bool is_render;
         bool universal_planes;
         bool atomic;
         bool aspect_ratio_allowed;

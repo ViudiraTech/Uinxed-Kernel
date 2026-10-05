@@ -79,17 +79,17 @@ static void virtgpu_rect_union(struct virtio_gpu_rect *dst, const struct virtio_
 
 /* DRM ioctl table */
 static const struct drm_ioctl_desc virtgpu_ioctls[] = {
-    {DRM_IOCTL_VIRTGPU_MAP,                  virtgpu_ioctl_map,                  DRM_AUTH},
-    {DRM_IOCTL_VIRTGPU_EXECBUFFER,           virtgpu_ioctl_execbuffer,           DRM_AUTH},
+    {DRM_IOCTL_VIRTGPU_MAP,                  virtgpu_ioctl_map,                  DRM_RENDER_ALLOW},
+    {DRM_IOCTL_VIRTGPU_EXECBUFFER,           virtgpu_ioctl_execbuffer,           DRM_RENDER_ALLOW},
     {DRM_IOCTL_VIRTGPU_GETPARAM,             virtgpu_ioctl_getparam,             0       },
-    {DRM_IOCTL_VIRTGPU_RESOURCE_CREATE,      virtgpu_ioctl_resource_create,      DRM_AUTH},
-    {DRM_IOCTL_VIRTGPU_RESOURCE_INFO,        virtgpu_ioctl_resource_info,        DRM_AUTH},
-    {DRM_IOCTL_VIRTGPU_TRANSFER_FROM_HOST,   virtgpu_ioctl_transfer_from_host,   DRM_AUTH},
-    {DRM_IOCTL_VIRTGPU_TRANSFER_TO_HOST,     virtgpu_ioctl_transfer_to_host,     DRM_AUTH},
-    {DRM_IOCTL_VIRTGPU_WAIT,                 virtgpu_ioctl_wait,                 DRM_AUTH},
+    {DRM_IOCTL_VIRTGPU_RESOURCE_CREATE,      virtgpu_ioctl_resource_create,      DRM_RENDER_ALLOW},
+    {DRM_IOCTL_VIRTGPU_RESOURCE_INFO,        virtgpu_ioctl_resource_info,        DRM_RENDER_ALLOW},
+    {DRM_IOCTL_VIRTGPU_TRANSFER_FROM_HOST,   virtgpu_ioctl_transfer_from_host,   DRM_RENDER_ALLOW},
+    {DRM_IOCTL_VIRTGPU_TRANSFER_TO_HOST,     virtgpu_ioctl_transfer_to_host,     DRM_RENDER_ALLOW},
+    {DRM_IOCTL_VIRTGPU_WAIT,                 virtgpu_ioctl_wait,                 DRM_RENDER_ALLOW},
     {DRM_IOCTL_VIRTGPU_GET_CAPS,             virtgpu_ioctl_get_caps,             0       },
-    {DRM_IOCTL_VIRTGPU_RESOURCE_CREATE_BLOB, virtgpu_ioctl_resource_create_blob, DRM_AUTH},
-    {DRM_IOCTL_VIRTGPU_CONTEXT_INIT,         virtgpu_ioctl_context_init,         DRM_AUTH},
+    {DRM_IOCTL_VIRTGPU_RESOURCE_CREATE_BLOB, virtgpu_ioctl_resource_create_blob, DRM_RENDER_ALLOW},
+    {DRM_IOCTL_VIRTGPU_CONTEXT_INIT,         virtgpu_ioctl_context_init,         DRM_RENDER_ALLOW},
 };
 
 #    define VIRTGPU_NUM_IOCTLS (sizeof(virtgpu_ioctls) / sizeof(virtgpu_ioctls[0]))
@@ -355,7 +355,7 @@ static struct drm_driver virtgpu_drm_driver = {
     .major           = 0,
     .minor           = 1,
     .patchlevel      = 0,
-    .driver_features = DRIVER_MODESET | DRIVER_ATOMIC | DRIVER_GEM | DRIVER_RENDER | DRIVER_SYNCHRONOUS_FLIP,
+    .driver_features = DRIVER_MODESET | DRIVER_ATOMIC | DRIVER_GEM | DRIVER_RENDER | DRIVER_PRIME | DRIVER_SYNCHRONOUS_FLIP,
 
     .open      = virtgpu_open,
     .postclose = virtgpu_postclose,
@@ -393,6 +393,12 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
     vgdev = (struct virtio_gpu_device *)fb->obj[0]->dev->dev_private;
     if (!vgdev) return -EINVAL;
     obj = to_virtio_gpu_object(fb->obj[0]);
+
+    /* Virgl already rendered into the host texture. Uploading the guest shadow erases it. */
+    if (obj->created_3d) {
+        struct virtio_gpu_rect damage = {0, 0, fb->width, fb->height};
+        return virtgpu_cmd_resource_flush(vgdev, obj, &damage);
+    }
 
     /*
      * A dirtyfb call is userspace stating that a region changed, so it must be
@@ -572,7 +578,7 @@ static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm
     struct virtio_gpu_device    *vgdev = (struct virtio_gpu_device *)dev->dev_private;
     struct drm_virtgpu_getparam *args  = (struct drm_virtgpu_getparam *)data;
 
-    int value;
+    uint64_t value;
 
     (void)file_priv;
     if (!args->value) return -EFAULT;
@@ -596,7 +602,7 @@ static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm
             value = (vgdev->has_context_init && vgdev->has_virgl) ? 1 : 0;
             break;
         case DRM_VIRTGPU_PARAM_SUPPORTED_CAPSET_IDs :
-            value = (int)vgdev->capset_id_mask;
+            value = vgdev->capset_id_mask;
             break;
         case DRM_VIRTGPU_PARAM_BLOB_ALIGNMENT :
             return -ENOENT;
@@ -634,12 +640,12 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     if (!obj) return -ENOMEM;
 
     obj->hw_res_handle = virtgpu_resource_id_alloc(vgdev);
-    if (vgdev->has_virgl) {
-        obj->format = args->format;
-    } else if (args->format == VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM) {
+    if (args->format == VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM) {
         obj->format = DRM_FORMAT_ARGB8888;
-    } else {
+    } else if (args->format == VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM) {
         obj->format = DRM_FORMAT_XRGB8888;
+    } else {
+        obj->format = 0; // a virgl texture format which KMS does not advertise
     }
     obj->width      = args->width;
     obj->height     = args->height;
@@ -1094,7 +1100,15 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
         /* Submit the full flip as one ordered batch and avoid rebinding an object that is already the active scanout. */
         bool layout_changed = !vgdev->current_scanout_obj || vgdev->current_scanout_width != fb->width || vgdev->current_scanout_height != fb->height || vgdev->current_scanout_stride != fb->pitches[0]
                               || vgdev->current_scanout_offset != fb->offsets[0];
-        ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, fb->width, fb->height, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
+        if (obj->created_3d) {
+            ret = virtgpu_cmd_set_scanout(vgdev, scanout_id, obj);
+            if (!ret) {
+                struct virtio_gpu_rect damage = {0, 0, fb->width, fb->height};
+                ret = virtgpu_cmd_resource_flush(vgdev, obj, &damage);
+            }
+        } else {
+            ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, fb->width, fb->height, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
+        }
         if (ret) {
             DRM_ERROR("Flip: batched update failed: %d\n", ret);
             return ret;

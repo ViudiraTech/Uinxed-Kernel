@@ -16,6 +16,8 @@
 
 #define CAP_LAST_SUPPORTED 40
 #define CAP_SETPCAP        8
+#define CAP_SETGID         6
+#define CAP_SETUID         7
 #define CAP_NET_ADMIN      12
 #define CAP_SYS_PTRACE     19
 #define CAP_SYS_ADMIN      21
@@ -23,6 +25,7 @@
 #define CAP_SUPPORTED_MASK ((1ULL << (CAP_LAST_SUPPORTED + 1)) - 1)
 
 struct task;
+struct user_namespace;
 
 typedef struct {
         uint64_t effective, permitted, inheritable, bounding, ambient;
@@ -37,6 +40,8 @@ void    capability_get(struct task *task, uint64_t *effective, uint64_t *permitt
 void    capability_get_status(struct task *task, capability_status_t *status);
 int     capability_set(struct task *task, uint64_t effective, uint64_t permitted, uint64_t inheritable);
 bool    capability_has(struct task *task, unsigned capability);
+bool    capability_ns(struct task *task, struct user_namespace *ns, unsigned capability);
+void    capability_enter_userns(struct task *task);
 void    capability_inherit(struct task *child, struct task *parent);
 void    capability_uid_change(struct task *task, const uid_set_t *old_ids, const uid_set_t *new_ids);
 void    capability_exec(struct task *task);

@@ -19,6 +19,7 @@
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
 #include <process/process.h>
+#include <process/namespace.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <syscall/fcntl.h>
@@ -71,7 +72,7 @@ static void sock_blocked_wake_all(socket_t *sk);
 static void socket_poll_notify(socket_t *sk, uint32_t events);
 static void socket_disconnect_peer(socket_t *sk);
 
-static int  sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out);
+static int  sock_bound_lookup(net_namespace_t *ns, const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out);
 static int  sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen, int abstract);
 static void sock_bound_remove(socket_t *sk);
 
@@ -356,51 +357,32 @@ static void sock_blocked_wake_all(socket_t *sk)
 }
 
 /* Bound-address registry */
-static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out)
+static int sock_bound_lookup(net_namespace_t *ns, const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out)
 {
+    /* Pathname sockets are filesystem objects, abstract names are netns-local. */
+    vfs_node_t node = abstract ? NULL : vfs_open(addr->sun_path);
+    if (!abstract && !node) { *out = NULL; return -EADDRNOTAVAIL; }
     spin_lock(&sock_bound_lock);
     for (int i = 0; i < CONFIG_SOCK_BOUND_MAX; i++) {
-        if (sock_bound_tab[i].sk == NULL) continue;
-        if (sock_bound_tab[i].abstract != abstract) continue;
-
+        sock_bound_t *entry = &sock_bound_tab[i];
+        if (!entry->sk || entry->abstract != abstract) continue;
+        bool match;
         if (abstract) {
-            uint32_t len_a = sock_bound_tab[i].addrlen > sizeof(uint16_t) ? sock_bound_tab[i].addrlen - sizeof(uint16_t) : 0;
-            uint32_t len_b = addrlen > sizeof(uint16_t) ? addrlen - sizeof(uint16_t) : 0;
-            bool     match = false;
-            if (len_a == len_b && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, len_a) == 0) {
-                match = true;
-            } else if (sock_bound_tab[i].addr.sun_path[0] == '\0' && addr->sun_path[0] == '\0') {
-                size_t sa_len = strnlen_local(sock_bound_tab[i].addr.sun_path + 1, UNIX_PATH_MAX - 1);
-                size_t sb_len = strnlen_local(addr->sun_path + 1, UNIX_PATH_MAX - 1);
-                if (sa_len == sb_len && memcmp(sock_bound_tab[i].addr.sun_path + 1, addr->sun_path + 1, sa_len) == 0) match = true;
-            }
-            if (match) {
-                *out = sock_bound_tab[i].sk;
-                socket_ref(*out);
-                spin_unlock(&sock_bound_lock);
-                return EOK;
-            }
+            match = entry->sk->net_ns == ns && entry->addrlen == addrlen
+                    && !memcmp(entry->addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t));
         } else {
-            /*
-             * Pathname addresses are identified by sun_path.  Applications
-             * may use either the minimal sockaddr length or a larger structure
-             * containing the same NUL-terminated path, so unlike abstract
-             * names addrlen must not participate in this match.
-             */
-            if (strncmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, UNIX_PATH_MAX) == 0) {
-                /* Also verify the saved path length matches */
-                size_t a = strlen(sock_bound_tab[i].addr.sun_path);
-                size_t b = strnlen_local(addr->sun_path, UNIX_PATH_MAX);
-                if (a == b) {
-                    *out = sock_bound_tab[i].sk;
-                    socket_ref(*out);
-                    spin_unlock(&sock_bound_lock);
-                    return EOK;
-                }
-            }
+            vfs_node_t bound = entry->sk->bound_node;
+            match = bound && bound->fsid == node->fsid && bound->inode == node->inode;
+        }
+        if (match && socket_try_ref(entry->sk)) {
+            *out = entry->sk;
+            spin_unlock(&sock_bound_lock);
+            if (node) vfs_close(node);
+            return EOK;
         }
     }
     spin_unlock(&sock_bound_lock);
+    if (node) vfs_close(node);
     *out = NULL;
     return -EADDRNOTAVAIL;
 }
@@ -410,26 +392,19 @@ static int sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addr
 {
     spin_lock(&sock_bound_lock);
 
-    /* Check for duplicates */
+    /* Abstract names include every byte in the supplied sockaddr length. */
     for (int i = 0; i < CONFIG_SOCK_BOUND_MAX; i++) {
-        if (sock_bound_tab[i].sk == NULL) continue;
-        if (sock_bound_tab[i].abstract != abstract) continue;
-
+        sock_bound_t *entry = &sock_bound_tab[i];
+        if (!entry->sk || entry->abstract != abstract) continue;
+        bool duplicate;
         if (abstract) {
-            if (sock_bound_tab[i].addrlen == addrlen && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
-                spin_unlock(&sock_bound_lock);
-                return -EADDRINUSE;
-            }
+            duplicate = entry->sk->net_ns == sk->net_ns && entry->addrlen == addrlen
+                        && !memcmp(entry->addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t));
         } else {
-            if (strncmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, UNIX_PATH_MAX) == 0) {
-                size_t a = strlen(sock_bound_tab[i].addr.sun_path);
-                size_t b = strnlen_local(addr->sun_path, UNIX_PATH_MAX);
-                if (a == b) {
-                    spin_unlock(&sock_bound_lock);
-                    return -EADDRINUSE;
-                }
-            }
+            vfs_node_t a = entry->sk->bound_node, b = sk->bound_node;
+            duplicate = a && b && a->fsid == b->fsid && a->inode == b->inode;
         }
+        if (duplicate) { spin_unlock(&sock_bound_lock); return -EADDRINUSE; }
     }
 
     /* Find free slot */
@@ -481,7 +456,7 @@ size_t socket_format_unix_table(char *buffer, size_t capacity)
     for (int i = 0; i < CONFIG_SOCK_BOUND_MAX && used < capacity - 1; i++) {
         sock_bound_t *bound = &sock_bound_tab[i];
         socket_t     *sk    = bound->sk;
-        if (!sk) continue;
+        if (!sk || sk->net_ns != net_namespace_current()) continue;
 
         char   path[UNIX_PATH_MAX + 1];
         size_t path_len = bound->addrlen > sizeof(uint16_t) ? bound->addrlen - sizeof(uint16_t) : 0;
@@ -565,6 +540,7 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     sk = calloc(1, sizeof(socket_t));
     if (!sk) return NULL;
 
+    sk->net_ns   = net_ns_get(net_namespace_current());
     sk->state    = SOCK_STATE_UNCONNECTED;
     sk->family   = family;
     sk->type     = type;
@@ -573,6 +549,7 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     wait_queue_init(&sk->waitq);
 
     if (sock_buf_init(&sk->recv_buf, CONFIG_SOCK_BUF_SIZE) != EOK) {
+        net_ns_put(sk->net_ns);
         free(sk);
         return NULL;
     }
@@ -621,6 +598,7 @@ static socket_t *inet_socket_alloc(uint16_t family, uint16_t type, uint16_t prot
 {
     socket_t *sk = calloc(1, sizeof(socket_t));
     if (!sk) return NULL;
+    sk->net_ns   = net_ns_get(net_namespace_current());
     sk->state    = SOCK_STATE_UNCONNECTED;
     sk->family   = family;
     sk->type     = type;
@@ -840,6 +818,7 @@ static void socket_destroy(socket_t *sk)
     sock_buf_free(&sk->recv_buf);
     sock_buf_free(&sk->send_buf);
 
+    net_ns_put(sk->net_ns);
     free(sk);
 }
 
@@ -1132,7 +1111,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     if (ret != EOK) return ret;
 
     /* Look up the listening socket */
-    ret = sock_bound_lookup(addr, addrlen, abstract, &listener);
+    ret = sock_bound_lookup(sk->net_ns, addr, addrlen, abstract, &listener);
     if (ret != EOK || !listener) return -ECONNREFUSED;
 
     spin_lock(&listener->lock);
@@ -1161,6 +1140,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
         return -ENOMEM;
     }
 
+    server->net_ns   = net_ns_get(listener->net_ns);
     server->state    = SOCK_STATE_CONNECTED;
     server->family   = sk->family;
     server->type     = sk->type;
@@ -1172,6 +1152,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     if (sock_buf_init(&server->recv_buf, CONFIG_SOCK_BUF_SIZE) != EOK) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("socket: Unix stream connect recv buffer allocation failed.\n");
+        net_ns_put(server->net_ns);
         free(server);
         spin_unlock(&listener->lock);
         return -ENOMEM;
@@ -1180,6 +1161,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("socket: Unix stream connect send buffer allocation failed.\n");
         sock_buf_free(&server->recv_buf);
+        net_ns_put(server->net_ns);
         free(server);
         spin_unlock(&listener->lock);
         return -ENOMEM;
@@ -1709,7 +1691,7 @@ static int unix_dgram_send_rights(socket_t *sk, const void *buf, size_t len, con
         ret = unix_addr_parse(addr, addrlen, &abstract);
         if (ret != EOK) return ret;
 
-        ret = sock_bound_lookup(addr, addrlen, abstract, &dest);
+        ret = sock_bound_lookup(sk->net_ns, addr, addrlen, abstract, &dest);
         if (ret != EOK || !dest) return -ECONNREFUSED;
     } else {
         spin_lock(&sk->lock);
@@ -2335,6 +2317,8 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
             ops->close(context);
             return -ENOMEM;
         }
+        net_ns_put(accepted->net_ns);
+        accepted->net_ns = net_ns_get(sk->net_ns);
         ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, kaddrlen);
         if (ret < 0) {
             socket_free(accepted);
@@ -2365,7 +2349,7 @@ static int unix_dgram_connect(socket_t *sk, const sockaddr_un_t *address, uint32
     int result = unix_addr_parse(address, length, &abstract);
     if (result) return result;
     socket_t *destination __attribute__((cleanup(socket_scoped_unref))) = NULL;
-    result                                                              = sock_bound_lookup(address, length, abstract, &destination);
+    result                                                              = sock_bound_lookup(sk->net_ns, address, length, abstract, &destination);
     if (result || !destination) return -ECONNREFUSED;
     if (destination == sk) return -EINVAL;
     socket_pair_lock(sk, destination);

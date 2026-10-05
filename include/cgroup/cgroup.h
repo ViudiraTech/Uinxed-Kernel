@@ -36,6 +36,11 @@ void cgroup_init(void);
 /* Get the root cgroup (NULL until cgroup_init) */
 cgroup_t *cgroup_root(void);
 
+/* Root and membership visible through the current cgroup namespace. */
+cgroup_t *cgroup_namespace_root(void);
+bool cgroup_namespace_visible(cgroup_t *cgroup);
+int cgroup_format_path_ns(cgroup_t *cgroup, cgroup_t *root, char *buf, size_t size);
+
 /* Take a reference on a cgroup, refusing to resurrect a dying one */
 cgroup_t *cgroup_get(cgroup_t *cgroup);
 

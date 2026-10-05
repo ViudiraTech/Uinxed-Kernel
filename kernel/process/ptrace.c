@@ -14,6 +14,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <process/process.h>
+#include <process/pid_namespace.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <security/seccomp.h>
@@ -50,7 +51,7 @@ static task_t *ptrace_find_task_get(int64_t pid, process_t **owner)
     if (owner) *owner = NULL;
     if (pid <= 0) return NULL;
 
-    return process_task_find_get((pid_t)pid, owner);
+    return process_task_find_ns_get(pid_ns_current(), (pid_t)pid, owner);
 }
 
 /* Initialize a tracee's ptrace state to the default run/continue mode */
@@ -324,8 +325,9 @@ static void ptrace_notify_tracer(task_t *tracee)
 {
     int64_t tracer_pid = ptrace_tracer_pid(tracee);
     if (!tracer_pid) return;
-    process_t *tracer = process_find_get((pid_t)tracer_pid);
-    if (!tracer) return;
+    process_t *tracer = NULL;
+    task_t *tracer_task = process_task_find_get((pid_t)tracer_pid, &tracer);
+    if (!tracer_task || !tracer) return;
 
     ptrace_state_t *state = &tracee->ptrace;
     spin_lock(&state->lock);
@@ -347,7 +349,7 @@ static void ptrace_notify_tracer(task_t *tracee)
             info.si_status = (status >> 8) & 0xff;
         }
     }
-    info.si_pid = (int32_t)tracee->pid;
+    info.si_pid = (int32_t)task_pid_nr_ns(tracee, tracer_task->pid_ns);
     info.si_uid = tracee->process ? tracee->process->uid : 0;
     (void)signal_send(tracer, SIGCHLD, &info);
     process_put(tracer);
@@ -466,7 +468,7 @@ static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t 
         siginfo_t info = {0};
         info.si_signo  = SIGSTOP;
         info.si_code   = SI_USER;
-        info.si_pid    = (int32_t)self->pid;
+        info.si_pid    = (int32_t)task_tgid_nr_ns(self, target->pid_ns);
         info.si_uid    = current->uid;
         ret            = signal_send_thread(target, SIGSTOP, &info);
         if (ret) {
@@ -829,8 +831,8 @@ static task_t *ptrace_wait_target_get(task_t *tracer, int64_t pid, process_t **o
     process_t *proc;
     while ((proc = process_iterate_get(&position))) {
         uint64_t requested_group = pid < -1 ? (uint64_t)(-(pid + 1)) + 1 : 0;
-        bool     group_match     = pid == -1 || (pid == 0 && proc->pgid == tracer->process->pgid) || (pid < -1 && (uint64_t)proc->pgid == requested_group);
-        if (!group_match) {
+        bool     group_match     = pid == -1 || (pid == 0 && proc->pgid == tracer->process->pgid) || (pid < -1 && process_pgid_nr_ns(proc, tracer->pid_ns) == requested_group);
+        if (!group_match || !task_tgid_nr_ns(proc->task, tracer->pid_ns)) {
             process_put(proc);
             continue;
         }
@@ -868,7 +870,7 @@ int64_t ptrace_wait_event(int64_t pid, int *status, int options)
         if (state->wait_pending) {
             int      value      = state->wait_status;
             bool     final_exit = state->final_exit;
-            uint64_t target_pid = target->pid;
+            uint64_t target_pid = task_pid_nr_ns(target, self->pid_ns);
             state->wait_pending = false;
             if (final_exit) state->tracer_pid = 0;
             spin_unlock(&state->lock);
@@ -1007,7 +1009,10 @@ void ptrace_exec_event(syscall_frame_t *frame)
     spin_lock(&state->lock);
     bool event = (state->options & PTRACE_O_TRACEEXEC) != 0;
     spin_unlock(&state->lock);
-    ptrace_stop_current(frame, SIGTRAP, event ? PTRACE_STOP_EVENT : PTRACE_STOP_SIGNAL, event ? PTRACE_EVENT_EXEC : 0, task->pid, NULL);
+    task_t *tracer = pid_find_task_get((uint64_t)ptrace_tracer_pid(task));
+    uint64_t old_pid = tracer ? task_pid_nr_ns(task, tracer->pid_ns) : 0;
+    task_put(tracer);
+    ptrace_stop_current(frame, SIGTRAP, event ? PTRACE_STOP_EVENT : PTRACE_STOP_SIGNAL, event ? PTRACE_EVENT_EXEC : 0, old_pid, NULL);
 }
 
 /* Report an exit event to the tracer before the tracee is destroyed */
@@ -1114,7 +1119,12 @@ void ptrace_fork_event(syscall_frame_t *frame, uint32_t event, uint64_t child_pi
     spin_lock(&state->lock);
     bool enabled = (state->options & option) != 0;
     spin_unlock(&state->lock);
-    if (enabled) ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, event, child_pid, NULL);
+    if (enabled) {
+        task_t *tracer = pid_find_task_get((uint64_t)ptrace_tracer_pid(task));
+        uint64_t visible_pid = tracer ? pid_nr_ns(tracer->pid_ns, child_pid) : 0;
+        task_put(tracer);
+        ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, event, visible_pid, NULL);
+    }
 }
 
 /* Release every tracee of a dying tracer, optionally killing them with SIGKILL */

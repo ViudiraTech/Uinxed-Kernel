@@ -70,6 +70,19 @@ struct kobject *sysfs_dev_block_kobj;
 static int        sysfs_id;         // VFS filesystem ID
 static vfs_node_t sysfs_root_vnode; // /sys mount point VFS node
 
+/* Non-sysfs objects are unaffected; network nodes are checked after symlink resolution too. */
+bool net_sysfs_node_visible(vfs_node_t vnode)
+{
+#if CONFIG_NET && CONFIG_SYSFS
+    if (!vnode || vnode->fsid != (uint32_t)sysfs_id || !vnode->handle) return true;
+    sysfs_node_t *node = vnode->handle;
+    return net_sysfs_kobject_visible(node->type == SYSFS_SYMLINK ? node->symlink_target : node->kobj);
+#else
+    (void)vnode;
+    return true;
+#endif
+}
+
 /* Forward declarations */
 static int  sysfs_stat(void *file, vfs_node_t node);
 static void sysfs_populate_dir(struct kobject *kobj);
@@ -598,6 +611,7 @@ static int sysfs_file_open(vfs_node_t vnode, uint64_t flags, void **private_data
 
     (void)flags;
     if (!vnode || !private_data || !(sn = vnode->handle)) return -EINVAL;
+    if (!net_sysfs_node_visible(vnode)) return -ENOENT;
 
     /*
      * Directories are valid open-file descriptions.  readdir(2), fstat(2)

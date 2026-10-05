@@ -18,6 +18,7 @@
 #include <net/transport/tcp.h>
 #include <net/transport/udp.h>
 #include <process/process.h>
+#include <process/namespace.h>
 #include <process/sched.h>
 
 #if CONFIG_INET && CONFIG_NET
@@ -30,6 +31,8 @@
 static const struct inet_backend_ops *inet_ops;
 
 typedef struct inet_core_socket {
+        net_namespace_t *net_ns; /* endpoint owns the namespace reference */
+        char bound_device_name[IFNAMSIZ];
         int             family;
         int             type;
         int             protocol;
@@ -368,6 +371,7 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
         return -ENOMEM;
     }
 
+    sock->net_ns              = net_namespace_current();
     sock->family              = family;
     sock->type                = type;
     sock->protocol            = protocol;
@@ -455,6 +459,25 @@ static void core_close(void *context)
     inet_sock_unref(sock);
 }
 
+typedef struct inet_bind_address_check {
+        uint32_t address;
+        const ipv6_address_t *address6;
+        bool native6;
+        bool found;
+} inet_bind_address_check_t;
+
+static void inet_bind_address_visit(net_device_t *dev, void *opaque)
+{
+    inet_bind_address_check_t *check = opaque;
+    if (check->native6) {
+        check->found |= !memcmp(check->address6->bytes, dev->ipv6_address, 16)
+                        || !memcmp(check->address6->bytes, dev->ipv6_link_local, 16);
+    } else {
+        check->found |= check->address == dev->ipv4_address
+                        || ((dev->flags & NETDEV_F_LOOPBACK) && (check->address >> 24) == 127U);
+    }
+}
+
 /* Bind the endpoint to a local address/port. */
 static int core_bind(void *context, const struct sockaddr *addr, uint32_t length)
 {
@@ -467,6 +490,11 @@ static int core_bind(void *context, const struct sockaddr *addr, uint32_t length
     int      native6;
     int      ret = inet_address(sock, addr, length, &address, &port, &address6, &scope_id, 1, &native6);
     if (ret) return ret;
+    if ((!native6 && address) || (native6 && !ipv6_address_is_unspecified(&address6))) {
+        inet_bind_address_check_t check = {.address = address, .address6 = &address6, .native6 = native6};
+        netdev_iterate_ns(sock->net_ns, inet_bind_address_visit, &check);
+        if (!check.found) return -EADDRNOTAVAIL;
+    }
     if (sock->type == SOCK_RAW) {
         ret = icmp_bind(sock->endpoint.icmp, address);
         if (!ret) sock->local_address = address;
@@ -613,6 +641,8 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
         return -ENOMEM;
     }
 
+    sock->net_ns              = endpoint->net_ns;
+    memcpy(sock->bound_device_name, listener->bound_device_name, sizeof(sock->bound_device_name));
     sock->type                = SOCK_STREAM;
     sock->family              = listener->family;
     sock->protocol            = IPPROTO_TCP;
@@ -947,6 +977,21 @@ static int core_setsockopt(void *context, int level, int option, const void *val
         }
         return EOK;
     }
+    if (option == SO_BINDTODEVICE) {
+        char name[IFNAMSIZ] = {0};
+        if (length > sizeof(name)) return -EINVAL;
+        if (length) memcpy(name, value, length);
+        if (name[IFNAMSIZ - 1]) return -ENAMETOOLONG;
+        net_device_t *dev = name[0] ? netdev_get_by_name_ns(sock->net_ns, name) : NULL;
+        if (name[0] && !dev) return -ENODEV;
+        uint32_t ifindex = dev ? dev->ifindex : 0;
+        if (dev) netdev_put(dev);
+        if (sock->type == SOCK_STREAM) sock->endpoint.tcp->bound_ifindex = ifindex;
+        else if (sock->type == SOCK_DGRAM) sock->endpoint.udp->bound_ifindex = ifindex;
+        else sock->endpoint.icmp->bound_ifindex = ifindex;
+        memcpy(sock->bound_device_name, name, sizeof(name));
+        return EOK;
+    }
     if (length < sizeof(int)) return -EINVAL;
     int val = *(const int *)value;
     switch (option) {
@@ -970,7 +1015,6 @@ static int core_setsockopt(void *context, int level, int option, const void *val
             return EOK;
         case SO_ATTACH_FILTER :
         case SO_DETACH_FILTER :
-        case SO_BINDTODEVICE :
         case SO_PASSSEC :
         case SO_TIMESTAMP :
         case SO_TIMESTAMPNS :
@@ -1045,6 +1089,13 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
         if (*length < sizeof(int)) return -EINVAL;
         memcpy(value, &val, sizeof(val));
         *length = sizeof(val);
+        return EOK;
+    }
+    if (level == SOL_SOCKET && option == SO_BINDTODEVICE) {
+        uint32_t required = sock->bound_device_name[0] ? (uint32_t)strlen(sock->bound_device_name) + 1 : 0;
+        if (*length < required) return -EINVAL;
+        if (required) memcpy(value, sock->bound_device_name, required);
+        *length = required;
         return EOK;
     }
     if (level == SOL_SOCKET && (option == SO_RCVTIMEO || option == SO_SNDTIMEO)) {
@@ -1144,17 +1195,17 @@ static void core_set_event_callback(void *context, void (*callback)(void *argume
 }
 
 /* Resolve the device named in an ifreq, or the default device if unnamed. */
-static net_device_t *core_ifreq_device(ifreq_t *ifr)
+static net_device_t *core_ifreq_device(net_namespace_t *ns, ifreq_t *ifr)
 {
     ifr->ifr_name[IFNAMSIZ - 1] = '\0';
-    return ifr->ifr_name[0] ? netdev_get_by_name(ifr->ifr_name) : netdev_get_default();
+    return ifr->ifr_name[0] ? netdev_get_by_name_ns(ns, ifr->ifr_name) : netdev_get_default_ns(ns);
 }
 
 /* Handle SIOCGIFxxx / SIOCSIFxxx ioctls against a network device. */
 static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
 {
-    (void)context;
-    net_device_t *dev = core_ifreq_device(ifr);
+    inet_core_socket_t *sock = context;
+    net_device_t *dev = core_ifreq_device(sock->net_ns, ifr);
     if (!dev) return -ENODEV;
     int ret = EOK;
     switch (request) {

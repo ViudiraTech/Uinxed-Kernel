@@ -14,6 +14,8 @@
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <process/process.h>
+#include <process/namespace.h>
+#include <process/pid_namespace.h>
 #include <process/sched.h>
 
 #if CONFIG_CGROUP
@@ -247,6 +249,22 @@ int cgroup_register_controller(const char *name, uint64_t id)
 cgroup_t *cgroup_root(void)
 {
     return cgroup_ready ? &root_cgroup : NULL;
+}
+
+cgroup_t *cgroup_namespace_root(void)
+{
+    process_t *proc = process_current();
+    cgroup_namespace_t *ns = proc && proc->nsproxy ? proc->nsproxy->cgroup_ns : &init_cgroup_ns;
+    return ns && ns->root_cgroup ? ns->root_cgroup : cgroup_root();
+}
+
+bool cgroup_namespace_visible(cgroup_t *cg)
+{
+    if (!cg) return false;
+    spin_lock(&cgroup_lock);
+    bool visible = !cg->dying && is_descendant(cg, cgroup_namespace_root());
+    spin_unlock(&cgroup_lock);
+    return visible;
 }
 
 /* Take a reference on a cgroup, refusing to resurrect a dying one */
@@ -741,9 +759,14 @@ int cgroup_move_pid(cgroup_t *cg, const char *value, size_t size)
     task_t  *task;
 
     if (status != EOK) return status;
+    if (!cgroup_namespace_visible(cg)) return -EACCES;
+    if (pid) {
+        pid = pid_global_nr_ns(pid_ns_current(), pid);
+        if (!pid) return -ESRCH;
+    }
     spin_lock(&cgroup_lock);
     task = pid == 0 ? current_task() : find_task_locked(&root_cgroup, pid);
-    if (!task || task->state == TASK_ZOMBIE) {
+    if (!task || task->state == TASK_ZOMBIE || !is_descendant(task->cgroup, cgroup_namespace_root())) {
         status = -ESRCH;
     } else {
         status = attach_task_locked(cg, task);
@@ -823,8 +846,14 @@ int cgroup_show_procs(cgroup_t *cg, char *buf, size_t size)
     spin_lock(&cgroup_lock);
     for (ilist_node_t *n = cg->tasks.next; n != &cg->tasks; n = n->next) {
         task_t *task = container_of(n, task_t, cgroup_node);
+        uint64_t visible = task_tgid_nr(task);
+        if (!visible) continue;
+        bool already_shown = false;
+        for (ilist_node_t *previous = cg->tasks.next; previous != n; previous = previous->next)
+            if (task_tgid_nr(container_of(previous, task_t, cgroup_node)) == visible) { already_shown = true; break; }
+        if (already_shown) continue;
         if (at >= size) break;
-        int written = snprintf(buf + at, size - at, "%llu\n", (task->pid));
+        int written = snprintf(buf + at, size - at, "%llu\n", visible);
         if (written < 0) break;
         if ((size_t)written >= size - at) {
             at = size;
@@ -839,7 +868,19 @@ int cgroup_show_procs(cgroup_t *cg, char *buf, size_t size)
 /* Read the cgroup threads attribute. */
 int cgroup_show_threads(cgroup_t *cg, char *buf, size_t size)
 {
-    return cgroup_show_procs(cg, buf, size);
+    size_t at = 0;
+    spin_lock(&cgroup_lock);
+    for (ilist_node_t *n = cg->tasks.next; n != &cg->tasks; n = n->next) {
+        task_t *task = container_of(n, task_t, cgroup_node);
+        uint64_t visible = task_pid_nr(task);
+        if (!visible) continue;
+        int written = snprintf(at < size ? buf + at : buf + size - 1, at < size ? size - at : 0, "%llu\n", visible);
+        if (written < 0) break;
+        at += (size_t)written;
+        if (at >= size) break;
+    }
+    spin_unlock(&cgroup_lock);
+    return (int)(at < size ? at : size);
 }
 
 /* Format the cgroup.events file for this cgroup */
@@ -1054,6 +1095,37 @@ int cgroup_format_path(cgroup_t *cg, char *buf, size_t size)
     return (int)length;
 }
 
+/* Linux cgroup namespace paths may start with ../ when outside its root. */
+int cgroup_format_path_ns(cgroup_t *cg, cgroup_t *root, char *buf, size_t size)
+{
+    if (!cg || !root || !buf || size < 2) return -EINVAL;
+    spin_lock(&cgroup_lock);
+    if (cg->dying || root->dying) { spin_unlock(&cgroup_lock); return -ENOENT; }
+    cgroup_t *common = root;
+    size_t upward = 0;
+    while (common && !is_descendant(cg, common)) { common = common->parent; upward++; }
+    if (!common) { spin_unlock(&cgroup_lock); return -ENOENT; }
+    size_t at = size - 1;
+    buf[at] = '\0';
+    for (cgroup_t *current = cg; current != common; current = current->parent) {
+        size_t length = strlen(current->name);
+        if (length + 1 > at) { spin_unlock(&cgroup_lock); return -ENAMETOOLONG; }
+        at -= length;
+        memcpy(buf + at, current->name, length);
+        buf[--at] = '/';
+    }
+    for (size_t i = 0; i < upward; i++) {
+        if (at < 3) { spin_unlock(&cgroup_lock); return -ENAMETOOLONG; }
+        at -= 3;
+        memcpy(buf + at, "/..", 3);
+    }
+    if (at == size - 1) buf[--at] = '/';
+    size_t length = size - at - 1;
+    memmove(buf, buf + at, length + 1);
+    spin_unlock(&cgroup_lock);
+    return (int)length;
+}
+
 /* Count the cgroups in this subtree, including the given one */
 static uint64_t cgroup_count_locked(cgroup_t *cg)
 {
@@ -1067,7 +1139,7 @@ int cgroup_format_proc_cgroups(char *buf, size_t size)
 {
     if (!buf || !size) return -EINVAL;
     spin_lock(&cgroup_lock);
-    uint64_t count       = cgroup_ready ? cgroup_count_locked(&root_cgroup) : 0;
+    uint64_t count       = cgroup_ready ? cgroup_count_locked(cgroup_namespace_root()) : 0;
     uint64_t controllers = registered_controllers;
     spin_unlock(&cgroup_lock);
 

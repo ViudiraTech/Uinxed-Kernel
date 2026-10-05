@@ -8,6 +8,7 @@
  *
  */
 
+#include <process/namespace.h>
 #include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
@@ -325,6 +326,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     init_vfs();                                                    // Virtual Filesystem
     tmpfs_regist();                                                // Temporary File System
     procfs_regist();                                               // Process File System
+    namespace_fs_init();                                          // Namespace file descriptors
     sysfs_regist();                                                // Register sysfs with the VFS layer
     cgroupfs_regist();                                             // Unified Control Group File System
 

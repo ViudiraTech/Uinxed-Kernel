@@ -26,6 +26,7 @@
 #define NETDEV_F_PROMISC   0x0008U
 #define NETDEV_F_LOOPBACK  0x0010U
 
+struct net_namespace;
 typedef struct net_device net_device_t;
 typedef void (*netdev_iter_fn)(net_device_t *device, void *context);
 
@@ -55,6 +56,8 @@ typedef struct netdev_ops {
 } netdev_ops_t;
 
 struct net_device {
+        struct net_namespace *net_ns; /* owned by namespace or driver; endpoint refs pin its lifetime */
+        void (*release)(net_device_t *device);
         char                name[CONFIG_NETDEV_NAME_MAX];
         uint8_t             address[6];
         uint32_t            mtu;
@@ -92,9 +95,12 @@ int           netdev_register(net_device_t *device);
 int           netdev_unregister(net_device_t *device);
 net_device_t *netdev_get_by_name(const char *name);
 net_device_t *netdev_get_default(void);
+net_device_t *netdev_get_by_name_ns(struct net_namespace *ns, const char *name);
+net_device_t *netdev_get_default_ns(struct net_namespace *ns);
 
 #if CONFIG_NET
 void netdev_iterate(netdev_iter_fn callback, void *context);
+void netdev_iterate_ns(struct net_namespace *ns, netdev_iter_fn callback, void *context);
 int  netdev_set_lifecycle_notifier(netdev_lifecycle_fn callback, void *context);
 #else
 static inline void netdev_iterate(netdev_iter_fn, void *) {}

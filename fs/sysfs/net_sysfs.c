@@ -12,6 +12,7 @@
 #include <libs/std/string.h>
 #include <net/abi/inet.h>
 #include <net/core/netdev.h>
+#include <process/namespace.h>
 
 #if CONFIG_SYSFS && CONFIG_NET
 
@@ -23,10 +24,34 @@ static struct {
         struct device *device;
 } net_devices[CONFIG_NETDEV_MAX];
 
+/* Called by sysfs/VFS before lookup and directory enumeration, including links. */
+bool net_sysfs_kobject_visible(struct kobject *kobj)
+{
+    net_namespace_t *ns = net_namespace_current();
+    bool visible = true;
+    spin_lock(&net_devices_lock);
+    for (struct kobject *ancestor = kobj; ancestor; ancestor = ancestor->parent) {
+        for (size_t i = 0; i < CONFIG_NETDEV_MAX; i++) {
+            if (!net_devices[i].device || ancestor != &net_devices[i].device->kobj) continue;
+            net_device_t *dev = net_devices[i].netdev;
+            visible = dev && (dev->net_ns == ns || ((dev->flags & NETDEV_F_LOOPBACK) && ns->loopback_dev));
+            goto out;
+        }
+    }
+out:
+    spin_unlock(&net_devices_lock);
+    return visible;
+}
+
 /* Return the netdev bound to a device-model device. */
 static net_device_t *to_netdev(struct device *device)
 {
-    return device ? device->driver_data : NULL;
+    net_device_t *netdev = device ? device->driver_data : NULL;
+    if (!netdev) return NULL;
+    net_namespace_t *ns = net_namespace_current();
+    if (netdev->net_ns == ns) return netdev;
+    /* One directory shell named lo is reused; its attributes are namespace-local. */
+    return (netdev->flags & NETDEV_F_LOOPBACK) ? ns->loopback_dev : NULL;
 }
 
 /* Show the MAC address. */
@@ -94,15 +119,17 @@ static ssize_t flags_show(struct device *device, struct device_attribute *attr, 
     if (netdev_flags & NETDEV_F_UP) flags |= IFF_UP;
     if (netdev_flags & NETDEV_F_BROADCAST) flags |= IFF_BROADCAST;
     if (netdev_flags & NETDEV_F_RUNNING) flags |= IFF_RUNNING;
+    if (netdev_flags & NETDEV_F_LOOPBACK) flags |= IFF_LOOPBACK;
     return sysfs_emit(buf, "0x%x\n", flags);
 }
 
 /* Show the interface hardware type. */
 static ssize_t type_show(struct device *device, struct device_attribute *attr, char *buf)
 {
-    (void)device;
+    net_device_t *netdev = to_netdev(device);
     (void)attr;
-    return sysfs_emit(buf, "%u\n", ARPHRD_ETHER);
+    if (!netdev) return -ENODEV;
+    return sysfs_emit(buf, "%u\n", (netdev->flags & NETDEV_F_LOOPBACK) ? ARPHRD_LOOPBACK : ARPHRD_ETHER);
 }
 
 /* Show the interface index. */
@@ -209,7 +236,7 @@ static void net_sysfs_publish(net_device_t *netdev, void *context)
     struct device *device;
     int            slot  = -1;
     int           *count = (int *)context;
-    if (!net_class_ready || !netdev || !netdev->registered) return;
+    if (!net_class_ready || !netdev || !netdev->registered || netdev->net_ns != &init_net_ns) return;
     spin_lock(&net_devices_lock);
     for (size_t i = 0; i < CONFIG_NETDEV_MAX; i++) {
         if (net_devices[i].netdev == netdev) {

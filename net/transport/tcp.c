@@ -14,6 +14,7 @@
 #include <net/core/endian.h>
 #include <net/transport/tcp.h>
 #include <process/sched.h>
+#include <process/namespace.h>
 
 #if CONFIG_INET && CONFIG_NET
 
@@ -202,7 +203,7 @@ static int tcp_port_used_locked(uint32_t address, uint16_t port, const tcp_endpo
 {
     for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *ep = tcp_table[i];
-        if (ep && ep != ignore && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address)) return 1;
+        if (ep && ep != ignore && ep->net_ns == ignore->net_ns && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address)) return 1;
     }
     return 0;
 }
@@ -212,7 +213,7 @@ static int tcp_port_used6_locked(const ipv6_address_t *address, uint16_t port, c
 {
     for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *ep = tcp_table[i];
-        if (!ep || ep == ignore || !ep->bound || ep->local_port != port) continue;
+        if (!ep || ep == ignore || ep->net_ns != ignore->net_ns || !ep->bound || ep->local_port != port) continue;
         if (ipv6_address_is_unspecified(&ep->local_address6) || ipv6_address_is_unspecified(address) || ipv6_address_equal(&ep->local_address6, address)) return 1;
     }
     return 0;
@@ -231,7 +232,7 @@ static int tcp_insert_locked(tcp_endpoint_t *endpoint)
 }
 
 /* Allocate a fresh PCB and insert it into the global table */
-static tcp_endpoint_t *tcp_alloc_locked(void)
+static tcp_endpoint_t *tcp_alloc_locked(net_namespace_t *ns)
 {
     tcp_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
     if (!endpoint) {
@@ -239,10 +240,12 @@ static tcp_endpoint_t *tcp_alloc_locked(void)
         if (ratelimit_allow(&ratelimit)) plogk("tcp: PCB alloc failed.\n");
         return NULL;
     }
+    endpoint->net_ns = net_ns_get(ns);
     endpoint->rx_data = malloc(CONFIG_TCP_RX_BUFFER_MAX);
     if (!endpoint->rx_data) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("tcp: RX buffer alloc failed (%u bytes)\n", CONFIG_TCP_RX_BUFFER_MAX);
+        net_ns_put(endpoint->net_ns);
         free(endpoint);
         return NULL;
     }
@@ -262,6 +265,7 @@ static tcp_endpoint_t *tcp_alloc_locked(void)
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("tcp: PCB table full.\n");
         free(endpoint->rx_data);
+        net_ns_put(endpoint->net_ns);
         free(endpoint);
         return NULL;
     }
@@ -272,7 +276,7 @@ static tcp_endpoint_t *tcp_alloc_locked(void)
 tcp_endpoint_t *tcp_open_family(uint16_t family)
 {
     spin_lock(&tcp_table_lock);
-    tcp_endpoint_t *endpoint = tcp_alloc_locked();
+    tcp_endpoint_t *endpoint = tcp_alloc_locked(net_namespace_current());
     if (endpoint) endpoint->family = family;
     spin_unlock(&tcp_table_lock);
     return endpoint;
@@ -351,6 +355,7 @@ void tcp_close(tcp_endpoint_t *endpoint)
         tcp_records_free(records);
         tcp_ooo_free(ooo);
         free(endpoint->rx_data);
+        net_ns_put(endpoint->net_ns);
         free(endpoint);
         return;
     }
@@ -400,6 +405,7 @@ void tcp_close(tcp_endpoint_t *endpoint)
         tcp_records_free(child->tx_head);
         tcp_ooo_free(child->ooo_head);
         free(child->rx_data);
+        net_ns_put(child->net_ns);
         free(child);
     }
     spin_unlock(&tcp_table_lock);
@@ -418,7 +424,8 @@ void tcp_close(tcp_endpoint_t *endpoint)
     tcp_records_free(records);
     tcp_ooo_free(ooo);
     free(endpoint->rx_data);
-    free(endpoint);
+    net_ns_put(endpoint->net_ns);
+        free(endpoint);
 }
 
 /* Bind a local address/port, or autobind an ephemeral port if port == 0 */
@@ -539,8 +546,9 @@ static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknow
     net_device_t  *device;
     uint32_t       next_hop;
     ipv6_address_t source6, next_hop6;
-    int            status = endpoint->native6 ? ipv6_route(&endpoint->remote_address6, &device, &source6, &next_hop6) : ipv4_route(endpoint->remote_address, &device, &next_hop);
+    int            status = endpoint->native6 ? ipv6_route_ns(endpoint->net_ns, &endpoint->remote_address6, &device, &source6, &next_hop6) : ipv4_route_ns(endpoint->net_ns, endpoint->remote_address, &device, &next_hop);
     if (status) return status;
+    if (endpoint->bound_ifindex && endpoint->bound_ifindex != device->ifindex) { netdev_put(device); return -ENETUNREACH; }
     net_pbuf_t *packet = net_pbuf_alloc(header_length + length, NET_PBUF_HEADROOM);
     if (!packet) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
@@ -611,8 +619,9 @@ int tcp_connect(tcp_endpoint_t *endpoint, uint32_t address, uint16_t port)
     if (!endpoint || !address || !port) return -EINVAL;
     net_device_t *device;
     uint32_t      next_hop;
-    int           status = ipv4_route(address, &device, &next_hop);
+    int           status = ipv4_route_ns(endpoint->net_ns, address, &device, &next_hop);
     if (status) return status;
+    if (endpoint->bound_ifindex && endpoint->bound_ifindex != device->ifindex) { netdev_put(device); return -ENETUNREACH; }
     status = tcp_autobind(endpoint, device->ipv4_address);
     netdev_put(device);
     if (status) return status;
@@ -641,8 +650,9 @@ int tcp_connect6(tcp_endpoint_t *endpoint, const ipv6_address_t *address, uint16
     if (!endpoint || !address || endpoint->family != AF_INET6 || ipv6_address_is_unspecified(address) || !port) return -EINVAL;
     net_device_t  *device;
     ipv6_address_t source, next_hop;
-    int            status = ipv6_route(address, &device, &source, &next_hop);
+    int            status = ipv6_route_ns(endpoint->net_ns, address, &device, &source, &next_hop);
     if (status) return status;
+    if (endpoint->bound_ifindex && endpoint->bound_ifindex != device->ifindex) { netdev_put(device); return -ENETUNREACH; }
     status = tcp_autobind(endpoint, 0);
     netdev_put(device);
     if (status) return status;
@@ -1037,12 +1047,12 @@ static void tcp_drain_ooo(tcp_endpoint_t *endpoint)
 }
 
 /* Match an IPv4 4-tuple to a PCB, also returning any matching listener. */
-static tcp_endpoint_t *tcp_lookup_locked(const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, tcp_endpoint_t **listener)
+static tcp_endpoint_t *tcp_lookup_locked(net_namespace_t *ns, uint32_t ifindex, const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, tcp_endpoint_t **listener)
 {
     *listener = NULL;
     for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *ep = tcp_table[i];
-        if (!ep || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6))) || !ep->bound || ep->local_port != destination_port
+        if (!ep || ep->net_ns != ns || (ep->bound_ifindex && ep->bound_ifindex != ifindex) || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6))) || !ep->bound || ep->local_port != destination_port
             || (ep->local_address && ep->local_address != ip->destination))
             continue;
         if (ep->state == TCP_LISTEN) {
@@ -1055,12 +1065,12 @@ static tcp_endpoint_t *tcp_lookup_locked(const ipv4_info_t *ip, uint16_t source_
 }
 
 /* Match an IPv6 4-tuple to a PCB, also returning any matching listener. */
-static tcp_endpoint_t *tcp_lookup6_locked(const ipv6_info_t *ip, uint16_t source_port, uint16_t destination_port, tcp_endpoint_t **listener)
+static tcp_endpoint_t *tcp_lookup6_locked(net_namespace_t *ns, uint32_t ifindex, const ipv6_info_t *ip, uint16_t source_port, uint16_t destination_port, tcp_endpoint_t **listener)
 {
     *listener = NULL;
     for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *ep = tcp_table[i];
-        if (!ep || ep->family != AF_INET6 || !ep->bound || ep->local_port != destination_port
+        if (!ep || ep->net_ns != ns || (ep->bound_ifindex && ep->bound_ifindex != ifindex) || ep->family != AF_INET6 || !ep->bound || ep->local_port != destination_port
             || (!ipv6_address_is_unspecified(&ep->local_address6) && !ipv6_address_equal(&ep->local_address6, &ip->destination)))
             continue;
         if (ep->state == TCP_LISTEN) {
@@ -1073,11 +1083,12 @@ static tcp_endpoint_t *tcp_lookup6_locked(const ipv6_info_t *ip, uint16_t source
 }
 
 /* Send an RST reply for a segment that matched no connection. */
-static int tcp_reset_reply(const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, size_t payload_length)
+static int tcp_reset_reply(net_namespace_t *ns, const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, size_t payload_length)
 {
     if (flags & TCP_FLAG_RST) return 0;
     tcp_endpoint_t temporary;
     memset(&temporary, 0, sizeof(temporary));
+    temporary.net_ns         = ns;
     temporary.local_address  = ip->destination;
     temporary.remote_address = ip->source;
     temporary.local_port     = destination_port;
@@ -1094,7 +1105,7 @@ static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uin
     for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++)
         if (tcp_table[i] && tcp_table[i]->parent == listener) pending++;
     if (pending >= listener->backlog) return -ENOBUFS;
-    tcp_endpoint_t *child = tcp_alloc_locked();
+    tcp_endpoint_t *child = tcp_alloc_locked(listener->net_ns);
     if (!child) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit))
@@ -1102,6 +1113,7 @@ static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uin
                   ip->source & 0xff, source_port);
         return -ENOBUFS;
     }
+    child->bound_ifindex      = listener->bound_ifindex;
     child->bound              = 1;
     child->family             = listener->family;
     child->native6            = 0;
@@ -1136,6 +1148,7 @@ static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uin
         for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++)
             if (tcp_table[i] == child) tcp_table[i] = NULL;
         free(child->rx_data);
+        net_ns_put(child->net_ns);
         free(child);
     }
     return status;
@@ -1148,12 +1161,13 @@ static int tcp_passive_open6(tcp_endpoint_t *listener, const ipv6_info_t *ip, ui
     for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++)
         if (tcp_table[i] && tcp_table[i]->parent == listener) pending++;
     if (pending >= listener->backlog) return -ENOBUFS;
-    tcp_endpoint_t *child = tcp_alloc_locked();
+    tcp_endpoint_t *child = tcp_alloc_locked(listener->net_ns);
     if (!child) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("tcp: Passive open6 alloc failed (local port=%u peer=%u)\n", listener->local_port, source_port);
         return -ENOBUFS;
     }
+    child->bound_ifindex   = listener->bound_ifindex;
     child->bound           = 1;
     child->family          = AF_INET6;
     child->native6         = 1;
@@ -1180,6 +1194,7 @@ static int tcp_passive_open6(tcp_endpoint_t *listener, const ipv6_info_t *ip, ui
         for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++)
             if (tcp_table[i] == child) tcp_table[i] = NULL;
         free(child->rx_data);
+        net_ns_put(child->net_ns);
         free(child);
     }
     return status;
@@ -1204,7 +1219,7 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 
     spin_lock(&tcp_table_lock);
     tcp_endpoint_t *listener;
-    tcp_endpoint_t *endpoint = tcp_lookup6_locked(ip, source_port, destination_port, &listener);
+    tcp_endpoint_t *endpoint = tcp_lookup6_locked(device->net_ns, device->ifindex, ip, source_port, destination_port, &listener);
     if (!endpoint) {
         if (listener && (flags & TCP_FLAG_SYN) && !(flags & TCP_FLAG_ACK)) {
             spin_lock(&listener->lock);
@@ -1401,7 +1416,7 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 
     spin_lock(&tcp_table_lock);
     tcp_endpoint_t *listener;
-    tcp_endpoint_t *endpoint = tcp_lookup_locked(ip, source_port, destination_port, &listener);
+    tcp_endpoint_t *endpoint = tcp_lookup_locked(device->net_ns, device->ifindex, ip, source_port, destination_port, &listener);
     if (!endpoint) {
         if (listener && (flags & TCP_FLAG_SYN) && !(flags & TCP_FLAG_ACK)) {
             spin_lock(&listener->lock);
@@ -1412,7 +1427,7 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
             return status;
         }
         spin_unlock(&tcp_table_lock);
-        int status = tcp_reset_reply(ip, source_port, destination_port, sequence, acknowledgment, flags, payload_length);
+        int status = tcp_reset_reply(device->net_ns, ip, source_port, destination_port, sequence, acknowledgment, flags, payload_length);
         net_pbuf_free(packet);
         return status ? status : -ECONNREFUSED;
     }
@@ -1639,7 +1654,7 @@ bad:
 }
 
 /* Fail an in-progress active open when ICMP rejects its quoted SYN. */
-void tcp_control_error(uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu)
+void tcp_control_error(net_namespace_t *ns, uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu)
 {
     (void)mtu;
     if (!quoted || quoted_length < 8U || error >= 0) return;
@@ -1654,7 +1669,7 @@ void tcp_control_error(uint32_t source, uint32_t destination, const void *quoted
     spin_lock(&tcp_table_lock);
     for (unsigned i = 0; i < CONFIG_TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *endpoint = tcp_table[i];
-        if (!endpoint) continue;
+        if (!endpoint || endpoint->net_ns != ns) continue;
         spin_lock(&endpoint->lock);
         if (!endpoint->native6 && endpoint->local_address == source && endpoint->remote_address == destination && endpoint->local_port == local_port && endpoint->remote_port == remote_port
             && endpoint->state == TCP_SYN_SENT) {
@@ -1775,7 +1790,8 @@ void tcp_timer(uint64_t now_ticks)
                 tcp_records_free(endpoint->tx_head);
                 tcp_ooo_free(endpoint->ooo_head);
                 free(endpoint->rx_data);
-                free(endpoint);
+                net_ns_put(endpoint->net_ns);
+        free(endpoint);
             }
         } else {
             int destroy = endpoint->orphaned && endpoint->state == TCP_CLOSED;
@@ -1785,7 +1801,8 @@ void tcp_timer(uint64_t now_ticks)
                 tcp_records_free(endpoint->tx_head);
                 tcp_ooo_free(endpoint->ooo_head);
                 free(endpoint->rx_data);
-                free(endpoint);
+                net_ns_put(endpoint->net_ns);
+        free(endpoint);
             } else {
                 spin_unlock(&endpoint->lock);
             }

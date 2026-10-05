@@ -17,6 +17,8 @@
 #include <mem/frame.h>
 #include <mem/hhdm.h>
 #include <process/process.h>
+#include <process/namespace.h>
+#include <security/capability.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 
@@ -33,6 +35,7 @@
 /* Internal structures */
 
 typedef struct sem_array {
+        ipc_namespace_t *owner_ns;
         kref_t        refs;
         ipc_perm_t    perm;
         uint64_t      ctime;
@@ -53,9 +56,11 @@ typedef struct sem_undo {
         uint32_t         nsems;
         int16_t         *adj;
         process_t       *proc;
+        sem_array_t     *sem;
 } sem_undo_t;
 
 typedef struct shm_seg {
+        ipc_namespace_t *owner_ns;
         kref_t     refs;
         ipc_perm_t perm;
         size_t     size;
@@ -81,6 +86,7 @@ typedef struct msg_msg {
 } msg_msg_t;
 
 typedef struct msg_queue {
+        ipc_namespace_t *owner_ns;
         kref_t       refs;
         ipc_perm_t   perm;
         uint64_t     stime;
@@ -99,7 +105,12 @@ typedef struct msg_queue {
         int          deleted;
 } msg_queue_t;
 
-/* Global IPC namespace */
+/* Namespace-owned objects share a bounded allocation registry. */
+
+static ipc_namespace_t *ipc_object_owner(void *object)
+{
+    return object ? *(ipc_namespace_t **)object : NULL;
+}
 
 static sem_array_t *sem_sets[CONFIG_SEM_MAX_SETS];
 static uint16_t     sem_seq[CONFIG_SEM_MAX_SETS];
@@ -140,7 +151,7 @@ static shm_seg_t *shm_seg_get_by_id(int shmid)
 
     spin_lock(&shm_global_lock);
     shm_seg_t *seg = shm_segs[idx];
-    if (!seg || shm_seq[idx] != seq || !kref_get_unless_zero(&seg->refs)) seg = NULL;
+    if (!seg || seg->owner_ns != ipc_namespace_current() || shm_seq[idx] != seq || !kref_get_unless_zero(&seg->refs)) seg = NULL;
     spin_unlock(&shm_global_lock);
     return seg;
 }
@@ -183,7 +194,7 @@ static int ipc_perm_check(const ipc_perm_t *perm, int mode)
     if (!proc) return -ESRCH;
 
     /* Superuser bypass */
-    if (proc->uid == 0) return 0;
+    if (capability_ns(current_task(), ipc_namespace_current()->ns.owner, 15)) return 0;
 
     uint32_t granted;
     if (proc->uid == perm->uid) {
@@ -207,7 +218,7 @@ static int ipc_owner_check(const ipc_perm_t *perm)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    return proc->uid == 0 || proc->uid == perm->uid || proc->uid == perm->cuid ? 0 : -EPERM;
+    return capability_ns(current_task(), ipc_namespace_current()->ns.owner, 15) || proc->uid == perm->uid || proc->uid == perm->cuid ? 0 : -EPERM;
 }
 
 /* Allocate an IPC id from a free table slot, with a rotating sequence. */
@@ -242,7 +253,7 @@ static void *ipc_id_lookup_held(void **table, uint16_t *seq_table, int max, spin
 
     spin_lock(lock);
     void *obj = table[idx];
-    if (obj == NULL || seq_table[idx] != seq) {
+    if (obj == NULL || seq_table[idx] != seq || ipc_object_owner(obj) != ipc_namespace_current()) {
         spin_unlock(lock);
         return NULL;
     }
@@ -306,7 +317,7 @@ static sem_array_t *sem_lookup(int semid)
 
     spin_lock(&sem_global_lock);
     sem_array_t *sem = sem_sets[idx];
-    if (!sem || sem_seq[idx] != seq || !kref_get_unless_zero(&sem->refs)) sem = NULL;
+    if (!sem || sem->owner_ns != ipc_namespace_current() || sem_seq[idx] != seq || !kref_get_unless_zero(&sem->refs)) sem = NULL;
     spin_unlock(&sem_global_lock);
     return sem;
 }
@@ -326,7 +337,7 @@ static msg_queue_t *msg_lookup(int msqid)
 
     spin_lock(&msg_global_lock);
     msg_queue_t *q = msg_queues[idx];
-    if (!q || msg_seq[idx] != seq || !kref_get_unless_zero(&q->refs)) q = NULL;
+    if (!q || q->owner_ns != ipc_namespace_current() || msg_seq[idx] != seq || !kref_get_unless_zero(&q->refs)) q = NULL;
     spin_unlock(&msg_global_lock);
     return q;
 }
@@ -367,13 +378,12 @@ void sysv_sem_undo_release(process_t *proc)
         if (u->proc == proc) {
             *prev = u->next;
 
-            /* Apply the undo while holding the set's table lock so the set cannot be freed concurrently. */
-            sem_array_t *sem = (sem_array_t *)ipc_id_lookup_held((void **)sem_sets, sem_seq, CONFIG_SEM_MAX_SETS, &sem_global_lock, u->semid);
-            if (sem != NULL) {
+            sem_array_t *sem = u->sem;
+            if (sem && !sem->deleted) {
                 uint32_t n = sem_undo_apply(u, sem);
                 for (uint32_t i = 0; i < n; i++) wait_queue_wake_all(&sem->waitq[i]);
-                spin_unlock(&sem_global_lock);
             }
+            sem_put(sem);
 
             free(u->adj);
             free(u);
@@ -394,7 +404,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
     if (key != IPC_PRIVATE) {
         spin_lock(&sem_global_lock);
         for (int i = 0; i < CONFIG_SEM_MAX_SETS; i++) {
-            if (sem_sets[i] != NULL && sem_sets[i]->perm.key == key) {
+            if (sem_sets[i] != NULL && sem_sets[i]->owner_ns == ipc_namespace_current() && sem_sets[i]->perm.key == key) {
                 sem_array_t *sem = sem_sets[i];
                 spin_unlock(&sem_global_lock);
 
@@ -421,6 +431,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
         return -ENOMEM;
     }
     memset(sem, 0, sizeof(sem_array_t));
+    sem->owner_ns = ipc_namespace_current();
     kref_init(&sem->refs); // the table slot owns this reference
 
     sem->values = malloc(sizeof(uint16_t) * (uint32_t)nsems);
@@ -708,6 +719,8 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
                     u->adj   = malloc(sizeof(int16_t) * sem->nsems);
                     if (u->adj != NULL) {
                         memset(u->adj, 0, sizeof(int16_t) * sem->nsems);
+                        kref_get(&sem->refs);
+                        u->sem = sem;
                         u->next       = sem_undo_list;
                         sem_undo_list = u;
                     } else {
@@ -772,8 +785,8 @@ static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uin
             if (copy_from_user(&ds, (void *)arg, sizeof(semid_ds_t)) != 0) return -EFAULT;
 
             spin_lock(&sem->lock);
-            sem->perm.uid  = ds.sem_perm.uid;
-            sem->perm.gid  = ds.sem_perm.gid;
+            sem->perm.uid  = user_ns_map_id(user_namespace_current(), ds.sem_perm.uid, false);
+            sem->perm.gid  = user_ns_map_id(user_namespace_current(), ds.sem_perm.gid, true);
             sem->perm.mode = (ds.sem_perm.mode & 0777) | (sem->perm.mode & ~0777U);
             sem->ctime     = ipc_now_seconds();
             spin_unlock(&sem->lock);
@@ -907,7 +920,7 @@ static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uin
                 spin_lock(&sem_global_lock);
                 int used = 0;
                 for (int i = 0; i < CONFIG_SEM_MAX_SETS; i++)
-                    if (sem_sets[i] != NULL) used++;
+                    if (sem_sets[i] != NULL && sem_sets[i]->owner_ns == ipc_namespace_current()) used++;
                 spin_unlock(&sem_global_lock);
                 return used;
             }
@@ -920,7 +933,7 @@ static int64_t semctl_core(sem_array_t *sem, int semid, int semnum, int cmd, uin
 
             spin_lock(&sem_global_lock);
             sem_array_t *s = sem_sets[idx];
-            if (s == NULL) {
+            if (s == NULL || s->owner_ns != ipc_namespace_current()) {
                 spin_unlock(&sem_global_lock);
                 return -EINVAL;
             }
@@ -985,7 +998,7 @@ static shm_seg_t *shm_attach_get(int shmid, int mode, uint32_t pid, int *error)
 
     spin_lock(&shm_global_lock);
     shm_seg_t *seg = shm_segs[idx];
-    if (!seg || shm_seq[idx] != seq) {
+    if (!seg || seg->owner_ns != ipc_namespace_current() || shm_seq[idx] != seq) {
         spin_unlock(&shm_global_lock);
         if (error) *error = -EINVAL;
         return NULL;
@@ -1047,7 +1060,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     if (key != IPC_PRIVATE) {
         spin_lock(&shm_global_lock);
         for (int i = 0; i < CONFIG_SHM_MAX_SEGS; i++) {
-            if (shm_segs[i] != NULL && !shm_segs[i]->deleted && shm_segs[i]->perm.key == key) {
+            if (shm_segs[i] != NULL && shm_segs[i]->owner_ns == ipc_namespace_current() && !shm_segs[i]->deleted && shm_segs[i]->perm.key == key) {
                 shm_seg_t *seg = shm_segs[i];
                 if (!kref_get_unless_zero(&seg->refs)) continue;
                 spin_unlock(&shm_global_lock);
@@ -1099,6 +1112,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
         return -ENOMEM;
     }
     memset(seg, 0, sizeof(shm_seg_t));
+    seg->owner_ns = ipc_namespace_current();
     kref_init(&seg->refs);
 
     seg->size      = size;
@@ -1265,7 +1279,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             spin_lock(&shm_global_lock);
             int used = 0;
             for (int i = 0; i < CONFIG_SHM_MAX_SEGS; i++)
-                if (shm_segs[i] != NULL) used++;
+                if (shm_segs[i] != NULL && shm_segs[i]->owner_ns == ipc_namespace_current()) used++;
             spin_unlock(&shm_global_lock);
             return used;
         }
@@ -1279,7 +1293,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
 
         spin_lock(&shm_global_lock);
         shm_seg_t *indexed = shm_segs[idx];
-        if (indexed && !kref_get_unless_zero(&indexed->refs)) indexed = NULL;
+        if (indexed && (indexed->owner_ns != ipc_namespace_current() || !kref_get_unless_zero(&indexed->refs))) indexed = NULL;
         spin_unlock(&shm_global_lock);
         if (!indexed) return -EINVAL;
 
@@ -1352,8 +1366,8 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             }
 
             spin_lock(&seg->lock);
-            seg->perm.uid  = ds.shm_perm.uid;
-            seg->perm.gid  = ds.shm_perm.gid;
+            seg->perm.uid  = user_ns_map_id(user_namespace_current(), ds.shm_perm.uid, false);
+            seg->perm.gid  = user_ns_map_id(user_namespace_current(), ds.shm_perm.gid, true);
             seg->perm.mode = (ds.shm_perm.mode & 0777) | (seg->perm.mode & ~0777U);
             seg->ctime     = ipc_now_seconds();
             spin_unlock(&seg->lock);
@@ -1424,7 +1438,7 @@ int64_t sys_msgget(key_t key, int msgflg)
     if (key != IPC_PRIVATE) {
         spin_lock(&msg_global_lock);
         for (int i = 0; i < CONFIG_MSG_MAX_QUEUES; i++) {
-            if (msg_queues[i] != NULL && msg_queues[i]->perm.key == key) {
+            if (msg_queues[i] != NULL && msg_queues[i]->owner_ns == ipc_namespace_current() && msg_queues[i]->perm.key == key) {
                 msg_queue_t *q = msg_queues[i];
                 spin_unlock(&msg_global_lock);
 
@@ -1450,6 +1464,7 @@ int64_t sys_msgget(key_t key, int msgflg)
         return -ENOMEM;
     }
     memset(q, 0, sizeof(msg_queue_t));
+    q->owner_ns = ipc_namespace_current();
     kref_init(&q->refs); // the table slot owns this reference
 
     q->qbytes = MSGMNB;
@@ -1748,8 +1763,8 @@ static int64_t msgctl_core(msg_queue_t *q, int msqid, int cmd, void *buf)
             if (copy_from_user(&ds, buf, sizeof(msqid_ds_t)) != 0) return -EFAULT;
 
             spin_lock(&q->lock);
-            q->perm.uid  = ds.msg_perm.uid;
-            q->perm.gid  = ds.msg_perm.gid;
+            q->perm.uid  = user_ns_map_id(user_namespace_current(), ds.msg_perm.uid, false);
+            q->perm.gid  = user_ns_map_id(user_namespace_current(), ds.msg_perm.gid, true);
             q->perm.mode = (ds.msg_perm.mode & 0777) | (q->perm.mode & ~0777U);
             q->qbytes    = ds.msg_qbytes;
             q->ctime     = ipc_now_seconds();
@@ -1796,7 +1811,7 @@ static int64_t msgctl_core(msg_queue_t *q, int msqid, int cmd, void *buf)
                 spin_lock(&msg_global_lock);
                 int used = 0;
                 for (int i = 0; i < CONFIG_MSG_MAX_QUEUES; i++)
-                    if (msg_queues[i] != NULL) used++;
+                    if (msg_queues[i] != NULL && msg_queues[i]->owner_ns == ipc_namespace_current()) used++;
                 spin_unlock(&msg_global_lock);
                 return used;
             }
@@ -1809,7 +1824,7 @@ static int64_t msgctl_core(msg_queue_t *q, int msqid, int cmd, void *buf)
 
             spin_lock(&msg_global_lock);
             msg_queue_t *mq = msg_queues[idx];
-            if (mq == NULL) {
+            if (mq == NULL || mq->owner_ns != ipc_namespace_current()) {
                 spin_unlock(&msg_global_lock);
                 return -EINVAL;
             }
@@ -1844,6 +1859,50 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
     int64_t result = msgctl_core(q, msqid, cmd, buf);
     msg_put(q);
     return result;
+}
+
+/* The last namespace reference removes names and IDs, waking any waiters. */
+void sysv_ipc_namespace_destroy(ipc_namespace_t *ns)
+{
+    for (unsigned i = 0; i < CONFIG_SEM_MAX_SETS; i++) {
+        spin_lock(&sem_global_lock);
+        sem_array_t *sem = sem_sets[i];
+        if (!sem || sem->owner_ns != ns) { spin_unlock(&sem_global_lock); continue; }
+        sem_sets[i] = NULL;
+        spin_lock(&sem->lock);
+        sem->deleted = 1;
+        sem->owner_ns = NULL;
+        spin_unlock(&sem->lock);
+        spin_unlock(&sem_global_lock);
+        for (uint32_t j = 0; j < sem->nsems; j++) wait_queue_wake_all(&sem->waitq[j]);
+        sem_put(sem);
+    }
+    for (unsigned i = 0; i < CONFIG_SHM_MAX_SEGS; i++) {
+        spin_lock(&shm_global_lock);
+        shm_seg_t *seg = shm_segs[i];
+        if (!seg || seg->owner_ns != ns) { spin_unlock(&shm_global_lock); continue; }
+        shm_segs[i] = NULL;
+        spin_lock(&seg->lock);
+        seg->deleted = 1;
+        seg->owner_ns = NULL;
+        spin_unlock(&seg->lock);
+        spin_unlock(&shm_global_lock);
+        shm_seg_put(seg);
+    }
+    for (unsigned i = 0; i < CONFIG_MSG_MAX_QUEUES; i++) {
+        spin_lock(&msg_global_lock);
+        msg_queue_t *q = msg_queues[i];
+        if (!q || q->owner_ns != ns) { spin_unlock(&msg_global_lock); continue; }
+        msg_queues[i] = NULL;
+        spin_lock(&q->lock);
+        q->deleted = 1;
+        q->owner_ns = NULL;
+        spin_unlock(&q->lock);
+        spin_unlock(&msg_global_lock);
+        wait_queue_wake_all(&q->send_wq);
+        wait_queue_wake_all(&q->recv_wq);
+        msg_put(q);
+    }
 }
 
 /* sysv_ipc_init - initialize all System V IPC subsystems */

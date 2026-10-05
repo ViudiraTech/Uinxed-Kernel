@@ -15,6 +15,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>
+#include <process/namespace.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <syscall/fcntl.h>
@@ -42,6 +43,7 @@ typedef struct mq_des {
 } mq_des_t;
 
 typedef struct mq_queue {
+        ipc_namespace_t *owner_ns;
         char          name[CONFIG_MQ_NAME_MAX];
         mq_attr_t     attr;
         mq_message_t *head;
@@ -76,7 +78,7 @@ static void        mq_notify_signal(mq_queue_t *queue);
 static mq_queue_t *mq_queue_lookup(const char *name)
 {
     for (int i = 0; i < CONFIG_MQ_MAX_QUEUES; i++) {
-        if (mq_registry[i] && strcmp(mq_registry[i]->name, name) == 0) return mq_registry[i];
+        if (mq_registry[i] && mq_registry[i]->owner_ns == ipc_namespace_current() && strcmp(mq_registry[i]->name, name) == 0) return mq_registry[i];
     }
     return NULL;
 }
@@ -107,6 +109,7 @@ static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr)
         return NULL;
     }
     memset(queue, 0, sizeof(mq_queue_t));
+    queue->owner_ns = ipc_namespace_current();
 
     strncpy(queue->name, name, CONFIG_MQ_NAME_MAX - 1);
     queue->name[CONFIG_MQ_NAME_MAX - 1] = '\0';
@@ -172,6 +175,23 @@ static void mq_queue_destroy(mq_queue_t *queue)
     }
 
     free(queue);
+}
+
+/* Open descriptions keep an unlinked queue alive after its namespace dies. */
+void posix_mq_namespace_destroy(ipc_namespace_t *ns)
+{
+    spin_lock(&mq_registry_lock);
+    for (unsigned i = 0; i < CONFIG_MQ_MAX_QUEUES; i++) {
+        mq_queue_t *queue = mq_registry[i];
+        if (!queue || queue->owner_ns != ns) continue;
+        spin_lock(&queue->lock);
+        queue->owner_ns = NULL;
+        queue->unlinked = 1;
+        bool release = queue->refcount == 0;
+        spin_unlock(&queue->lock);
+        if (release) mq_queue_destroy(queue);
+    }
+    spin_unlock(&mq_registry_lock);
 }
 
 /* Insert a message into the priority-ordered queue (highest first). */

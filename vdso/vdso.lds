@@ -24,6 +24,7 @@ PHDRS
     text PT_LOAD FILEHDR PHDRS FLAGS(5); /* R + X: the whole image */
     /* Declared explicitly: a section alone does not produce this segment. */
     dynamic PT_DYNAMIC FLAGS(4);
+    stack PT_GNU_STACK FLAGS(6);
 }
 
 SECTIONS

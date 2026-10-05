@@ -191,6 +191,7 @@ struct process_file;
 /* Socket structure */
 
 struct socket {
+        struct net_namespace *net_ns; /* creation namespace remains attached across setns */
         socket_state_t state;
         uint16_t       family;
         uint16_t       type;

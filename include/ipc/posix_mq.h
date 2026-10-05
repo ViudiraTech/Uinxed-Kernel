@@ -66,6 +66,8 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
 
 /* Initialize the POSIX MQ subsystem. */
 void posix_mq_init(void);
+struct ipc_namespace;
+void posix_mq_namespace_destroy(struct ipc_namespace *ns);
 
 #else
 static inline int64_t sys_mq_open(const char *, int, uint32_t, mq_attr_t *)
@@ -93,6 +95,8 @@ static inline int64_t sys_mq_getsetattr(int, const mq_attr_t *, mq_attr_t *)
     return -ENOSYS;
 }
 static inline void posix_mq_init(void) {}
+struct ipc_namespace;
+static inline void posix_mq_namespace_destroy(struct ipc_namespace *ns) { (void)ns; }
 #endif
 
 #endif // INCLUDE_POSIX_MQ_H_

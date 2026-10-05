@@ -117,6 +117,7 @@ typedef enum procfs_pid_file_type {
     PROC_PID_OOM_SCORE_ADJ,
     PROC_PID_UID_MAP,
     PROC_PID_GID_MAP,
+    PROC_PID_SETGROUPS,
 } procfs_pid_file_type_t;
 
 typedef enum procfs_type {
@@ -151,6 +152,8 @@ typedef struct procfs_file {
         size_t        size;
         size_t        capacity;
         uint64_t      mount_generation; // last table consumed by this open description
+        uint64_t      pid_cache_generation;
+        bool          pid_cache_valid;
 } procfs_file_t;
 
 /* Lightweight sysctl table for /proc/sys */
@@ -358,7 +361,6 @@ static void procfs_deactivate_pid_nodes(vfs_node_t root)
  * global VFS namespace lock.  Membership changes bump one process-table
  * generation, so the common unchanged refresh is a single O(1) comparison.
  */
-static bool procfs_root_pid_cache_valid;
 
 typedef struct procfs_net_context {
         char  *buf;
@@ -377,7 +379,6 @@ typedef struct procfs_memory_stats {
         uint64_t text_bytes;
 } procfs_memory_stats_t;
 
-static uint64_t procfs_root_pid_cache_generation;
 
 /*
  * CPU count used when generating per-CPU procfs content, floored at 1 and
@@ -1436,47 +1437,48 @@ static int procfs_write_id_map(procfs_file_t *pf, const char *data, size_t size)
         return -ESRCH;
     }
 
-    bool              gid     = pf->subtype == PROC_PID_GID_MAP;
-    uint32_t         *count   = gid ? &ns->gid_extent_count : &ns->uid_extent_count;
-    uid_gid_extent_t *extents = gid ? ns->gid_map : ns->uid_map;
-    /* A map may be written exactly once, as in Linux. */
-    if (*count) {
-        process_put(proc);
-        return -EPERM;
-    }
-
+    bool gid = pf->subtype == PROC_PID_GID_MAP;
+    uid_gid_extent_t pending[UID_GID_MAP_MAX];
     uint32_t parsed = 0;
-    size_t   at     = 0;
+    size_t at = 0;
+    process_t *caller = process_current();
+    if (!caller || !ns->parent) { process_put(proc); return -EPERM; }
+    bool privileged = capability_ns(current_task(), ns->parent, gid ? CAP_SETGID : CAP_SETUID);
+    if (!privileged && !capability_ns(current_task(), ns, CAP_SYS_ADMIN)) { process_put(proc); return -EPERM; }
     while (at < size) {
         while (at < size && (data[at] == '\n' || data[at] == ' ' || data[at] == '\t')) at++;
-        if (at >= size) break;
-        if (parsed >= UID_GID_MAP_MAX) {
-            process_put(proc);
-            return -EINVAL;
-        }
-        uid_gid_extent_t extent;
-        size_t           used   = 0;
-        int              result = procfs_parse_id_extent(data + at, size - at, &used, &extent);
-        if (result != EOK) {
-            process_put(proc);
-            return result;
-        }
-        /* The inside range must not overlap an extent accepted earlier. */
-        for (uint32_t i = 0; i < parsed; i++)
-            if (extent.first < extents[i].first + extents[i].count && extents[i].first < extent.first + extent.count) {
-                process_put(proc);
-                return -EINVAL;
+        if (at == size) break;
+        if (parsed == UID_GID_MAP_MAX) { process_put(proc); return -EINVAL; }
+        size_t used = 0;
+        int result = procfs_parse_id_extent(data + at, size - at, &used, &pending[parsed]);
+        if (result) { process_put(proc); return result; }
+        uid_gid_extent_t extent = pending[parsed];
+        for (uint32_t i = 0; i < parsed; i++) {
+            uid_gid_extent_t old = pending[i];
+            if ((extent.first < old.first + old.count && old.first < extent.first + extent.count)
+                || (extent.lower_first < old.lower_first + old.count && old.lower_first < extent.lower_first + extent.count)) {
+                process_put(proc); return -EINVAL;
             }
-        extents[parsed++] = extent;
+        }
+        uint32_t first = user_ns_map_id(ns->parent, extent.lower_first, gid);
+        uint32_t last = user_ns_map_id(ns->parent, extent.lower_first + extent.count - 1, gid);
+        if (first == UINT32_MAX || last == UINT32_MAX || (uint64_t)first + extent.count - 1 != last) { process_put(proc); return -EPERM; }
+        if (!privileged && (parsed || extent.count != 1 || first != (gid ? caller->gid : caller->uid)
+                            || caller->uid != ns->owner_uid || (gid && ns->setgroups_allowed))) { process_put(proc); return -EPERM; }
+        parsed++;
         at += used;
     }
-    if (!parsed) {
-        process_put(proc);
-        return -EINVAL;
+    if (!parsed) { process_put(proc); return -EINVAL; }
+    spin_lock(&ns->ns.lock);
+    uint32_t *count = gid ? &ns->gid_extent_count : &ns->uid_extent_count;
+    int result = *count ? -EPERM : EOK;
+    if (!result) {
+        memcpy(gid ? ns->gid_map : ns->uid_map, pending, parsed * sizeof(*pending));
+        *count = parsed;
     }
-    *count = parsed;
+    spin_unlock(&ns->ns.lock);
     process_put(proc);
-    return EOK;
+    return result;
 }
 
 /*
@@ -2225,6 +2227,16 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                 case PROC_PID_OOM_SCORE_ADJ :
                     gen_pid_oom_score_adj(pf);
                     break;
+                case PROC_PID_SETGROUPS : {
+                    process_t *proc = process_find_get(pf->pid);
+                    user_namespace_t *ns = procfs_user_ns(proc);
+                    const char *value = ns && ns->setgroups_allowed ? "allow\n" : "deny\n";
+                    pf->content = strdup(value);
+                    pf->size = pf->content ? strlen(value) : 0;
+                    pf->capacity = pf->size + 1;
+                    process_put(proc);
+                    break;
+                }
                 case PROC_PID_UID_MAP :
                     gen_pid_id_map(pf, false);
                     break;
@@ -2384,6 +2396,9 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             if (streq(name, "limits")) subtype = PROC_PID_LIMITS;
             if (streq(name, "io")) subtype = PROC_PID_IO;
             if (streq(name, "oom_score_adj")) subtype = PROC_PID_OOM_SCORE_ADJ;
+            if (streq(name, "uid_map")) subtype = PROC_PID_UID_MAP;
+            if (streq(name, "gid_map")) subtype = PROC_PID_GID_MAP;
+            if (streq(name, "setgroups")) subtype = PROC_PID_SETGROUPS;
             if (subtype >= 0) {
                 pf->type    = PROCFS_PID_FILE;
                 pf->pid     = ppf->pid;
@@ -2573,6 +2588,17 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
     node->handle = pf;
 }
 
+/* Namespace links return real handles; ordinary proc links use their textual target. */
+static vfs_node_t procfs_follow_link(vfs_node_t node)
+{
+    procfs_file_t *pf = node ? node->handle : NULL;
+    if (!pf || pf->type != PROCFS_PID_NS_LINK) return NULL;
+    process_t *proc = process_find_get(pf->pid);
+    vfs_node_t target = namespace_open_handle(proc, node->name);
+    process_put(proc);
+    return target;
+}
+
 /* Resolve a procfs symlink (self, fd, exe, cwd, root) to its target. */
 static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
@@ -2595,7 +2621,10 @@ static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t
             break;
         }
         case PROCFS_PID_NS_LINK : {
-            (void)snprintf(target, sizeof(target), "%s:[%lld]", node->name, 4026531840LL + (pf->pid % 1000));
+            process_t *proc = process_find_get(pf->pid);
+            uint64_t id = namespace_object_id(proc, node->name);
+            process_put(proc);
+            (void)snprintf(target, sizeof(target), "%s:[%llu]", node->name, id);
             length = (int)strlen(target);
             break;
         }
@@ -2742,7 +2771,7 @@ static int procfs_stat(void *file, vfs_node_t node)
              * for every file a task manager opens.
              */
             uint64_t current_generation = process_table_generation_read();
-            if (procfs_root_pid_cache_valid && procfs_root_pid_cache_generation == current_generation) break;
+            if (pf->pid_cache_valid && pf->pid_cache_generation == current_generation) break;
 
             pid_t *pids = malloc(CONFIG_PROCESS_TABLE_SIZE * sizeof(*pids));
             if (!pids) return -ENOMEM;
@@ -2780,8 +2809,8 @@ static int procfs_stat(void *file, vfs_node_t node)
 
             free(pid_nodes);
             free(pids);
-            procfs_root_pid_cache_generation = snapshot_generation;
-            procfs_root_pid_cache_valid      = true;
+            pf->pid_cache_generation = snapshot_generation;
+            pf->pid_cache_valid      = true;
             break;
         }
         case PROCFS_PID_DIR : {
@@ -2811,6 +2840,7 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"oom_score_adj", PROC_PID_OOM_SCORE_ADJ},
                 {"uid_map",       PROC_PID_UID_MAP      },
                 {"gid_map",       PROC_PID_GID_MAP      },
+                {"setgroups",     PROC_PID_SETGROUPS    },
             };
             for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++) (void)procfs_ensure_child(node, pid_tab[i].name, PROCFS_PID_FILE, pf->pid, pid_tab[i].subtype, file_none);
 
@@ -3065,6 +3095,20 @@ static int64_t procfs_file_write(vfs_node_t node, void *private_data, uint64_t f
      */
     if (pf->type == PROCFS_PID_FILE && pf->subtype == PROC_PID_OOM_SCORE_ADJ) return (int64_t)size;
 
+    if (pf->type == PROCFS_PID_FILE && pf->subtype == PROC_PID_SETGROUPS) {
+        process_t *proc = process_find_get(pf->pid);
+        user_namespace_t *ns = procfs_user_ns(proc);
+        if (!ns || !ns->parent || !capability_ns(current_task(), ns, CAP_SYS_ADMIN)) { process_put(proc); return -EPERM; }
+        bool deny = (size == 4 && !memcmp(addr, "deny", 4)) || (size == 5 && !memcmp(addr, "deny\n", 5));
+        if (!deny) { process_put(proc); return -EINVAL; }
+        spin_lock(&ns->ns.lock);
+        int result = ns->gid_extent_count ? -EPERM : EOK;
+        if (!result) ns->setgroups_allowed = false;
+        spin_unlock(&ns->ns.lock);
+        process_put(proc);
+        return result ? result : (int64_t)size;
+    }
+
     if (pf->type == PROCFS_PID_FILE && (pf->subtype == PROC_PID_UID_MAP || pf->subtype == PROC_PID_GID_MAP)) {
         int result = procfs_write_id_map(pf, (const char *)addr, size);
         return result == EOK ? (int64_t)size : result;
@@ -3167,6 +3211,7 @@ static struct vfs_callback procfs_callbacks = {
     .read             = procfs_read,
     .write            = procfs_write,
     .readlink         = procfs_readlink,
+    .follow_link      = procfs_follow_link,
     .mkdir            = procfs_mkdir,
     .mkfile           = vfs_stub_mk_readonly,
     .link             = vfs_stub_mk_readonly,

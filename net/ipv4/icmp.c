@@ -14,6 +14,7 @@
 #include <net/abi/inet.h>
 #include <net/core/endian.h>
 #include <net/ipv4/icmp.h>
+#include <process/namespace.h>
 
 #if CONFIG_INET && CONFIG_NET
 
@@ -35,6 +36,7 @@ icmp_endpoint_t *icmp_open(void)
 {
     icmp_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
     if (!endpoint) return NULL;
+    endpoint->net_ns = net_ns_get(net_namespace_current());
     spin_lock(&icmp_table_lock);
     for (unsigned i = 0; i < CONFIG_ICMP_ENDPOINT_MAX; i++) {
         if (!icmp_table[i]) {
@@ -44,6 +46,7 @@ icmp_endpoint_t *icmp_open(void)
         }
     }
     spin_unlock(&icmp_table_lock);
+    net_ns_put(endpoint->net_ns);
     free(endpoint);
     return NULL;
 }
@@ -65,6 +68,7 @@ void icmp_close(icmp_endpoint_t *endpoint)
         free(packet);
         packet = next;
     }
+    net_ns_put(endpoint->net_ns);
     free(endpoint);
 }
 
@@ -107,8 +111,9 @@ int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32
     if (!destination) return -EDESTADDRREQ;
     net_device_t *device;
     uint32_t      next_hop;
-    int           status = ipv4_route(destination, &device, &next_hop);
+    int           status = ipv4_route_ns(endpoint->net_ns, destination, &device, &next_hop);
     if (status) return status;
+    if (endpoint->bound_ifindex && endpoint->bound_ifindex != device->ifindex) { netdev_put(device); return -ENETUNREACH; }
     net_pbuf_t *packet = net_pbuf_from(data, length, NET_PBUF_HEADROOM);
     if (!packet) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
@@ -171,13 +176,13 @@ void icmp_set_event_callback(icmp_endpoint_t *endpoint, icmp_event_callback_t ca
 }
 
 /* Queue a received ICMP message to every matching endpoint. */
-static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
+static void icmp_deliver(net_namespace_t *ns, uint32_t ifindex, const ipv4_info_t *ip, const net_pbuf_t *packet)
 {
     size_t length = IPV4_HEADER_MIN + packet->length;
     spin_lock(&icmp_table_lock);
     for (unsigned i = 0; i < CONFIG_ICMP_ENDPOINT_MAX; i++) {
         icmp_endpoint_t *endpoint = icmp_table[i];
-        if (!endpoint) continue;
+        if (!endpoint || endpoint->net_ns != ns || (endpoint->bound_ifindex && endpoint->bound_ifindex != ifindex)) continue;
         spin_lock(&endpoint->lock);
         if ((endpoint->local_address && endpoint->local_address != ip->destination) || (endpoint->remote_address && endpoint->remote_address != ip->source)
             || endpoint->queue_length >= CONFIG_ICMP_RX_QUEUE_MAX || length > CONFIG_ICMP_RX_BYTES_MAX - endpoint->queue_bytes) {
@@ -237,7 +242,7 @@ static int icmp_is_error(uint8_t type)
 int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || packet->length < ICMP_HEADER_LEN || net_checksum(packet->data, packet->length) != 0) goto bad;
-    icmp_deliver(ip, packet);
+    icmp_deliver(device->net_ns, device->ifindex, ip, packet);
     uint8_t type = packet->data[0];
     uint8_t code = packet->data[1];
     if (type == ICMP_ECHO_REQUEST) {
@@ -251,7 +256,7 @@ int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     }
     if ((type == ICMP_DEST_UNREACHABLE || type == ICMP_TIME_EXCEEDED) && packet->length >= ICMP_HEADER_LEN + IPV4_HEADER_MIN) {
         uint32_t mtu = type == ICMP_DEST_UNREACHABLE && code == ICMP_FRAGMENTATION_NEEDED ? load_be16(packet->data + 6) : 0;
-        ipv4_control_error(type, code, mtu, packet->data + ICMP_HEADER_LEN, packet->length - ICMP_HEADER_LEN);
+        ipv4_control_error(device->net_ns, type, code, mtu, packet->data + ICMP_HEADER_LEN, packet->length - ICMP_HEADER_LEN);
     }
 ignored:
     net_pbuf_free(packet);

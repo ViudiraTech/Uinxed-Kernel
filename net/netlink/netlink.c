@@ -16,6 +16,7 @@
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
 #include <process/process.h>
+#include <process/namespace.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 
@@ -356,7 +357,7 @@ static int rtnl_set_link(struct socket *sk, const nlmsghdr_t *request)
     const ifinfomsg_t *info = NLMSG_DATA(request);
     if (info->ifi_index <= 0 || (info->ifi_change & ~IFF_UP)) return rtnl_queue_error(sk, request, -EINVAL);
     rtnl_link_change_t change = {.ifindex = info->ifi_index, .flags = info->ifi_flags, .change = info->ifi_change, .result = -ENODEV};
-    netdev_iterate(rtnl_change_link, &change);
+    netdev_iterate_ns(sk->net_ns, rtnl_change_link, &change);
     if (change.result || (request->nlmsg_flags & NLM_F_ACK)) return rtnl_queue_error(sk, request, change.result);
     return EOK;
 }
@@ -379,9 +380,9 @@ static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
     uint32_t payload_length = NLMSG_PAYLOAD(request, 0);
     uint32_t minimum_length;
     if (request->nlmsg_type == RTM_GETLINK) {
-        minimum_length = sizeof(ifinfomsg_t);
+        minimum_length = context.multipart ? sizeof(rtgenmsg_t) : sizeof(ifinfomsg_t);
     } else if (request->nlmsg_type == RTM_GETADDR) {
-        minimum_length = sizeof(ifaddrmsg_t);
+        minimum_length = context.multipart ? sizeof(rtgenmsg_t) : sizeof(ifaddrmsg_t);
     } else if (request->nlmsg_type == RTM_GETROUTE) {
         /* Linux accepts the one-byte rtgenmsg selector for route dumps. */
         minimum_length = context.multipart ? sizeof(rtgenmsg_t) : sizeof(rtmsg_t);
@@ -401,19 +402,23 @@ static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
     if (request->nlmsg_type == RTM_GETROUTE && payload_length >= sizeof(rtmsg_t) && rtnl_parse_route_request(request, &context)) return rtnl_queue_error(sk, request, -EINVAL);
     switch (request->nlmsg_type) {
         case RTM_GETLINK :
-            netdev_iterate(rtnl_emit_link, &context);
+            netdev_iterate_ns(sk->net_ns, rtnl_emit_link, &context);
             break;
         case RTM_GETADDR :
-            netdev_iterate(rtnl_emit_address, &context);
+            netdev_iterate_ns(sk->net_ns, rtnl_emit_address, &context);
             break;
         case RTM_GETROUTE :
-            netdev_iterate(rtnl_emit_routes, &context);
+            netdev_iterate_ns(sk->net_ns, rtnl_emit_routes, &context);
             break;
         default :
             return rtnl_queue_error(sk, request, -EOPNOTSUPP);
     }
     if (context.error) return context.error;
-    if (context.multipart) return rtnl_queue_message(sk, NLMSG_DONE, NLM_F_MULTI, request->nlmsg_seq, NULL, 0);
+    if (context.multipart) {
+        /* rtnetlink DONE carries an integer status, even for a successful dump. */
+        int status = 0;
+        return rtnl_queue_message(sk, NLMSG_DONE, NLM_F_MULTI, request->nlmsg_seq, &status, sizeof(status));
+    }
     if (!context.emitted) return rtnl_queue_error(sk, request, -ENODEV);
     if (request->nlmsg_flags & NLM_F_ACK) return rtnl_queue_error(sk, request, 0);
     return EOK;
@@ -439,7 +444,7 @@ static uint32_t nl_alloc_pid(void)
  * waits for the table lock, so the pin must be conditional: an unconditional
  * increment would resurrect an object that socket_destroy() will still free.
  */
-static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
+static struct socket *nl_mcast_find_by_pid(net_namespace_t *net_ns, uint32_t protocol, uint32_t pid)
 {
     nl_mcast_table_t *tab;
 
@@ -450,7 +455,7 @@ static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
     for (uint32_t i = 0; i < tab->count; i++) {
         if (tab->entries[i].sk) {
             nl_sock_t *ns = nl_sk(tab->entries[i].sk);
-            if (ns && ns->nl_pid == pid) {
+            if (ns && tab->entries[i].sk->net_ns == net_ns && ns->nl_pid == pid) {
                 struct socket *sk = tab->entries[i].sk;
                 if (!socket_try_ref(sk)) continue;
                 spin_unlock(&tab->lock);
@@ -482,7 +487,7 @@ static int nl_mcast_subscribe(uint32_t protocol, struct socket *sk, uint32_t por
             continue;
         }
         nl_sock_t *other = nl_sk(tab->entries[i].sk);
-        if (other && port_id && other->nl_pid == port_id) {
+        if (other && tab->entries[i].sk->net_ns == sk->net_ns && port_id && other->nl_pid == port_id) {
             spin_unlock(&tab->lock);
             return -EADDRINUSE;
         }
@@ -563,6 +568,7 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     ns->refs = 1; // owned by sk->priv
 
     /* Initialise generic socket fields */
+    sk->net_ns   = net_ns_get(net_namespace_current());
     sk->state    = SOCK_STATE_UNCONNECTED;
     sk->family   = AF_NETLINK;
     sk->type     = SOCK_DGRAM; // netlink is datagram-oriented
@@ -831,7 +837,7 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
 }
 
 /* Deliver a datagram to every socket subscribed to the given groups. */
-static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_uid, uint32_t sender_gid)
+static int nl_broadcast_datagram(net_namespace_t *net_ns, uint32_t protocol, uint32_t groups, const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_uid, uint32_t sender_gid)
 {
     nl_mcast_table_t *tab;
     int               delivered   = 0;
@@ -847,7 +853,7 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
      */
     spin_lock(&tab->lock);
     for (uint32_t i = 0; i < tab->count; i++) {
-        if (!tab->entries[i].sk || !(tab->entries[i].groups & groups)) continue;
+        if (!tab->entries[i].sk || tab->entries[i].sk->net_ns != net_ns || !(tab->entries[i].groups & groups)) continue;
         int ret = nl_queue_datagram(tab->entries[i].sk, data, len, sender_pid, groups, sender_uid, sender_gid);
         if (!ret) {
             delivered++;
@@ -893,7 +899,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
          * through the privileged raw-uevent validator below.
          */
         if (addr && addr->nl_pid != 0) {
-            struct socket *dest = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
+            struct socket *dest = nl_mcast_find_by_pid(sk->net_ns, ns->nl_protocol, addr->nl_pid);
             if (!dest) return -ECONNREFUSED;
             int ret = nl_queue_datagram(dest, buf, (uint32_t)len, ns->nl_pid, addr->nl_groups, sk->uid, sk->gid);
             socket_unref(dest);
@@ -910,7 +916,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
             if (sk->uid != 0) return -EPERM;
             uint32_t groups = addr ? addr->nl_groups : ns->nl_groups;
             if (!groups) return -EINVAL;
-            int ret = nl_broadcast_datagram(ns->nl_protocol, groups, buf, (uint32_t)len, ns->nl_pid, sk->uid, sk->gid);
+            int ret = nl_broadcast_datagram(sk->net_ns, ns->nl_protocol, groups, buf, (uint32_t)len, ns->nl_pid, sk->uid, sk->gid);
             return (ret >= 0 || ret == -ESRCH) ? (int)len : ret;
         }
 
@@ -938,7 +944,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         if (sk->uid != 0) return -EPERM;
         uint32_t groups = addr ? addr->nl_groups : ns->nl_groups;
         if (!groups) groups = 1U;
-        int ret = nl_broadcast_datagram(ns->nl_protocol, groups, buf, (uint32_t)len, ns->nl_pid, sk->uid, sk->gid);
+        int ret = nl_broadcast_datagram(sk->net_ns, ns->nl_protocol, groups, buf, (uint32_t)len, ns->nl_pid, sk->uid, sk->gid);
         return (ret >= 0 || ret == -ESRCH) ? (int)len : ret;
     }
 
@@ -981,7 +987,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
             return (int)len;
         }
 
-        dest_sk = nl_mcast_find_by_pid(ns->nl_protocol, dest_pid);
+        dest_sk = nl_mcast_find_by_pid(sk->net_ns, ns->nl_protocol, dest_pid);
         if (!dest_sk) return -ECONNREFUSED;
 
         int ret = nl_queue_datagram(dest_sk, buf, nlhdr_len, ns->nl_pid, addr->nl_groups, sk->uid, sk->gid);
@@ -1303,7 +1309,7 @@ int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *o
 int netlink_broadcast(uint32_t protocol, uint32_t group, const void *data, uint32_t len, int flags)
 {
     (void)flags;
-    return nl_broadcast_datagram(protocol, group, data, len, 0, 0, 0);
+    return nl_broadcast_datagram(net_namespace_current(), protocol, group, data, len, 0, 0, 0);
 }
 
 /* Kernel API: Unicast */
@@ -1322,7 +1328,7 @@ int netlink_has_listeners(uint32_t protocol, uint32_t group)
 
     spin_lock(&tab->lock);
     for (uint32_t i = 0; i < tab->count; i++) {
-        if (tab->entries[i].groups & group) {
+        if (tab->entries[i].sk && tab->entries[i].sk->net_ns == net_namespace_current() && (tab->entries[i].groups & group)) {
             spin_unlock(&tab->lock);
             return 1;
         }

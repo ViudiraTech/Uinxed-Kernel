@@ -9,6 +9,7 @@
  */
 
 #include <kernel/vdso/vdso.h>
+#include <libs/std/stddef.h>
 
 typedef long time_t;
 
@@ -30,27 +31,49 @@ struct timeval {
  */
 __attribute__((section(".vvar"), used)) static struct vdso_data vdso_data;
 
-/* Longest uptime a monotonic reading may report before it is clearly not one. */
-#define VDSO_MONO_MAX_SEC 1000000ULL
+/* vDSO errors follow the raw syscall ABI; libc need not retry them. */
+static long vdso_syscall2(long number, long first, void *second)
+{
+    long result;
+
+    __asm__ volatile("syscall" : "=a"(result) : "a"(number), "D"(first), "S"(second) : "rcx", "r11", "memory");
+    return result;
+}
 
 /* Read the cycle counter, ordered against the surrounding loads. */
 static inline uint64_t vdso_cycles(void)
 {
     uint32_t low, high;
 
-    __asm__ volatile("rdtsc" : "=a"(low), "=d"(high) : : "memory");
+    __asm__ volatile("lfence; rdtsc; lfence" : "=a"(low), "=d"(high) : : "memory");
     return ((uint64_t)high << 32) | (uint64_t)low;
 }
 
 /* Copy the published snapshot, retrying if a writer was mid-update. */
-static int vdso_snapshot(struct vdso_data *out)
+static int vdso_snapshot(struct vdso_data *out, uint64_t *cycles)
 {
     for (int retry = 0; retry < 64; retry++) {
         uint32_t seq = __atomic_load_n(&vdso_data.seq, __ATOMIC_ACQUIRE);
 
         if (seq & 1) continue;
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
-        *out = vdso_data;
+        /* Each shared field must be loaded anew, without compiler vectorisation. */
+#define VDSO_LOAD(field) out->field = __atomic_load_n(&vdso_data.field, __ATOMIC_RELAXED)
+        VDSO_LOAD(clock_mode);
+        VDSO_LOAD(cycle_last);
+        VDSO_LOAD(mult);
+        VDSO_LOAD(shift);
+        VDSO_LOAD(max_cycles);
+        VDSO_LOAD(real_sec);
+        VDSO_LOAD(real_nsec);
+        VDSO_LOAD(mono_sec);
+        VDSO_LOAD(mono_nsec);
+        VDSO_LOAD(boot_sec);
+        VDSO_LOAD(boot_nsec);
+        VDSO_LOAD(res_nsec);
+#undef VDSO_LOAD
+        /* A preemption between snapshot and counter read must invalidate both. */
+        if (cycles) *cycles = vdso_cycles();
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         if (__atomic_load_n(&vdso_data.seq, __ATOMIC_RELAXED) == seq) return 0;
     }
@@ -61,9 +84,9 @@ static int vdso_snapshot(struct vdso_data *out)
 static int vdso_clock(int clockid, struct timespec *ts)
 {
     struct vdso_data data;
-    uint64_t         sec, nsec;
+    uint64_t         sec, nsec, now;
 
-    if (!ts || vdso_snapshot(&data)) return -1;
+    if (!ts || vdso_snapshot(&data, &now)) return -1;
 
     switch (clockid) {
         case 0 : // CLOCK_REALTIME
@@ -77,23 +100,15 @@ static int vdso_clock(int clockid, struct timespec *ts)
         case 7 : // CLOCK_BOOTTIME
             sec  = data.mono_sec;
             nsec = data.mono_nsec;
-            /*
-             * A monotonic reading counts from boot, so one in the epoch range is
-             * not a monotonic reading.  Callers do react to a failed call --
-             * coreutils' dd retries with CLOCK_REALTIME -- and it then measures
-             * an elapsed time of decades, so refuse to answer instead of handing
-             * out a value who knows what it means; the caller's syscall
-             * fallback is always right.
-             */
-            if (sec > VDSO_MONO_MAX_SEC || nsec >= 1000000000UL) return -1;
             break;
         default :
             return -1;
     }
 
-    /* The coarse clocks report tick granularity by definition, so leave them alone. */
-    if (data.clock_mode == VDSO_CLOCKMODE_CYCLES && data.shift && clockid != 4 && clockid != 5 && clockid != 6) {
-        uint64_t now   = vdso_cycles();
+    if (nsec >= 1000000000ULL) return -1;
+    /* Only coarse clocks may use a stale tick when no safe userspace counter exists. */
+    if (clockid != 5 && clockid != 6) {
+        if (data.clock_mode != VDSO_CLOCKMODE_CYCLES || !data.shift || data.shift >= 64) return -1;
         uint64_t delta = now - data.cycle_last;
 
         /*
@@ -104,13 +119,13 @@ static int vdso_clock(int clockid, struct timespec *ts)
          * downstream can tell that apart from a real reading.  Falling back to
          * the snapshot is always correct -- it is at most one tick old.
          */
-        if (now >= data.cycle_last && delta <= data.max_cycles) {
+        if (now >= data.cycle_last && delta <= data.max_cycles && (!data.mult || delta <= ~(uint64_t)0 / data.mult)) {
             uint64_t added = (delta * data.mult) >> data.shift;
 
             nsec += added;
             sec += nsec / 1000000000ULL;
             nsec %= 1000000000ULL;
-        }
+        } else return -1;
     }
 
     ts->tv_sec  = (long)sec;
@@ -121,7 +136,7 @@ static int vdso_clock(int clockid, struct timespec *ts)
 /* vDSO entry point for clock_gettime(2). */
 int __vdso_clock_gettime(int clockid, struct timespec *ts)
 {
-    return vdso_clock(clockid, ts) ? -22 : 0;
+    return vdso_clock(clockid, ts) ? (int)vdso_syscall2(228, clockid, ts) : 0;
 }
 
 /* vDSO entry point for clock_getres(2). */
@@ -130,8 +145,8 @@ int __vdso_clock_getres(int clockid, struct timespec *ts)
     struct vdso_data data;
 
     if (!ts) return 0;
-    if (clockid != 0 && clockid != 1 && clockid != 4 && clockid != 5 && clockid != 6 && clockid != 7) return -22;
-    if (vdso_snapshot(&data)) return -22;
+    if (clockid != 0 && clockid != 1 && clockid != 4 && clockid != 5 && clockid != 6 && clockid != 7) return (int)vdso_syscall2(229, clockid, ts);
+    if (vdso_snapshot(&data, NULL)) return (int)vdso_syscall2(229, clockid, ts);
 
     ts->tv_sec  = 0;
     ts->tv_nsec = (long)data.res_nsec;
@@ -146,7 +161,7 @@ int __vdso_gettimeofday(struct timeval *tv, void *tz)
     (void)tz;
     if (!tv) return 0;
     /* Report failure rather than succeeding with the caller's buffer untouched. */
-    if (vdso_clock(0, &ts)) return -1;
+    if (vdso_clock(0, &ts)) return (int)vdso_syscall2(96, (long)tv, tz);
 
     tv->tv_sec  = ts.tv_sec;
     tv->tv_usec = ts.tv_nsec / 1000;
@@ -157,9 +172,10 @@ int __vdso_gettimeofday(struct timeval *tv, void *tz)
 time_t __vdso_time(time_t *t)
 {
     struct timespec ts;
-    time_t          now = 0;
+    time_t          now;
 
-    if (!vdso_clock(0, &ts)) now = ts.tv_sec;
+    if (vdso_clock(0, &ts)) return vdso_syscall2(201, (long)t, NULL);
+    now = ts.tv_sec;
     if (t) *t = now;
     return now;
 }

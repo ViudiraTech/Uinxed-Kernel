@@ -202,7 +202,7 @@ static int mount_cgroup2(const char *src, vfs_node_t node)
     (void)src;
     if (!node) return -EINVAL;
     if (!cgroup_root()) return -ENODEV;
-    node->handle = new_handle(CGROUPFS_DIR, cgroup_root());
+    node->handle = new_handle(CGROUPFS_DIR, cgroup_namespace_root());
     if (!node->handle) return -ENOMEM;
     node->fsid = cgroupfs_id;
     node->type = file_dir;
@@ -215,6 +215,7 @@ static int mount_cgroup2(const char *src, vfs_node_t node)
 static int render(cgroupfs_node_t *node, char *buf, size_t size)
 {
     if (!node->cgroup) return -ENOENT;
+    if (!cgroup_namespace_visible(node->cgroup)) return -EACCES;
     switch (node->type) {
         case CGROUPFS_CONTROLLERS :
             return cgroup_show_controllers(node->cgroup, buf, size);
@@ -306,6 +307,7 @@ static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, 
     (void)private_data;
     (void)flags;
     if (!node) return -ENOENT;
+    if (!cgroup_namespace_visible(node->cgroup)) return -EACCES;
     if (offset) return -EINVAL;
 
     switch (node->type) {
@@ -388,6 +390,7 @@ static int stat_node(void *handle, vfs_node_t node)
 {
     cgroupfs_node_t *cn = handle;
     if (!cn) return -ENOENT;
+    if (!cgroup_namespace_visible(cn->cgroup)) return -EACCES;
     if (cn->type == CGROUPFS_DIR) {
         node->type = file_dir;
         return populate(node);
@@ -403,6 +406,7 @@ static int mkdir_node(void *parent, const char *name, vfs_node_t node)
     cgroup_t        *cgroup;
     int              status;
     if (!pn || pn->type != CGROUPFS_DIR) return -ENOTDIR;
+    if (!cgroup_namespace_visible(pn->cgroup)) return -EACCES;
     status = cgroup_create(pn->cgroup, name, &cgroup);
     if (status != EOK) return status;
     node->handle = new_handle(CGROUPFS_DIR, cgroup);
@@ -426,6 +430,7 @@ static int delete_node(void *parent, vfs_node_t node)
     int              status;
     (void)parent;
     if (!cn) return -ENOENT;
+    if (!cgroup_namespace_visible(cn->cgroup)) return -EACCES;
     if (cn->type != CGROUPFS_DIR) return -EROFS;
     status = cgroup_destroy(cn->cgroup);
     return status;
@@ -446,6 +451,11 @@ static int free_handle(void *handle)
     if (node) cgroup_put(node->cgroup);
     free(node);
     return EOK;
+}
+
+static void unmount_cgroup2(void *handle)
+{
+    (void)free_handle(handle);
 }
 
 /* Deliver outside cgroup and filesystem registry locks, including oneshot watches. */
@@ -503,6 +513,7 @@ static int control_poll(vfs_node_t node, void *private_data, uint64_t flags, siz
 
 static struct vfs_callback callbacks = {
     .mount        = mount_cgroup2,
+    .unmount      = unmount_cgroup2,
     .read         = legacy_read,
     .write        = legacy_write,
     .mkdir        = mkdir_node,

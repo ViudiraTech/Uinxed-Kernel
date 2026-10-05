@@ -13,6 +13,7 @@
 #include <fs/core/icache.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
+#include <fs/sysfs/sysfs.h>
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -23,6 +24,7 @@
 #include <mem/hhdm.h>
 #include <mem/pagecache.h>
 #include <process/process.h>
+#include <process/namespace.h>
 #include <process/uaccess.h>
 #include <sync/mutex.h>
 
@@ -34,23 +36,572 @@ static mutex_t           vfs_namespace_lock;
 static mutex_t           vfs_rename_serial_lock;
 static uint64_t          vfs_next_ino      = 1;
 static uint64_t          vfs_next_mount_id = 1;
+static uint64_t          vfs_next_peer_group = 1;
 static uint64_t          mount_generation  = 1;
 static vfs_poll_source_t mount_poll_source;
 
+#define VFS_MOUNT_ATTRIBUTES (MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC | MOUNT_FLAG_ATIME)
+
+/* Depth and breadth limit for walking a bound subtree.  A desktop session
+ * carries enough submounts (systemd's per-unit credential mounts included)
+ * that a small cap silently truncates the mirror set. */
+#define VFS_MOUNT_MIRROR_MAX 64
+/* One mount's own path; compose buffers are heap-allocated, not stacked. */
+#define VFS_MOUNT_PATH_MAX 512
+
+/*
+ * A filesystem tree is shared by all namespaces referring to it.  Only the
+ * attachment table and mount attributes are cloned.  Covered dentries stay
+ * in their backing tree: mounting never substitutes their handle or children.
+ */
+typedef struct vfs_mount_object {
+        vfs_node_t root;
+        uint32_t references;
+        bool filesystem;
+        struct vfs_mount_object *retired_next;
+} vfs_mount_object_t;
+
+typedef struct vfs_mount_attachment {
+        vfs_node_t covered;                 /* mountpoint dentry in the parent mount's tree */
+        vfs_mount_object_t *object;
+        struct vfs_mount_attachment *parent; /* the mount this one is attached into */
+        uint64_t attributes;
+        uint64_t locked_attributes;
+        bool locked;
+        size_t open_files;
+        uint64_t id;
+        uint32_t propagation;               /* VFS_MOUNT_* */
+        uint32_t peer_group;                /* shared peer group id, 0 when not shared */
+        uint32_t master_group;              /* peer group this mount is a slave of, 0 when none */
+        struct vfs_mount_attachment *next;
+} vfs_mount_attachment_t;
+
+typedef struct vfs_mount_table {
+        vfs_mount_attachment_t *entries;
+        vfs_mount_attachment_t *root; /* namespace root mount; parent == NULL */
+        uint64_t root_attributes;
+        uint32_t root_propagation;
+        uint32_t root_peer_group;
+        uint32_t root_master_group;
+        uint64_t generation;
+        vfs_poll_source_t poll_source;
+        mnt_namespace_t *namespace;
+        struct vfs_mount_table *next_all;
+} vfs_mount_table_t;
+
+static vfs_mount_table_t *mount_tables;
+static vfs_mount_attachment_t *retired_policies;
+static vfs_mount_object_t *retired_mounts;
+static bool mount_reaping;
+static int vfs_propagate_attach_locked(vfs_mount_table_t *table, vfs_mount_attachment_t *root);
+static void vfs_drop_tree_locked(vfs_mount_table_t *table, vfs_mount_attachment_t *root);
+
+/* Build the namespace's root mount, the anchor of every mount tree in it. */
+static void vfs_mount_root_init(vfs_mount_table_t *table)
+{
+    vfs_mount_object_t     *object = calloc(1, sizeof(*object));
+    vfs_mount_attachment_t *root   = calloc(1, sizeof(*root));
+    if (!object || !root) {
+        free(object);
+        free(root);
+        return;
+    }
+    object->root       = rootdir;
+    object->references = 1;
+    object->filesystem = true;
+    root->covered      = rootdir;
+    root->object       = object;
+    root->attributes   = table->root_attributes;
+    /* The initial root mount is private; systemd shares it during boot. */
+    root->propagation  = table->root_propagation;
+    root->peer_group   = table->root_peer_group;
+    root->master_group = table->root_master_group;
+    root->id           = rootdir->mount_id ? rootdir->mount_id : __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
+    table->root        = root;
+}
+
+/* Caller holds vfs_namespace_lock, except single-threaded early boot. */
+static vfs_mount_table_t *vfs_mount_table(mnt_namespace_t *ns, bool create)
+{
+    if (!ns) ns = &init_mnt_ns;
+    vfs_mount_table_t *table = ns->root_mount;
+    if (!table && create) {
+        table = calloc(1, sizeof(*table));
+        if (table) {
+            table->generation = 1;
+            table->root_attributes = rootdir ? rootdir->flags & VFS_MOUNT_ATTRIBUTES : 0;
+            table->root_propagation = VFS_MOUNT_PRIVATE;
+            vfs_poll_source_init(&table->poll_source);
+            table->namespace = ns;
+            table->next_all = mount_tables;
+            mount_tables = table;
+            ns->root_mount = table;
+        }
+    }
+    /* The root mount can only be built once the root dentry exists. */
+    if (table && !table->root && rootdir) vfs_mount_root_init(table);
+    return table;
+}
+
+static vfs_mount_attachment_t *vfs_mount_attachment(vfs_mount_table_t *table, vfs_node_t node)
+{
+    for (vfs_mount_attachment_t *entry = table ? table->entries : NULL; entry; entry = entry->next)
+        if (entry->covered == node || entry->object->root == node) return entry;
+    return NULL;
+}
+
+/*
+ * The mount covering `dentry` when the walk arrives through `parent_mount`.
+ * Keying on the pair is what keeps two views of one dentry apart, as __lookup_mnt
+ * does in Linux.  Entries are pushed to the head, so the first match is the
+ * topmost mount.
+ */
+static vfs_mount_attachment_t *vfs_mount_lookup(vfs_mount_table_t *table, vfs_mount_attachment_t *parent_mount, vfs_node_t dentry)
+{
+    for (vfs_mount_attachment_t *entry = table ? table->entries : NULL; entry; entry = entry->next)
+        if (entry->parent == parent_mount && entry->covered == dentry) return entry;
+    return NULL;
+}
+
+static vfs_mount_attachment_t *vfs_mount_find_id(vfs_mount_table_t *table, uint64_t id)
+{
+    if (!table || !id) return NULL;
+    if (table->root && table->root->id == id) return table->root;
+    for (vfs_mount_attachment_t *entry = table->entries; entry; entry = entry->next)
+        if (entry->id == id) return entry;
+    return NULL;
+}
+
+/*
+ * A bind-mount root owns no subtree of its own: every name lookup and every
+ * directory listing is answered by the subtree it aliases.  Following the
+ * chain lets a bind of a bind resolve to the real directory in one step.
+ */
+static vfs_node_t vfs_alias_resolve(vfs_node_t node)
+{
+    for (unsigned depth = 0; node && node->alias && depth < 8; depth++) node = node->alias;
+    return node;
+}
+
+/* Called only by a lookup that already owns the namespace lock. */
+static vfs_node_t vfs_cross_mount(vfs_node_t node)
+{
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), false);
+    for (unsigned depth = 0; depth < 40; depth++) {
+        vfs_mount_attachment_t *entry = vfs_mount_attachment(table, node);
+        if (!entry || entry->covered != node || entry->object->root == node) break;
+        node = entry->object->root;
+    }
+    return node;
+}
+
+static vfs_node_t vfs_path_parent_table(vfs_mount_table_t *table, vfs_node_t node)
+{
+    vfs_mount_attachment_t *entry = vfs_mount_attachment(table, node);
+    return entry && entry->object->root == node ? entry->covered->parent : node->parent;
+}
+
+/*
+ * The mount whose tree holds `dentry`: the innermost mount rooted at it, or the
+ * innermost one attached at one of its strict ancestors.  A mount stacked at
+ * `dentry` itself is deliberately not the answer, which is what lets a second
+ * mount land beside the first instead of inside it.
+ */
+static vfs_mount_attachment_t *vfs_mount_containing(vfs_mount_table_t *table, vfs_node_t dentry)
+{
+    for (vfs_node_t node = dentry; node;) {
+        for (vfs_mount_attachment_t *entry = table ? table->entries : NULL; entry; entry = entry->next)
+            if (entry->object->root == node) return entry;
+        vfs_node_t parent = vfs_path_parent_table(table, node);
+        if (!parent || parent == node) break;
+        if (parent != dentry)
+            for (vfs_mount_attachment_t *entry = table ? table->entries : NULL; entry; entry = entry->next)
+                if (entry->covered == parent) return entry;
+        node = parent;
+    }
+    return table ? table->root : NULL;
+}
+
+static const char *vfs_path_name_table(vfs_mount_table_t *table, vfs_node_t node)
+{
+    vfs_mount_attachment_t *entry = vfs_mount_attachment(table, node);
+    return entry && entry->object->root == node ? entry->covered->name : node->name;
+}
+
+/*
+ * Is `mount` `ancestor` itself or a mount stacked below it?  The parent chain is
+ * the only structural answer: covered dentries live in the parent's tree, so
+ * comparing dentry paths cannot see across a mount boundary.
+ */
+static bool vfs_mount_below(vfs_mount_attachment_t *mount, vfs_mount_attachment_t *ancestor)
+{
+    if (!mount || !ancestor) return false;
+    for (vfs_mount_attachment_t *cursor = mount; cursor; cursor = cursor->parent)
+        if (cursor == ancestor) return true;
+    return false;
+}
+
+static uint32_t vfs_new_peer_group(void)
+{
+    uint64_t id = __atomic_fetch_add(&vfs_next_peer_group, 1, __ATOMIC_RELAXED);
+    return id ? (uint32_t)id : 1;
+}
+
+/* The three propagation fields a mount carries, wherever they are stored. */
+typedef struct vfs_propagation {
+        uint32_t type;
+        uint32_t peer_group;
+        uint32_t master_group;
+} vfs_propagation_t;
+
+/* The mount a new attachment lands in, or NULL for the namespace root, whose
+ * state the table holds directly, as it does for its attributes. */
+static vfs_mount_attachment_t *vfs_mount_target(vfs_mount_table_t *table, vfs_node_t node)
+{
+    return vfs_mount_attachment(table, node);
+}
+
+/* Does any mount but the one being tested carry `group`? */
+static bool vfs_peer_group_alone(vfs_mount_table_t *table, vfs_mount_attachment_t *self, uint32_t group)
+{
+    if (!group) return true;
+    if (!self) self = table->root;
+    for (vfs_mount_table_t *other = mount_tables; other; other = other->next_all) {
+        if (other->root && other->root != self && other->root->peer_group == group) return false;
+        for (vfs_mount_attachment_t *entry = other->entries; entry; entry = entry->next)
+            if (entry != self && entry->peer_group == group) return false;
+    }
+    return true;
+}
+
+static void vfs_peer_leave_locked(vfs_mount_attachment_t *self)
+{
+    if (!self->peer_group) return;
+    for (vfs_mount_table_t *table = mount_tables; table; table = table->next_all)
+        for (vfs_mount_attachment_t *entry = table->root; entry; entry = entry == table->root ? table->entries : entry->next)
+            if (entry != self && entry->peer_group == self->peer_group) return;
+    for (vfs_mount_table_t *table = mount_tables; table; table = table->next_all) {
+        for (vfs_mount_attachment_t *entry = table->root; entry; entry = entry == table->root ? table->entries : entry->next) {
+            if (entry->master_group != self->peer_group) continue;
+            entry->master_group = self->master_group;
+            if (!entry->peer_group && !entry->master_group) entry->propagation = VFS_MOUNT_PRIVATE;
+        }
+        if (table->root) {
+            table->root_propagation = table->root->propagation;
+            table->root_master_group = table->root->master_group;
+        }
+    }
+}
+
+static void vfs_propagation_read(vfs_mount_table_t *table, vfs_mount_attachment_t *entry, vfs_propagation_t *out)
+{
+    if (!entry && table) {
+        out->type         = table->root_propagation;
+        out->peer_group   = table->root_peer_group;
+        out->master_group = table->root_master_group;
+        return;
+    }
+    out->type         = entry ? entry->propagation : VFS_MOUNT_PRIVATE;
+    out->peer_group   = entry ? entry->peer_group : 0;
+    out->master_group = entry ? entry->master_group : 0;
+}
+
+static void vfs_propagation_write(vfs_mount_table_t *table, vfs_mount_attachment_t *entry, const vfs_propagation_t *value)
+{
+    if (!entry && table) {
+        table->root_propagation  = value->type;
+        table->root_peer_group   = value->peer_group;
+        table->root_master_group = value->master_group;
+        if (table->root) {
+            table->root->propagation = value->type;
+            table->root->peer_group = value->peer_group;
+            table->root->master_group = value->master_group;
+        }
+        return;
+    }
+    if (!entry) return;
+    entry->propagation  = value->type;
+    entry->peer_group   = value->peer_group;
+    entry->master_group = value->master_group;
+}
+
+/*
+ * One make-xxxx step, as tabulated in Documentation/filesystems/sharedsubtree.rst.
+ * Slaving a mount that is not shared is a no-op, and slaving a shared mount that
+ * is alone in its peer group leaves it private, because there is no peer to
+ * receive events from.
+ */
+static void vfs_propagation_change(vfs_mount_table_t *table, vfs_mount_attachment_t *entry, vfs_propagation_t *state, uint32_t type)
+{
+    switch (type) {
+        case VFS_MOUNT_SHARED :
+            /* Joining a peer group of one's own, keeping any existing master. */
+            if (state->type != VFS_MOUNT_SHARED) state->peer_group = vfs_new_peer_group();
+            state->type = VFS_MOUNT_SHARED;
+            break;
+        case VFS_MOUNT_SLAVE :
+            if (state->type != VFS_MOUNT_SHARED) break;
+            if (vfs_peer_group_alone(table, entry, state->peer_group)) {
+                state->type         = state->master_group ? VFS_MOUNT_SLAVE : VFS_MOUNT_PRIVATE;
+                state->peer_group   = 0;
+            } else {
+                state->master_group = state->peer_group;
+                state->peer_group   = 0;
+                state->type         = VFS_MOUNT_SLAVE;
+            }
+            break;
+        case VFS_MOUNT_PRIVATE :
+            state->type         = VFS_MOUNT_PRIVATE;
+            state->peer_group   = 0;
+            state->master_group = 0;
+            break;
+        default :
+            state->type         = VFS_MOUNT_UNBINDABLE;
+            state->peer_group   = 0;
+            state->master_group = 0;
+            break;
+    }
+}
+
+/*
+ * Propagation of a mount created over `dest`.  `source` is NULL for a fresh
+ * filesystem, which the table treats as private; a NULL `dest` means the
+ * namespace root, which is shared only after an explicit make-shared.
+ */
+static void vfs_propagation_bind(const vfs_propagation_t *source, const vfs_propagation_t *dest, vfs_propagation_t *result)
+{
+    uint32_t src          = source ? source->type : VFS_MOUNT_PRIVATE;
+    bool     dest_shared  = dest && dest->type == VFS_MOUNT_SHARED;
+
+    result->type         = VFS_MOUNT_PRIVATE;
+    result->peer_group   = 0;
+    result->master_group = source ? source->master_group : 0;
+
+    if (src == VFS_MOUNT_SHARED) {
+        /* The new mount joins the source's peer group. */
+        result->type       = VFS_MOUNT_SHARED;
+        result->peer_group = source->peer_group;
+    } else if (src == VFS_MOUNT_SLAVE) {
+        result->type = VFS_MOUNT_SLAVE;
+        /* Slaving onto a shared destination keeps receiving and starts sharing. */
+        if (dest_shared) result->peer_group = vfs_new_peer_group();
+    } else if (dest_shared) {
+        result->type       = VFS_MOUNT_SHARED;
+        result->peer_group = vfs_new_peer_group();
+    }
+}
+
+/*
+ * Propagation of a moved mount: the move keeps its own type and only merges the
+ * destination's peer group, so bind's "invalid on an unbindable source" does
+ * not apply.  Returns -EINVAL when the source cannot land on a shared mount.
+ */
+static int vfs_propagation_move(const vfs_propagation_t *source, const vfs_propagation_t *dest, vfs_propagation_t *result)
+{
+    bool dest_shared = dest && dest->type == VFS_MOUNT_SHARED;
+
+    *result = *source;
+    if (source->type == VFS_MOUNT_UNBINDABLE) return dest_shared ? -EINVAL : EOK;
+    if (dest_shared && !result->peer_group) {
+        result->peer_group = vfs_new_peer_group();
+        result->type = VFS_MOUNT_SHARED;
+    }
+    return EOK;
+}
+
+static vfs_node_t vfs_path_parent(vfs_node_t node)
+{
+    return vfs_path_parent_table(vfs_mount_table(mnt_namespace_current(), false), node);
+}
+
+/* Detached descriptors retain the final policy until their last close. */
+static void vfs_retire_policy_locked(vfs_mount_attachment_t *entry)
+{
+    if (!entry->open_files) { free(entry); return; }
+    entry->covered = NULL;
+    entry->object = NULL;
+    entry->parent = NULL;
+    entry->next = retired_policies;
+    retired_policies = entry;
+}
+
+/* Each attachment keeps its covered dentry and its shared filesystem alive. */
+static void vfs_mount_attachment_put_locked(vfs_mount_attachment_t *entry)
+{
+    vfs_peer_leave_locked(entry);
+    if (entry->covered->mount_refs) entry->covered->mount_refs--;
+    if (entry->covered->refcount) entry->covered->refcount--;
+    vfs_mount_object_t *object = entry->object;
+    if (!--object->references) {
+        object->retired_next = retired_mounts;
+        retired_mounts = object;
+    }
+    vfs_retire_policy_locked(entry);
+}
+
+int vfs_mntns_clone(mnt_namespace_t *source, mnt_namespace_t *target)
+{
+    if (!target) return -EINVAL;
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_table_t *old = vfs_mount_table(source, true);
+    vfs_mount_table_t *copy = calloc(1, sizeof(*copy));
+    if (!old || !copy) { free(copy); mutex_unlock(&vfs_namespace_lock); return -ENOMEM; }
+    copy->root_attributes = old->root_attributes;
+    copy->generation = old->generation;
+    copy->root_propagation  = old->root_propagation;
+    copy->root_peer_group   = old->root_peer_group;
+    copy->root_master_group = old->root_master_group;
+    vfs_poll_source_init(&copy->poll_source);
+    vfs_mount_attachment_t **tail = &copy->entries;
+    for (vfs_mount_attachment_t *entry = old->entries; entry; entry = entry->next) {
+        vfs_mount_attachment_t *new = malloc(sizeof(*new));
+        if (!new) {
+            while (copy->entries) {
+                vfs_mount_attachment_t *next = copy->entries->next;
+                vfs_mount_attachment_put_locked(copy->entries);
+                copy->entries = next;
+            }
+            free(copy);
+            mutex_unlock(&vfs_namespace_lock);
+            return -ENOMEM;
+        }
+        *new = *entry;
+        new->open_files = 0;
+        new->next = NULL;
+        new->id = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
+        new->covered->refcount++;
+        new->covered->mount_refs++;
+        new->object->references++;
+        *tail = new;
+        tail = &new->next;
+    }
+    /* Give the copy its own root mount, as the source namespace has one. */
+    vfs_mount_root_init(copy);
+    if (!copy->root) {
+        while (copy->entries) {
+            vfs_mount_attachment_t *next = copy->entries->next;
+            vfs_mount_attachment_put_locked(copy->entries);
+            copy->entries = next;
+        }
+        free(copy);
+        mutex_unlock(&vfs_namespace_lock);
+        return -ENOMEM;
+    }
+    copy->root->id = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
+    copy->root->attributes   = old->root->attributes;
+    copy->root->propagation  = old->root->propagation;
+    copy->root->peer_group   = old->root->peer_group;
+    copy->root->master_group = old->root->master_group;
+    copy->root->locked_attributes = old->root->locked_attributes;
+
+    /*
+     * A copied attachment must point into the copy: path resolution enters a
+     * mount by matching (parent mount, mountpoint), so a link left aimed at the
+     * source namespace's attachment would make the inherited mount invisible.
+     */
+    for (vfs_mount_attachment_t *entry = copy->entries; entry; entry = entry->next) {
+        if (!entry->parent) continue;
+        vfs_mount_attachment_t *want = entry->parent;
+        if (want == old->root) {
+            entry->parent = copy->root;
+            continue;
+        }
+        for (vfs_mount_attachment_t *source_entry = old->entries, *copy_entry = copy->entries; source_entry && copy_entry;
+             source_entry = source_entry->next, copy_entry = copy_entry->next)
+            if (source_entry == want) {
+                entry->parent = copy_entry;
+                break;
+            }
+    }
+    bool less_privileged = target->ns.owner != source->ns.owner;
+    if (less_privileged) {
+        for (vfs_mount_attachment_t *entry = copy->root; entry; entry = entry == copy->root ? copy->entries : entry->next) {
+            entry->locked_attributes |= entry->attributes | MOUNT_FLAG_ATIME;
+            entry->locked = entry != copy->root;
+            if (entry->peer_group) {
+                entry->master_group = entry->peer_group;
+                entry->peer_group = 0;
+                entry->propagation = VFS_MOUNT_SLAVE;
+            }
+        }
+        copy->root_propagation = copy->root->propagation;
+        copy->root_peer_group = copy->root->peer_group;
+        copy->root_master_group = copy->root->master_group;
+    }
+    copy->namespace = target;
+    copy->next_all = mount_tables;
+    mount_tables = copy;
+    target->root_mount = copy;
+    mutex_unlock(&vfs_namespace_lock);
+    return EOK;
+}
+
+/* Free a table's root mount; the child entries are released separately. */
+static void vfs_mount_root_destroy(vfs_mount_table_t *table)
+{
+    vfs_mount_attachment_t *root = table ? table->root : NULL;
+    if (!root) return;
+    table->root = NULL;
+    free(root->object);
+    vfs_retire_policy_locked(root);
+}
+
+static void vfs_mount_reap(void);
+
+void vfs_mntns_destroy(mnt_namespace_t *ns)
+{
+    if (!ns || ns == &init_mnt_ns) return;
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_table_t *table = ns->root_mount;
+    ns->root_mount = NULL;
+    if (table) {
+        vfs_mount_table_t **link = &mount_tables;
+        while (*link && *link != table) link = &(*link)->next_all;
+        if (*link) *link = table->next_all;
+        while (table->entries) {
+            vfs_mount_attachment_t *next = table->entries->next;
+            vfs_mount_attachment_put_locked(table->entries);
+            table->entries = next;
+        }
+        vfs_mount_root_destroy(table);
+    }
+    mutex_unlock(&vfs_namespace_lock);
+    free(table);
+    vfs_mount_reap();
+}
+
+uint64_t vfs_mount_generation_ns(mnt_namespace_t *ns)
+{
+    vfs_mount_table_t *table = vfs_mount_table(ns, false);
+    return table ? __atomic_load_n(&table->generation, __ATOMIC_ACQUIRE) : mount_generation;
+}
+
 uint64_t vfs_mount_generation(void)
 {
-    return __atomic_load_n(&mount_generation, __ATOMIC_ACQUIRE);
+    return vfs_mount_generation_ns(mnt_namespace_current());
+}
+
+vfs_poll_source_t *vfs_mount_poll_source_ns(mnt_namespace_t *ns)
+{
+    vfs_mount_table_t *table = vfs_mount_table(ns, false);
+    return table ? &table->poll_source : &mount_poll_source;
 }
 
 vfs_poll_source_t *vfs_mount_poll_source(void)
 {
-    return &mount_poll_source;
+    return vfs_mount_poll_source_ns(mnt_namespace_current());
 }
 
 void vfs_mount_changed(void)
 {
-    __atomic_add_fetch(&mount_generation, 1, __ATOMIC_RELEASE);
-    vfs_poll_source_notify(&mount_poll_source, 0x00a); // POLLPRI | POLLERR
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), true);
+    if (table) {
+        __atomic_add_fetch(&table->generation, 1, __ATOMIC_RELEASE);
+        vfs_poll_source_notify(&table->poll_source, 0x00a);
+    } else {
+        __atomic_add_fetch(&mount_generation, 1, __ATOMIC_RELEASE);
+        vfs_poll_source_notify(&mount_poll_source, 0x00a);
+    }
 }
 
 struct vfs_callback vfs_empty_callback;
@@ -103,7 +654,7 @@ int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, process_t *p
 {
     if (!node) return -EACCES;
     if (!proc) return 0;
-    if (proc->fsuid == 0) {
+    if (proc->fsuid == 0 && namespace_initial_root(proc)) {
         if ((access_mask & VFS_ACCESS_X) && !(node->type & file_dir) && !(node->mode & 0111)) return -EACCES;
         return 0;
     }
@@ -120,13 +671,13 @@ int vfs_access_check(vfs_node_t node, uint32_t access_mask)
 }
 
 /* Change a node's permission bits on behalf of a specific process. */
-int vfs_chmod_process(vfs_node_t node, uint16_t mode, process_t *proc)
+int vfs_chmod_process_at(vfs_node_t node, uint16_t mode, process_t *proc, uint64_t mount_id)
 {
     if (!node || !proc) return -EINVAL;
-    if (vfs_mount_is_readonly(node)) return -EROFS;
-    if (proc->fsuid != 0 && proc->fsuid != node->owner) return -EPERM;
+    if (vfs_mount_is_readonly_at(node, mount_id)) return -EROFS;
+    if (!namespace_initial_root(proc) && proc->fsuid != node->owner) return -EPERM;
     mode &= 07777;
-    if (proc->fsuid != 0 && !process_in_group(proc, node->group)) mode &= (uint16_t)~02000;
+    if (!namespace_initial_root(proc) && !process_in_group(proc, node->group)) mode &= (uint16_t)~02000;
     if (callbackof(node, chmod) != vfs_empty_callback.chmod) {
         int result = callbackof(node, chmod)(node, mode);
         if (result != EOK) return result;
@@ -138,15 +689,19 @@ int vfs_chmod_process(vfs_node_t node, uint16_t mode, process_t *proc)
     return EOK;
 }
 
-/* Change ownership, treating UINT32_MAX as "leave unchanged" value. */
-int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, process_t *proc)
+int vfs_chmod_process(vfs_node_t node, uint16_t mode, process_t *proc)
+{
+    return vfs_chmod_process_at(node, mode, proc, 0);
+}
+
+int vfs_chown_process_at(vfs_node_t node, uint32_t owner, uint32_t group, process_t *proc, uint64_t mount_id)
 {
     if (!node || !proc) return -EINVAL;
-    if (vfs_mount_is_readonly(node)) return -EROFS;
+    if (vfs_mount_is_readonly_at(node, mount_id)) return -EROFS;
 
     bool change_owner = owner != UINT32_MAX;
     bool change_group = group != UINT32_MAX;
-    if (proc->fsuid != 0) {
+    if (!namespace_initial_root(proc)) {
         if (proc->fsuid != node->owner) return -EPERM;
         if (change_owner && owner != node->owner) return -EPERM;
         if (change_group && !process_in_group(proc, group)) return -EPERM;
@@ -163,15 +718,19 @@ int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, process_t
     return EOK;
 }
 
-/* Change file timestamps on behalf of a process. */
-int vfs_set_times_process(vfs_node_t node, int64_t atime, int64_t mtime, uint32_t flags, process_t *proc)
+int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, process_t *proc)
+{
+    return vfs_chown_process_at(node, owner, group, proc, 0);
+}
+
+int vfs_set_times_process_at(vfs_node_t node, int64_t atime, int64_t mtime, uint32_t flags, process_t *proc, uint64_t mount_id)
 {
     uint32_t which = flags & (VFS_SET_TIME_ATIME | VFS_SET_TIME_MTIME);
     if (!node || !proc) return -EINVAL;
     if (!which) return EOK;
-    if (vfs_mount_is_readonly(node)) return -EROFS;
+    if (vfs_mount_is_readonly_at(node, mount_id)) return -EROFS;
 
-    if (proc->fsuid != 0 && proc->fsuid != node->owner) {
+    if (!namespace_initial_root(proc) && proc->fsuid != node->owner) {
         if (flags & VFS_SET_TIME_EXPLICIT) return -EPERM;
         if (vfs_access_check_process(node, VFS_ACCESS_W, proc) != EOK) return -EACCES;
     }
@@ -181,6 +740,12 @@ int vfs_set_times_process(vfs_node_t node, int64_t atime, int64_t mtime, uint32_
     vfs_touch_change(node);
     inotify_notify(node, IN_ATTRIB);
     return EOK;
+}
+
+/* Default callback for filesystem slots with no registered operations */
+int vfs_set_times_process(vfs_node_t node, int64_t atime, int64_t mtime, uint32_t flags, process_t *proc)
+{
+    return vfs_set_times_process_at(node, atime, mtime, flags, proc, 0);
 }
 
 /* Default callback for filesystem slots with no registered operations */
@@ -371,13 +936,13 @@ int vfs_resolve_path(const char *base, const char *path, char *resolved, size_t 
 }
 
 /* Reconstruct the absolute path of a node into the caller's buffer. */
-int vfs_node_path(vfs_node_t node, char *path, size_t size)
+static int vfs_node_path_table(vfs_mount_table_t *table, vfs_node_t node, char *path, size_t size)
 {
     size_t     len = 0;
     vfs_node_t cur;
 
     if (!node || !path || size < 2) return -EINVAL;
-    for (cur = node; cur && cur->parent; cur = cur->parent) len += strlen(cur->name) + 1;
+    for (cur = node; cur && vfs_path_parent_table(table, cur); cur = vfs_path_parent_table(table, cur)) len += strlen(vfs_path_name_table(table, cur)) + 1;
     if (!len) len = 1;
     if (len + 1 > size) return -ENAMETOOLONG;
 
@@ -388,44 +953,189 @@ int vfs_node_path(vfs_node_t node, char *path, size_t size)
     }
 
     size_t pos = len;
-    for (cur = node; cur && cur->parent; cur = cur->parent) {
-        size_t name_len = strlen(cur->name);
+    for (cur = node; cur && vfs_path_parent_table(table, cur); cur = vfs_path_parent_table(table, cur)) {
+        size_t name_len = strlen(vfs_path_name_table(table, cur));
         pos -= name_len;
-        memcpy(path + pos, cur->name, name_len);
+        memcpy(path + pos, vfs_path_name_table(table, cur), name_len);
         path[--pos] = '/';
     }
     return EOK;
 }
 
+int vfs_node_path(vfs_node_t node, char *path, size_t size)
+{
+    return vfs_node_path_table(vfs_mount_table(mnt_namespace_current(), false), node, path, size);
+}
+
+
+/*
+ * Join a base path with a relative one, tolerating a leading slash on either
+ * side.  Returns how many bytes the result needs, like the other path helpers.
+ */
+static size_t vfs_path_join(char *out, size_t size, const char *base, const char *relative)
+{
+    size_t      base_len = strlen(base);
+    bool        need_sep = base_len && base[base_len - 1] != '/';
+    const char *rel      = relative;
+
+    while (*rel == '/') rel++;
+    size_t rel_len = strlen(rel);
+    size_t used    = base_len + (need_sep && *rel ? 1 : 0) + rel_len;
+    if (used + 1 > size) return used + 1;
+    memcpy(out, base, base_len);
+    size_t pos = base_len;
+    if (need_sep && *rel) out[pos++] = '/';
+    memcpy(out + pos, rel, rel_len);
+    out[pos + rel_len] = '\0';
+    return used + 1;
+}
+
+/*
+ * The path `node` has inside one mount's own dentry tree, relative to `root`.
+ * Unlike vfs_node_path_table() this never crosses a mount boundary, because the
+ * two sides of a boundary name their files in different trees.
+ */
+static int vfs_dentry_path_within(vfs_node_t node, vfs_node_t root, char *out, size_t size)
+{
+    const char *names[VFS_MOUNT_MIRROR_MAX];
+    unsigned    count  = 0;
+    vfs_node_t  cursor = node;
+
+    /* The root of this tree: nothing to walk.  Check before alias resolution,
+     * which would otherwise walk up past a bind root and yield a bogus path. */
+    if (node == root) {
+        if (size < 2) return -ENAMETOOLONG;
+        out[0] = '/';
+        out[1] = '\0';
+        return EOK;
+    }
+
+    /* A bind root is its own node that aliases the source subtree, and the
+     * dentry parents lead to the source, not to the alias. */
+    root = vfs_alias_resolve(root);
+
+    while (cursor && cursor != root) {
+        if (count == VFS_MOUNT_MIRROR_MAX || !cursor->name) return -EXDEV;
+        names[count++] = cursor->name;
+        cursor = cursor->parent;
+    }
+    if (cursor != root) return -EXDEV;
+
+    size_t used = 0;
+    if (size < 2) return -ENAMETOOLONG;
+    out[used++] = '/';
+    out[used]   = '\0';
+    while (count) {
+        const char *name = names[--count];
+        size_t      len  = strlen(name);
+        if (used + len + 1 >= size) return -ENAMETOOLONG;
+        if (used > 1) out[used++] = '/';
+        memcpy(out + used, name, len);
+        used += len;
+        out[used] = '\0';
+    }
+    return EOK;
+}
+
+/*
+ * The namespace path of an attachment, composed mount by mount the way
+ * __d_path()/prepend_path() do:
+ *     path(m) = join(path(m->parent), relpath(m->parent->root, m->covered))
+ * Computing it here instead of caching it at attach time keeps it correct when
+ * a parent mount is later moved, and it never goes stale.
+ */
+static int vfs_mount_mountpoint_path(const vfs_mount_table_t *table, const vfs_mount_attachment_t *mount, char *out, size_t size)
+{
+    const vfs_mount_attachment_t *chain[VFS_MOUNT_MIRROR_MAX];
+    unsigned                      depth = 0;
+
+    if (size < 2) return -ENAMETOOLONG;
+    out[0] = '/';
+    out[1] = '\0';
+    for (const vfs_mount_attachment_t *m = mount; m && m != table->root && m->parent && depth < VFS_MOUNT_MIRROR_MAX; m = m->parent) chain[depth++] = m;
+
+    /* Compose from the outermost mount inwards, as __prepend_path() does. */
+    while (depth--) {
+        char relative[VFS_MOUNT_PATH_MAX];
+        int  result = vfs_dentry_path_within(chain[depth]->covered, chain[depth]->parent->object->root, relative, sizeof(relative));
+        if (result != EOK) return result;
+        if (vfs_path_join(out, size, out, relative) > size) return -ENAMETOOLONG;
+    }
+    return EOK;
+}
+
+/*
+ * The path a node has in this namespace.  A bind mount aliases the source's
+ * dentries instead of copying the tree, so the dentry walk alone would name the
+ * source's path; composing the enclosing mount's own mountpoint with the node's
+ * position inside it recovers the namespace's view.
+ */
+static int vfs_namespace_path_table(vfs_mount_table_t *table, vfs_node_t node, char *out, size_t size)
+{
+    char relative[CONFIG_VFS_PATH_MAX];
+    char base[CONFIG_VFS_PATH_MAX];
+    int  r;
+
+    if (!table || !table->root) return vfs_node_path_table(table, node, out, size);
+    vfs_mount_attachment_t *mount = vfs_mount_containing(table, node);
+    if (!mount || mount == table->root) return vfs_node_path_table(table, node, out, size);
+
+    r = vfs_dentry_path_within(node, mount->object->root, relative, sizeof(relative));
+    if (r != EOK) return vfs_node_path_table(table, node, out, size);
+    r = vfs_mount_mountpoint_path(table, mount, base, sizeof(base));
+    if (r != EOK) return vfs_node_path_table(table, node, out, size);
+    if (vfs_path_join(out, size, base, relative) > size) return -ENAMETOOLONG;
+    return EOK;
+}
+
+int vfs_node_path_at(vfs_node_t node, uint64_t mount_id, char *path, size_t size)
+{
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), true);
+    vfs_mount_attachment_t *mount = table && table->root->id == mount_id ? table->root : NULL;
+    for (vfs_mount_attachment_t *entry = table ? table->entries : NULL; !mount && entry; entry = entry->next)
+        if (entry->id == mount_id) mount = entry;
+    int result;
+    if (mount) {
+        char relative[VFS_MOUNT_PATH_MAX];
+        result = vfs_dentry_path_within(node, mount->object->root, relative, sizeof(relative));
+        if (result == EOK) result = vfs_mount_mountpoint_path(table, mount, path, size);
+        if (result == EOK && vfs_path_join(path, size, path, relative) > size) result = -ENAMETOOLONG;
+    } else {
+        result = vfs_node_path_table(table, node, path, size);
+    }
+    mutex_unlock(&vfs_namespace_lock);
+    return result;
+}
+
+/* The namespace path of a mountpoint dentry, for an attachment to record. */
+static char *vfs_mountpoint_of(vfs_mount_table_t *table, vfs_node_t target)
+{
+    char path[CONFIG_VFS_PATH_MAX];
+    if (vfs_namespace_path_table(table, target, path, sizeof(path)) != EOK) return NULL;
+    return strdup(path);
+}
+
+/* The namespace path a mirrored submount takes under its new parent mount. */
+static char *vfs_mountpoint_under(const char *base, const char *relative)
+{
+    size_t needed = vfs_path_join(NULL, 0, base, relative);
+    char  *joined = malloc(needed);
+    if (!joined) return NULL;
+    if (vfs_path_join(joined, needed, base, relative) > needed) {
+        free(joined);
+        return NULL;
+    }
+    return joined;
+}
+
 /* Build the absolute path of a node into a malloc'd buffer. */
 static char *vfs_node_absolute_path(vfs_node_t node)
 {
-    size_t     len = 0;
-    vfs_node_t cur;
-
-    if (!node) return 0;
-    for (cur = node; cur && cur->parent; cur = cur->parent) len += strlen(cur->name) + 1;
-
-    if (!len) len = 1;
-    char *path = malloc(len + 1);
-    if (!path) return 0;
-
-    path[len] = '\0';
-    if (len == 1) {
-        path[0] = '/';
-        path[1] = '\0';
-        return path;
-    }
-
-    size_t pos = len;
-    for (cur = node; cur && cur->parent; cur = cur->parent) {
-        size_t name_len = strlen(cur->name);
-        pos -= name_len;
-        memcpy(path + pos, cur->name, name_len);
-        path[--pos] = '/';
-    }
-
-    return path;
+    char *resolved = malloc(CONFIG_VFS_PATH_MAX);
+    if (!resolved) return NULL;
+    if (vfs_node_path(node, resolved, CONFIG_VFS_PATH_MAX) != EOK) { free(resolved); return NULL; }
+    return resolved;
 }
 
 /* Resolve a symlink node to its absolute target path. */
@@ -488,7 +1198,7 @@ static char *vfs_resolve_link_path(vfs_node_t node)
 }
 
 /* VFS operation: open internal. */
-static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final, int *error);
+static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final, int *error, vfs_mount_attachment_t **mount_out);
 
 /* Open a file or directory, invoking the appropriate callback */
 static void do_open(vfs_node_t file)
@@ -530,8 +1240,9 @@ static vfs_node_t vfs_child_append(vfs_node_t parent, const char *name, void *ha
 static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
 {
     vfs_node_t             node   = NULL;
+    parent                        = vfs_alias_resolve(parent);
     enum vfs_dcache_result cached = vfs_dcache_lookup(parent, name, &node);
-    if (cached == VFS_DCACHE_POSITIVE) return node;
+    if (cached == VFS_DCACHE_POSITIVE) return net_sysfs_node_visible(node) ? node : NULL;
     if (cached == VFS_DCACHE_NEGATIVE) return NULL;
 
     node = clist_first(parent->child, data,
@@ -542,7 +1253,7 @@ static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
     } else {
         vfs_dcache_add_negative(parent, name);
     }
-    return node;
+    return node && net_sysfs_node_visible(node) ? node : NULL;
 }
 
 /*
@@ -553,6 +1264,7 @@ static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
  */
 static vfs_node_t vfs_child_find_reserved(vfs_node_t parent, const char *name)
 {
+    parent = vfs_alias_resolve(parent);
     return clist_first(parent->child, data, !(((vfs_node_t)data)->flags & VFS_NODE_UNLINKED) && !(((vfs_node_t)data)->type & file_delete) && streq(name, ((vfs_node_t)data)->name));
 }
 
@@ -574,6 +1286,14 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
 {
     vfs_node_t node = (vfs_node_t)(malloc(sizeof(struct vfs_node)));
     if (!node) return 0;
+
+    /*
+     * A bind root owns no subtree of its own, and every lookup aliases away from
+     * it.  A child created through one has to land in the tree those lookups
+     * reach, otherwise mkdir through a bind reports success and the entry is
+     * invisible.
+     */
+    parent = vfs_alias_resolve(parent);
 
     memset(node, 0, sizeof(struct vfs_node));
     node->parent = parent;
@@ -629,12 +1349,12 @@ void set_rootdir(vfs_node_t node)
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name)
 {
     vfs_node_t node = NULL;
-    if (vfs_dcache_lookup(dir, name, &node) == VFS_DCACHE_POSITIVE) return node;
+    if (vfs_dcache_lookup(dir, name, &node) == VFS_DCACHE_POSITIVE) return net_sysfs_node_visible(node) ? node : NULL;
     node = clist_first(dir->child, data,
                        !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) && !(((vfs_node_t)data)->type & file_delete)
                            && streq(name, ((vfs_node_t)data)->name));
     if (node) vfs_dcache_add(node);
-    return node;
+    return node && net_sysfs_node_visible(node) ? node : NULL;
 }
 
 /* Update a file or directory, ensuring it is open and ready */
@@ -647,8 +1367,9 @@ void vfs_update(vfs_node_t node)
 }
 
 /* Open a file or directory by path */
-static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final, int *error)
+static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final, int *error, vfs_mount_attachment_t **mount_out)
 {
+    if (mount_out) *mount_out = NULL;
     vfs_node_t owned_reference = NULL;
     bool       trailing_slash;
 
@@ -673,10 +1394,20 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
         return 0;
     }
     trailing_slash = str[1] != '\0' && str[strlen(str) - 1] == '/';
+    vfs_mount_table_t *walk_table = vfs_mount_table(mnt_namespace_current(), true);
+    vfs_mount_attachment_t *cur_mnt = walk_table ? walk_table->root : NULL;
+    vfs_node_t current = cur_mnt ? cur_mnt->object->root : rootdir;
+    for (unsigned depth = 0; cur_mnt && depth < 40; depth++) {
+        vfs_mount_attachment_t *mounted = vfs_mount_lookup(walk_table, cur_mnt, current);
+        if (!mounted) break;
+        cur_mnt = mounted;
+        current = mounted->object->root;
+    }
     if (str[1] == '\0') {
-        rootdir->refcount++;
+        current->refcount++;
         if (error) *error = EOK;
-        return rootdir;
+        if (mount_out) *mount_out = cur_mnt;
+        return current;
     }
 
     char *path = strdup(str + 1);
@@ -687,10 +1418,13 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
         return 0;
     }
 
-    char      *save_ptr = path;
-    vfs_node_t current  = rootdir;
+    char                    *save_ptr = path;
 
     for (char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
+        if (!current) {
+            if (error) *error = -ENOENT;
+            goto err;
+        }
         if (!(current->type & file_dir)) {
             if (error) *error = -ENOTDIR;
             goto err;
@@ -701,7 +1435,17 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
         }
         if (streq(buf, ".")) continue;
         if (streq(buf, "..")) {
-            vfs_node_t next = current->parent ? current->parent : current;
+            vfs_node_t next;
+            if (cur_mnt && current == cur_mnt->object->root && cur_mnt->parent) {
+                /* At a mount root: climb out above the mountpoint. */
+                vfs_node_t mountpoint = cur_mnt->covered;
+                cur_mnt               = cur_mnt->parent;
+                next                  = vfs_path_parent_table(walk_table, mountpoint);
+                if (!next) next = cur_mnt->object->root;
+            } else {
+                next = vfs_path_parent_table(walk_table, current);
+                if (!next) next = current;
+            }
             if (owned_reference && owned_reference != next && owned_reference->refcount) owned_reference->refcount--;
             owned_reference = owned_reference == next ? owned_reference : NULL;
             current         = next;
@@ -709,6 +1453,15 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
         }
 
         vfs_node_t next = vfs_child_find(current, buf);
+        /* Enter the topmost mount stacked at this name, if any. */
+        if (next && cur_mnt) {
+            for (unsigned depth = 0; depth < 40; depth++) {
+                vfs_mount_attachment_t *mounted = vfs_mount_lookup(walk_table, cur_mnt, next);
+                if (!mounted || mounted->object->root == next) break;
+                cur_mnt = mounted;
+                next    = mounted->object->root;
+            }
+        }
         if (!next) {
             if (error) *error = -ENOENT;
             goto err;
@@ -719,11 +1472,38 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
 
         do_update(current);
         if ((current->type & file_symlink) && (follow_final || trailing_slash || *save_ptr != '\0')) {
+            if (callbackof(current, follow_link) != vfs_empty_callback.follow_link) {
+                /* A magic link may drop process references and enter VFS again. */
+                current->refcount++;
+                vfs_node_t link = current;
+                mutex_unlock(&vfs_namespace_lock);
+                vfs_node_t target = callbackof(link, follow_link)(link);
+                char *fallback = target ? NULL : vfs_resolve_link_path(link);
+                vfs_close(link);
+                mutex_lock(&vfs_namespace_lock);
+                if (!target && fallback) target = vfs_open_internal(fallback, symlink_depth + 1, true, error, &cur_mnt);
+                else if (target) {
+                    /* A magic link jumps into its target's mount. */
+                    cur_mnt = vfs_mount_containing(walk_table, target);
+                    for (unsigned depth = 0; cur_mnt && depth < 40; depth++) {
+                        vfs_mount_attachment_t *mounted = vfs_mount_lookup(walk_table, cur_mnt, target);
+                        if (!mounted || mounted->object->root == target) break;
+                        if (target->refcount) target->refcount--;
+                        cur_mnt = mounted;
+                        target  = mounted->object->root;
+                        target->refcount++;
+                    }
+                }
+                free(fallback);
+                if (!target) goto err;
+                current = owned_reference = target;
+                continue;
+            }
             char      *target_path = vfs_resolve_link_path(current);
             vfs_node_t target;
 
             if (!target_path) goto err;
-            target = vfs_open_internal(target_path, symlink_depth + 1, true, error);
+            target = vfs_open_internal(target_path, symlink_depth + 1, true, error, &cur_mnt);
             free(target_path);
             if (!target) goto err;
 
@@ -732,6 +1512,10 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
             continue;
         }
     }
+    if (!current) {
+        if (error) *error = -ENOENT;
+        goto err;
+    }
     if (trailing_slash && !(current->type & file_dir)) {
         if (error) *error = -ENOTDIR;
         goto err;
@@ -739,6 +1523,7 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
     if (!owned_reference) current->refcount++;
     free(path);
     if (error) *error = EOK;
+    if (mount_out) *mount_out = cur_mnt;
     return current;
 err:
     if (owned_reference && owned_reference->refcount) owned_reference->refcount--;
@@ -746,11 +1531,78 @@ err:
     return 0;
 }
 
+/* Resolve a path and report the mount the walk arrived through. */
+vfs_node_t vfs_open_mount(const char *str, uint64_t *mount_out)
+{
+    return vfs_open_checked_at(str, false, NULL, mount_out);
+}
+
+void vfs_mount_identity(vfs_node_t node, uint64_t arrival_id, uint64_t *id, bool *is_root)
+{
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), true);
+    vfs_mount_attachment_t *mount = table && table->root->id == arrival_id ? table->root : NULL;
+    for (vfs_mount_attachment_t *entry = table ? table->entries : NULL; !mount && entry; entry = entry->next)
+        if (entry->id == arrival_id) mount = entry;
+    if (!mount && table) mount = vfs_mount_containing(table, node);
+    *id = mount ? mount->id : 0;
+    *is_root = mount && node == mount->object->root;
+    mutex_unlock(&vfs_namespace_lock);
+}
+
+vfs_node_t vfs_open_checked_at(const char *path, bool nofollow, int *error, uint64_t *mount_id)
+{
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_attachment_t *mount = NULL;
+    vfs_node_t node = vfs_open_internal(path, 0, !nofollow, error, &mount);
+    if (mount_id) *mount_id = mount ? mount->id : 0;
+    mutex_unlock(&vfs_namespace_lock);
+    return node;
+}
+
+void vfs_mount_open_ref(uint64_t id, bool acquire)
+{
+    if (!id) return;
+    mutex_lock(&vfs_namespace_lock);
+    for (vfs_mount_table_t *table = mount_tables; table; table = table->next_all) {
+        for (vfs_mount_attachment_t *entry = table->root; entry; entry = entry == table->root ? table->entries : entry->next) {
+            if (entry->id != id) continue;
+            if (acquire) entry->open_files++;
+            else if (entry->open_files) entry->open_files--;
+            mutex_unlock(&vfs_namespace_lock);
+            return;
+        }
+    }
+    vfs_mount_attachment_t **link = &retired_policies;
+    while (*link) {
+        vfs_mount_attachment_t *entry = *link;
+        if (entry->id != id) { link = &entry->next; continue; }
+        if (acquire) entry->open_files++;
+        else if (entry->open_files) entry->open_files--;
+        if (!entry->open_files) { *link = entry->next; free(entry); }
+        break;
+    }
+    mutex_unlock(&vfs_namespace_lock);
+}
+
+uint64_t vfs_mount_flags_id(uint64_t id)
+{
+    uint64_t flags = 0;
+    mutex_lock(&vfs_namespace_lock);
+    for (vfs_mount_table_t *table = mount_tables; table; table = table->next_all)
+        for (vfs_mount_attachment_t *entry = table->root; entry; entry = entry == table->root ? table->entries : entry->next)
+            if (entry->id == id) flags = entry->attributes;
+    for (vfs_mount_attachment_t *entry = retired_policies; entry; entry = entry->next)
+        if (entry->id == id) flags = entry->attributes;
+    mutex_unlock(&vfs_namespace_lock);
+    return flags;
+}
+
 /* Open a file or directory by path. */
 vfs_node_t vfs_open(const char *str)
 {
     mutex_lock(&vfs_namespace_lock);
-    vfs_node_t node = vfs_open_internal(str, 0, true, NULL);
+    vfs_node_t node = vfs_open_internal(str, 0, true, NULL, NULL);
     mutex_unlock(&vfs_namespace_lock);
     return node;
 }
@@ -759,7 +1611,7 @@ vfs_node_t vfs_open(const char *str)
 vfs_node_t vfs_open_checked(const char *str, int *error)
 {
     mutex_lock(&vfs_namespace_lock);
-    vfs_node_t node = vfs_open_internal(str, 0, true, error);
+    vfs_node_t node = vfs_open_internal(str, 0, true, error, NULL);
     mutex_unlock(&vfs_namespace_lock);
     return node;
 }
@@ -768,7 +1620,7 @@ vfs_node_t vfs_open_checked(const char *str, int *error)
 vfs_node_t vfs_open_nofollow(const char *str)
 {
     mutex_lock(&vfs_namespace_lock);
-    vfs_node_t node = vfs_open_internal(str, 0, false, NULL);
+    vfs_node_t node = vfs_open_internal(str, 0, false, NULL, NULL);
     mutex_unlock(&vfs_namespace_lock);
     return node;
 }
@@ -777,7 +1629,7 @@ vfs_node_t vfs_open_nofollow(const char *str)
 vfs_node_t vfs_open_nofollow_checked(const char *str, int *error)
 {
     mutex_lock(&vfs_namespace_lock);
-    vfs_node_t node = vfs_open_internal(str, 0, false, error);
+    vfs_node_t node = vfs_open_internal(str, 0, false, error, NULL);
     mutex_unlock(&vfs_namespace_lock);
     return node;
 }
@@ -840,7 +1692,9 @@ static int vfs_prepare_create(const char *name, bool allow_trailing_slash, char 
         parent_path = path;
     }
 
-    vfs_node_t dir = vfs_open(parent_path);
+    int error = EOK;
+    uint64_t mount_id = 0;
+    vfs_node_t dir = vfs_open_checked_at(parent_path, false, &error, &mount_id);
     if (!dir) {
         free(path);
         return -ENOENT;
@@ -850,7 +1704,7 @@ static int vfs_prepare_create(const char *name, bool allow_trailing_slash, char 
         free(path);
         return -ENOTDIR;
     }
-    if (vfs_mount_is_readonly(dir)) {
+    if (vfs_mount_flags_id(mount_id) & MOUNT_FLAG_RDONLY) {
         vfs_close(dir);
         free(path);
         return -EROFS;
@@ -995,6 +1849,7 @@ int vfs_mkfile(const char *name)
 int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
 {
     if (!dir || !entry) return -EINVAL;
+    dir = vfs_alias_resolve(dir);
     mutex_lock(&vfs_namespace_lock);
 
     /*
@@ -1014,7 +1869,7 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
     size_t     visible = 0;
     for (clist_t list = dir->child; list; list = list->next) {
         vfs_node_t candidate = list->data;
-        if (!candidate || (candidate->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) || (candidate->type & file_delete)) continue;
+        if (!candidate || (candidate->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) || (candidate->type & file_delete) || !net_sysfs_node_visible(candidate)) continue;
         if (visible++ == index) {
             child = candidate;
             break;
@@ -1045,6 +1900,7 @@ int vfs_readdir_batch(vfs_node_t dir, size_t start_index, vfs_readdir_emit_t emi
 {
     if (!dir || !emit || !next_index) return -EINVAL;
 
+    dir         = vfs_alias_resolve(dir);
     *next_index = start_index;
     mutex_lock(&vfs_namespace_lock);
     if (start_index == 0) do_update(dir);
@@ -1058,7 +1914,7 @@ int vfs_readdir_batch(vfs_node_t dir, size_t start_index, vfs_readdir_emit_t emi
     int    status  = EOK;
     for (clist_t list = dir->child; list; list = list->next) {
         vfs_node_t child = list->data;
-        if (!child || (child->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) || (child->type & file_delete)) continue;
+        if (!child || (child->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING)) || (child->type & file_delete) || !net_sysfs_node_visible(child)) continue;
 
         size_t current_index = visible++;
         if (current_index < start_index) continue;
@@ -1381,14 +2237,180 @@ uint32_t vfs_filesystem_magic(uint16_t fsid)
     return fs_magics[fsid];
 }
 
+int vfs_set_filesystem_magic(uint16_t fsid, uint32_t magic)
+{
+    if (!fsid || fsid >= (uint16_t)fs_nextid) return -EINVAL;
+    fs_magics[fsid] = magic;
+    return EOK;
+}
+
+uint64_t vfs_mount_flags(vfs_node_t node)
+{
+    /*
+     * Ask which mount owns the dentry.  Turning the node back into a path and
+     * re-resolving it used to answer a different question -- the mount the
+     * *path* names, not the one the caller reached the node through -- so a
+     * node under a bind could report some other mount's read-only attribute.
+     */
+    uint64_t attributes = 0;
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), false);
+    vfs_mount_attachment_t *mount = table ? vfs_mount_containing(table, node) : NULL;
+    if (mount) attributes = mount->attributes;
+    mutex_unlock(&vfs_namespace_lock);
+    return attributes;
+}
+
+bool vfs_is_mountpoint(vfs_node_t node)
+{
+    mutex_lock(&vfs_namespace_lock);
+    bool mounted = node && (node == rootdir || vfs_mount_attachment(vfs_mount_table(mnt_namespace_current(), false), node));
+    mutex_unlock(&vfs_namespace_lock);
+    return mounted;
+}
+
+static uint64_t vfs_new_mount_id(void)
+{
+    uint64_t id = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
+    return id ? id : __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
+}
+
+/* Namespace handles may be bound to a regular file (for example /run/netns/x). */
+int vfs_namespace_bind(vfs_node_t source, vfs_node_t target, uint64_t flags)
+{
+    if (!source || !target || source == target) return -EINVAL;
+    if (flags & 16384ULL) return -EOPNOTSUPP; /* MS_REC needs a subtree clone. */
+    if ((source->type & file_dir) || (target->type & file_dir)) return -EOPNOTSUPP;
+    if (vfs_filesystem_magic(source->fsid) != 0x6e736673U) return -EOPNOTSUPP;
+    vfs_mount_object_t *object = calloc(1, sizeof(*object));
+    vfs_mount_attachment_t *entry = calloc(1, sizeof(*entry));
+    if (!object || !entry) { free(object); free(entry); return -ENOMEM; }
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), true);
+    if (!table || vfs_mount_attachment(table, target) || (target->flags & (VFS_NODE_UNLINKED | VFS_NODE_FINALIZING))) {
+        mutex_unlock(&vfs_namespace_lock);
+        free(object); free(entry);
+        return table ? -EBUSY : -ENOMEM;
+    }
+    source->refcount++;
+    target->refcount++;
+    target->mount_refs++;
+    object->root = source;
+    object->references = 1;
+    entry->object = object;
+    entry->covered = target;
+    entry->attributes = MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC;
+    entry->id = vfs_new_mount_id();
+    entry->parent = vfs_mount_containing(table, target);
+    {
+        vfs_propagation_t dest;
+        vfs_propagation_read(table, entry->parent, &dest);
+        vfs_propagation_bind(NULL, &dest, &dest);
+        vfs_propagation_write(table, entry, &dest);
+    }
+    entry->next = table->entries;
+    table->entries = entry;
+    int result = vfs_propagate_attach_locked(table, entry);
+    if (result != EOK) vfs_drop_tree_locked(table, entry);
+    mutex_unlock(&vfs_namespace_lock);
+    vfs_mount_changed();
+    return result;
+}
+
+static int vfs_mount_detached(const char *src, vfs_node_t covered, int fsid, uint64_t parent_id, uint64_t attributes)
+{
+    vfs_mount_object_t *object = calloc(1, sizeof(*object));
+    vfs_mount_attachment_t *entry = calloc(1, sizeof(*entry));
+    vfs_node_t root = vfs_node_alloc(NULL, covered->name);
+    if (!object || !entry || !root) { free(object); free(entry); vfs_free(root); return -ENOMEM; }
+    root->type = file_dir;
+    root->mode = covered->mode;
+    root->owner = covered->owner;
+    root->group = covered->group;
+    root->fsid = (uint16_t)fsid;
+    root->parent = covered->parent;
+    root->root = root;
+    root->refcount = 1; /* filesystem object pin; ordinary opens add to it */
+    const char *mount_source = src && src[0] ? src : fs_names[fsid];
+    root->mount_source = strdup(mount_source ? mount_source : "none");
+    if (!root->mount_source) { root->handle = NULL; vfs_free(root); free(object); free(entry); return -ENOMEM; }
+
+    mutex_lock(&vfs_namespace_lock);
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), true);
+    vfs_mount_attachment_t *parent_mount = vfs_mount_find_id(table, parent_id);
+    if (parent_id && !parent_mount) { mutex_unlock(&vfs_namespace_lock); vfs_free(root); free(object); free(entry); return -ENOENT; }
+    if (parent_mount && parent_mount->object->filesystem && parent_mount->object->root == covered && covered->fsid == (uint16_t)fsid && streq(fs_names[fsid], "sysfs")) {
+        mutex_unlock(&vfs_namespace_lock); vfs_free(root); free(object); free(entry); return EOK;
+    }
+    vfs_mount_attachment_t *existing = parent_mount ? vfs_mount_lookup(table, parent_mount, covered) : vfs_mount_attachment(table, covered);
+    if (!table || existing || (covered->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY))) {
+        int result = -ENOMEM;
+        if (table) result = existing && existing->object->root && existing->object->root->fsid == (uint16_t)fsid ? EOK : -EBUSY;
+        mutex_unlock(&vfs_namespace_lock);
+        vfs_free(root); free(object); free(entry);
+        return result;
+    }
+    covered->refcount++;
+    covered->mount_refs++;
+    mutex_unlock(&vfs_namespace_lock);
+    int status = fs_callbacks[fsid]->mount(src, root);
+    if (status != EOK) {
+        mutex_lock(&vfs_namespace_lock);
+        covered->refcount--; covered->mount_refs--;
+        mutex_unlock(&vfs_namespace_lock);
+        vfs_free(root); free(object); free(entry);
+        return status;
+    }
+    root->is_mount = 1;
+    root->mount_id = vfs_new_mount_id();
+    root->root = root;
+    (void)vfs_icache_refresh(root);
+    object->root = root;
+    object->references = 1;
+    object->filesystem = true;
+    entry->object = object;
+    entry->covered = covered;
+    entry->id = root->mount_id;
+    entry->attributes = attributes;
+    mutex_lock(&vfs_namespace_lock);
+    parent_mount = vfs_mount_find_id(table, parent_id);
+    if (parent_id && !parent_mount) {
+        vfs_mount_attachment_put_locked(entry);
+        mutex_unlock(&vfs_namespace_lock); vfs_mount_reap(); return -ENOENT;
+    }
+    existing = parent_mount ? vfs_mount_lookup(table, parent_mount, covered) : vfs_mount_attachment(table, covered);
+    if (existing) {
+        vfs_mount_attachment_put_locked(entry);
+        mutex_unlock(&vfs_namespace_lock);
+        vfs_mount_reap();
+        return -EBUSY;
+    }
+    entry->parent = parent_mount ? parent_mount : vfs_mount_containing(table, covered);
+    {
+        /* A fresh filesystem inherits nothing: only a shared parent shares. */
+        vfs_propagation_t dest;
+        vfs_propagation_read(table, entry->parent, &dest);
+        vfs_propagation_bind(NULL, &dest, &dest);
+        vfs_propagation_write(table, entry, &dest);
+    }
+    entry->next = table->entries;
+    table->entries = entry;
+    status = vfs_propagate_attach_locked(table, entry);
+    if (status != EOK) vfs_drop_tree_locked(table, entry);
+    mutex_unlock(&vfs_namespace_lock);
+    vfs_mount_changed();
+    return status;
+}
+
 /* Mount one named filesystem type onto a directory node. */
-static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
+static int vfs_mount_id(const char *src, vfs_node_t node, int fsid, uint64_t parent_id, uint64_t attributes)
 {
     uint16_t old_fsid;
     int      status;
 
     if (!node || !(node->type & file_dir)) return -EINVAL;
     if (fsid <= 0 || fsid >= fs_nextid || !fs_callbacks[fsid]) return -ENOENT;
+    if (node != rootdir || parent_id) return vfs_mount_detached(src, node, fsid, parent_id, attributes);
 
     mutex_lock(&vfs_namespace_lock);
     if (node->is_mount) {
@@ -1479,7 +2501,7 @@ int vfs_mount(const char *src, vfs_node_t node)
          * filesystem's diagnostic with -ENOSYS.
          */
         if (!fs_names[i] || fs_callbacks[i]->mount == vfs_empty_callback.mount) continue;
-        int status = vfs_mount_id(src, node, i);
+        int status = vfs_mount_id(src, node, i, 0, 0);
         if (status == EOK) return EOK;
         if (status != -ENOENT) last_error = status;
     }
@@ -1487,16 +2509,21 @@ int vfs_mount(const char *src, vfs_node_t node)
 }
 
 /* Mount a named file system to a directory */
-int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node)
+int vfs_mount_fs_at(const char *fstype, const char *src, vfs_node_t node, uint64_t parent_id, uint64_t attributes)
 {
     if (!fstype || !fstype[0]) return -EINVAL;
 
     for (int i = 1; i < fs_nextid; i++) {
         if (!fs_names[i] || !streq(fs_names[i], fstype)) continue;
-        return vfs_mount_id(src, node, i);
+        return vfs_mount_id(src, node, i, parent_id, attributes);
     }
 
     return -ENOENT;
+}
+
+int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node)
+{
+    return vfs_mount_fs_at(fstype, src, node, 0, 0);
 }
 
 /* Unmount a file system from a directory: check whether the mount tree still holds references or nested mounts. */
@@ -1511,165 +2538,545 @@ static bool vfs_mount_tree_busy_locked(vfs_node_t node, vfs_node_t mount_root)
     return false;
 }
 
-/* Move a mount by exchanging its namespace slot with an empty mountpoint. */
-int vfs_move_mount(vfs_node_t source, vfs_node_t target)
+/* Return whether a node belongs to the shared filesystem rooted at root. */
+static bool vfs_node_below(vfs_node_t node, vfs_node_t root)
 {
-    if (!source || !target || source == target) return -EINVAL;
+    for (vfs_node_t current = node; current; current = current->parent) {
+        if (current == root) return true;
+        if (current == current->parent) break;
+    }
+    return false;
+}
+
+/* Move only the attachment; the shared filesystem's dentries are unchanged. */
+int vfs_move_mount_at(vfs_node_t source, vfs_node_t target, uint64_t source_id, uint64_t target_id)
+{
+    if (!source || !target || !(target->type & file_dir)) return -EINVAL;
     mutex_lock(&vfs_namespace_lock);
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), false);
+    vfs_mount_attachment_t *source_mount = vfs_mount_find_id(table, source_id);
+    vfs_mount_attachment_t *target_mount = vfs_mount_find_id(table, target_id);
+    vfs_mount_attachment_t *entry = source_id ? source_mount : vfs_mount_attachment(table, source);
     int result = -EINVAL;
-    if (!source->parent || !target->parent || !source->is_mount || target->is_mount || !(target->type & file_dir)) goto out;
-    for (vfs_node_t parent = target; parent; parent = parent->parent)
-        if (parent == source) goto out;
-    if (target->child || source->parent->fsid != target->fsid) {
-        result = -EBUSY;
-        goto out;
+    if (!entry || source != entry->object->root || entry == table->root || (!target->parent && target != table->root->object->root)) goto out;
+    if (entry->locked || (entry->parent && entry->parent->peer_group)) goto out;
+    /* Moving onto a dentry that already carries a mount is legal: systemd lands
+     * a freshly mounted /proc on the unit root's /proc that way. */
+    if (vfs_mount_below(target_mount, entry) || vfs_node_below(target, entry->object->root)) { result = -EBUSY; goto out; }
+    if (target->flags & (VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY)) { result = -EBUSY; goto out; }
+    vfs_node_t old_covered = entry->covered;
+    vfs_mount_attachment_t *old_parent = entry->parent;
+    vfs_propagation_t old_state;
+    vfs_propagation_read(table, entry, &old_state);
+    {
+        /* The move keeps its own type and only merges the destination's peers. */
+        vfs_propagation_t source_state, dest_state, moved;
+        vfs_propagation_read(table, entry, &source_state);
+        vfs_propagation_read(table, target_mount ? target_mount : vfs_mount_containing(table, target), &dest_state);
+        if (vfs_propagation_move(&source_state, &dest_state, &moved) != EOK) { result = -EINVAL; goto out; }
+        vfs_propagation_write(table, entry, &moved);
     }
-    uint64_t busy = VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING | VFS_NODE_RENAME_BUSY;
-    if ((source->flags | target->flags | source->parent->flags | target->parent->flags) & busy) {
-        result = -EBUSY;
-        goto out;
+    target->refcount++;
+    target->mount_refs++;
+    entry->covered->refcount--;
+    entry->covered->mount_refs--;
+    entry->covered = target;
+    entry->parent  = target_mount ? target_mount : vfs_mount_containing(table, target);
+    result = vfs_propagate_attach_locked(table, entry);
+    if (result != EOK) {
+        target->refcount--; target->mount_refs--;
+        old_covered->refcount++; old_covered->mount_refs++;
+        entry->covered = old_covered;
+        entry->parent = old_parent;
+        vfs_propagation_write(table, entry, &old_state);
     }
-    clist_t source_link = source->parent->child, target_link = target->parent->child;
-    while (source_link && source_link->data != source) source_link = source_link->next;
-    while (target_link && target_link->data != target) target_link = target_link->next;
-    if (!source_link || !target_link) goto out;
-    vfs_dcache_remove(source);
-    vfs_dcache_remove(target);
-    void      *target_handle   = target->handle;
-    vfs_node_t target_root     = target->root;
-    uint16_t   target_fsid     = target->fsid;
-    clist_t    target_children = target->child;
-    if (source->covered_valid) {
-        target->handle = source->covered_handle;
-        target->root   = source->covered_root;
-        target->fsid   = source->covered_fsid;
-        target->child  = source->covered_children;
-        for (clist_t child = target->child; child; child = child->next) ((vfs_node_t)child->data)->parent = target;
-    }
-    source->covered_handle   = target_handle;
-    source->covered_root     = target_root;
-    source->covered_fsid     = target_fsid;
-    source->covered_children = target_children;
-    source->covered_valid    = true;
-    vfs_node_t old_parent    = source->parent;
-    char      *old_name      = source->name;
-    source->parent           = target->parent;
-    source->name             = target->name;
-    target->parent           = old_parent;
-    target->name             = old_name;
-    target->root             = old_parent->root;
-    source_link->data        = target;
-    target_link->data        = source;
-    vfs_dcache_invalidate_parent(source->parent);
-    vfs_dcache_invalidate_parent(target->parent);
-    result = EOK;
 out:
     mutex_unlock(&vfs_namespace_lock);
     if (!result) vfs_mount_changed();
     return result;
 }
 
-/* Unmount the filesystem mounted at path. */
-int vfs_umount_flags(const char *path, bool nofollow)
+int vfs_move_mount(vfs_node_t source, vfs_node_t target)
 {
-    vfs_node_t node = nofollow ? vfs_open_nofollow(path) : vfs_open(path);
+    return vfs_move_mount_at(source, target, 0, 0);
+}
 
-    if (!node) return -EINVAL;
-    if (!node->fsid) {
-        vfs_close(node);
+/* True when `path` names something strictly below `base` in the namespace. */
+static bool vfs_path_is_below(const char *path, const char *base)
+{
+    size_t len = strlen(base);
+    while (len > 0 && base[len - 1] == '/') len--; /* "/" reduces to the empty prefix */
+    if (len == 0) return path[0] == '/' && path[1] != '\0';
+    if (strncmp(path, base, len) != 0) return false;
+    return path[len] == '/' && path[len + 1] != '\0';
+}
+
+#define VFS_MOUNT_LIMIT 100000U
+
+typedef struct vfs_mount_copy {
+    vfs_mount_attachment_t *source;
+    vfs_mount_attachment_t *copy;
+} vfs_mount_copy_t;
+
+static size_t vfs_mount_count_locked(const vfs_mount_table_t *table)
+{
+    size_t count = table->root ? 1 : 0;
+    for (vfs_mount_attachment_t *entry = table->entries; entry; entry = entry->next) count++;
+    return count;
+}
+
+/* Build the whole mirror set before publishing any child. */
+static int vfs_bind_recursive(vfs_mount_table_t *table, vfs_node_t source,
+                              vfs_mount_attachment_t *source_mount, vfs_mount_attachment_t *new_bind)
+{
+    size_t capacity = vfs_mount_count_locked(table);
+    if (capacity >= VFS_MOUNT_LIMIT) return -ENOSPC;
+    vfs_mount_copy_t *map = calloc(capacity, sizeof(*map));
+    if (!map) return -ENOMEM;
+    size_t count = 1;
+    map[0].source = source_mount;
+    map[0].copy = new_bind;
+    int result = EOK;
+    for (size_t cursor = 0; cursor < count && result == EOK; cursor++) {
+        for (vfs_mount_attachment_t *entry = table->entries; entry; entry = entry->next) {
+            if (entry == new_bind || entry->parent != map[cursor].source) continue;
+            if (!cursor && !vfs_node_below(vfs_alias_resolve(entry->covered), vfs_alias_resolve(source))) continue;
+            if (entry->propagation == VFS_MOUNT_UNBINDABLE) {
+                if (entry->locked) { result = -EPERM; break; }
+                continue;
+            }
+            if (capacity + count >= VFS_MOUNT_LIMIT) { result = -ENOSPC; break; }
+            vfs_mount_attachment_t *copy = malloc(sizeof(*copy));
+            if (!copy) { result = -ENOMEM; break; }
+            *copy = *entry;
+            copy->open_files = 0;
+            copy->parent = map[cursor].copy;
+            copy->id = vfs_new_mount_id();
+            copy->next = NULL;
+            vfs_propagation_t state, dest, bound;
+            vfs_propagation_read(table, entry, &state);
+            vfs_propagation_read(table, copy->parent, &dest);
+            vfs_propagation_bind(&state, &dest, &bound);
+            vfs_propagation_write(table, copy, &bound);
+            map[count].source = entry;
+            map[count++].copy = copy;
+        }
+    }
+    for (size_t i = 1; i < count; i++) {
+        vfs_mount_attachment_t *copy = map[i].copy;
+        if (result != EOK) { free(copy); continue; }
+        copy->object->references++;
+        copy->covered->refcount++;
+        copy->covered->mount_refs++;
+        copy->next = table->entries;
+        table->entries = copy;
+    }
+    free(map);
+    return result;
+}
+
+typedef struct vfs_mount_receiver {
+    vfs_mount_table_t *table;
+    vfs_mount_attachment_t *mount;
+    size_t master;
+} vfs_mount_receiver_t;
+
+static int vfs_receivers_locked(vfs_mount_table_t *table, vfs_mount_attachment_t *parent,
+                                vfs_mount_attachment_t *exclude, vfs_mount_receiver_t **out, size_t *count)
+{
+    size_t capacity = 0;
+    for (vfs_mount_table_t *other = mount_tables; other; other = other->next_all) {
+        size_t mounts = vfs_mount_count_locked(other);
+        if (mounts > (SIZE_MAX / sizeof(vfs_mount_receiver_t)) - capacity) return -ENOMEM;
+        capacity += mounts;
+    }
+    vfs_mount_receiver_t *receivers = calloc(capacity + 1, sizeof(*receivers));
+    if (!receivers) return -ENOMEM;
+    size_t used = 1;
+    receivers[0] = (vfs_mount_receiver_t){table, parent, 0};
+    for (size_t cursor = 0; cursor < used; cursor++) {
+        uint32_t group = receivers[cursor].mount->peer_group;
+        if (!group) continue;
+        for (vfs_mount_table_t *other = mount_tables; other; other = other->next_all) {
+            for (vfs_mount_attachment_t *entry = other->root; entry; entry = entry == other->root ? other->entries : entry->next) {
+                if (other == table && exclude && vfs_mount_below(entry, exclude)) continue;
+                if (entry->peer_group != group && entry->master_group != group) continue;
+                size_t i;
+                for (i = 0; i < used && receivers[i].mount != entry; i++) {}
+                if (i != used) continue;
+                receivers[used++] = (vfs_mount_receiver_t){other, entry, cursor};
+            }
+        }
+    }
+    *out = receivers;
+    *count = used;
+    return EOK;
+}
+
+static void vfs_table_notify_locked(vfs_mount_table_t *table)
+{
+    __atomic_add_fetch(&table->generation, 1, __ATOMIC_RELEASE);
+    vfs_poll_source_notify(&table->poll_source, 0x00a);
+}
+
+static void vfs_drop_tree_locked(vfs_mount_table_t *table, vfs_mount_attachment_t *root)
+{
+    vfs_mount_attachment_t *removed = NULL;
+    vfs_mount_attachment_t **link = &table->entries;
+    while (*link) {
+        vfs_mount_attachment_t *entry = *link;
+        if (!vfs_mount_below(entry, root)) { link = &entry->next; continue; }
+        *link = entry->next;
+        entry->next = removed;
+        removed = entry;
+    }
+    while (removed) {
+        vfs_mount_attachment_t *next = removed->next;
+        vfs_mount_attachment_put_locked(removed);
+        removed = next;
+    }
+}
+
+/* Allocate every propagated tree before committing the event. */
+static int vfs_propagate_attach_locked(vfs_mount_table_t *table, vfs_mount_attachment_t *root)
+{
+    if (!root->parent || !root->parent->peer_group) return EOK;
+    vfs_mount_receiver_t *receivers = NULL;
+    size_t receiver_count = 0;
+    int result = vfs_receivers_locked(table, root->parent, root, &receivers, &receiver_count);
+    if (result != EOK) return result;
+    size_t capacity = vfs_mount_count_locked(table);
+    vfs_mount_attachment_t **tree = calloc(capacity, sizeof(*tree));
+    if (!tree) { free(receivers); return -ENOMEM; }
+    size_t tree_count = 1;
+    tree[0] = root;
+    /* Bounded: a parent-graph cycle would otherwise walk off the allocation. */
+    for (size_t cursor = 0; cursor < tree_count && tree_count < capacity; cursor++)
+        for (vfs_mount_attachment_t *entry = table->entries; entry && tree_count < capacity; entry = entry->next)
+            if (entry->parent == tree[cursor]) tree[tree_count++] = entry;
+    if (receiver_count > SIZE_MAX / tree_count / sizeof(vfs_mount_attachment_t *)) {
+        free(tree); free(receivers); return -ENOMEM;
+    }
+    vfs_mount_attachment_t **copies = calloc(receiver_count * tree_count, sizeof(*copies));
+    if (!copies) { free(tree); free(receivers); return -ENOMEM; }
+    for (size_t i = 0; i < tree_count; i++) copies[i] = tree[i];
+    for (size_t r = 1; r < receiver_count && result == EOK; r++) {
+        vfs_mount_attachment_t *parent = receivers[r].mount;
+        vfs_node_t covered = root->covered;
+        if (vfs_alias_resolve(covered) == vfs_alias_resolve(root->parent->object->root)) covered = parent->object->root;
+        else if (!vfs_node_below(vfs_alias_resolve(covered), vfs_alias_resolve(parent->object->root))) continue;
+        size_t pending = tree_count;
+        for (size_t p = 1; p < r; p++)
+            if (receivers[p].table == receivers[r].table && copies[p * tree_count]) pending += tree_count;
+        if (pending > VFS_MOUNT_LIMIT || vfs_mount_count_locked(receivers[r].table) > VFS_MOUNT_LIMIT - pending) { result = -ENOSPC; break; }
+        bool peers = parent->peer_group && parent->peer_group == root->parent->peer_group;
+        size_t leader = r;
+        if (!peers && parent->peer_group)
+            for (size_t p = 1; p < r; p++)
+                if (receivers[p].mount->peer_group == parent->peer_group && copies[p * tree_count]) { leader = p; break; }
+        for (size_t i = 0; i < tree_count; i++) {
+            vfs_mount_attachment_t *copy = malloc(sizeof(*copy));
+            if (!copy) { result = -ENOMEM; break; }
+            *copy = *tree[i];
+            copy->open_files = 0;
+            copies[(r * tree_count) + i] = copy;
+            copy->id = vfs_new_mount_id();
+            copy->next = NULL;
+            if (!i) { copy->parent = parent; copy->covered = covered; }
+            else {
+                size_t p = 0;
+                while (p < i && tree[p] != tree[i]->parent) p++;
+                copy->parent = copies[(r * tree_count) + p];
+            }
+            if (!peers && tree[i]->peer_group) {
+                size_t master = receivers[r].master;
+                while (master && !copies[master * tree_count]) master = receivers[master].master;
+                copy->master_group = copies[(master * tree_count) + i]->peer_group;
+                if (!parent->peer_group) {
+                    copy->peer_group = 0;
+                } else {
+                    copy->peer_group = leader == r ? vfs_new_peer_group() : copies[(leader * tree_count) + i]->peer_group;
+                }
+                copy->propagation = copy->peer_group ? VFS_MOUNT_SHARED : VFS_MOUNT_SLAVE;
+                if (leader != r) copy->master_group = copies[(leader * tree_count) + i]->master_group;
+            }
+            if (receivers[r].table->namespace->ns.owner != table->namespace->ns.owner) {
+                copy->locked = true;
+                copy->locked_attributes |= copy->attributes | MOUNT_FLAG_ATIME;
+            }
+        }
+    }
+    for (size_t r = 1; r < receiver_count; r++) {
+        for (size_t i = 0; i < tree_count; i++) {
+            vfs_mount_attachment_t *copy = copies[(r * tree_count) + i];
+            if (!copy) continue;
+            if (result != EOK) { free(copy); continue; }
+            copy->object->references++;
+            copy->covered->refcount++;
+            copy->covered->mount_refs++;
+            copy->next = receivers[r].table->entries;
+            receivers[r].table->entries = copy;
+        }
+        if (result == EOK && copies[r * tree_count]) vfs_table_notify_locked(receivers[r].table);
+    }
+    free(copies); free(tree); free(receivers);
+    return result;
+}
+
+/*
+ * Bind a subtree at a second place in the namespace.  A bind is a new mount
+ * sharing the source's superblock and dentry tree: the new root borrows the
+ * source's handle and identity and delegates lookups back to it, so only the
+ * namespace attachment is genuinely new.
+ */
+int vfs_bind_mount(vfs_node_t source, vfs_node_t target, uint64_t flags, uint64_t parent_id, uint64_t arrival_id)
+{
+    if (!source || !target) return -EINVAL;
+    /* Linux requires the source and the target to agree on directory-ness. */
+    if (!!(source->type & file_dir) != !!(target->type & file_dir)) return -ENOTDIR;
+
+    uint64_t attributes = vfs_mount_flags(source);
+    vfs_node_t root     = vfs_node_alloc(NULL, target->name);
+    vfs_mount_object_t      *object = calloc(1, sizeof(*object));
+    vfs_mount_attachment_t  *entry  = calloc(1, sizeof(*entry));
+    if (!root || !object || !entry) {
+        if (root) vfs_free(root);
+        free(object);
+        free(entry);
+        return -ENOMEM;
+    }
+
+    mutex_lock(&vfs_namespace_lock);
+    /* Binding a mountpoint means binding the filesystem mounted there. */
+    vfs_node_t         alias = vfs_alias_resolve(source);
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), true);
+    /* A bind may stack on an existing mount, and may name its own target as
+     * the source: systemd does both while building a unit root.  Linking at the
+     * head makes the newest attachment the visible one. */
+    if (!table) {
+        mutex_unlock(&vfs_namespace_lock);
+        vfs_free(root);
+        free(object);
+        free(entry);
+        return -ENOMEM;
+    }
+    vfs_mount_attachment_t *parent_mount = vfs_mount_find_id(table, parent_id);
+    vfs_mount_attachment_t *source_mount = arrival_id ? vfs_mount_find_id(table, arrival_id) : vfs_mount_containing(table, source);
+    if ((parent_id && !parent_mount) || (arrival_id && !source_mount)) {
+        mutex_unlock(&vfs_namespace_lock); vfs_free(root); free(object); free(entry); return -ENOENT;
+    }
+    /* Attach into the mount the path was resolved through, as Linux uses the
+     * path's vfsmount: one dentry can be a mountpoint in several mounts. */
+    vfs_mount_attachment_t *dest_mount   = parent_mount ? parent_mount : vfs_mount_containing(table, target);
+    vfs_propagation_t       source_state, dest_state;
+    vfs_propagation_read(table, source_mount, &source_state);
+    vfs_propagation_read(table, dest_mount, &dest_state);
+    /* An unbindable mount cannot be bind mounted at all. */
+    if (source_state.type == VFS_MOUNT_UNBINDABLE) {
+        mutex_unlock(&vfs_namespace_lock);
+        vfs_free(root);
+        free(object);
+        free(entry);
         return -EINVAL;
     }
-    if (!(node->type & file_dir)) {
-        vfs_close(node);
-        return -ENOTDIR;
+    if (!(flags & 16384ULL)) {
+        for (vfs_mount_attachment_t *child = table->entries; child; child = child->next) {
+            if (child == source_mount || !child->locked || !vfs_mount_below(child, source_mount)) continue;
+            if (!vfs_node_below(vfs_alias_resolve(child->covered), alias)) continue;
+            mutex_unlock(&vfs_namespace_lock);
+            vfs_free(root); free(object); free(entry);
+            return -EINVAL;
+        }
     }
-    if (!node->parent || node->root != node || !node->is_mount) {
-        vfs_close(node);
-        return -ENOENT;
-    }
+    target->refcount++;
+    target->mount_refs++;
+    alias->refcount++; /* the bind pins the subtree it shows */
 
-    mutex_lock(&vfs_namespace_lock);
-    if (vfs_mount_tree_busy_locked(node, node)) {
-        mutex_unlock(&vfs_namespace_lock);
-        vfs_close(node);
-        return -EBUSY;
+    root->type        = alias->type;
+    root->mode        = alias->mode;
+    root->permissions = alias->permissions;
+    root->owner       = alias->owner;
+    root->group       = alias->group;
+    root->fsid        = alias->fsid;
+    root->handle      = alias->handle;
+    root->inode       = alias->inode;
+    root->size        = alias->size;
+    root->blksz       = alias->blksz;
+    root->dev         = alias->dev;
+    root->rdev        = alias->rdev;
+    root->root        = root;
+    root->alias       = alias;
+    /* As in vfs_mount_detached: lets /proc/<pid>/fd name a bind-mounted fd. */
+    root->parent      = target->parent;
+    root->refcount    = 1; /* mount object pin */
+    root->flags |= VFS_NODE_BIND_ALIAS;
+    root->mount_source = strdup(alias->mount_source ? alias->mount_source : "none");
+
+    object->root       = root;
+    object->references = 1;
+    object->filesystem = false; /* shares the source's superblock, creates none */
+
+    entry->object     = object;
+    entry->covered    = target;
+    entry->parent     = dest_mount;
+    entry->attributes = attributes;
+    entry->locked_attributes = source_mount ? source_mount->locked_attributes : 0;
+    entry->id         = vfs_new_mount_id();
+    /* The new mount takes its type from the bind table, then binds recurse. */
+    {
+        vfs_propagation_t bound;
+        vfs_propagation_bind(&source_state, &dest_state, &bound);
+        vfs_propagation_write(table, entry, &bound);
     }
-    node->flags |= VFS_NODE_INITIALIZING;
+    entry->next       = table->entries;
+    table->entries    = entry;
+    /* MS_REC: the bind carries the source's submounts with it. */
+    int result = flags & 16384ULL ? vfs_bind_recursive(table, alias, source_mount, entry) : EOK;
+    if (result == EOK) result = vfs_propagate_attach_locked(table, entry);
+    if (result != EOK) vfs_drop_tree_locked(table, entry);
     mutex_unlock(&vfs_namespace_lock);
+    vfs_mount_changed();
+    return result;
+}
 
-    vfs_node_t parent = node->parent;
-    inotify_notify_unmount(node);
-    vfs_dcache_invalidate_parent(node);
-    vfs_icache_invalidate_mount(node);
-    vfs_free_child(node);
-    vfs_icache_unbind(node);
-    callbackof(node, unmount)(node->handle);
-    free(node->mount_source);
-    node->mount_source = NULL;
-    node->mount_id     = 0;
-    node->fsid         = node->covered_valid ? node->covered_fsid : parent->fsid;
-    node->root         = node->covered_valid ? node->covered_root : parent->root;
-    node->handle       = node->covered_valid ? node->covered_handle : NULL;
-    node->child        = node->covered_valid ? node->covered_children : NULL;
-    for (clist_t child = node->child; child; child = child->next) ((vfs_node_t)child->data)->parent = node;
-    node->covered_handle   = NULL;
-    node->covered_root     = NULL;
-    node->covered_children = NULL;
-    node->covered_valid    = false;
-    node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
-    node->is_mount = 0;
-    if (node->fsid) {
-        do_update(node);
-    } else {
-        (void)vfs_icache_bind(node);
+/* Find the pathname's particular attachment, including multiple nsfs binds. */
+static vfs_mount_attachment_t *vfs_mount_find_path(vfs_mount_table_t *table, const char *path)
+{
+    char resolved[CONFIG_VFS_PATH_MAX];
+    for (vfs_mount_attachment_t *entry = table ? table->entries : NULL; entry; entry = entry->next)
+        if (vfs_mount_mountpoint_path(table, entry, resolved, sizeof(resolved)) == EOK && streq(path, resolved)) return entry;
+    return NULL;
+}
+
+static bool vfs_tree_has_object_locked(vfs_mount_table_t *table, vfs_mount_attachment_t *root, vfs_mount_object_t *object)
+{
+    if (root->object == object) return true;
+    for (vfs_mount_attachment_t *entry = table->entries; entry; entry = entry->next)
+        if (entry->object == object && vfs_mount_below(entry, root)) return true;
+    return false;
+}
+
+static int vfs_propagate_remove_locked(vfs_mount_table_t *table, vfs_mount_attachment_t *root, bool detach)
+{
+    if (root->locked) return -EINVAL;
+    if (!detach) {
+        for (vfs_mount_attachment_t *entry = table->entries; entry; entry = entry->next)
+            if (entry != root && vfs_mount_below(entry, root)) return -EBUSY;
+        if (root->open_files) return -EBUSY;
     }
+    vfs_mount_receiver_t *receivers = NULL;
+    size_t count = 0;
+    int result = vfs_receivers_locked(table, root->parent, root, &receivers, &count);
+    if (result != EOK) return result;
+    vfs_mount_attachment_t **roots = calloc(count, sizeof(*roots));
+    if (!roots) { free(receivers); return -ENOMEM; }
+    roots[0] = root;
+    for (size_t r = 1; r < count; r++) {
+        vfs_node_t covered = root->covered;
+        if (vfs_alias_resolve(covered) == vfs_alias_resolve(root->parent->object->root)) covered = receivers[r].mount->object->root;
+        vfs_mount_attachment_t *candidate = vfs_mount_lookup(receivers[r].table, receivers[r].mount, covered);
+        if (!candidate || candidate->object != root->object) continue;
+        bool blocked = false;
+        for (vfs_mount_attachment_t *entry = receivers[r].table->entries; entry; entry = entry->next) {
+            if (entry == candidate || !vfs_mount_below(entry, candidate)) continue;
+            if (vfs_tree_has_object_locked(table, root, entry->object)) continue;
+            if (entry->covered != entry->parent->object->root) { blocked = true; break; }
+        }
+        if (blocked) continue;
+        if (!detach && candidate->open_files) { result = -EBUSY; break; }
+        roots[r] = candidate;
+    }
+    if (result == EOK) {
+        /* Preserve peer-local overmounts while removing their underlying event. */
+        for (size_t r = 1; r < count; r++) {
+            if (!roots[r]) continue;
+            vfs_mount_table_t *other = receivers[r].table;
+            for (vfs_mount_attachment_t *entry = other->entries; entry; entry = entry->next) {
+                if (!vfs_mount_below(entry, roots[r]) || vfs_tree_has_object_locked(table, root, entry->object)) continue;
+                if (entry->parent->object == entry->object) continue;
+                vfs_mount_attachment_t *parent = entry->parent;
+                if (!vfs_tree_has_object_locked(table, root, parent->object)) continue;
+                entry->covered->refcount--; entry->covered->mount_refs--;
+                entry->covered = roots[r]->covered;
+                entry->parent = roots[r]->parent;
+                entry->covered->refcount++; entry->covered->mount_refs++;
+                entry->locked |= roots[r]->locked;
+            }
+        }
+        /* Receivers are snapshotted before any graph or attachment is removed. */
+        for (size_t r = count; r-- > 1;) {
+            if (!roots[r]) continue;
+            vfs_drop_tree_locked(receivers[r].table, roots[r]);
+            vfs_table_notify_locked(receivers[r].table);
+        }
+        vfs_drop_tree_locked(table, root);
+    }
+    free(roots); free(receivers);
+    return result;
+}
+
+int vfs_umount_flags(const char *path, bool nofollow, bool detach)
+{
+    vfs_node_t node = nofollow ? vfs_open_nofollow(path) : vfs_open(path);
+    if (!node) return -ENOENT;
     mutex_lock(&vfs_namespace_lock);
-    node->flags &= ~VFS_NODE_INITIALIZING;
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), false);
+    vfs_mount_attachment_t *entry = vfs_mount_find_path(table, path);
+    int result = entry ? vfs_propagate_remove_locked(table, entry, detach) : -EINVAL;
     mutex_unlock(&vfs_namespace_lock);
     vfs_close(node);
-    vfs_mount_changed();
-    return EOK;
+    if (result == EOK) vfs_mount_changed();
+    return result;
 }
 
 int vfs_umount(const char *path)
 {
-    return vfs_umount_flags(path, false);
+    return vfs_umount_flags(path, false, false);
 }
 
-/* Apply one attribute change to a mount point; the namespace lock is held. */
-static void vfs_mount_attr_apply(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags)
+/* Validate the whole operation before changing flags or propagation. */
+int vfs_mount_update(vfs_node_t node, uint64_t arrival_id, uint64_t set_flags, uint64_t clr_flags, uint32_t type, bool recursive)
 {
-    if (!node || !node->is_mount) return;
-    node->flags = (node->flags & ~clr_flags) | set_flags;
-}
-
-/* Depth-first walk over the mounts nested below a mount point. */
-static void vfs_mount_attr_apply_recursive(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags)
-{
-    if (!node) return;
-    for (clist_t link = node->child; link; link = link->next) {
-        vfs_node_t child = link->data;
-        if (!child) continue;
-        vfs_mount_attr_apply(child, set_flags, clr_flags);
-        vfs_mount_attr_apply_recursive(child, set_flags, clr_flags);
-    }
-}
-
-/*
- * Change the mount flags of an existing mount point, optionally across the
- * whole subtree.  The caller supplies internal MOUNT_FLAG_* bits.
- */
-int vfs_mount_setattr(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags, bool recursive)
-{
-    if (!node || !node->is_mount) return -EINVAL;
-
+    if (!node || ((set_flags | clr_flags) & ~VFS_MOUNT_ATTRIBUTES) || (type != UINT32_MAX && type > VFS_MOUNT_UNBINDABLE)) return -EINVAL;
     mutex_lock(&vfs_namespace_lock);
-    vfs_mount_attr_apply(node, set_flags, clr_flags);
-    if (recursive) vfs_mount_attr_apply_recursive(node, set_flags, clr_flags);
+    vfs_mount_table_t *table = vfs_mount_table(mnt_namespace_current(), true);
+    if (!table) { mutex_unlock(&vfs_namespace_lock); return -ENOMEM; }
+    vfs_mount_attachment_t *ancestor = arrival_id ? vfs_mount_find_id(table, arrival_id) : vfs_mount_target(table, node);
+    if (!ancestor && !arrival_id && node == rootdir) ancestor = table->root;
+    if (!ancestor) { mutex_unlock(&vfs_namespace_lock); return arrival_id ? -ENOENT : -EINVAL; }
+    if (type == VFS_MOUNT_SHARED && vfs_next_peer_group > UINT32_MAX - vfs_mount_count_locked(table)) {
+        mutex_unlock(&vfs_namespace_lock); return -ENOSPC;
+    }
+    for (vfs_mount_attachment_t *entry = table->root; entry; entry = entry == table->root ? table->entries : entry->next) {
+        if (entry != ancestor && (!recursive || !vfs_mount_below(entry, ancestor))) continue;
+        uint64_t next = (entry->attributes & ~clr_flags) | set_flags;
+        if ((next ^ entry->attributes) & entry->locked_attributes) { mutex_unlock(&vfs_namespace_lock); return -EPERM; }
+    }
+    for (vfs_mount_attachment_t *entry = table->root; entry; entry = entry == table->root ? table->entries : entry->next) {
+        if (entry != ancestor && (!recursive || !vfs_mount_below(entry, ancestor))) continue;
+        entry->attributes = (entry->attributes & ~clr_flags) | set_flags;
+        if (type != UINT32_MAX) {
+            vfs_propagation_t state;
+            vfs_propagation_read(table, entry, &state);
+            vfs_propagation_change(table, entry, &state, type);
+            if (entry->peer_group != state.peer_group) vfs_peer_leave_locked(entry);
+            vfs_propagation_write(table, entry, &state);
+        }
+    }
+    if (table->root) {
+        table->root_attributes = table->root->attributes;
+        table->root_propagation = table->root->propagation;
+        table->root_peer_group = table->root->peer_group;
+        table->root_master_group = table->root->master_group;
+    }
     mutex_unlock(&vfs_namespace_lock);
-
     vfs_mount_changed();
     return EOK;
+}
+
+int vfs_mount_setattr(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags, bool recursive)
+{
+    return vfs_mount_update(node, 0, set_flags, clr_flags, UINT32_MAX, recursive);
 }
 
 typedef struct vfs_mount_format_scratch {
@@ -1677,7 +3084,13 @@ typedef struct vfs_mount_format_scratch {
         char escaped_path[CONFIG_VFS_PATH_MAX * 4];
         char escaped_source[CONFIG_VFS_PATH_MAX * 4];
         char options[64];
+        char propagation[64];
 } vfs_mount_format_scratch_t;
+
+int vfs_mount_setpropagation(vfs_node_t node, uint32_t type, bool recursive)
+{
+    return vfs_mount_update(node, 0, 0, 0, type, recursive);
+}
 
 /* VFS operation: mount escape. */
 static size_t vfs_mount_escape(char *output, size_t capacity, const char *input)
@@ -1717,47 +3130,68 @@ static size_t vfs_mount_escape(char *output, size_t capacity, const char *input)
 }
 
 /* Format the mount flag options into the output buffer. */
-static size_t vfs_mount_options(char *output, size_t capacity, vfs_node_t node)
+static size_t vfs_mount_options(char *output, size_t capacity, uint64_t flags)
 {
-    if (!capacity) return 0;
-    int n = snprintf(output, capacity, "%s%s%s%s", (node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw", (node->flags & MOUNT_FLAG_NOSUID) ? ",nosuid" : "",
-                     (node->flags & MOUNT_FLAG_NODEV) ? ",nodev" : "", (node->flags & MOUNT_FLAG_NOEXEC) ? ",noexec" : "");
+    int n = snprintf(output, capacity, "%s%s%s%s%s%s%s", (flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw", (flags & MOUNT_FLAG_NOSUID) ? ",nosuid" : "",
+                     (flags & MOUNT_FLAG_NODEV) ? ",nodev" : "", (flags & MOUNT_FLAG_NOEXEC) ? ",noexec" : "",
+                     (flags & MOUNT_FLAG_NOATIME) ? ",noatime" : "", (flags & MOUNT_FLAG_NODIRATIME) ? ",nodiratime" : "", (flags & MOUNT_FLAG_RELATIME) ? ",relatime" : "");
     return n < 0 ? 0 : (size_t)n;
 }
 
-/* Find the nearest enclosing mount id above the node. */
-static uint64_t vfs_parent_mount_id(vfs_node_t node)
+static uint64_t vfs_parent_mount_id(vfs_mount_table_t *table, vfs_node_t covered)
 {
-    for (vfs_node_t parent = node ? node->parent : NULL; parent; parent = parent->parent)
-        if (parent->is_mount && parent->mount_id) return parent->mount_id;
-    return node && node->mount_id ? node->mount_id : 0;
+    vfs_mount_attachment_t *containing = vfs_mount_containing(table, covered);
+    if (containing) return containing->id;
+    return rootdir ? rootdir->mount_id : 0;
 }
 
-/* Emit one mount table line per mount in the subtree. */
-static void vfs_format_mount_subtree(vfs_node_t node, char *buffer, size_t capacity, size_t *used, bool mountinfo, vfs_mount_format_scratch_t *scratch)
+/* The optional fields of a mountinfo line: shared:N, master:N, unbindable. */
+static void vfs_format_propagation(char *output, size_t capacity, const vfs_mount_table_t *table, const vfs_mount_attachment_t *entry)
 {
-    if (!node) return;
-    if (node->is_mount && node->mount_id && vfs_node_path(node, scratch->path, sizeof(scratch->path)) == EOK) {
-        vfs_mount_escape(scratch->escaped_path, sizeof(scratch->escaped_path), scratch->path);
-        vfs_mount_escape(scratch->escaped_source, sizeof(scratch->escaped_source), node->mount_source);
-        vfs_mount_options(scratch->options, sizeof(scratch->options), node);
-        const char *type        = node->fsid < (uint16_t)fs_nextid && fs_names[node->fsid] ? fs_names[node->fsid] : "unknown";
-        char       *destination = *used < capacity ? buffer + *used : buffer + capacity - 1;
-        size_t      remaining   = *used < capacity ? capacity - *used : 0;
-        int         length;
-        if (mountinfo) {
-            length = snprintf(destination, remaining, "%llu %llu 0:%u / %s %s - %s %s %s\n", (node->mount_id), (vfs_parent_mount_id(node)), node->fsid, scratch->escaped_path, scratch->options, type,
-                              scratch->escaped_source, (node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
-        } else {
-            length = snprintf(destination, remaining, "%s %s %s %s 0 0\n", scratch->escaped_source, scratch->escaped_path, type, scratch->options);
-        }
-        if (length > 0) *used += (size_t)length;
+    if (!table) return;
+    uint32_t type         = entry ? entry->propagation : table->root_propagation;
+    uint32_t peer_group   = entry ? entry->peer_group : table->root_peer_group;
+    uint32_t master_group = entry ? entry->master_group : table->root_master_group;
+    size_t   used         = 0;
+
+    output[0] = '\0';
+    if (type == VFS_MOUNT_UNBINDABLE) {
+        snprintf(output, capacity, " unbindable");
+        return;
     }
-    for (clist_t child = node->child; child; child = child->next) vfs_format_mount_subtree((vfs_node_t)child->data, buffer, capacity, used, mountinfo, scratch);
+    /* A slave that also shares a peer group reports both tags, as Linux does. */
+    if (peer_group) used = (size_t)snprintf(output, capacity, " shared:%u", peer_group);
+    if (used < capacity && master_group) snprintf(output + used, capacity - used, " master:%u", master_group);
+}
+
+static void vfs_format_mount_line(vfs_mount_table_t *table, vfs_node_t filesystem, vfs_node_t covered, uint64_t id, uint64_t parent_id, uint64_t flags,
+                                  const vfs_mount_attachment_t *mount, char *buffer, size_t capacity, size_t *used, bool mountinfo, vfs_mount_format_scratch_t *scratch)
+{
+    if (!filesystem || !id) return;
+    if (mount) {
+        if (vfs_mount_mountpoint_path(table, mount, scratch->path, sizeof(scratch->path)) != EOK) return;
+    } else if (vfs_node_path_table(table, covered, scratch->path, sizeof(scratch->path)) != EOK) {
+        return;
+    }
+    vfs_mount_escape(scratch->escaped_path, sizeof(scratch->escaped_path), scratch->path);
+    vfs_mount_escape(scratch->escaped_source, sizeof(scratch->escaped_source), filesystem->mount_source);
+    vfs_mount_options(scratch->options, sizeof(scratch->options), flags);
+    vfs_format_propagation(scratch->propagation, sizeof(scratch->propagation), table, mount);
+    const char *type = vfs_filesystem_name(filesystem->fsid);
+    if (!type) type = vfs_filesystem_magic(filesystem->fsid) == 0x6e736673U ? "nsfs" : "unknown";
+    char *destination = *used < capacity ? buffer + *used : buffer + capacity - 1;
+    size_t remaining = *used < capacity ? capacity - *used : 0;
+    int length;
+    if (mountinfo)
+        length = snprintf(destination, remaining, "%llu %llu 0:%u / %s %s%s - %s %s %s\n", id, parent_id, filesystem->fsid, scratch->escaped_path,
+                          scratch->options, scratch->propagation, type, scratch->escaped_source, (flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
+    else
+        length = snprintf(destination, remaining, "%s %s %s %s 0 0\n", scratch->escaped_source, scratch->escaped_path, type, scratch->options);
+    if (length > 0) *used += (size_t)length;
 }
 
 /* Format the full mount table for /proc/mounts or /proc/self/mountinfo. */
-size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo)
+size_t vfs_format_mount_table_ns(mnt_namespace_t *ns, char *buffer, size_t capacity, bool mountinfo)
 {
     if (!buffer || !capacity) return 0;
     vfs_mount_format_scratch_t *scratch = malloc(sizeof(*scratch));
@@ -1770,7 +3204,12 @@ size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo)
     size_t used = 0;
     buffer[0]   = '\0';
     mutex_lock(&vfs_namespace_lock);
-    vfs_format_mount_subtree(rootdir, buffer, capacity, &used, mountinfo, scratch);
+    vfs_mount_table_t *table = vfs_mount_table(ns, false);
+    vfs_format_mount_line(table, rootdir, rootdir, rootdir->mount_id, rootdir->mount_id, table ? table->root_attributes : rootdir->flags & VFS_MOUNT_ATTRIBUTES,
+                          NULL, buffer, capacity, &used, mountinfo, scratch);
+    for (vfs_mount_attachment_t *entry = table ? table->entries : NULL; entry; entry = entry->next)
+        vfs_format_mount_line(table, entry->object->root, entry->covered, entry->id, vfs_parent_mount_id(table, entry->covered), entry->attributes,
+                              entry, buffer, capacity, &used, mountinfo, scratch);
     mutex_unlock(&vfs_namespace_lock);
     free(scratch);
 
@@ -1779,6 +3218,11 @@ size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo)
         return capacity - 1;
     }
     return used;
+}
+
+size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo)
+{
+    return vfs_format_mount_table_ns(mnt_namespace_current(), buffer, capacity, mountinfo);
 }
 
 /* Read data from a file node into the provided memory buffer */
@@ -1819,7 +3263,7 @@ size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize)
 size_t vfs_write(vfs_node_t file, const void *addr, size_t offset, size_t size)
 {
     if (!file || !addr) return (size_t)-1;
-    if (file->flags & VFS_NODE_SWAPFILE) return (size_t)-1;
+    if ((file->flags & VFS_NODE_SWAPFILE) || vfs_mount_is_readonly(file)) return (size_t)-1;
     if (vfs_access_check(file, VFS_ACCESS_W)) return (size_t)-1;
     do_update(file);
 
@@ -1898,11 +3342,12 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
 }
 
 /* Write to a file node as a specific process, optionally enforcing its permissions. */
-static int64_t vfs_file_write_process_impl(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, bool check_access)
+static int64_t vfs_file_write_process_impl(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, bool check_access, uint64_t mount_id)
 {
     int64_t ret;
 
     if (!file || !addr) return -EINVAL;
+    if (vfs_mount_is_readonly_at(file, mount_id)) return -EROFS;
     if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
     if (check_access && vfs_access_check_process(file, VFS_ACCESS_W, proc)) return -EACCES;
     do_update(file);
@@ -1929,15 +3374,15 @@ static int64_t vfs_file_write_process_impl(vfs_node_t file, void *private_data, 
 }
 
 /* Write through an already-authorized descriptor; see vfs_file_read_granted(). */
-int64_t vfs_file_write_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
+int64_t vfs_file_write_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, uint64_t mount_id)
 {
-    return vfs_file_write_process_impl(file, private_data, flags, addr, offset, size, proc, false);
+    return vfs_file_write_process_impl(file, private_data, flags, addr, offset, size, proc, false, mount_id);
 }
 
 /* Write to a file node as a specific process, enforcing its permissions. */
 int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
 {
-    return vfs_file_write_process_impl(file, private_data, flags, addr, offset, size, proc, true);
+    return vfs_file_write_process_impl(file, private_data, flags, addr, offset, size, proc, true, 0);
 }
 
 /* Write a file node as the current process. */
@@ -2041,10 +3486,11 @@ int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t
 }
 
 /* Write through a process-authorized descriptor; see vfs_file_write_granted(). */
-static int64_t vfs_file_write_user_process_impl(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, bool check_access)
+static int64_t vfs_file_write_user_process_impl(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, bool check_access, uint64_t mount_id)
 {
     if (!file || (!addr && size)) return -EINVAL;
     if (!user_range_ok(addr, size)) return -EFAULT;
+    if (!(file->type & (file_stream | file_pipe)) && vfs_mount_is_readonly_at(file, mount_id)) return -EROFS;
     vfs_file_write_user_cb_t write_user = callbackof(file, file_write_user);
 
     /*
@@ -2080,7 +3526,7 @@ static int64_t vfs_file_write_user_process_impl(vfs_node_t file, void *private_d
 
     if (!size) {
         uint8_t empty = 0;
-        return check_access ? vfs_file_write_process(file, private_data, flags, &empty, offset, 0, proc) : vfs_file_write_granted(file, private_data, flags, &empty, offset, 0, proc);
+        return vfs_file_write_process_impl(file, private_data, flags, &empty, offset, 0, proc, check_access, mount_id);
     }
 
     size_t   capacity = size < VFS_USER_IO_CHUNK ? size : VFS_USER_IO_CHUNK;
@@ -2095,8 +3541,7 @@ static int64_t vfs_file_write_user_process_impl(vfs_node_t file, void *private_d
             result = done ? (int64_t)done : -EFAULT;
             goto out;
         }
-        int64_t ret
-            = check_access ? vfs_file_write_process(file, private_data, flags, tmp, offset + done, chunk, proc) : vfs_file_write_granted(file, private_data, flags, tmp, offset + done, chunk, proc);
+        int64_t ret = vfs_file_write_process_impl(file, private_data, flags, tmp, offset + done, chunk, proc, check_access, mount_id);
         if (ret < 0) {
             result = done ? (int64_t)done : ret;
             goto out;
@@ -2116,25 +3561,26 @@ out:
 }
 
 /* Write through an already-authorized descriptor; see vfs_file_read_granted(). */
-int64_t vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
+int64_t vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc, uint64_t mount_id)
 {
-    return vfs_file_write_user_process_impl(file, private_data, flags, addr, offset, size, proc, false);
+    return vfs_file_write_user_process_impl(file, private_data, flags, addr, offset, size, proc, false, mount_id);
 }
 
 /* Write through a process-authorized descriptor; see vfs_file_write_granted(). */
 int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, process_t *proc)
 {
-    return vfs_file_write_user_process_impl(file, private_data, flags, addr, offset, size, proc, true);
+    return vfs_file_write_user_process_impl(file, private_data, flags, addr, offset, size, proc, true, 0);
 }
 
 /* Check whether the node's mount subtree is read-only. */
 int vfs_mount_is_readonly(vfs_node_t node)
 {
-    for (vfs_node_t current = node; current; current = current->parent) {
-        if (current->is_mount) return (current->flags & MOUNT_FLAG_RDONLY) != 0;
-        if (current == current->parent) break;
-    }
-    return 0;
+    return (vfs_mount_flags(node) & MOUNT_FLAG_RDONLY) != 0;
+}
+
+int vfs_mount_is_readonly_at(vfs_node_t node, uint64_t mount_id)
+{
+    return mount_id ? (vfs_mount_flags_id(mount_id) & MOUNT_FLAG_RDONLY) != 0 : vfs_mount_is_readonly(node);
 }
 
 /* Check whether the node's filesystem declares device-node support. */
@@ -2192,10 +3638,11 @@ int vfs_sync_all(void)
 }
 
 /* Truncate or extend a regular file to the given size. */
-int vfs_truncate(vfs_node_t file, uint64_t size)
+int vfs_truncate_at(vfs_node_t file, uint64_t size, uint64_t mount_id)
 {
     if (!file) return -EINVAL;
     if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
+    if (vfs_mount_is_readonly_at(file, mount_id)) return -EROFS;
     do_update(file);
     if ((file->type & ~file_delete) != file_none) return file->type & file_dir ? -EISDIR : -EINVAL;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
@@ -2213,6 +3660,12 @@ int vfs_truncate(vfs_node_t file, uint64_t size)
         inotify_notify(file, IN_MODIFY);
     }
     return result;
+}
+
+/* Drop cached pages in a byte range, optionally discarding dirty data. */
+int vfs_truncate(vfs_node_t file, uint64_t size)
+{
+    return vfs_truncate_at(file, size, 0);
 }
 
 /* Drop cached pages in a byte range, optionally discarding dirty data. */
@@ -2469,7 +3922,7 @@ void vfs_poll_notify(vfs_node_t file, uint32_t events)
 }
 
 /* Close the file or directory node */
-int vfs_close(vfs_node_t node)
+static int vfs_close_impl(vfs_node_t node)
 {
     if (!node) return -EINVAL;
 
@@ -2487,7 +3940,7 @@ int vfs_close(vfs_node_t node)
     if (node->refcount) node->refcount--;
     bool last_ref = (node->refcount == 0);
 
-    if (node == rootdir || !node->handle || node->type & file_proxy || !last_ref) {
+    if (node == rootdir || !node->handle || node->type & file_proxy || !last_ref || (node->flags & VFS_NODE_BIND_ALIAS)) {
         mutex_unlock(&vfs_namespace_lock);
         return EOK;
     }
@@ -2582,11 +4035,62 @@ int vfs_close(vfs_node_t node)
     return EOK;
 }
 
+/* Retired trees retain their object pin until inherited descriptors close. */
+static void vfs_mount_reap(void)
+{
+    mutex_lock(&vfs_namespace_lock);
+    if (mount_reaping) { mutex_unlock(&vfs_namespace_lock); return; }
+    mount_reaping = true;
+    for (;;) {
+        vfs_mount_object_t **link = &retired_mounts;
+        while (*link && ((*link)->filesystem ? vfs_mount_tree_busy_locked((*link)->root, (*link)->root) : (*link)->root->alias && (*link)->root->refcount > 1)) link = &(*link)->retired_next;
+        vfs_mount_object_t *object = *link;
+        if (!object) break;
+        *link = object->retired_next;
+        mutex_unlock(&vfs_namespace_lock);
+        if (object->filesystem) {
+            vfs_node_t root = object->root;
+            vfs_icache_invalidate_mount(root);
+            vfs_free_child(root);
+            callbackof(root, unmount)(root->handle);
+            root->handle = NULL;
+            root->parent = NULL;
+            vfs_free(root);
+        } else if (object->root->alias) {
+            /* A bind root renders the aliased subtree and owns none of it. */
+            vfs_node_t root  = object->root;
+            vfs_node_t alias = root->alias;
+            root->alias      = NULL;
+            root->handle     = NULL;
+            root->child      = NULL;
+            root->parent     = NULL;
+            vfs_free(root);
+            mutex_lock(&vfs_namespace_lock);
+            if (alias->refcount) alias->refcount--;
+            mutex_unlock(&vfs_namespace_lock);
+        } else {
+            vfs_close_impl(object->root);
+        }
+        free(object);
+        mutex_lock(&vfs_namespace_lock);
+    }
+    mount_reaping = false;
+    mutex_unlock(&vfs_namespace_lock);
+}
+
+int vfs_close(vfs_node_t node)
+{
+    int result = vfs_close_impl(node);
+    vfs_mount_reap();
+    return result;
+}
+
 /* Unlink a node from its parent, deferring the final free. */
 int vfs_namespace_unlink(vfs_node_t node)
 {
     if (!node || node == rootdir) return -EINVAL;
-    if (node->flags & VFS_NODE_SWAPFILE) return -EBUSY;
+    if (node->is_mount || node->mount_refs) return -EBUSY;
+    if ((node->flags & VFS_NODE_SWAPFILE) || node->mount_refs || node->is_mount) return -EBUSY;
     if (!node->parent) return -EINVAL;
 
     mutex_lock(&vfs_namespace_lock);
@@ -2679,7 +4183,7 @@ int vfs_delete(vfs_node_t node)
     int status;
 
     if (!node || node == rootdir) return -EINVAL;
-    if (node->flags & VFS_NODE_SWAPFILE) return -EBUSY;
+    if ((node->flags & VFS_NODE_SWAPFILE) || node->mount_refs || node->is_mount) return -EBUSY;
 
     do_update(node);
     mutex_lock(&vfs_namespace_lock);
@@ -2740,7 +4244,7 @@ delete_failed:
 static int vfs_rename_sticky_check(vfs_node_t parent, vfs_node_t victim)
 {
     process_t *process = process_current();
-    if (!process || process->fsuid == 0 || !(parent->mode & 01000)) return EOK;
+    if (!process || namespace_initial_root(process) || !(parent->mode & 01000)) return EOK;
     return process->fsuid == parent->owner || process->fsuid == victim->owner ? EOK : -EPERM;
 }
 
@@ -2759,7 +4263,7 @@ int vfs_rename(vfs_node_t node, vfs_node_t new_parent, const char *new_name_arg,
     if (!(new_parent->type & file_dir)) return -ENOTDIR;
     if (!node->parent) return -EINVAL;
     if (node->fsid != new_parent->fsid || node->root != new_parent->root) return -EXDEV;
-    if (node->is_mount || (node->flags & VFS_NODE_SWAPFILE)) return -EBUSY;
+    if (node->is_mount || node->mount_refs || (node->flags & VFS_NODE_SWAPFILE)) return -EBUSY;
     if (vfs_mount_is_readonly(node) || vfs_mount_is_readonly(new_parent)) return -EROFS;
     if (callbackof(node, rename) == vfs_empty_callback.rename) return -EOPNOTSUPP;
 
@@ -2983,7 +4487,7 @@ void vfs_free(vfs_node_t vfs)
         vfs_close(vfs->linkto);
         vfs->linkto = 0;
     }
-    if (vfs->handle) {
+    if (vfs->handle && !(vfs->flags & VFS_NODE_BIND_ALIAS)) {
         vfs_pagecache_destroy(vfs);
         callbackof(vfs, close)(vfs->handle);
         callbackof(vfs, free)(vfs->handle);
@@ -3011,6 +4515,7 @@ void init_vfs(void)
     rootdir = vfs_node_alloc(0, "/");
     if (!rootdir) panic("vfs: Cannot allocate the root directory node.");
     rootdir->type = file_dir;
+    (void)vfs_mount_table(&init_mnt_ns, true);
     (void)vfs_icache_bind(rootdir);
     plogk("vfs: Initial root directory of the virtual file system: '/'\n");
 }
