@@ -2757,7 +2757,7 @@ static int vfs_propagate_attach_locked(vfs_mount_table_t *table, vfs_mount_attac
     if (receiver_count > SIZE_MAX / tree_count / sizeof(void *)) {
         free(tree); free(receivers); return -ENOMEM;
     }
-    vfs_mount_attachment_t **copies = calloc(receiver_count * tree_count, sizeof(*copies));
+    vfs_mount_attachment_t **copies = calloc(receiver_count * tree_count, sizeof(void *));
     if (!copies) { free(tree); free(receivers); return -ENOMEM; }
     for (size_t i = 0; i < tree_count; i++) copies[i] = tree[i];
     for (size_t r = 1; r < receiver_count && result == EOK; r++) {
