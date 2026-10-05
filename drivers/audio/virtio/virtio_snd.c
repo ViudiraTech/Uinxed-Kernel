@@ -155,6 +155,22 @@ static bool virtsnd_direction_ready(struct virtio_snd *snd, audio_node_type_t ty
     return ready;
 }
 
+/*
+ * True when the file driving this direction has moved past OPEN and can
+ * therefore block waiting for frames.  virtsnd_file_locked() already skips
+ * OPEN, so this only has to separate SETUP - a file that has been configured
+ * but is not waiting on anything - from PREPARED and later, where the core is
+ * allowed to sleep.  Only those later states make a silent no-op fatal.
+ */
+static bool virtsnd_direction_pending(struct virtio_snd *snd, audio_node_type_t type)
+{
+    uint64_t          rflags  = spin_lock_irqsave(&snd->card->pcm_lock);
+    audio_pcm_file_t *pf      = virtsnd_file_locked(snd, type);
+    bool              pending = pf && pf->state >= SNDRV_PCM_STATE_PREPARED;
+    spin_unlock_irqrestore(&snd->card->pcm_lock, rflags);
+    return pending;
+}
+
 /* Allocate one zeroed page of physically contiguous DMA memory. */
 static uint8_t *virtsnd_alloc_page(void)
 {
@@ -841,18 +857,35 @@ static int virtsnd_start(audio_card_t *card)
     }
 
     for (int d = 0; d < 2; d++) {
-        const uint32_t id      = (uint32_t)snd->stream_id[d];
-        uint32_t       vformat = 0;
-        uint32_t       vrate   = 0;
+        const uint32_t          id      = (uint32_t)snd->stream_id[d];
+        const audio_node_type_t type    = (d == VIRTIO_SND_D_OUTPUT) ? audio_node_pcm_playback : audio_node_pcm_capture;
+        uint32_t                vformat = 0;
+        uint32_t                vrate   = 0;
 
         if (snd->stream_id[d] == VIRTIO_SND_NO_STREAM) continue;
-        if (!snd->params_valid[d]) continue;
-        if (!virtsnd_direction_ready(snd, d == VIRTIO_SND_D_OUTPUT ? audio_node_pcm_playback : audio_node_pcm_capture)) continue;
+        if (!virtsnd_direction_ready(snd, type)) continue;
 
         spin_lock(&snd->lock);
         const bool started = snd->running[d];
         spin_unlock(&snd->lock);
         if (started) continue;
+
+        if (!snd->params_valid[d]) {
+            /*
+             * SET_PARAMS never reached the device for a file that is already
+             * allowed to block.  Skipping silently reports EOK, the core then
+             * publishes RUNNING on that strength, and nothing is left to feed
+             * the ring: read() sleeps forever without a single line of output.
+             * A file still in SETUP cannot wait yet, so leaving it alone keeps
+             * an unconfigured capture node from failing someone else's start.
+             */
+            if (virtsnd_direction_pending(snd, type)) {
+                plogk("virtio_snd: %s file needs the stream but stream %u has no parameters\n", d == VIRTIO_SND_D_OUTPUT ? "playback" : "capture", id);
+                ret = -EBADFD;
+                break;
+            }
+            continue;
+        }
 
         /*
          * Device sequence: SET_PARAMS -> PREPARE -> START, and running[] is
