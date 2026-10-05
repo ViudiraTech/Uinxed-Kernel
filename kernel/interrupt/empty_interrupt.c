@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>

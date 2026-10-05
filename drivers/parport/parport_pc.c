@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/parport/parport.h>
 #include <kernel/timer/timer.h>
 

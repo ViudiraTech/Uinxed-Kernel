@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/gdt.h>
-#include <arch/tss.h>
+#include <arch/tables/gdt.h>
+#include <arch/tables/tss.h>
 #include <kernel/printk.h>
 
 /* Global Descriptor Table Definition */

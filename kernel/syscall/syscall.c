@@ -8,9 +8,9 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/fpu.h>
-#include <arch/smp.h>
+#include <arch/cpu/fpu.h>
+#include <arch/cpu/smp.h>
+#include <arch/misc/common.h>
 #include <drivers/base/device.h>
 #include <drivers/firmware/acpi.h>
 #include <fs/core/inotify.h>

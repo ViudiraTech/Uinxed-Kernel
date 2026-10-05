@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <process/sched.h>
 #include <sync/mutex.h>
 

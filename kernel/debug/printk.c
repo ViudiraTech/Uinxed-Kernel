@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/tty/tty.h>
 #include <kernel/printk.h>

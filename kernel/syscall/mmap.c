@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
 #include <ipc/sysv_ipc.h>
 #include <libs/std/stdlib.h>
 #include <mem/frame.h>

@@ -8,11 +8,12 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/cpuid.h>
-#include <arch/fpu.h>
-#include <arch/smbios.h>
-#include <arch/smp.h>
+#include <arch/cpu/cpuid.h>
+#include <arch/cpu/fpu.h>
+#include <arch/cpu/microcode/microcode.h>
+#include <arch/cpu/smp.h>
+#include <arch/firmware/smbios.h>
+#include <arch/misc/common.h>
 #include <boot/limine_module.h>
 #include <cgroup/cgroup.h>
 #include <drivers/audio/intel/hda.h>
@@ -286,6 +287,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     /* Architecture */
     log_buffer_print(&fpu_log);                                    //
                                                                    //
+    init_microcode();                                              // Processor Microcode
     init_gdt();                                                    // Global Descriptor Table
     init_idt();                                                    // Interrupt Descriptor Table
     isr_registe_handle();                                          //

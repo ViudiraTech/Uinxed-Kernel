@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/cpuid.h>
+#include <arch/cpu/cpuid.h>
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/module/elf.h>

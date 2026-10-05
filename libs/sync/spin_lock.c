@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <sync/spin_lock.h>
 
 /* Lock while returning interrupt state to the caller. */

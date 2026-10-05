@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/cpuid.h>
-#include <arch/fpu.h>
+#include <arch/cpu/cpuid.h>
+#include <arch/cpu/fpu.h>
 #include <libs/std/string.h>
 
 /*

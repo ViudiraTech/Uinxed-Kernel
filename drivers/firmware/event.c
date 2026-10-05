@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/idt.h>
+#include <arch/misc/common.h>
+#include <arch/tables/idt.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>

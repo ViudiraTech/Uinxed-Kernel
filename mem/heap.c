@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <boot/limine.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdlib.h>

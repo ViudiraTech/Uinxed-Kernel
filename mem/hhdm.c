@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/cpuid.h>
+#include <arch/cpu/cpuid.h>
+#include <arch/misc/common.h>
 #include <boot/limine.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>

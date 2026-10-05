@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/fpu.h>
+#include <arch/cpu/fpu.h>
 #include <libs/std/math.h>
 
 /*

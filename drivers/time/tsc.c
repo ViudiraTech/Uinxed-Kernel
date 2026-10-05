@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/cpuid.h>
+#include <arch/cpu/cpuid.h>
+#include <arch/misc/common.h>
 #include <drivers/time/tsc.h>
 #include <kernel/printk.h>
 

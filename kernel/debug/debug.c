@@ -8,9 +8,9 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/smbios.h>
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
+#include <arch/firmware/smbios.h>
+#include <arch/misc/common.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/tty.h>

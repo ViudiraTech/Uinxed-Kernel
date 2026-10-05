@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/block/ata/pata/atapi.h>
 #include <drivers/block/ata/pata/ide.h>
 #include <kernel/printk.h>

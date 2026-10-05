@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdbool.h>
