@@ -89,6 +89,7 @@ delivery evidence directory. The hashes above identify the updated kernel/ISO.
 
 The final remaining sizeof spelling was corrected in the copies table as well.
 The updated ELF entry and every PT_LOAD segment (flags, addresses, sizes and
-payload bytes) are identical to the kernel exercised by the latest guest run;
-only nonloaded debug metadata changed. This comparison is recorded in
+payload bytes) are identical to the kernel exercised by the latest guest run.
+The complete UxImage file is also byte-identical (SHA-256 unchanged); the rebuilt
+ISO differs in packaging metadata. The load comparison is recorded in
 `ci-final-load-segments.json`.
