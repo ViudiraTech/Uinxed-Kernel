@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/base/device.h>
 #include <drivers/usb/class/storage/usb_storage.h>
 #include <drivers/usb/core/usb.h>

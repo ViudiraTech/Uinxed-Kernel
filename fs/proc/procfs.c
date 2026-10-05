@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/cpuid.h>
-#include <arch/smp.h>
+#include <arch/cpu/cpuid.h>
+#include <arch/cpu/smp.h>
 #include <cgroup/cgroup.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/tty_core.h>

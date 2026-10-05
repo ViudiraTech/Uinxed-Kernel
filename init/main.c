@@ -8,11 +8,11 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/cpuid.h>
-#include <arch/fpu.h>
-#include <arch/smbios.h>
-#include <arch/smp.h>
+#include <arch/cpu/cpuid.h>
+#include <arch/cpu/fpu.h>
+#include <arch/cpu/smp.h>
+#include <arch/firmware/smbios.h>
+#include <arch/misc/common.h>
 #include <boot/limine_module.h>
 #include <cgroup/cgroup.h>
 #include <drivers/audio/intel/hda.h>

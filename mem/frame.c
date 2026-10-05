@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
+#include <arch/misc/common.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>

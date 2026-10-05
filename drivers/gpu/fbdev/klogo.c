@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>

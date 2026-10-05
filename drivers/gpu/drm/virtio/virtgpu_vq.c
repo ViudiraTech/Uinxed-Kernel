@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/idt.h>
+#include <arch/misc/common.h>
+#include <arch/tables/idt.h>
 #include <drivers/bus/virtpci.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>

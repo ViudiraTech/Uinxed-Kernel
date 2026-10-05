@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/block/core/blockdev.h>
 #include <drivers/block/nvme/nvme.h>
 #include <kernel/errno.h>

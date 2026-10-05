@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/idt.h>
+#include <arch/tables/idt.h>
 #include <drivers/firmware/acpi.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>

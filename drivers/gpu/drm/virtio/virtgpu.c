@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/bus/virtpci.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_init.h>

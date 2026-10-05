@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 
 /* Port write (8 bits) */
 extern inline __attribute__((always_inline)) void outb(uint16_t port, uint8_t value)

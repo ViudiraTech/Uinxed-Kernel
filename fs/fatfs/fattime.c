@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/cmos.h>
+#include <arch/firmware/cmos.h>
 #include <fs/fatfs/ff.h>
 
 #if CONFIG_FAT_FS

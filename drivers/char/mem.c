@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/char/chrdev.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

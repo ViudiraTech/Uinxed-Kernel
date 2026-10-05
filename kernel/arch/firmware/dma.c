@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/dma.h>
+#include <arch/firmware/dma.h>
+#include <arch/misc/common.h>
 #include <sync/spin_lock.h>
 
 /* Fast access registers and ports for each DMA channel */

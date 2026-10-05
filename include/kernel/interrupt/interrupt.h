@@ -11,7 +11,7 @@
 #ifndef INCLUDE_INTERRUPT_H_
 #define INCLUDE_INTERRUPT_H_
 
-#include <arch/idt.h>
+#include <arch/tables/idt.h>
 
 #if defined(__clang__)
 #    define INTERRUPT_BEGIN _Pragma("clang diagnostic push") _Pragma("clang diagnostic ignored \"-Wexcessive-regsave\"") __attribute__((interrupt, target("general-regs-only")))

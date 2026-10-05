@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
 #include <kernel/printk.h>
 
 /* Task state segment definition */

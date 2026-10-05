@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/smbios.h>
+#include <arch/firmware/smbios.h>
 #include <boot/limine.h>
 #include <kernel/uinxed.h>
 #include <libs/std/string.h>
