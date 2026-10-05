@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
+#include <arch/misc/common.h>
 #include <fs/core/vfs_stub.h>
 #include <ipc/pipe.h>
 #include <kernel/errno.h>

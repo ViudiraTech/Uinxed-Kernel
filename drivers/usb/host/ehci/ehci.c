@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/bus/pci.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/usb/host/ehci/ehci.h>

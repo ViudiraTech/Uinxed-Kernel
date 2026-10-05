@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/block/ata/sata/satapi.h>
 #include <drivers/bus/pci.h>
 #include <kernel/errno.h>

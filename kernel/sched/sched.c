@@ -8,9 +8,9 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/fpu.h>
-#include <arch/smp.h>
+#include <arch/cpu/fpu.h>
+#include <arch/cpu/smp.h>
+#include <arch/misc/common.h>
 #include <cgroup/cgroup.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/debug/debug.h>

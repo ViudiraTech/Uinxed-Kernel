@@ -8,11 +8,11 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/cpuid.h>
-#include <arch/exception_entry.h>
-#include <arch/idt.h>
-#include <arch/smp.h>
+#include <arch/cpu/cpuid.h>
+#include <arch/cpu/smp.h>
+#include <arch/interrupts/exception_entry.h>
+#include <arch/misc/common.h>
+#include <arch/tables/idt.h>
 #include <kernel/debug/debug.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>

@@ -8,9 +8,9 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/cpuid.h>
-#include <arch/idt.h>
+#include <arch/cpu/cpuid.h>
+#include <arch/misc/common.h>
+#include <arch/tables/idt.h>
 #include <boot/limine.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>

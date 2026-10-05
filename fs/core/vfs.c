@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <fs/core/dcache.h>
 #include <fs/core/icache.h>
 #include <fs/core/inotify.h>

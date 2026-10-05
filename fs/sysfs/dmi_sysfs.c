@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/smbios.h>
+#include <arch/firmware/smbios.h>
 #include <drivers/base/device.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>

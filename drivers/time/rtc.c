@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/cmos.h>
+#include <arch/firmware/cmos.h>
 #include <drivers/time/rtc.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

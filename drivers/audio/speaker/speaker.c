@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 
 #if CONFIG_AUDIO_PCSPKR
 

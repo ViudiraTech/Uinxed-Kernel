@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
 #include <fs/core/vfs.h>
 #include <fs/core/vfs_stub.h>
 #include <kernel/errno.h>

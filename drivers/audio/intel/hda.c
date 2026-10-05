@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/audio/core/audio.h>
 #include <drivers/audio/intel/hda.h>
 #include <drivers/bus/pci.h>

@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/fpu.h>
+#include <arch/cpu/fpu.h>
 #include <cgroup/cgroup.h>
 #include <kernel/printk.h>
 #include <mem/heap.h>

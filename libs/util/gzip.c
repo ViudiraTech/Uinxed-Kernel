@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/fpu.h>
+#include <arch/cpu/fpu.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>

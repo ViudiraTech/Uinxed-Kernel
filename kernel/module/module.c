@@ -10,8 +10,8 @@
 
 #define UINXED_MODULE_CORE
 
-#include <arch/common.h>
-#include <arch/smp.h>
+#include <arch/cpu/smp.h>
+#include <arch/misc/common.h>
 #include <fs/sysfs/module_sysfs.h>
 #include <kernel/module/elf.h>
 #include <kernel/module/module.h>

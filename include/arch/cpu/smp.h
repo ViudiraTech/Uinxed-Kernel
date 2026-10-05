@@ -11,8 +11,8 @@
 #ifndef INCLUDE_SMP_H_
 #define INCLUDE_SMP_H_
 
-#include <arch/gdt.h>
-#include <arch/tss.h>
+#include <arch/tables/gdt.h>
+#include <arch/tables/tss.h>
 #include <boot/limine.h>
 
 #define SYSCALL_CPU_USER_RSP_OFFSET   0

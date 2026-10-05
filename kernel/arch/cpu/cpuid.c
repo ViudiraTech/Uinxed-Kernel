@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <libs/std/string.h>
 
 #define MSR_IA32_EFER 0xC0000080

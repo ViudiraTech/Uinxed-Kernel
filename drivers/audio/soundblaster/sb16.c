@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/common.h>
-#include <arch/dma.h>
+#include <arch/firmware/dma.h>
+#include <arch/misc/common.h>
 #include <drivers/audio/core/audio.h>
 #include <drivers/audio/soundblaster/sb16.h>
 #include <kernel/printk.h>

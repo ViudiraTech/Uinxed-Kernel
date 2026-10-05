@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/cmos.h>
-#include <arch/common.h>
+#include <arch/firmware/cmos.h>
+#include <arch/misc/common.h>
 
 /* Reading data from CMOS memory */
 extern inline __attribute__((always_inline)) uint8_t read_cmos(uint8_t p)
