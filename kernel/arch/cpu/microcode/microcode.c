@@ -146,10 +146,12 @@ void init_microcode_ap(void)
 {
     uint32_t cpu;
 
-    if (microcode_loader_disabled || !microcode_backend) return;
-    microcode_backend->load_ap();
+    if (!microcode_backend) return;
 
-    /* Record this CPU's own revision; its id is known by the time this runs. */
+    /* Apply before sampling, so the revision below is the one this CPU ends up running. */
+    if (!microcode_loader_disabled) microcode_backend->load_ap();
+
+    /* Record this CPU's own revision, whether or not an update was applied. */
     cpu = get_current_cpu_id();
     if (microcode_backend->revision && cpu < CONFIG_NMI_LOG_MAX_CPUS) microcode_ap_revisions[cpu] = microcode_backend->revision();
 }

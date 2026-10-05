@@ -71,8 +71,8 @@ static uint32_t intel_platform_flag(void)
     uint32_t family = get_cpu_family();
     uint32_t model  = get_cpu_model();
 
-    /* Klamath and older have neither an update nor an IA32_PLATFORM_ID. */
-    if (family < 6 || (family == 6 && model <= 3)) return 0;
+    /* Klamath and older have no IA32_PLATFORM_ID: platform 0. */
+    if (family < 6 || (family == 6 && model <= 3)) return 1U << 0;
     return 1U << (uint32_t)((rdmsr(INTEL_MSR_PLATFORM_ID) >> 50) & 7U);
 }
 
@@ -271,7 +271,7 @@ static microcode_state_t intel_microcode_load(const microcode_blob_t *blob)
     return state;
 }
 
-/* Apply the kept record, or rescan it for this AP's stepping. */
+/* Apply the kept record if it covers this AP. */
 static microcode_state_t intel_microcode_load_ap(void)
 {
     const struct intel_microcode_header *patch = intel_microcode_patch;
