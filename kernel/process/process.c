@@ -143,8 +143,8 @@ int namespace_fork_child(process_t *child, uint64_t flags)
 {
     (void)flags;
     if (!child || !child->task || !child->task->nsproxy) return -EINVAL;
-    pid_namespace_t *ns = child->task->nsproxy->pid_ns;
-    int error = pid_task_set_namespace(child->task, ns);
+    pid_namespace_t *ns    = child->task->nsproxy->pid_ns;
+    int              error = pid_task_set_namespace(child->task, ns);
     if (error) return error;
     spin_lock(&process_table_lock);
     for (pid_namespace_t *ancestor = ns; ancestor && ancestor != &init_pid_ns; ancestor = ancestor->parent) {
@@ -303,7 +303,7 @@ int process_path_snapshot(pid_t pid, int which, char *path, size_t capacity)
 int process_fd_path_snapshot(pid_t pid, int fd, char *path, size_t capacity)
 {
     if (!path || capacity < 2 || fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return -EINVAL;
-    path[0] = '\0';
+    path[0]              = '\0';
     process_file_t *file = NULL;
     spin_lock(&process_table_lock);
     process_t *proc = pid_to_process_ns_locked(pid_ns_current(), pid);
@@ -562,8 +562,8 @@ int process_setpgid(process_t *caller, pid_t pid, pid_t pgid)
     if (!caller || pid < 0 || pgid < 0) return -EINVAL;
 
     spin_lock(&process_table_lock);
-    pid_namespace_t *ns = pid_ns_current();
-    process_t *target = pid ? pid_to_process_ns_locked(ns, pid) : caller;
+    pid_namespace_t *ns     = pid_ns_current();
+    process_t       *target = pid ? pid_to_process_ns_locked(ns, pid) : caller;
     if (!target) {
         spin_unlock(&process_table_lock);
         return -ESRCH;
@@ -1063,7 +1063,7 @@ int process_fd_install_at(process_t *proc, vfs_node_t node, uint64_t flags, uint
     process_file_t *file = calloc(1, sizeof(process_file_t));
     if (!file) return -ENOMEM;
 
-    file->node = node;
+    file->node     = node;
     file->mount_id = mount_id;
 
     /*
@@ -1777,7 +1777,7 @@ static void process_free(process_t *proc)
     for (pid_namespace_t *ns = task ? task->pid_ns : NULL; ns && ns != &init_pid_ns; ns = ns->parent)
         if (ns->child_reaper == proc) ns->child_reaper = NULL;
     spin_unlock(&process_table_lock);
-    proc->task    = NULL;
+    proc->task = NULL;
 
     process_ctty_clear(proc);
     process_fd_table_close(proc);
@@ -1856,18 +1856,16 @@ process_t *process_create(const char *name)
     }
 
     proc->task->state = TASK_RUNNING;
-    proc->uid         = 1000;
-    proc->rgid = proc->gid = proc->sgid = 1000;
-    proc->fsuid       = 1000;
-    proc->fsgid       = 1000;
-    proc->umask       = 022;
-    proc->pgid        = 0;
-    proc->sid         = 0;
-    proc->start_brk   = CONFIG_PROCESS_HEAP_START;
-    proc->heap_brk    = CONFIG_PROCESS_HEAP_START;
-    proc->stack_brk   = PROCESS_USER_STACK_TOP - (long)CONFIG_PROCESS_STACK_SIZE;
-    proc->parent      = init_process;
-    proc->exit_code   = 0;
+    proc->ruid = proc->uid = proc->suid = proc->fsuid = 1000;
+    proc->rgid = proc->gid = proc->sgid = proc->fsgid = 1000;
+    proc->umask                                       = 022;
+    proc->pgid                                        = 0;
+    proc->sid                                         = 0;
+    proc->start_brk                                   = CONFIG_PROCESS_HEAP_START;
+    proc->heap_brk                                    = CONFIG_PROCESS_HEAP_START;
+    proc->stack_brk                                   = PROCESS_USER_STACK_TOP - (long)CONFIG_PROCESS_STACK_SIZE;
+    proc->parent                                      = init_process;
+    proc->exit_code                                   = 0;
     slist_init(&proc->children);
     wait_queue_init(&proc->child_wait);
     wait_queue_init(&proc->signal_wait);
@@ -2122,9 +2120,9 @@ static void process_pid_namespace_shutdown(process_t *proc)
     spin_unlock(&process_table_lock);
     if (!shutdown) return;
 
-    size_t position = 0;
+    size_t     position = 0;
     process_t *target;
-    siginfo_t info = {.si_signo = SIGKILL, .si_code = SI_KERNEL};
+    siginfo_t  info = {.si_signo = SIGKILL, .si_code = SI_KERNEL};
     while ((target = process_iterate_get(&position))) {
         if (target != proc && task_tgid_nr_ns(target->task, shutdown)) (void)signal_send(target, SIGKILL, &info);
         process_put(target);
@@ -2132,8 +2130,8 @@ static void process_pid_namespace_shutdown(process_t *proc)
     /* Exit cannot return to a user signal handler; poll without interrupting on SIGCHLD. */
     for (;;) {
         pid_t waited = 0;
-        int status = 0;
-        int result = process_wait_select(-1, &status, PROCESS_WAIT_NOHANG, &waited);
+        int   status = 0;
+        int   result = process_wait_select(-1, &status, PROCESS_WAIT_NOHANG, &waited);
         if (result == -ECHILD) break;
         if (result || !waited) task_sleep_ticks(1);
     }
@@ -2259,7 +2257,7 @@ __attribute__((noreturn)) void process_exit(int exit_code)
         slist_remove(&proc->children, child);
         if (child && child != proc) {
             process_t *reaper = process_child_reaper(child, proc);
-            child->parent = reaper;
+            child->parent     = reaper;
             slist_insert_tail(&reaper->children, child);
             process_get_locked(reaper);
             /* Match wait's queue -> table lock order and wake already-zombie adoptees too. */
@@ -2657,16 +2655,16 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->uid                       = parent->uid;
     child->ruid                      = parent->ruid;
     child->suid                      = parent->suid;
-    child->rgid = parent->rgid;
-    child->sgid = parent->sgid;
+    child->rgid                      = parent->rgid;
+    child->sgid                      = parent->sgid;
     child->gid                       = parent->gid;
     child->fsuid                     = parent->fsuid;
     child->fsgid                     = parent->fsgid;
     child->supplementary_group_count = parent->supplementary_group_count;
     memcpy(child->supplementary_groups, parent->supplementary_groups, sizeof(child->supplementary_groups));
-    child->umask     = parent->umask;
-    child->pgid      = parent->pgid;
-    child->sid       = parent->sid;
+    child->umask = parent->umask;
+    child->pgid  = parent->pgid;
+    child->sid   = parent->sid;
     memcpy(child->pgid_numbers, parent->pgid_numbers, sizeof(child->pgid_numbers));
     memcpy(child->sid_numbers, parent->sid_numbers, sizeof(child->sid_numbers));
     pid_ns_numbers_get(child_task->pid_ns, child->pgid_numbers);
@@ -3008,9 +3006,9 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     child->signal_altstack.ss_size  = 0;
     child->signal_altstack.ss_flags = SS_DISABLE;
     fpu_task_clone(current, child);
-    child->page_directory  = proc->user_page_dir;
-    child->process         = proc;
-    child->tgid            = proc->task->tgid;
+    child->page_directory = proc->user_page_dir;
+    child->process        = proc;
+    child->tgid           = proc->task->tgid;
     memcpy(child->tgid_numbers, proc->task->tgid_numbers, sizeof(child->tgid_numbers));
     child->clear_child_tid = child_clear_tid;
     child->cpu_id          = current->cpu_id;

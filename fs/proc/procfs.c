@@ -1639,7 +1639,7 @@ static void gen_pid_status(procfs_file_t *pf)
                                "Mems_allowed_list:\t%s\n"
                                "voluntary_ctxt_switches:\t%llu\n"
                                "nonvoluntary_ctxt_switches:\t%llu\n",
-                          proc->task->name, state_str, pf->pid, pf->pid, ppid, ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U,
+                          proc->task->name, state_str, pf->pid, pf->pid, ppid, ptrace_tracer_pid(proc->task), proc->ruid, proc->uid, proc->suid, proc->fsuid, proc->rgid, proc->gid, proc->sgid, proc->fsgid, 0U,
                           0U, memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024, (memory.data_bytes / 1024), (memory.stack_bytes / 1024), (memory.text_bytes / 1024),
                      stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, seccomp_mode, seccomp_filters, (unsigned long long)caps.inheritable, (unsigned long long)caps.permitted,
                           (unsigned long long)caps.effective, (unsigned long long)caps.bounding, (unsigned long long)caps.ambient, cpu_mask, cpu_list, mems_mask, mems_list, stats.voluntary_switches,

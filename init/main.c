@@ -8,7 +8,6 @@
  *
  */
 
-#include <process/namespace.h>
 #include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
@@ -93,6 +92,7 @@
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
 #include <process/elf_loader.h>
+#include <process/namespace.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <security/seccomp.h>
@@ -148,12 +148,10 @@ static void swapper_run_init(void)
      * PID 1 starts with full system credentials.  Login/session services are
      * responsible for dropping to the configured desktop user later.
      */
-    init->uid      = 0;
-    init->gid      = 0;
-    init->fsuid    = 0;
-    init->fsgid    = 0;
-    init_process   = init;
-    pid_t init_sid = 0;
+    init->ruid = init->uid = init->suid = init->fsuid = 0;
+    init->rgid = init->gid = init->sgid = init->fsgid = 0;
+    init_process                                      = init;
+    pid_t init_sid                                    = 0;
     if (process_setsid(init, &init_sid) || init_sid != 1 || init->pgid != 1) panic("Failed to establish init session.");
 
     /*
@@ -326,7 +324,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     init_vfs();                                                    // Virtual Filesystem
     tmpfs_regist();                                                // Temporary File System
     procfs_regist();                                               // Process File System
-    namespace_fs_init();                                          // Namespace file descriptors
+    namespace_fs_init();                                           // Namespace file descriptors
     sysfs_regist();                                                // Register sysfs with the VFS layer
     cgroupfs_regist();                                             // Unified Control Group File System
 
