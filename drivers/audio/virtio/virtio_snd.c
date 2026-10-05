@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/common.h>
+#include <arch/misc/common.h>
 #include <drivers/audio/core/audio.h>
 #include <drivers/audio/virtio/virtio_snd.h>
 #include <drivers/bus/virtpci.h>
