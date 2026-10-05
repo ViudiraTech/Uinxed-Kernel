@@ -108,6 +108,7 @@ static int microcode_cmdline_disabled(void)
 void init_microcode(void)
 {
     microcode_blob_t blob;
+    uint32_t         ecx;
 
     /* Detected before the gates below, so microcode_revision() still works. */
     microcode_backend = microcode_find_backend();
@@ -119,7 +120,8 @@ void init_microcode(void)
     microcode_cache_revision();
 
     /* A guest leaves the host's microcode alone; CPUID.1:ECX[31] says one is running us. */
-    if (cpu_has_feature(0x00000001, CPUID_REG_ECX, 31)) {
+    cpuid_safe(0x00000001, 0, NULL, NULL, &ecx, NULL);
+    if (ecx & (1U << 31)) {
         microcode_loader_disabled = 1;
         plogk("microcode: early loading disabled by a hypervisor.\n");
         return;
