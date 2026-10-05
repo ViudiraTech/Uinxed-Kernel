@@ -76,6 +76,8 @@ typedef struct tcp_endpoint   tcp_endpoint_t;
 typedef void (*tcp_event_callback_t)(tcp_endpoint_t *endpoint, uint32_t events, void *context);
 
 typedef struct tcp_endpoint {
+        struct net_namespace *net_ns;
+        uint32_t bound_ifindex;
         uint16_t             family;
         uint8_t              native6;
         uint8_t              v6only;
@@ -203,7 +205,7 @@ wait_queue_t *tcp_wait_queue(tcp_endpoint_t *endpoint);
 /* Protocol entry points and packet parsing. */
 int  tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet);
 int  tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
-void tcp_control_error(uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu);
+void tcp_control_error(struct net_namespace *ns, uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu);
 
 #if CONFIG_INET && CONFIG_NET
 void tcp_timer(uint64_t now_ticks);

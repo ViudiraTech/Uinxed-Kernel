@@ -247,7 +247,7 @@ static void block_sysfs_devt(const char *name, uint32_t *major, uint32_t *minor)
         uint32_t    index  = 0;
         ma                 = 8;
         while (*cursor >= 'a' && *cursor <= 'z') {
-            index = index * 26 + (uint32_t)(*cursor - 'a') + 1;
+            index = (index * 26) + (uint32_t)(*cursor - 'a') + 1;
             cursor++;
         }
         mi = index ? index - 1 : 0;

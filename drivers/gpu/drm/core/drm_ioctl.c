@@ -22,7 +22,8 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 {
     if (!file_priv) return -EACCES;
 
-    if (flags & DRM_AUTH)
+    if (file_priv->is_render && !(flags & DRM_RENDER_ALLOW)) return -EACCES;
+    if ((flags & DRM_AUTH) && !file_priv->is_render)
         if (!file_priv->authenticated) return -EACCES;
 
     if (flags & DRM_MASTER) {
@@ -129,23 +130,23 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
 /* Built-in core ioctls that are always available. */
 static const struct drm_ioctl_desc drm_core_ioctls[] = {
     /* 0x00 - 0x0d: core / GEM / cap */
-    {DRM_IOCTL_VERSION,                drm_version,                      0                    },
-    {DRM_IOCTL_GET_UNIQUE,             NULL,                             0                    },
+    {DRM_IOCTL_VERSION,                drm_version,                      DRM_RENDER_ALLOW                    },
+    {DRM_IOCTL_GET_UNIQUE,             NULL,                             DRM_RENDER_ALLOW                    },
     {DRM_IOCTL_GET_MAGIC,              drm_getmagic,                     DRM_AUTH             },
     {DRM_IOCTL_SET_VERSION,            drm_setversion,                   DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODESET_CTL,            NULL,                             DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_SET_MASTER,             drm_setmaster,                    DRM_AUTH             },
     {DRM_IOCTL_DROP_MASTER,            drm_dropmaster,                   DRM_AUTH             },
     {DRM_IOCTL_AUTH_MAGIC,             drm_authmagic,                    DRM_AUTH             },
-    {DRM_IOCTL_GEM_CLOSE,              drm_gem_close_ioctl,              DRM_AUTH             },
+    {DRM_IOCTL_GEM_CLOSE,              drm_gem_close_ioctl,              DRM_RENDER_ALLOW             },
     {DRM_IOCTL_GEM_FLINK,              drm_gem_flink_ioctl,              DRM_AUTH             },
     {DRM_IOCTL_GEM_OPEN,               drm_gem_open_ioctl,               DRM_AUTH             },
-    {DRM_IOCTL_GET_CAP,                drm_get_cap,                      0                    },
-    {DRM_IOCTL_SET_CLIENT_CAP,         drm_set_client_cap,               0                    },
+    {DRM_IOCTL_GET_CAP,                drm_get_cap,                      DRM_RENDER_ALLOW                    },
+    {DRM_IOCTL_SET_CLIENT_CAP,         drm_set_client_cap,               DRM_RENDER_ALLOW                    },
 
     /* 0x2d - 0x2e: PRIME */
-    {DRM_IOCTL_PRIME_HANDLE_TO_FD,     NULL,                             DRM_AUTH             },
-    {DRM_IOCTL_PRIME_FD_TO_HANDLE,     NULL,                             DRM_AUTH             },
+    {DRM_IOCTL_PRIME_HANDLE_TO_FD,     NULL,                             DRM_RENDER_ALLOW             },
+    {DRM_IOCTL_PRIME_FD_TO_HANDLE,     NULL,                             DRM_RENDER_ALLOW             },
 
     /* 0x3a: vblank */
     {DRM_IOCTL_WAIT_VBLANK,            drm_wait_vblank_ioctl,            0                    },
@@ -258,7 +259,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
         }
         if (cmd == DRM_IOCTL_PRIME_HANDLE_TO_FD) {
             struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
-            ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
+            ret                           = drm_ioctl_permit(DRM_RENDER_ALLOW, file_priv);
             if (ret) goto out;
             if (!(dev->driver->driver_features & DRIVER_PRIME)) {
                 ret = -EOPNOTSUPP;
@@ -269,7 +270,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
         }
         if (cmd == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
             struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
-            ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
+            ret                           = drm_ioctl_permit(DRM_RENDER_ALLOW, file_priv);
             if (ret) goto out;
             if (!(dev->driver->driver_features & DRIVER_PRIME)) {
                 ret = -EOPNOTSUPP;

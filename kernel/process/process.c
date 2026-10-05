@@ -25,6 +25,7 @@
 #include <mem/swap.h>
 #include <net/socket.h>
 #include <process/namespace.h>
+#include <process/pid_namespace.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
@@ -32,6 +33,7 @@
 #include <sync/mutex.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
+#include <syscall/posix_timer.h>
 #include <syscall/syscall.h>
 
 static process_t *process_table[CONFIG_PROCESS_TABLE_SIZE];
@@ -102,6 +104,67 @@ process_t *process_find_get(pid_t pid)
     return proc;
 }
 
+/* Userspace lookup must resolve in the caller's active namespace, never the child namespace. */
+static process_t *pid_to_process_ns_locked(pid_namespace_t *ns, pid_t nr)
+{
+    if (nr <= 0 || !ns) return NULL;
+    for (size_t i = 1; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
+        process_t *proc = process_table[i];
+        if (proc && task_tgid_nr_ns(proc->task, ns) == (uint64_t)nr) return proc;
+    }
+    return NULL;
+}
+
+process_t *process_find_ns_get(pid_namespace_t *ns, pid_t nr)
+{
+    spin_lock(&process_table_lock);
+    process_t *proc = pid_to_process_ns_locked(ns, nr);
+    process_get_locked(proc);
+    spin_unlock(&process_table_lock);
+    return proc;
+}
+
+bool process_is_pid_ns_init(const process_t *proc)
+{
+    return proc && proc->task && task_tgid_nr_ns(proc->task, proc->task->pid_ns) == 1;
+}
+
+uint64_t process_pgid_nr_ns(const process_t *proc, pid_namespace_t *ns)
+{
+    return proc && proc->task && ns && pid_ns_is_descendant(proc->task->pid_ns, ns) ? proc->pgid_numbers[ns->level] : 0;
+}
+
+uint64_t process_sid_nr_ns(const process_t *proc, pid_namespace_t *ns)
+{
+    return proc && proc->task && ns && pid_ns_is_descendant(proc->task->pid_ns, ns) ? proc->sid_numbers[ns->level] : 0;
+}
+
+int namespace_fork_child(process_t *child, uint64_t flags)
+{
+    (void)flags;
+    if (!child || !child->task || !child->task->nsproxy) return -EINVAL;
+    pid_namespace_t *ns    = child->task->nsproxy->pid_ns;
+    int              error = pid_task_set_namespace(child->task, ns);
+    if (error) return error;
+    spin_lock(&process_table_lock);
+    for (pid_namespace_t *ancestor = ns; ancestor && ancestor != &init_pid_ns; ancestor = ancestor->parent) {
+        if (task_tgid_nr_ns(child->task, ancestor) == 1 && !ancestor->child_reaper) ancestor->child_reaper = child;
+    }
+    spin_unlock(&process_table_lock);
+    if (ns != &init_pid_ns && task_tgid_nr_ns(child->task, ns) == 1) {
+        /* New PID namespace init starts a new session, without its parent's controlling terminal. */
+        child->pgid = child->sid = (pid_t)child->task->tgid;
+        pid_ns_numbers_put(ns, child->pgid_numbers);
+        pid_ns_numbers_put(ns, child->sid_numbers);
+        memcpy(child->pgid_numbers, child->task->tgid_numbers, sizeof(child->pgid_numbers));
+        memcpy(child->sid_numbers, child->task->tgid_numbers, sizeof(child->sid_numbers));
+        pid_ns_numbers_get(ns, child->pgid_numbers);
+        pid_ns_numbers_get(ns, child->sid_numbers);
+        process_ctty_clear(child);
+    }
+    return EOK;
+}
+
 /* Iterate the process table, taking a reference on each entry */
 process_t *process_iterate_get(size_t *pos)
 {
@@ -137,7 +200,8 @@ size_t process_snapshot_pids(pid_t *pids, size_t capacity, uint64_t *generation)
     for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE && count < capacity; i++) {
         process_t *proc = process_table[i];
         if (!proc || !proc->task || proc->task->tgid == 0) continue;
-        pids[count++] = (pid_t)proc->task->tgid;
+        pid_t nr = (pid_t)task_tgid_nr(proc->task);
+        if (nr) pids[count++] = nr;
     }
     if (generation) *generation = __atomic_load_n(&process_table_generation, __ATOMIC_RELAXED);
     spin_unlock(&process_table_lock);
@@ -154,7 +218,7 @@ uint64_t process_table_generation_read(void)
 bool process_pid_exists(pid_t pid)
 {
     spin_lock(&process_table_lock);
-    bool exists = pid_to_process_locked(pid) != NULL;
+    bool exists = pid_to_process_ns_locked(pid_ns_current(), pid) != NULL;
     spin_unlock(&process_table_lock);
     return exists;
 }
@@ -173,7 +237,7 @@ size_t process_snapshot_fds(pid_t pid, int *fds, size_t capacity)
 
     size_t count = 0;
     spin_lock(&process_table_lock);
-    process_t *proc = pid_to_process_locked(pid);
+    process_t *proc = pid_to_process_ns_locked(pid_ns_current(), pid);
     if (proc) {
         spin_lock(&proc->fd_lock);
         for (int fd = 0; fd < CONFIG_PROCESS_MAX_FD && count < capacity; fd++)
@@ -190,7 +254,7 @@ bool process_fd_exists(pid_t pid, int fd)
     if (fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return false;
     bool exists = false;
     spin_lock(&process_table_lock);
-    process_t *proc = pid_to_process_locked(pid);
+    process_t *proc = pid_to_process_ns_locked(pid_ns_current(), pid);
     if (proc) {
         spin_lock(&proc->fd_lock);
         exists = proc->fds[fd] != NULL;
@@ -206,7 +270,7 @@ pid_t process_parent_pid(process_t *proc)
     pid_t ppid = 0;
     if (!proc) return 0;
     spin_lock(&process_table_lock);
-    if (proc->parent && proc->parent->task) ppid = (pid_t)proc->parent->task->tgid;
+    if (proc->parent && proc->parent->task) ppid = (pid_t)task_tgid_nr(proc->parent->task);
     spin_unlock(&process_table_lock);
     return ppid;
 }
@@ -217,7 +281,7 @@ int process_path_snapshot(pid_t pid, int which, char *path, size_t capacity)
     if (!path || !capacity || which < 0 || which > 2) return -EINVAL;
     int result = -ENOENT;
     spin_lock(&process_table_lock);
-    process_t *proc = pid_to_process_locked(pid);
+    process_t *proc = pid_to_process_ns_locked(pid_ns_current(), pid);
     if (proc) {
         const char *source;
         if (which == 0) {
@@ -239,28 +303,32 @@ int process_path_snapshot(pid_t pid, int which, char *path, size_t capacity)
 int process_fd_path_snapshot(pid_t pid, int fd, char *path, size_t capacity)
 {
     if (!path || capacity < 2 || fd < 0 || fd >= CONFIG_PROCESS_MAX_FD) return -EINVAL;
-    int result = -ENOENT;
-    path[0]    = '\0';
+    path[0]              = '\0';
+    process_file_t *file = NULL;
     spin_lock(&process_table_lock);
-    process_t *proc = pid_to_process_locked(pid);
+    process_t *proc = pid_to_process_ns_locked(pid_ns_current(), pid);
     if (proc) {
         spin_lock(&proc->fd_lock);
-        process_file_t *file = proc->fds[fd];
-        if (file && file->node) {
-            if (!file->node->parent) {
-                if (file->node->name && file->node->name[0]) {
-                    (void)snprintf(path, capacity, "anon_inode:%s", file->node->name);
-                } else {
-                    (void)snprintf(path, capacity, "anon_inode:[%llu]", file->node->inode);
-                }
-                result = EOK;
-            } else {
-                result = vfs_node_path(file->node, path, capacity);
-            }
-        }
+        file = proc->fds[fd];
+        process_file_get(file);
         spin_unlock(&proc->fd_lock);
     }
     spin_unlock(&process_table_lock);
+    if (!file) return -ENOENT;
+    int result = -ENOENT;
+    if (file->node == rootdir) {
+        (void)snprintf(path, capacity, "/");
+        result = EOK;
+    } else if (file->node && !file->node->parent) {
+        if (file->node->name && file->node->name[0])
+            (void)snprintf(path, capacity, "anon_inode:%s", file->node->name);
+        else
+            (void)snprintf(path, capacity, "anon_inode:[%llu]", file->node->inode);
+        result = EOK;
+    } else if (file->node) {
+        result = vfs_node_path_at(file->node, file->mount_id, path, capacity);
+    }
+    process_file_put(file);
     return result;
 }
 
@@ -494,7 +562,8 @@ int process_setpgid(process_t *caller, pid_t pid, pid_t pgid)
     if (!caller || pid < 0 || pgid < 0) return -EINVAL;
 
     spin_lock(&process_table_lock);
-    process_t *target = pid ? pid_to_process_locked(pid) : caller;
+    pid_namespace_t *ns     = pid_ns_current();
+    process_t       *target = pid ? pid_to_process_ns_locked(ns, pid) : caller;
     if (!target) {
         spin_unlock(&process_table_lock);
         return -ESRCH;
@@ -508,21 +577,29 @@ int process_setpgid(process_t *caller, pid_t pid, pid_t pgid)
         spin_unlock(&process_table_lock);
         return -EPERM;
     }
-    if (!pgid) pgid = target_pid;
-    if (pgid != target_pid) {
-        bool valid_group = false;
+    uint32_t numbers[PID_NS_MAX_LEVEL + 1];
+    if (!pgid || (uint64_t)pgid == task_tgid_nr_ns(target->task, ns)) {
+        pgid = target_pid;
+        memcpy(numbers, target->task->tgid_numbers, sizeof(numbers));
+    } else {
+        process_t *group_member = NULL;
         for (size_t i = 0; i < CONFIG_PROCESS_TABLE_SIZE; i++) {
             process_t *member = process_table[i];
-            if (member && member->pgid == pgid && member->sid == caller->sid) {
-                valid_group = true;
+            if (member && process_pgid_nr_ns(member, ns) == (uint64_t)pgid && member->sid == caller->sid) {
+                group_member = member;
                 break;
             }
         }
-        if (!valid_group) {
+        if (!group_member) {
             spin_unlock(&process_table_lock);
             return -EPERM;
         }
+        pgid = group_member->pgid;
+        memcpy(numbers, group_member->pgid_numbers, sizeof(numbers));
     }
+    pid_ns_numbers_put(target->task->pid_ns, target->pgid_numbers);
+    memcpy(target->pgid_numbers, numbers, sizeof(numbers));
+    pid_ns_numbers_get(target->task->pid_ns, target->pgid_numbers);
     target->pgid = pgid;
     spin_unlock(&process_table_lock);
     return 0;
@@ -543,9 +620,15 @@ int process_setsid(process_t *proc, pid_t *sid)
         }
     }
     proc->sid = proc->pgid = pid;
+    pid_ns_numbers_put(proc->task->pid_ns, proc->pgid_numbers);
+    pid_ns_numbers_put(proc->task->pid_ns, proc->sid_numbers);
+    memcpy(proc->pgid_numbers, proc->task->tgid_numbers, sizeof(proc->pgid_numbers));
+    memcpy(proc->sid_numbers, proc->task->tgid_numbers, sizeof(proc->sid_numbers));
+    pid_ns_numbers_get(proc->task->pid_ns, proc->pgid_numbers);
+    pid_ns_numbers_get(proc->task->pid_ns, proc->sid_numbers);
     spin_unlock(&process_table_lock);
     process_ctty_clear(proc);
-    if (sid) *sid = pid;
+    if (sid) *sid = (pid_t)task_tgid_nr(proc->task);
     return 0;
 }
 
@@ -834,11 +917,13 @@ void process_file_put(process_file_t *file)
     if (refs != 1) return;
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
 
+    ofd_lock_release(file);
     inotify_notify(file->node, (file->flags & O_ACCMODE) == O_RDONLY ? IN_CLOSE_NOWRITE : IN_CLOSE_WRITE);
 
     /* Release per-open-instance private_data. */
     if (file->file_opened) callbackof(file->node, file_release)(file->node, file->private_data);
 
+    vfs_mount_open_ref(file->mount_id, false);
     vfs_close(file->node);
     free(file);
 }
@@ -958,6 +1043,12 @@ process_file_t *process_fd_get_for_transfer(process_t *proc, int fd)
     return file;
 }
 
+/* Duplicate an existing in-flight reference when MSG_PEEK preserves the queue. */
+void process_file_get_transfer(process_file_t *file)
+{
+    process_file_fd_get(file);
+}
+
 /* Release a descriptor pinned for transfer */
 void process_file_put_transfer(process_file_t *file)
 {
@@ -965,14 +1056,15 @@ void process_file_put_transfer(process_file_t *file)
 }
 
 /* Open a node and install it into the lowest free descriptor */
-int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
+int process_fd_install_at(process_t *proc, vfs_node_t node, uint64_t flags, uint64_t mount_id)
 {
     if (!proc || !node) return -EINVAL;
 
     process_file_t *file = calloc(1, sizeof(process_file_t));
     if (!file) return -ENOMEM;
 
-    file->node = node;
+    file->node     = node;
+    file->mount_id = mount_id;
 
     /*
      * O_CLOEXEC is a descriptor creation flag.  It must not be shared by
@@ -1009,6 +1101,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
         }
     }
 
+    vfs_mount_open_ref(mount_id, true);
     spin_lock(&proc->fd_lock);
     uint32_t limit = process_fd_limit(proc);
     for (uint32_t i = 0; i < limit; i++) {
@@ -1023,9 +1116,16 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     spin_unlock(&proc->fd_lock);
 
     /* No free FD slot; release the open-file state. */
+    vfs_mount_open_ref(mount_id, false);
     if (file->file_opened) callbackof(node, file_release)(node, file->private_data);
     free(file);
     return -EMFILE;
+}
+
+/* Install an existing open file into the lowest free descriptor */
+int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
+{
+    return process_fd_install_at(proc, node, flags, 0);
 }
 
 /* Install an existing open file into the lowest free descriptor */
@@ -1284,13 +1384,13 @@ static int64_t process_fd_write_impl(process_t *proc, int fd, const void *buf, s
      * Avoid walking the mount-parent chain for the hot read/write stream
      * path; the device callback owns the write policy for these nodes.
      */
-    if (!positionless && vfs_mount_is_readonly(file->node)) {
+    if (!positionless && ((file->mount_id ? vfs_mount_flags_id(file->mount_id) : vfs_mount_flags(file->node)) & MOUNT_FLAG_RDONLY)) {
         if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EROFS;
     }
 
-    int64_t ret = vfs_file_write_granted(file->node, file->private_data, flags, buf, offset, size, proc);
+    int64_t ret = vfs_file_write_granted(file->node, file->private_data, flags, buf, offset, size, proc, file->mount_id);
     if (!positionless) {
         if (ret >= 0) {
             spin_lock(&file->lock);
@@ -1386,13 +1486,13 @@ static int64_t process_fd_write_user_impl(process_t *proc, int fd, const void *b
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
-    if (!positionless && vfs_mount_is_readonly(file->node)) {
+    if (!positionless && ((file->mount_id ? vfs_mount_flags_id(file->mount_id) : vfs_mount_flags(file->node)) & MOUNT_FLAG_RDONLY)) {
         if (!positionless) mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EROFS;
     }
 
-    int64_t ret = vfs_file_write_user_granted(file->node, file->private_data, flags, buf, offset, size, proc);
+    int64_t ret = vfs_file_write_user_granted(file->node, file->private_data, flags, buf, offset, size, proc, file->mount_id);
     if (!positionless) {
         if (ret >= 0) {
             spin_lock(&file->lock);
@@ -1461,12 +1561,12 @@ static int64_t process_fd_pwrite_user_impl(process_t *proc, int fd, const void *
         process_file_put_light(file, borrowed);
         return -EBADF;
     }
-    if (vfs_mount_is_readonly(file->node)) {
+    if (((file->mount_id ? vfs_mount_flags_id(file->mount_id) : vfs_mount_flags(file->node)) & MOUNT_FLAG_RDONLY)) {
         mutex_unlock(&file->io_lock);
         process_file_put_light(file, borrowed);
         return -EROFS;
     }
-    int64_t ret = vfs_file_write_user_granted(file->node, file->private_data, flags, buf, (size_t)offset, size, proc);
+    int64_t ret = vfs_file_write_user_granted(file->node, file->private_data, flags, buf, (size_t)offset, size, proc, file->mount_id);
     mutex_unlock(&file->io_lock);
 
     if (sync) ret = process_file_write_sync(file, flags, ret);
@@ -1618,7 +1718,7 @@ int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *
             process_file_put(file);
             return -ENOTDIR;
         }
-        ret = vfs_node_path(file->node, base, sizeof(base));
+        ret = vfs_node_path_at(file->node, file->mount_id, base, sizeof(base));
         process_file_put(file);
         if (ret == EOK) ret = vfs_resolve_path(base, path, resolved, size);
     }
@@ -1669,7 +1769,15 @@ static void process_free(process_t *proc)
 
     task_t  *task = proc->task;
     uint32_t pid  = task ? (uint32_t)task->tgid : 0;
-    proc->task    = NULL;
+    if (task) {
+        pid_ns_numbers_put(task->pid_ns, proc->pgid_numbers);
+        pid_ns_numbers_put(task->pid_ns, proc->sid_numbers);
+    }
+    spin_lock(&process_table_lock);
+    for (pid_namespace_t *ns = task ? task->pid_ns : NULL; ns && ns != &init_pid_ns; ns = ns->parent)
+        if (ns->child_reaper == proc) ns->child_reaper = NULL;
+    spin_unlock(&process_table_lock);
+    proc->task = NULL;
 
     process_ctty_clear(proc);
     process_fd_table_close(proc);
@@ -1721,6 +1829,7 @@ process_t *process_create(const char *name)
 
     proc->task                = task;
     task->process             = proc;
+    proc->nsproxy             = task->nsproxy; // task owns the reference
     proc->refcount            = 1;
     proc->thread_count        = 1;
     proc->seccomp_lock.lock   = 0;
@@ -1747,18 +1856,16 @@ process_t *process_create(const char *name)
     }
 
     proc->task->state = TASK_RUNNING;
-    proc->uid         = 1000;
-    proc->gid         = 1000;
-    proc->fsuid       = 1000;
-    proc->fsgid       = 1000;
-    proc->umask       = 022;
-    proc->pgid        = 0;
-    proc->sid         = 0;
-    proc->start_brk   = CONFIG_PROCESS_HEAP_START;
-    proc->heap_brk    = CONFIG_PROCESS_HEAP_START;
-    proc->stack_brk   = PROCESS_USER_STACK_TOP - (long)CONFIG_PROCESS_STACK_SIZE;
-    proc->parent      = init_process;
-    proc->exit_code   = 0;
+    proc->ruid = proc->uid = proc->suid = proc->fsuid = 1000;
+    proc->rgid = proc->gid = proc->sgid = proc->fsgid = 1000;
+    proc->umask                                       = 022;
+    proc->pgid                                        = 0;
+    proc->sid                                         = 0;
+    proc->start_brk                                   = CONFIG_PROCESS_HEAP_START;
+    proc->heap_brk                                    = CONFIG_PROCESS_HEAP_START;
+    proc->stack_brk                                   = PROCESS_USER_STACK_TOP - (long)CONFIG_PROCESS_STACK_SIZE;
+    proc->parent                                      = init_process;
+    proc->exit_code                                   = 0;
     slist_init(&proc->children);
     wait_queue_init(&proc->child_wait);
     wait_queue_init(&proc->signal_wait);
@@ -1811,7 +1918,7 @@ process_t *process_create_kthread(task_t *task, const char *name)
     proc->gid       = 0;
     proc->fsuid     = 0;
     proc->fsgid     = 0;
-    proc->nsproxy   = nsproxy_get(&init_nsproxy);
+    proc->nsproxy   = task->nsproxy;
     proc->umask     = 022;
     proc->pgid      = 0;
     proc->sid       = 0;
@@ -2000,6 +2107,46 @@ __attribute__((noreturn)) void process_exit_group(int exit_code)
     process_exit(exit_code);
 }
 
+/* Killing namespace init must close admission, terminate descendants, and reap them. */
+static void process_pid_namespace_shutdown(process_t *proc)
+{
+    pid_namespace_t *shutdown = NULL;
+    spin_lock(&process_table_lock);
+    for (pid_namespace_t *ns = proc->task->pid_ns; ns && ns != &init_pid_ns; ns = ns->parent) {
+        if (ns->child_reaper != proc) continue;
+        __atomic_store_n(&ns->dead, true, __ATOMIC_RELEASE);
+        shutdown = ns;
+    }
+    spin_unlock(&process_table_lock);
+    if (!shutdown) return;
+
+    size_t     position = 0;
+    process_t *target;
+    siginfo_t  info = {.si_signo = SIGKILL, .si_code = SI_KERNEL};
+    while ((target = process_iterate_get(&position))) {
+        if (target != proc && task_tgid_nr_ns(target->task, shutdown)) (void)signal_send(target, SIGKILL, &info);
+        process_put(target);
+    }
+    /* Exit cannot return to a user signal handler; poll without interrupting on SIGCHLD. */
+    for (;;) {
+        pid_t waited = 0;
+        int   status = 0;
+        int   result = process_wait_select(-1, &status, PROCESS_WAIT_NOHANG, &waited);
+        if (result == -ECHILD) break;
+        if (result || !waited) task_sleep_ticks(1);
+    }
+}
+
+/* Called under the process table lock; a nested namespace init cannot adopt itself. */
+static process_t *process_child_reaper(process_t *child, process_t *exiting)
+{
+    for (pid_namespace_t *ns = child && child->task ? child->task->pid_ns : NULL; ns; ns = ns->parent) {
+        process_t *reaper = ns == &init_pid_ns ? init_process : ns->child_reaper;
+        if (reaper && reaper != child && reaper != exiting && reaper->task && reaper->task->state != TASK_ZOMBIE) return reaper;
+    }
+    return init_process;
+}
+
 /* Terminate the current process, reparenting its children */
 __attribute__((noreturn)) void process_exit(int exit_code)
 {
@@ -2058,15 +2205,18 @@ __attribute__((noreturn)) void process_exit(int exit_code)
                 static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
                 if (ratelimit_allow(&ratelimit)) plogk("process: clear_child_tid copy_to_user failed for %p\n", (void *)current->clear_child_tid);
             } else {
-                sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
+                (void)sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
             }
         }
         if (!(current->flags & PF_KTHREAD)) ptrace_exit_notify(exit_code);
         task_exit();
     }
 
+    process_pid_namespace_shutdown(proc);
+
     /* Process timers cease to exist when the final thread exits. */
     signal_itimer_cancel(proc);
+    posix_timer_release_process(proc);
 
     /* Reverse any SEM_UNDO adjustments held by this process. */
     sysv_sem_undo_release(proc);
@@ -2102,16 +2252,22 @@ __attribute__((noreturn)) void process_exit(int exit_code)
     process_t *parent = proc->parent;
     if (parent) process_get_locked(parent);
 
-    slist_node_t *node = proc->children.head;
-    while (node) {
-        slist_node_t *next  = node->next;
-        process_t    *child = (process_t *)node->data;
+    while (proc->children.head) {
+        process_t *child = (process_t *)proc->children.head->data;
         slist_remove(&proc->children, child);
         if (child && child != proc) {
-            child->parent = init_process;
-            slist_insert_tail(&init_process->children, child);
+            process_t *reaper = process_child_reaper(child, proc);
+            child->parent     = reaper;
+            slist_insert_tail(&reaper->children, child);
+            process_get_locked(reaper);
+            /* Match wait's queue -> table lock order and wake already-zombie adoptees too. */
+            spin_unlock(&process_table_lock);
+            spin_lock(&reaper->child_wait.lock);
+            wait_queue_wake_all(&reaper->child_wait);
+            spin_unlock(&reaper->child_wait.lock);
+            process_put(reaper);
+            spin_lock(&process_table_lock);
         }
-        node = next;
     }
 
     spin_unlock(&process_table_lock);
@@ -2156,7 +2312,7 @@ __attribute__((noreturn)) void process_exit(int exit_code)
      * publish signal/wait-queue state and cannot sleep the exiting task.
      */
     if (parent) {
-        signal_notify_child_exit(parent, (pid_t)current->tgid, exit_code, 0);
+        signal_notify_child_exit(parent, (pid_t)task_tgid_nr_ns(current, parent->task->pid_ns), exit_code, 0);
         spin_lock(&parent->child_wait.lock);
         wait_queue_wake_all(&parent->child_wait);
         spin_unlock(&parent->child_wait.lock);
@@ -2168,6 +2324,15 @@ __attribute__((noreturn)) void process_exit(int exit_code)
         process_put(parent);
     }
 
+    /*
+     * A pidfd is readable once its process has exited.  Closing the shared
+     * source wakes every epoll/poll waiter blocked on one of our pidfds and
+     * makes any subscriber that arrives later report ready on subscribe, so a
+     * waiter that starts polling after this point still sees the exit instead
+     * of sleeping forever.
+     */
+    vfs_poll_source_close(&proc->pidfd_source, 0x001U);
+
     task_exit();
 }
 
@@ -2175,11 +2340,13 @@ __attribute__((noreturn)) void process_exit(int exit_code)
 static bool process_wait_selector_matches(process_t *parent, process_t *child, pid_t selector)
 {
     if (!parent || !child || child->parent != parent || !child->task) return false;
-    if (selector > 0) return (pid_t)child->task->tgid == selector;
+    pid_namespace_t *ns = parent->task->pid_ns;
+    if (!task_tgid_nr_ns(child->task, ns)) return false;
+    if (selector > 0) return (pid_t)task_tgid_nr_ns(child->task, ns) == selector;
     if (selector == -1) return true;
     if (selector == 0) return child->pgid == parent->pgid;
     if (selector == INT64_MIN) return false;
-    return child->pgid == -selector;
+    return process_pgid_nr_ns(child, ns) == (uint64_t)-selector;
 }
 
 /* Whether every thread of a process is a zombie */
@@ -2239,7 +2406,7 @@ static void process_child_wait_event(process_t *child, int stop_signal, bool con
     if (published) wait_queue_wake_all(&parent->child_wait);
     spin_unlock(&parent->child_wait.lock);
 
-    if (published) signal_notify_child_status(parent, (pid_t)child->task->tgid, continued ? SIGCONT : stop_signal, continued ? CLD_CONTINUED : CLD_STOPPED);
+    if (published) signal_notify_child_status(parent, (pid_t)task_tgid_nr_ns(child->task, parent->task->pid_ns), continued ? SIGCONT : stop_signal, continued ? CLD_CONTINUED : CLD_STOPPED);
     process_put(parent);
 }
 
@@ -2301,7 +2468,7 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
         }
 
         if (event) {
-            pid_t event_pid = (pid_t)event->task->tgid;
+            pid_t event_pid = (pid_t)task_tgid_nr_ns(event->task, parent->task->pid_ns);
 
             /* WNOWAIT: leave the stop/continue event pending so a later wait can still consume it. */
             if (options & PROCESS_WAIT_KEEPEVENT) {
@@ -2320,7 +2487,7 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
         }
 
         if (zombie) {
-            pid_t reaped_pid = (pid_t)zombie->task->tgid;
+            pid_t reaped_pid = (pid_t)task_tgid_nr_ns(zombie->task, parent->task->pid_ns);
             int   status     = process_wait_status(zombie);
 
             if (options & PROCESS_WAIT_KEEPEVENT) {
@@ -2337,7 +2504,7 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
                 return EOK;
             }
 
-            pid_set_locked(reaped_pid, NULL);
+            pid_set_locked((pid_t)zombie->task->tgid, NULL);
             slist_remove(&parent->children, zombie);
             zombie->parent = NULL;
             spin_unlock(&process_table_lock);
@@ -2449,11 +2616,10 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         return NULL;
     }
 
-    /* Fork allocates page-table frames while VM/scheduler locks are held. */
+    /* Reclaim before taking VM locks. The unpublished child needs no rq lock. */
     frame_reclaim_if_needed(16);
 
     disable_intr();
-    spin_lock(&scheduler.lock);
     spin_lock(&parent->mmap_lock);
 
     process_t *child = calloc(1, sizeof(process_t));
@@ -2462,7 +2628,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (control block OOM)\n", parent->name);
         if (error) *error = -ENOMEM;
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
@@ -2474,12 +2639,12 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (error) *error = task_error;
         free(child);
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
     child->task                = child_task;
     child_task->process        = child;
+    child->nsproxy             = child_task->nsproxy;
     child->refcount            = 1;
     child->thread_count        = 1;
     child->seccomp_lock.lock   = 0;
@@ -2488,14 +2653,22 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     ilist_insert_before(&child->threads, &child_task->thread_node);
     child->task->state               = TASK_READY;
     child->uid                       = parent->uid;
+    child->ruid                      = parent->ruid;
+    child->suid                      = parent->suid;
+    child->rgid                      = parent->rgid;
+    child->sgid                      = parent->sgid;
     child->gid                       = parent->gid;
     child->fsuid                     = parent->fsuid;
     child->fsgid                     = parent->fsgid;
     child->supplementary_group_count = parent->supplementary_group_count;
     memcpy(child->supplementary_groups, parent->supplementary_groups, sizeof(child->supplementary_groups));
-    child->umask     = parent->umask;
-    child->pgid      = parent->pgid;
-    child->sid       = parent->sid;
+    child->umask = parent->umask;
+    child->pgid  = parent->pgid;
+    child->sid   = parent->sid;
+    memcpy(child->pgid_numbers, parent->pgid_numbers, sizeof(child->pgid_numbers));
+    memcpy(child->sid_numbers, parent->sid_numbers, sizeof(child->sid_numbers));
+    pid_ns_numbers_get(child_task->pid_ns, child->pgid_numbers);
+    pid_ns_numbers_get(child_task->pid_ns, child->sid_numbers);
     child->parent    = parent;
     child->exit_code = 0;
     strncpy(child->name, parent->name, sizeof(child->name) - 1);
@@ -2513,10 +2686,11 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (kernel stack OOM)\n", parent->name);
         if (error) *error = -ENOMEM;
+        pid_ns_numbers_put(child_task->pid_ns, child->pgid_numbers);
+        pid_ns_numbers_put(child_task->pid_ns, child->sid_numbers);
         task_free(child_task);
         free(child);
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
     child->mmap_lock.lock   = 0;
@@ -2553,7 +2727,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
@@ -2563,21 +2736,10 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
-        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
-    /*
-     * VMA file processing below (vfs_node_retain / vfs_cache_mapping_pin /
-     * memfd_vma_retain) can sleep on the VFS namespace lock.  It must NOT run
-     * while holding scheduler.lock with IRQs masked: a contended
-     * mutex_lock(&vfs_namespace_lock) calls wait_queue_prepare()/
-     * wait_queue_sleep(), which re-acquire scheduler.lock and self-deadlock
-     * the fork (recursive spin).  The parent's mmap_lock still guards
-     * mmap_list, so drop scheduler.lock and unmask IRQs for the duration of
-     * the copy, then restore both.
-     */
-    spin_unlock(&scheduler.lock);
+    /* VFS-backed VMA references may wait; leave IRQs enabled for the copy. */
     enable_intr();
 
     for (vm_area_t *vma = parent->mmap_list; vma; vma = vma->next) {
@@ -2590,6 +2752,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             spin_unlock(&parent->mmap_lock);
             return NULL;
         }
+        copy->mempolicy       = vma->mempolicy;
         copy->type            = vma->type;
         copy->vm_file         = vma->vm_file ? vfs_node_retain(vma->vm_file) : NULL;
         copy->vm_pgoff        = vma->vm_pgoff;
@@ -2643,6 +2806,14 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             spin_unlock(&parent->mmap_lock);
             return NULL;
         }
+    }
+
+    int ns_error = namespace_fork_child(child, 0);
+    if (ns_error) {
+        if (error) *error = ns_error;
+        process_free(child);
+        spin_unlock(&parent->mmap_lock);
+        return NULL;
     }
 
     spin_lock(&scheduler.lock);
@@ -2755,6 +2926,27 @@ task_t *process_task_find_get(pid_t pid, process_t **owner)
     return NULL;
 }
 
+task_t *process_task_find_ns_get(pid_namespace_t *ns, pid_t nr, process_t **owner)
+{
+    if (owner) *owner = NULL;
+    if (!ns || nr <= 0) return NULL;
+    spin_lock(&process_table_lock);
+    for (size_t index = 1; index < CONFIG_PROCESS_TABLE_SIZE; index++) {
+        process_t *proc = process_table[index];
+        if (!proc) continue;
+        for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
+            task_t *task = rb_entry(node, task_t, thread_node);
+            if (task_pid_nr_ns(task, ns) != (uint64_t)nr) continue;
+            process_get_locked(proc);
+            if (owner) *owner = proc;
+            spin_unlock(&process_table_lock);
+            return task;
+        }
+    }
+    spin_unlock(&process_table_lock);
+    return NULL;
+}
+
 /* Clone a thread within the current process */
 task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid, uintptr_t child_clear_tid, uintptr_t tls, int *error)
 {
@@ -2788,7 +2980,7 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
         return NULL;
     }
 
-    uint32_t tid = (uint32_t)child->pid;
+    uint32_t tid = (uint32_t)task_pid_nr(child);
     if ((child_set_tid && copy_to_user((void *)child_set_tid, &tid, sizeof(tid))) || (parent_tid && copy_to_user((void *)parent_tid, &tid, sizeof(tid)))) {
         task_free(child);
         if (error) *error = -EFAULT;
@@ -2814,9 +3006,10 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     child->signal_altstack.ss_size  = 0;
     child->signal_altstack.ss_flags = SS_DISABLE;
     fpu_task_clone(current, child);
-    child->page_directory  = proc->user_page_dir;
-    child->process         = proc;
-    child->tgid            = proc->task->tgid;
+    child->page_directory = proc->user_page_dir;
+    child->process        = proc;
+    child->tgid           = proc->task->tgid;
+    memcpy(child->tgid_numbers, proc->task->tgid_numbers, sizeof(child->tgid_numbers));
     child->clear_child_tid = child_clear_tid;
     child->cpu_id          = current->cpu_id;
     child->state           = TASK_READY;
@@ -2878,10 +3071,10 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
             return -EEXIST;
         }
         vma->type = VM_REGION_MMAP;
-        if (previous && previous->end == addr && previous->flags == flags && !previous->vm_file && !previous->vm_private_data) {
+        if (previous && previous->end == addr && previous->flags == flags && !previous->mempolicy.mode && !previous->vm_file && !previous->vm_private_data) {
             previous->end = addr + bytes;
             free(vma);
-        } else if (cursor && cursor->start == addr + bytes && cursor->flags == flags && !cursor->vm_file && !cursor->vm_private_data) {
+        } else if (cursor && cursor->start == addr + bytes && cursor->flags == flags && !cursor->mempolicy.mode && !cursor->vm_file && !cursor->vm_private_data) {
             cursor->start    = addr;
             cursor->vm_pgoff = 0;
             free(vma);
@@ -2911,7 +3104,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
      */
     size_t allocated = 0;
     for (; allocated < pages; allocated++) {
-        frames[allocated] = alloc_frames(1);
+        frames[allocated] = alloc_frames_user(1, 0, (addr / PAGE_4K_SIZE) + allocated);
         if (!frames[allocated]) {
             plogk("process: %s: mmap frame allocation failed (%zu/%zu pages at %#lx)\n", proc->name, allocated, pages, addr);
             goto rollback_frames;
@@ -2986,11 +3179,13 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
         spin_unlock(&proc->mmap_lock);
         return -EFAULT;
     }
-    vm_flags_t flags     = vma->flags;
-    vfs_node_t vm_file   = vma->vm_file;
-    uint64_t   pgoff     = vma->vm_pgoff;
-    bool       pagecache = vma->vm_pagecache;
-    uintptr_t  vma_start = vma->start;
+    numa_policy_t policy    = vma->mempolicy;
+    vm_flags_t    flags     = vma->flags;
+    vfs_node_t    vm_file   = vma->vm_file;
+    uint64_t      pgoff     = vma->vm_pgoff;
+    bool          pagecache = vma->vm_pagecache;
+    uintptr_t     vma_start = vma->start;
+    uintptr_t     vma_end   = vma->end;
     if (vm_file) vm_file = vfs_node_retain(vm_file);
     spin_unlock(&proc->mmap_lock);
 
@@ -3009,8 +3204,8 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     if (!vm_file && !pagecache && (flags & VM_ANON)) {
         uintptr_t hbase = ALIGN_DOWN(page, PAGE_2M_SIZE);
         uintptr_t hend  = hbase + PAGE_2M_SIZE;
-        if (hbase >= vma_start && hend <= vma->end && page_count_present_range(proc->user_page_dir, hbase, hend) == 0) {
-            uint64_t hframe = alloc_frames_2M(1);
+        if (hbase >= vma_start && hend <= vma_end && page_count_present_range(proc->user_page_dir, hbase, hend) == 0) {
+            uint64_t hframe = alloc_frames_policy(512, 9, (hbase - vma_start) / PAGE_4K_SIZE, &policy);
             if (hframe) {
                 memset(phys_to_virt(hframe), 0, PAGE_2M_SIZE);
                 bool     try_shared = (flags & VM_SHARED) != 0;
@@ -3049,7 +3244,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
         int dirty = (flags & (VM_SHARED | VM_WRITE)) == (VM_SHARED | VM_WRITE);
         if (vfs_cache_map_page(vm_file, pgoff + (index / PAGE_4K_SIZE), dirty, &frame)) goto fail;
     } else if (vm_file) {
-        frame = alloc_frames(1);
+        frame = alloc_frames_policy(1, 0, (page - vma_start) / PAGE_4K_SIZE, &policy);
         if (!frame) goto fail;
         void *virt = phys_to_virt(frame);
         memset(virt, 0, PAGE_4K_SIZE);
@@ -3060,7 +3255,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
             vfs_read(vm_file, virt, read_offset, to_read);
         }
     } else {
-        frame = alloc_frames(1);
+        frame = alloc_frames_policy(1, 0, (page - vma_start) / PAGE_4K_SIZE, &policy);
         if (!frame) goto fail;
         memset(phys_to_virt(frame), 0, PAGE_4K_SIZE);
     }
@@ -3069,7 +3264,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     vma = proc->mmap_list;
     while (vma && vma->end <= page) vma = vma->next;
     if (!vma || vma->start > page || page >= vma->end || vma->flags != flags || vma->vm_file != vm_file || vma->vm_pagecache != pagecache
-        || (vm_file && vma->vm_pgoff + (page - vma->start) / PAGE_4K_SIZE != pgoff + index / PAGE_4K_SIZE)) {
+        || (vm_file && vma->vm_pgoff + ((page - vma->start) / PAGE_4K_SIZE) != pgoff + (index / PAGE_4K_SIZE))) {
         spin_unlock(&proc->mmap_lock);
         (void)frame_release_range(frame, 1);
         goto fail_perm;

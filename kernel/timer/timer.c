@@ -14,13 +14,16 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/tty.h>
+#include <fs/cgroup/cgroupfs.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
+#include <kernel/vdso/vdso.h>
 #include <libs/std/math.h>
 #include <net/core/netdev.h>
 #include <process/kthread.h>
 #include <process/process.h>
 #include <process/sched.h>
+#include <syscall/posix_timer.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
 
@@ -45,7 +48,7 @@ bool timer_timespec_to_ns(const linux_timespec_t *ts, uint64_t *ns)
     if (!ts || !ns || ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= (int64_t)TIMER_NSEC_PER_SEC) return false;
     if ((uint64_t)ts->tv_sec > (UINT64_MAX - (uint64_t)ts->tv_nsec) / TIMER_NSEC_PER_SEC) return false;
 
-    *ns = (uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC + (uint64_t)ts->tv_nsec;
+    *ns = ((uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC) + (uint64_t)ts->tv_nsec;
     return true;
 }
 
@@ -100,10 +103,13 @@ static void timer_deferred_service(void)
 {
     tty_deferred_flush();
     timerfd_tick();
+    posix_timer_tick();
+    cgroupfs_notify_events();
 
     uint64_t now = sched_ticks();
     signal_itimer_real_tick(now);
     drm_vblank_tick();
+    vdso_tick();
 
     uint64_t interval = CONFIG_TIMER_HZ / 100U;
     if (!interval) interval = 1;
@@ -172,12 +178,15 @@ void timer_deferred_init(void)
  * The atomic floor also prevents a tiny cross-CPU TSC skew from making time
  * move backwards when a task migrates between CPUs.
  */
-uint64_t timer_monotonic_ns(void)
+uint64_t timer_monotonic_sample(uint64_t *cycles)
 {
     uint64_t now;
 
+    if (cycles) *cycles = 0;
     if (tsc_clocksource_available()) {
-        now = tsc_nano_time();
+        uint64_t sample = rdtsc_serialized();
+        now             = tsc_nano_time_at(sample);
+        if (cycles) *cycles = sample;
     } else if (hpet_available()) {
         now = nano_time();
     } else {
@@ -189,6 +198,12 @@ uint64_t timer_monotonic_ns(void)
         if (now <= floor) return floor;
         if (__atomic_compare_exchange_n(&timer_monotonic_floor_ns, &floor, now, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return now;
     }
+}
+
+/* Read monotonic time without retaining the counter anchor. */
+uint64_t timer_monotonic_ns(void)
+{
+    return timer_monotonic_sample(NULL);
 }
 
 /* Resolution of the clocksource currently backing CLOCK_MONOTONIC. */
@@ -216,12 +231,17 @@ int timer_monotonic_highres(void)
 }
 
 /* Return the realtime clock in nanoseconds, saturating at INT64_MAX */
-int64_t timer_realtime_ns(void)
+int64_t timer_realtime_from_monotonic_ns(uint64_t monotonic)
 {
-    uint64_t monotonic = timer_monotonic_ns();
-    int64_t  base      = __atomic_load_n(&timer_realtime_base_ns, __ATOMIC_ACQUIRE);
+    int64_t base = __atomic_load_n(&timer_realtime_base_ns, __ATOMIC_ACQUIRE);
     if (base >= 0 && monotonic > (uint64_t)INT64_MAX - (uint64_t)base) return INT64_MAX;
     return (int64_t)monotonic + base;
+}
+
+/* Read wall-clock time from one monotonic sample. */
+int64_t timer_realtime_ns(void)
+{
+    return timer_realtime_from_monotonic_ns(timer_monotonic_ns());
 }
 
 /* Set the realtime clock to an absolute nanosecond value */
@@ -277,8 +297,8 @@ __attribute__((used)) void timer_handle_frame(syscall_frame_t *frame)
 
         uint64_t monotonic_ns = timer_monotonic_ns();
         uint64_t last         = __atomic_load_n(&timer_deferred_last_tick, __ATOMIC_RELAXED);
-        bool     due
-            = now_ticks - last >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns) || timerfd_deferred_due(monotonic_ns);
+        bool     due          = now_ticks - last >= base_interval || tty_deferred_pending() || signal_itimer_real_next_tick() <= now_ticks || drm_vblank_deferred_due(monotonic_ns)
+                   || timerfd_deferred_due(monotonic_ns) || posix_timer_deferred_due(monotonic_ns);
         if (due && __atomic_compare_exchange_n(&timer_deferred_last_tick, &last, now_ticks, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) timer_queue_deferred_work();
     }
 

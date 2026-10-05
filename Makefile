@@ -17,11 +17,16 @@ else
 endif
 
 # Source discovery
-C_SOURCES      := $(shell find * -name "*.c" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*")
-C_HEADERS      := $(shell find * -name "*.h" -not -path "assets/*" -not -path "docs/*" -not -path "scripts/*" -not -path "tools/*")
+SOURCE_PRUNE   := \( -path assets -o -path docs -o -path scripts -o -path tools -o -path build -o -path vdso \) -prune
+C_SOURCES      := $(shell find * $(SOURCE_PRUNE) -o -name "*.c" -print)
+C_HEADERS      := $(shell find * $(SOURCE_PRUNE) -o -name "*.h" -print)
+JOBS           ?= $(shell nproc 2>/dev/null || echo 1)
 OBJS           := $(C_SOURCES:%.c=%.o)
+# The vDSO image is generated at build time, so it is not in C_SOURCES.
+VDSO_IMAGE     := vdso/vdso_image.c
+OBJS           += $(VDSO_IMAGE:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
-ELFS           := $(shell find * -name "*.elf")
+ELFS           := $(shell find * -path build -prune -o -name "*.elf" -print)
 LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
 
@@ -54,6 +59,28 @@ all: Uinxed-x64.iso
 
 info:
 	$(Q)printf "Uinxed Compiling Script - Apache License Version 2.0.\n\n"
+
+VDSO_CFLAGS    := -O2 -fPIC -mno-sse -mno-mmx -mno-80387 -fno-stack-protector -fno-common -fno-builtin -fno-asynchronous-unwind-tables
+VDSO_LD_FLAGS  := -nostdlib -shared -Bsymbolic -Wl,--hash-style=sysv -Wl,--build-id=none
+VDSO_CC        ?= cc
+
+# The vDSO is a userspace artefact linked with its own script: one loadable
+# segment starting at virtual address 0, with the ELF header first and the clock
+# data page page-aligned behind the code.  The kernel copies the whole image once
+# and maps its own shared data page over the image's own offset for it.
+vdso/vdso.so.dbg: vdso/vdso.c vdso/vdso.lds
+	$(Q)printf "  VDSO    $@\n"
+	$(Q)$(VDSO_CC) $(VDSO_CFLAGS) -Iinclude -Wl,-T,vdso/vdso.lds -Wl,-soname=linux-vdso.so.1 $(VDSO_LD_FLAGS) -o $@ vdso/vdso.c
+
+vdso/vdso.so: vdso/vdso.so.dbg
+	$(Q)printf "  STRIP   $@\n"
+	$(Q)objcopy -S $< $@
+
+$(VDSO_IMAGE): vdso/vdso.so scripts/vdso2c.py
+	$(Q)printf "  GEN     $@\n"
+	$(Q)python3 scripts/vdso2c.py vdso/vdso.so vdso_image > $@
+
+$(VDSO_IMAGE:%.c=%.o): $(VDSO_IMAGE)
 
 %.o: %.c
 	$(Q)printf "  CC      $@\n"
@@ -116,17 +143,19 @@ run: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(word 2,$^)
 
 clean: info
-	$(Q)out=0; for f in $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso System.map; do if [ -e "$$f" ]; then printf "  RM      $$f\n"; out=1; fi; done; [ "$$out" = 1 ] && printf "\n"; true
-	$(Q)$(RM) $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso System.map
+	$(Q)out=0; for f in $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso System.map vdso/vdso.so vdso/vdso.so.dbg $(VDSO_IMAGE); do if [ -e "$$f" ]; then printf "  RM      $$f\n"; out=1; fi; done; [ "$$out" = 1 ] && printf "\n"; true
+	$(Q)$(RM) $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso System.map \
+		vdso/vdso.so vdso/vdso.so.dbg $(VDSO_IMAGE) $(VDSO_IMAGE:%.c=%.o) $(VDSO_IMAGE:%.c=%.d)
 	$(Q)printf "Clean completed.\n"
 
-format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
+format: info
+	$(Q)$(MAKE) --no-print-directory -j$(JOBS) $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
 	$(Q)find . -type f ! -path './.git/*' -print0 | xargs -0 grep -IlZ '' | xargs -0 -r dos2unix -q
 	$(Q)for f in $(C_SOURCES) $(C_HEADERS); do if [ -s "$$f" ] && [ -n "$$(tail -c1 "$$f")" ]; then echo >> "$$f"; fi; done
 	$(Q)printf "\nCode Format complete.\n"
 
 check: info
-	$(Q)$(MAKE) --no-print-directory -k $(C_SOURCES:%=%.tidy) || exit 1
+	$(Q)$(MAKE) --no-print-directory -j$(JOBS) -k $(C_SOURCES:%=%.tidy) || exit 1
 	$(Q)printf "\nCode Checks complete.\n"
 
 gen.clangd: info

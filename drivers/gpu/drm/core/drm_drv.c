@@ -90,7 +90,7 @@ void drm_minor_free(int type, int index)
 }
 
 /* drm_dev_alloc - allocate and zero-initialize a drm_device */
-struct drm_device *drm_dev_alloc(struct drm_driver *driver)
+struct drm_device *drm_dev_alloc(struct drm_driver *driver, struct device *parent)
 {
     struct drm_device *dev;
     struct drm_minor  *minor;
@@ -106,6 +106,8 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     memset(dev, 0, sizeof(*dev));
 
     dev->driver                 = driver;
+    /* Parent bus device, so /sys/class/drm/cardN/device names the real bus. */
+    dev->parent                 = parent;
     dev->num_crtc               = 0;
     dev->vblank_disable_allowed = true;
     dev->refcount               = 1; // caller's reference

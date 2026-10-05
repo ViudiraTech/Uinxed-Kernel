@@ -224,6 +224,8 @@ void sysv_sem_undo_release(struct process *proc);
 
 /* Initialize the System V IPC subsystem. */
 void sysv_ipc_init(void);
+struct ipc_namespace;
+void sysv_ipc_namespace_destroy(struct ipc_namespace *ns);
 
 #else
 static inline int64_t sys_semget(key_t, int, int)
@@ -281,6 +283,8 @@ static inline int64_t sys_msgctl(int, int, void *)
 }
 static inline void sysv_sem_undo_release(struct process *) {}
 static inline void sysv_ipc_init(void) {}
+struct ipc_namespace;
+static inline void sysv_ipc_namespace_destroy(struct ipc_namespace *ns) { (void)ns; }
 #endif
 
 #endif // INCLUDE_SYSV_IPC_H_

@@ -389,6 +389,7 @@ static void pipe_file_release(vfs_node_t node, void *private_data)
     raw_spin_lock(&ring->lock);
     if (endpoint->readable && ring->readers) last_reader = --ring->readers == 0;
     if (endpoint->writable && ring->writers) last_writer = --ring->writers == 0;
+    if (!ring->readers && !ring->writers) ring->head = ring->tail = ring->size = 0;
     raw_spin_unlock(&ring->lock);
 
     if (last_reader) {
@@ -881,7 +882,7 @@ static int pipe_vfs_stat(void *file, vfs_node_t node)
     pipe_ring_t *ring = (pipe_ring_t *)node->handle;
     if (ring) node->size = ring->size;
     node->type |= file_pipe;
-    node->mode = PIPE_DEFAULT_MODE;
+    /* Preserve the mode mkfifo(2) installed; callers fstat() it back. */
     return EOK;
 }
 

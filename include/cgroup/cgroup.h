@@ -12,6 +12,7 @@
 #define INCLUDE_CGROUP_H_
 
 #include <kernel/errno.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
@@ -35,6 +36,11 @@ void cgroup_init(void);
 /* Get the root cgroup (NULL until cgroup_init) */
 cgroup_t *cgroup_root(void);
 
+/* Root and membership visible through the current cgroup namespace. */
+cgroup_t *cgroup_namespace_root(void);
+bool cgroup_namespace_visible(cgroup_t *cgroup);
+int cgroup_format_path_ns(cgroup_t *cgroup, cgroup_t *root, char *buf, size_t size);
+
 /* Take a reference on a cgroup, refusing to resurrect a dying one */
 cgroup_t *cgroup_get(cgroup_t *cgroup);
 
@@ -48,7 +54,8 @@ int cgroup_register_controller(const char *name, uint64_t id);
 int cgroup_task_fork(struct task *task, struct task *parent);
 
 /* Detach a task from its cgroup as it exits */
-void cgroup_task_exit(struct task *task);
+void     cgroup_task_exit(struct task *task);
+uint64_t cgroup_event_sequence(cgroup_t *cgroup);
 
 #else
 static inline void      cgroup_init(void) {}
@@ -151,6 +158,7 @@ int cgroup_show_cpu_stat(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_io_empty(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_io_weight(cgroup_t *cgroup, char *buf, size_t size);
 
+int cgroup_show_cpuset(cgroup_t *cgroup, char *buf, size_t size, bool memory, bool effective);
 int cgroup_show_cpuset_cpus(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_cpuset_mems(cgroup_t *cgroup, char *buf, size_t size);
 

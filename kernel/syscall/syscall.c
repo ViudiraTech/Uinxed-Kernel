@@ -35,12 +35,15 @@
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
+#include <security/capability.h>
 #include <security/seccomp.h>
 #include <syscall/eventfd.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/mmap.h>
+#include <syscall/numa.h>
 #include <syscall/poll.h>
+#include <syscall/posix_timer.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/syscall_basic.h>
@@ -102,10 +105,15 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define MS_MOVE        8192
 #define MS_REC         16384
 #define MS_SILENT      32768
+#define MS_UNBINDABLE  131072
+#define MS_PRIVATE     262144
+#define MS_SLAVE       524288
+#define MS_SHARED      1048576
 
-#define MNT_FORCE  1
-#define MNT_DETACH 2
-#define MNT_EXPIRE 4
+#define MNT_FORCE       1
+#define MNT_DETACH      2
+#define MNT_EXPIRE      4
+#define UMOUNT_NOFOLLOW 8
 
 /* personality */
 #define PER_LINUX 0x0000
@@ -146,6 +154,7 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define PR_CAPBSET_DROP        24
 #define PR_GET_SECUREBITS      27
 #define PR_SET_SECUREBITS      28
+#define PR_CAP_AMBIENT         47
 #define PR_SET_TIMERSLACK      29
 #define PR_GET_TIMERSLACK      30
 #define PR_SET_MM              35
@@ -435,8 +444,8 @@ static void fill_linux_stat(linux_stat_t *st, uint64_t uid, uint64_t gid, const 
     st->st_ino     = src->inode;
     st->st_nlink   = src->nlink ? src->nlink : 1;
     st->st_mode    = linux_mode_from_type(src->type, src->mode);
-    st->st_uid     = (uint32_t)uid;
-    st->st_gid     = (uint32_t)gid;
+    st->st_uid     = user_ns_unmap_id(user_namespace_current(), (uint32_t)uid, false);
+    st->st_gid     = user_ns_unmap_id(user_namespace_current(), (uint32_t)gid, true);
     st->st_rdev    = dev_encode_uapi(src->rdev);
     st->st_size    = (int64_t)src->size;
     st->st_blksize = src->blksz ? (int64_t)src->blksz : 4096;
@@ -457,7 +466,7 @@ static vfs_node_t vfs_containing_mount(vfs_node_t node)
 }
 
 /* Fill a statx structure from a VFS node snapshot */
-static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, const process_fd_stat_t *src, vfs_node_t node)
+static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, const process_fd_stat_t *src, vfs_node_t node, uint64_t arrival_id)
 {
     memset(stx, 0, sizeof(*stx));
     stx->stx_mask         = STATX_BASIC_STATS;
@@ -476,13 +485,15 @@ static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, con
     stx->stx_atime.tv_sec = (int64_t)src->atime;
     stx->stx_mtime.tv_sec = (int64_t)src->mtime;
     stx->stx_ctime.tv_sec = (int64_t)src->ctime;
-    vfs_node_t mount      = vfs_containing_mount(node);
-    if (mount) {
+    uint64_t mount_id;
+    bool mount_root;
+    vfs_mount_identity(node, arrival_id, &mount_id, &mount_root);
+    if (mount_id) {
         stx->stx_mask |= STATX_MNT_ID;
-        stx->stx_mnt_id = mount->mount_id;
+        stx->stx_mnt_id = mount_id;
     }
     stx->stx_attributes_mask |= STATX_ATTR_MOUNT_ROOT;
-    if (node->is_mount || node == rootdir) stx->stx_attributes |= STATX_ATTR_MOUNT_ROOT;
+    if (mount_root) stx->stx_attributes |= STATX_ATTR_MOUNT_ROOT;
 }
 
 /* stat a path and copy the result to user space */
@@ -543,7 +554,7 @@ static int64_t stat_node_to_user(vfs_node_t node, uint64_t ubuf)
 }
 
 /* statx a node and copy the result to user space */
-static int64_t statx_node_to_user(vfs_node_t node, uint64_t ubuf)
+static int64_t statx_node_to_user(vfs_node_t node, uint64_t ubuf, uint64_t arrival_id)
 {
     if (!ubuf) return -EFAULT;
     vfs_update(node);
@@ -562,7 +573,7 @@ static int64_t statx_node_to_user(vfs_node_t node, uint64_t ubuf)
         .ctime = node->createtime,
     };
     linux_statx_t stx;
-    fill_linux_statx(&stx, node->owner, node->group, &src, node);
+    fill_linux_statx(&stx, node->owner, node->group, &src, node, arrival_id);
     return copy_to_user((void *)ubuf, &stx, sizeof(stx)) ? -EFAULT : EOK;
 }
 
@@ -804,14 +815,15 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
         (void)snprintf(tmp, sizeof(tmp), "%s/.tmp.%llu", dir, id);
         ret = vfs_mkfile_mode(tmp, 0600);
         if (ret != EOK) return ret;
-        vfs_node_t node = vfs_open_checked(tmp, &ret);
+        uint64_t mount_id = 0;
+        vfs_node_t node = vfs_open_checked_at(tmp, false, &ret, &mount_id);
         if (!node) return ret;
 
         /*
          * Keep the file linked for now; systemd will link it via linkat(AT_EMPTY_PATH),
          * then mark it as O_TMPFILE so linkat can handle it.
          */
-        int fd = process_fd_install(proc, node, flags & ~O_TMPFILE);
+        int fd = process_fd_install_at(proc, node, flags & ~O_TMPFILE, mount_id);
         if (fd < 0) vfs_close(node);
         return fd;
     }
@@ -824,7 +836,8 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     if (copied != EOK) return copied;
 
     int        lookup_error = EOK;
-    vfs_node_t node         = (flags & O_NOFOLLOW) ? vfs_open_nofollow_checked(name, &lookup_error) : vfs_open_checked(name, &lookup_error);
+    uint64_t   mount_id = 0;
+    vfs_node_t node = vfs_open_checked_at(name, (flags & O_NOFOLLOW) != 0, &lookup_error, &mount_id);
     if (node && (flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
         vfs_close(node);
         return -EEXIST;
@@ -832,7 +845,7 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     if (!node && (flags & O_CREAT)) {
         int ret = vfs_mkfile_mode(name, (uint16_t)(mode & 07777U & ~proc->umask));
         if (ret != EOK && ret != -EEXIST) return ret;
-        node = vfs_open_checked(name, &lookup_error);
+        node = vfs_open_checked_at(name, false, &lookup_error, &mount_id);
     }
     if (!node) return lookup_error;
     if ((node->type & file_symlink) && (flags & O_NOFOLLOW) && !(flags & O_PATH)) {
@@ -846,6 +859,7 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
 
     if (!(flags & O_PATH)) {
         uint32_t access_mask = 0;
+        if ((flags & O_ACCMODE) != O_RDONLY && vfs_mount_is_readonly_at(node, mount_id)) { vfs_close(node); return -EROFS; }
         if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR) access_mask |= VFS_ACCESS_R;
         if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) access_mask |= VFS_ACCESS_W;
         if (vfs_access_check(node, access_mask)) {
@@ -855,18 +869,18 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     }
 
     if ((flags & O_TRUNC) && (flags & O_ACCMODE) != O_RDONLY && (node->type & ~file_delete) == file_none) {
-        if (vfs_mount_is_readonly(node)) {
+        if (vfs_mount_is_readonly_at(node, mount_id)) {
             vfs_close(node);
             return -EROFS;
         }
-        int result = vfs_truncate(node, 0);
+        int result = vfs_truncate_at(node, 0, mount_id);
         if (result) {
             vfs_close(node);
             return result;
         }
     }
 
-    int fd = process_fd_install(proc, node, flags);
+    int fd = process_fd_install_at(proc, node, flags, mount_id);
     if (fd < 0) vfs_close(node);
     return fd;
 }
@@ -896,9 +910,10 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
         (void)snprintf(tmp, sizeof(tmp), "%s/.tmp.%llu", dir, id);
         ret = vfs_mkfile_mode(tmp, 0600);
         if (ret != EOK) return ret;
-        vfs_node_t node = vfs_open_checked(tmp, &ret);
+        uint64_t mount_id = 0;
+        vfs_node_t node = vfs_open_checked_at(tmp, false, &ret, &mount_id);
         if (!node) return ret;
-        int fd = process_fd_install(proc, node, flags & ~O_TMPFILE);
+        int fd = process_fd_install_at(proc, node, flags & ~O_TMPFILE, mount_id);
         if (fd < 0) vfs_close(node);
         return fd;
     }
@@ -910,7 +925,8 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
     int  ret = copy_resolved_path_at(proc, (int)dirfd, path, name);
     if (ret != EOK) return ret;
     int        lookup_error = EOK;
-    vfs_node_t node         = (flags & O_NOFOLLOW) ? vfs_open_nofollow_checked(name, &lookup_error) : vfs_open_checked(name, &lookup_error);
+    uint64_t   mount_id = 0;
+    vfs_node_t node = vfs_open_checked_at(name, (flags & O_NOFOLLOW) != 0, &lookup_error, &mount_id);
     if (node && (flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
         vfs_close(node);
         return -EEXIST;
@@ -918,7 +934,7 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
     if (!node && (flags & O_CREAT)) {
         ret = vfs_mkfile_mode(name, (uint16_t)(mode & 07777U & ~proc->umask));
         if (ret != EOK && ret != -EEXIST) return ret;
-        node = vfs_open_checked(name, &lookup_error);
+        node = vfs_open_checked_at(name, false, &lookup_error, &mount_id);
     }
     if (!node) return lookup_error;
     if ((node->type & file_symlink) && (flags & O_NOFOLLOW) && !(flags & O_PATH)) {
@@ -932,6 +948,7 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
 
     if (!(flags & O_PATH)) {
         uint32_t access = 0;
+        if ((flags & O_ACCMODE) != O_RDONLY && vfs_mount_is_readonly_at(node, mount_id)) { vfs_close(node); return -EROFS; }
         if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR) access |= VFS_ACCESS_R;
         if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) access |= VFS_ACCESS_W;
         if (vfs_access_check(node, access)) {
@@ -940,17 +957,17 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
         }
     }
     if ((flags & O_TRUNC) && (flags & O_ACCMODE) != O_RDONLY && (node->type & ~file_delete) == file_none) {
-        if (vfs_mount_is_readonly(node)) {
+        if (vfs_mount_is_readonly_at(node, mount_id)) {
             vfs_close(node);
             return -EROFS;
         }
-        ret = vfs_truncate(node, 0);
+        ret = vfs_truncate_at(node, 0, mount_id);
         if (ret) {
             vfs_close(node);
             return ret;
         }
     }
-    int fd = process_fd_install(proc, node, flags);
+    int fd = process_fd_install_at(proc, node, flags, mount_id);
     if (fd < 0) vfs_close(node);
     return fd;
 }
@@ -1225,18 +1242,27 @@ static int64_t sys_statx(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t
         if (ret != EOK) return ret;
     }
 
-    vfs_node_t node = NULL;
+    /* STATX_MNT_ID reports the mount the path was resolved through. */
+    vfs_node_t node    = NULL;
+    uint64_t   arrival = 0;
     if (!input[0]) {
         if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
         node = open_empty_path_at(proc, (int)dirfd, &ret);
+        if (node) {
+            process_file_t *file = process_fd_get(proc, (int)dirfd);
+            if (file) {
+                arrival = file->mount_id;
+                process_file_put(file);
+            }
+        }
     } else {
         char resolved[CONFIG_VFS_PATH_MAX];
         ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
-        if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow(resolved) : vfs_open(resolved);
+        if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow(resolved) : vfs_open_mount(resolved, &arrival);
         if (!node && ret == EOK) ret = -ENOENT;
     }
     if (!node) return ret;
-    ret = (int)statx_node_to_user(node, statbuf);
+    ret = (int)statx_node_to_user(node, statbuf, arrival);
     vfs_close(node);
     return ret;
 }
@@ -1369,7 +1395,7 @@ static int64_t sys_getuid(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t 
     (void)arg4;
     (void)arg5;
     process_t *proc = process_current();
-    return proc ? proc->uid : 0;
+    return proc ? user_ns_unmap_id(user_namespace_current(), proc->ruid, false) : 0;
 }
 
 /* System call handler for `getgid`. */
@@ -1382,7 +1408,21 @@ static int64_t sys_getgid(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t 
     (void)arg4;
     (void)arg5;
     process_t *proc = process_current();
-    return proc ? proc->gid : 0;
+    return proc ? user_ns_unmap_id(user_namespace_current(), proc->rgid, true) : 0;
+}
+
+static int64_t sys_geteuid(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f)
+{
+    (void)a; (void)b; (void)c; (void)d; (void)e; (void)f;
+    process_t *proc = process_current();
+    return proc ? user_ns_unmap_id(user_namespace_current(), proc->uid, false) : 0;
+}
+
+static int64_t sys_getegid(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f)
+{
+    (void)a; (void)b; (void)c; (void)d; (void)e; (void)f;
+    process_t *proc = process_current();
+    return proc ? user_ns_unmap_id(user_namespace_current(), proc->gid, true) : 0;
 }
 
 /* System call handler for `getppid`. */
@@ -1866,6 +1906,15 @@ static int64_t sys_inotify_rm_watch_wrap(uint64_t fd, uint64_t wd, uint64_t arg2
 }
 
 /* mount syscall: attach a filesystem */
+/* Map one mount(2)/mount_setattr(2) propagation flag onto this kernel's type. */
+static uint32_t propagation_type_from_flags(uint64_t flag)
+{
+    if (flag == MS_SHARED) return VFS_MOUNT_SHARED;
+    if (flag == MS_PRIVATE) return VFS_MOUNT_PRIVATE;
+    if (flag == MS_SLAVE) return VFS_MOUNT_SLAVE;
+    return VFS_MOUNT_UNBINDABLE;
+}
+
 static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint64_t flags, uint64_t data, uint64_t arg5)
 {
     (void)data;
@@ -1873,7 +1922,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
+    if (!capability_ns(current_task(), mnt_namespace_current()->ns.owner, CAP_SYS_ADMIN)) return -EPERM;
 
     char src[CONFIG_VFS_PATH_MAX] = {0};
     char tgt[CONFIG_VFS_PATH_MAX] = {0};
@@ -1892,46 +1941,103 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     if (fstype)
         if (strncpy_from_user(fst, (const char *)fstype, sizeof(fst)) < 0) return -EFAULT;
 
-    /* Open the target mount point */
-    vfs_node_t node = vfs_open(tgt);
+    /* Open the target mount point, remembering which mount it was reached through. */
+    uint64_t   target_mount = 0;
+    vfs_node_t node = vfs_open_mount(tgt, &target_mount);
     if (!node) return -ENOENT;
 
-    /* Bind mounts may target regular files, as used by systemd's namespace setup. */
-    if (flags & MS_BIND) {
+    /* systemd's namespace setup depends on bind mounts. */
+    if ((flags & MS_BIND) && !(flags & MS_REMOUNT)) {
+        /* A NULL source binds the target onto itself (systemd's unit root). */
+        vfs_node_t source_node = node;
+        bool       owned       = false;
+        uint64_t   source_mount = target_mount; /* a self-bind comes from the same mount */
+        if (source) {
+            char bind_source[CONFIG_VFS_PATH_MAX];
+            int  copy_ret = copy_resolved_path_at(proc, AT_FDCWD, source, bind_source);
+            if (copy_ret != EOK) {
+                vfs_close(node);
+                return copy_ret;
+            }
+            source_node = vfs_open_mount(bind_source, &source_mount);
+            if (!source_node) {
+                vfs_close(node);
+                return -ENOENT;
+            }
+            owned = true;
+        }
+        /* The source path resolves to the subtree the bind shows. */
+        int bind_ret = vfs_bind_mount(source_node, node, flags, target_mount, source_mount);
+        if (owned) vfs_close(source_node);
         vfs_close(node);
-        return EOK;
+        return bind_ret;
     }
 
-    if (!(node->type & file_dir)) {
-        vfs_close(node);
-        return -ENOTDIR;
-    }
-
-    /* Handle MS_REMOUNT: change flags on an existing mount */
+    /* MS_REMOUNT: per-mount flags, held on the attachment so a remount in a
+     * private namespace cannot make the shared dentry read-only for everyone. */
     if (flags & MS_REMOUNT) {
-        if (!node->is_mount && node != rootdir) {
+        if (!vfs_is_mountpoint(node) && node != rootdir) {
             vfs_close(node);
             return -EINVAL;
         }
-        node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
-        if (flags & MS_RDONLY) node->flags |= MOUNT_FLAG_RDONLY;
-        if (flags & MS_NOSUID) node->flags |= MOUNT_FLAG_NOSUID;
-        if (flags & MS_NODEV) node->flags |= MOUNT_FLAG_NODEV;
-        if (flags & MS_NOEXEC) node->flags |= MOUNT_FLAG_NOEXEC;
+        uint64_t set = 0;
+        uint64_t clr = 0;
+        if (flags & MS_RDONLY) set |= MOUNT_FLAG_RDONLY; else clr |= MOUNT_FLAG_RDONLY;
+        if (flags & MS_NOSUID) set |= MOUNT_FLAG_NOSUID; else clr |= MOUNT_FLAG_NOSUID;
+        if (flags & MS_NODEV) set |= MOUNT_FLAG_NODEV; else clr |= MOUNT_FLAG_NODEV;
+        if (flags & MS_NOEXEC) set |= MOUNT_FLAG_NOEXEC; else clr |= MOUNT_FLAG_NOEXEC;
+        int remount = vfs_mount_update(node, target_mount, set, clr, UINT32_MAX, false);
+        if (remount != EOK) {
+            vfs_close(node);
+            return remount;
+        }
+        vfs_mount_changed();
         vfs_close(node);
         return EOK;
     }
 
     /* Handle MS_MOVE: move an existing mount to a new location */
     if (flags & MS_MOVE) {
+        char move_source[CONFIG_VFS_PATH_MAX];
+        int move_ret = source ? copy_resolved_path_at(proc, AT_FDCWD, source, move_source) : -EFAULT;
+        if (move_ret != EOK) { vfs_close(node); return move_ret; }
+        uint64_t   source_mount = 0;
+        vfs_node_t mounted = vfs_open_mount(move_source, &source_mount);
+        int        result  = mounted ? vfs_move_mount_at(mounted, node, source_mount, target_mount) : -ENOENT;
+        if (result == EOK && streq(proc->cwd, move_source)) (void)snprintf(proc->cwd, sizeof(proc->cwd), "%s", tgt);
+        if (mounted) vfs_close(mounted);
         vfs_close(node);
-        return -ENOSYS;
+        return result;
     }
 
-    /* Perform the mount */
+    /*
+     * Changing the propagation type of an existing mount.  Exactly one of the
+     * four may be given, and only MS_REC and MS_SILENT may accompany it; every
+     * other argument is ignored.  systemd builds its unit namespaces out of
+     * these calls, so refusing them fails the service outright.
+     */
+    {
+        uint64_t propagation = flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE);
+        if (propagation) {
+            if (flags & ~(uint64_t)(propagation | MS_REC | MS_SILENT)) { vfs_close(node); return -EINVAL; }
+            if ((propagation & (propagation - 1)) != 0) { vfs_close(node); return -EINVAL; }
+            if (!vfs_is_mountpoint(node)) { vfs_close(node); return -EINVAL; }
+            uint32_t type = propagation_type_from_flags(propagation);
+            int result = vfs_mount_update(node, target_mount, 0, 0, type, (flags & MS_REC) != 0);
+            vfs_close(node);
+            return result;
+        }
+    }
+
+    /* Perform the mount.  Only a real filesystem needs a directory to land on;
+     * a bind or a remount may name a file, as systemd does for /dev/kmsg. */
     int ret;
+    if (!(node->type & file_dir)) {
+        vfs_close(node);
+        return -ENOTDIR;
+    }
     if (fst[0]) {
-        ret = vfs_mount_fs(fst, src[0] ? src : NULL, node);
+        ret = vfs_mount_fs_at(fst, src[0] ? src : NULL, node, target_mount, 0);
 
         /*
          * Virtual filesystems systemd expects but which are not implemented yet:
@@ -1946,9 +2052,9 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
             if (is_stub_fs) {
                 /* cgroup (v1) -> cgroup2 on this kernel. */
                 if (!strcmp(fst, "cgroup")) {
-                    ret = vfs_mount_fs("cgroup2", src[0] ? src : NULL, node);
+                    ret = vfs_mount_fs_at("cgroup2", src[0] ? src : NULL, node, target_mount, 0);
                 } else {
-                    ret = vfs_mount_fs("tmpfs", src[0] ? src : NULL, node);
+                    ret = vfs_mount_fs_at("tmpfs", src[0] ? src : NULL, node, target_mount, 0);
                 }
                 if (ret == EOK) {
                     static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
@@ -1967,22 +2073,19 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
         return ret;
     }
 
-    /* Apply mount flags to the mount point node */
-    node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
-    if (flags & MS_RDONLY) node->flags |= MOUNT_FLAG_RDONLY;
-    if (flags & MS_NOSUID) node->flags |= MOUNT_FLAG_NOSUID;
-    if (flags & MS_NODEV) node->flags |= MOUNT_FLAG_NODEV;
-    if (flags & MS_NOEXEC) node->flags |= MOUNT_FLAG_NOEXEC;
-
-    /* Mark the node as a mount point (if not already) */
-    node->is_mount = 1;
+    uint64_t attributes = 0;
+    if (flags & MS_RDONLY) attributes |= MOUNT_FLAG_RDONLY;
+    if (flags & MS_NOSUID) attributes |= MOUNT_FLAG_NOSUID;
+    if (flags & MS_NODEV) attributes |= MOUNT_FLAG_NODEV;
+    if (flags & MS_NOEXEC) attributes |= MOUNT_FLAG_NOEXEC;
+    ret = vfs_mount_setattr(node, attributes, (MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC) & ~attributes, false);
 
     vfs_close(node);
 
     /* MS_REC: recursive - ignored for non-bind mounts */
     (void)(flags & MS_REC);
 
-    return EOK;
+    return ret;
 }
 
 /* umount2 syscall: detach a filesystem */
@@ -1999,7 +2102,7 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
 
     if (ret != EOK) return ret;
-    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
+    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW)) return -EINVAL;
 
     /*
      * systemd's early umount of /proc with MNT_DETACH would detach the
@@ -2011,7 +2114,8 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
      */
     if (proc && proc->task && proc->task->pid == 1 && (flags & MNT_DETACH) && (!strcmp(tgt, "/proc") || !strcmp(tgt, "/sys") || !strcmp(tgt, "/dev"))) return -EBUSY;
 
-    int r = vfs_umount(tgt);
+    if (!capability_ns(current_task(), mnt_namespace_current()->ns.owner, CAP_SYS_ADMIN)) return -EPERM;
+    int r = vfs_umount_flags(tgt, (flags & UMOUNT_NOFOLLOW) != 0, (flags & MNT_DETACH) != 0);
     return r;
 }
 
@@ -2042,20 +2146,31 @@ static int64_t sys_name_to_handle_at_impl(uint64_t dirfd, uint64_t path, uint64_
     if (!handle || !mount_id) return -EFAULT;
 
     char tgt[CONFIG_VFS_PATH_MAX];
-    int  ret = copy_resolved_path_at(proc, (int)dirfd, path, tgt);
-    if (ret != EOK) return ret;
+    tgt[0] = '\0';
+
+    /*
+     * AT_EMPTY_PATH names the file the descriptor refers to.  Resolving the
+     * pathname first would reject the empty string outright, which left the
+     * descriptor branch below unreachable -- systemd's path_is_mount_point()
+     * then saw ENOENT and refused to set up the namespace.
+     */
+    bool empty_path = !path;
+    if (!empty_path) {
+        char raw[CONFIG_VFS_PATH_MAX];
+        if (copy_path_from_user(path, raw) == EOK && !raw[0]) empty_path = true;
+    }
 
     /* Resolve the target to a VFS node to derive handle/mount_id. */
     int        err  = EOK;
-    vfs_node_t node = vfs_open_checked(tgt, &err);
-    if (!node) {
-        /* Fallback for AT_EMPTY_PATH with fd */
-        if ((flags & AT_EMPTY_PATH) && !tgt[0]) {
-            node = open_empty_path_at(proc, (int)dirfd, &err);
-            if (!node) return err;
-        } else {
-            return err;
-        }
+    vfs_node_t node = NULL;
+    if ((flags & AT_EMPTY_PATH) && empty_path) {
+        node = open_empty_path_at(proc, (int)dirfd, &err);
+        if (!node) return err;
+    } else {
+        int ret = copy_resolved_path_at(proc, (int)dirfd, path, tgt);
+        if (ret != EOK) return ret;
+        node = vfs_open_checked(tgt, &err);
+        if (!node) return err;
     }
     vfs_update(node);
     uint64_t ino = node->inode;
@@ -2234,9 +2349,10 @@ static int64_t sys_chmod_common(const char *path, uint64_t mode)
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     int        lookup_error = EOK;
-    vfs_node_t node         = vfs_open_checked(path, &lookup_error);
+    uint64_t mount_id = 0;
+    vfs_node_t node = vfs_open_checked_at(path, false, &lookup_error, &mount_id);
     if (!node) return lookup_error;
-    int result = vfs_chmod_process(node, (uint16_t)mode, proc);
+    int result = vfs_chmod_process_at(node, (uint16_t)mode, proc, mount_id);
     vfs_close(node);
     return result;
 }
@@ -2267,7 +2383,7 @@ static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64
     if (!proc) return -ESRCH;
     process_file_t *file = process_fd_get(proc, (int)fd);
     if (!file) return -EBADF;
-    int result = vfs_chmod_process(file->node, (uint16_t)mode, proc);
+    int result = vfs_chmod_process_at(file->node, (uint16_t)mode, proc, file->mount_id);
     process_file_put(file);
     return result;
 }
@@ -2286,9 +2402,10 @@ static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, 
     if (ret != EOK) return ret;
 
     int        lookup_error = EOK;
-    vfs_node_t node         = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(name, &lookup_error) : vfs_open_checked(name, &lookup_error);
+    uint64_t mount_id = 0;
+    vfs_node_t node = vfs_open_checked_at(name, (flags & AT_SYMLINK_NOFOLLOW) != 0, &lookup_error, &mount_id);
     if (!node) return lookup_error;
-    int result = vfs_chmod_process(node, (uint16_t)mode, proc);
+    int result = vfs_chmod_process_at(node, (uint16_t)mode, proc, mount_id);
     vfs_close(node);
     return result;
 }
@@ -2296,11 +2413,21 @@ static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, 
 /* System call handler for `chown_common`. */
 static int64_t sys_chown_common(const char *path, uint64_t owner, uint64_t group, bool nofollow)
 {
+    if ((uint32_t)owner != UINT32_MAX) {
+        owner = user_ns_map_id(user_namespace_current(), (uint32_t)owner, false);
+        if (owner == UINT32_MAX) return -EINVAL;
+    }
+    if ((uint32_t)group != UINT32_MAX) {
+        group = user_ns_map_id(user_namespace_current(), (uint32_t)group, true);
+        if (group == UINT32_MAX) return -EINVAL;
+    }
+
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    vfs_node_t node = nofollow ? vfs_open_nofollow(path) : vfs_open(path);
+    uint64_t mount_id = 0;
+    vfs_node_t node = vfs_open_checked_at(path, nofollow, NULL, &mount_id);
     if (!node) return -ENOENT;
-    int result = vfs_chown_process(node, (uint32_t)owner, (uint32_t)group, proc);
+    int result = vfs_chown_process_at(node, (uint32_t)owner, (uint32_t)group, proc, mount_id);
     vfs_close(node);
     return result;
 }
@@ -2343,7 +2470,7 @@ static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint
     if (!proc) return -ESRCH;
     process_file_t *file = process_fd_get(proc, (int)fd);
     if (!file) return -EBADF;
-    int result = vfs_chown_process(file->node, (uint32_t)owner, (uint32_t)group, proc);
+    int result = vfs_chown_process_at(file->node, (uint32_t)owner, (uint32_t)group, proc, file->mount_id);
     process_file_put(file);
     return result;
 }
@@ -2366,7 +2493,7 @@ int64_t mknod_create_node(char *resolved, uint64_t mode, uint64_t dev)
         case 0020000 : // character device
         case 0060000 : // block device
             /* A device node hands its opener the driver bound to the device number. */
-            if (!proc || proc->uid != 0) return -EPERM;
+            if (!proc || !namespace_initial_root(proc)) return -EPERM;
             return devtmpfs_mknod(resolved, (uint16_t)mode, dev_decode_uapi(dev));
         default :
             return -EINVAL;
@@ -2396,7 +2523,7 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
     if (magic != 0xfee1dead || (magic2 != 0x28121969 && magic2 != 0x05121996 && magic2 != 0x16041998)) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
+    if (!namespace_initial_root(proc)) return -EPERM;
 
     switch (cmd) {
         case 0x00000000 : // RB_DISABLE_CAD
@@ -2588,7 +2715,7 @@ static int process_rlimit_update(process_t *caller, process_t *target, uint64_t 
 
     spin_lock(&target->rlimit_lock);
     uint64_t old_max = target->rlimits[resource].maximum;
-    if (caller->uid != 0 && maximum > old_max) {
+    if (!namespace_initial_root(caller) && maximum > old_max) {
         spin_unlock(&target->rlimit_lock);
         return -EPERM;
     }
@@ -2688,7 +2815,7 @@ static int64_t sys_prlimit64_impl(uint64_t pid, uint64_t resource, uint64_t new_
     process_t *target = pid == 0 ? caller : process_find_get((pid_t)pid);
     bool       pinned = pid != 0;
     if (!target) return -ESRCH;
-    if (caller->uid != 0 && caller->uid != target->uid) {
+    if (!namespace_initial_root(caller) && caller->uid != target->uid) {
         if (pinned) process_put(target);
         return -EPERM;
     }
@@ -2925,7 +3052,7 @@ static int64_t sys_copy_file_range_wrap(uint64_t fd_in, uint64_t off_in, uint64_
                     copied = copied ? copied : got;
                     break;
                 }
-                int64_t put = vfs_file_write_granted(pf_out->node, pf_out->private_data, pf_out->flags, buf, pos_out, (size_t)got, proc);
+                int64_t put = vfs_file_write_granted(pf_out->node, pf_out->private_data, pf_out->flags, buf, pos_out, (size_t)got, proc, pf_out->mount_id);
                 if (put <= 0) {
                     copied = copied ? copied : put;
                     break;
@@ -3083,6 +3210,32 @@ int64_t pidfd_get_pid(vfs_node_t node)
     return (int64_t)target->task->tgid;
 }
 
+/*
+ * A pidfd becomes readable once the process it refers to has exited; that is
+ * the only condition Linux ever reports for one.  The process publishes the
+ * transition by closing its shared poll source, so the closed flag doubles as
+ * the exit flag and no separate state has to be inspected here.
+ */
+static int pidfd_vfs_poll(void *file, size_t events)
+{
+    process_t *target = (process_t *)file;
+    if (!target) return 0;
+    if (!__atomic_load_n(&target->pidfd_source.closed, __ATOMIC_ACQUIRE)) return 0;
+    return (int)(0x001U & events);
+}
+
+/*
+ * Route every pidfd of a process onto that process's own source.  epoll and
+ * poll subscribe to what this returns, so the exit path only has to close one
+ * object per process instead of walking descriptor tables looking for nodes.
+ */
+static vfs_poll_source_t *pidfd_vfs_poll_source(vfs_node_t node, void *private_data)
+{
+    (void)private_data;
+    process_t *target = pidfd_get_target(node);
+    return target ? &target->pidfd_source : NULL;
+}
+
 /* Register pidfs during boot, before userspace can issue concurrent opens. */
 void pidfd_init(void)
 {
@@ -3114,6 +3267,8 @@ void pidfd_init(void)
     cb->dup        = vfs_stub_dup;
     cb->delete     = vfs_stub_del;
     cb->rename     = vfs_stub_rename;
+    cb->poll       = pidfd_vfs_poll;
+    cb->file_poll_source = pidfd_vfs_poll_source;
     cb->file_read  = vfs_stub_file_read;
     cb->file_write = vfs_stub_file_write;
 
@@ -3176,6 +3331,21 @@ static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t ar
 }
 
 /* clone3 syscall: create a child process or thread */
+static int clone_namespaces(process_t *child, uint64_t flags)
+{
+    if (!child || !child->task) return -EINVAL;
+    uint64_t namespaces = flags & (CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET);
+    if (!namespaces) return EOK;
+    int error = EOK;
+    nsproxy_t *copy = nsproxy_clone(child->task->nsproxy, namespaces, &error);
+    if (!copy) return error;
+    nsproxy_put(child->task->nsproxy);
+    child->task->nsproxy = copy;
+    child->nsproxy = copy;
+    if (namespaces & CLONE_NEWUSER) capability_enter_userns(child->task);
+    return EOK;
+}
+
 static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_t size, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -3277,6 +3447,8 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
         if (flags & CLONE_CHILD_CLEARTID) ct->clear_child_tid = args.child_tid;
     }
 
+    error = clone_namespaces(child, flags);
+    if (error != EOK) { process_fork_discard(child); return error; }
     process_fork_publish(child);
     ptrace_fork_event(frame, event, child->task->pid);
     if (is_vfork) {
@@ -3479,7 +3651,7 @@ static int64_t sys_rt_sigaction_wrap(uint64_t sig, uint64_t act, uint64_t oact, 
 {
     (void)arg4;
     (void)arg5;
-    return sys_rt_sigaction((int)sig, (const sigaction_t *)act, (sigaction_t *)oact, (size_t)sigsetsize);
+    return sys_rt_sigaction((int)sig, (const linux_sigaction_t *)act, (linux_sigaction_t *)oact, (size_t)sigsetsize);
 }
 
 /* System call handler for `rt_sigprocmask`. */
@@ -4429,6 +4601,15 @@ shebang_oom:
     uintptr_t rsp         = 0;
     uint32_t  image_magic = total >= sizeof(uint32_t) ? *(const uint32_t *)elf_data : 0U;
     int       ret         = elf_loader_load_user_node(proc, exec_node, kargv, kenvp, &entry, &rsp);
+
+    /*
+     * Capture the set-user-ID state before releasing the node.  extfs folds the
+     * raw inode mode into ->mode, so S_ISUID survives here alongside the owning
+     * credentials; it is applied once the image is known to be loadable.
+     */
+    bool     set_uid  = (exec_node->mode & 04000U) != 0;
+    uint32_t file_uid = exec_node->owner;
+
     vfs_close(exec_node);
     free(elf_data);
     free_string_array(kargv);
@@ -4469,6 +4650,7 @@ shebang_oom:
     }
 
     proc->task->clear_child_tid = 0;
+    proc->task->robust_list     = 0;
     switch_page_directory(proc->user_page_dir);
 
     proc->task->thread.fs_base = 0;
@@ -4483,6 +4665,21 @@ shebang_oom:
         free(old_dir);
     }
     process_mmap_destroy_detached(proc, old_mmaps);
+
+    /*
+     * Apply set-user-ID.  execve(2) raises the effective and saved IDs to the
+     * file's owner and leaves the real ID alone.  Without this a setuid-root
+     * helper such as /bin/su runs with the caller's credentials, cannot read
+     * /etc/shadow, and reports an authentication failure rather than checking
+     * the password.
+     */
+    if (set_uid) {
+        uid_set_t old_ids = {.real = proc->ruid, .effective = proc->uid, .saved = proc->suid};
+        uid_set_t new_ids = {.real = old_ids.real, .effective = file_uid, .saved = file_uid};
+        capability_uid_change(proc->task, &old_ids, &new_ids);
+        proc->uid  = new_ids.effective;
+        proc->suid = new_ids.saved;
+    }
 
     /* Reset signal state for new program image (per POSIX) */
     signal_exec_reset(proc);
@@ -4765,7 +4962,7 @@ static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
+    if (!namespace_initial_root(proc)) return -EPERM;
 
     char kpath[CONFIG_VFS_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, kpath);
@@ -4810,14 +5007,17 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             if (arg2 && copy_to_user((void *)arg2, &(int) {0}, sizeof(int))) return -EFAULT;
             return 0;
         case PR_GET_DUMPABLE :
-            /* Return dumpable=1 */
-            if (arg2 && copy_to_user((void *)arg2, &(int) {1}, sizeof(int))) return -EFAULT;
-            return 0;
+            return 1;
         case PR_SET_DUMPABLE :
+            return 0;
         case PR_GET_KEEPCAPS :
         case PR_SET_KEEPCAPS :
-            /* Accept any value */
-            return 0;
+        case PR_CAPBSET_READ :
+        case PR_CAPBSET_DROP :
+        case PR_SET_SECUREBITS :
+        case PR_GET_SECUREBITS :
+        case PR_CAP_AMBIENT :
+            return capability_prctl(current_task(), option, arg2, arg3, arg4, arg5);
         case PR_SET_NAME : {
             /* Set process name - copy up to 15 bytes */
             if (arg2) {
@@ -4856,29 +5056,6 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             return seccomp_set_no_new_privs(arg2, arg3, arg4, arg5);
         case PR_GET_NO_NEW_PRIVS :
             return seccomp_get_no_new_privs(arg2, arg3, arg4, arg5);
-        case PR_CAPBSET_READ :
-            /* Report all capability bounding set bits as present. */
-            if (arg2 > 63) return -EINVAL;
-            return 1;
-        case PR_CAPBSET_DROP :
-            return 0;
-        case PR_SET_SECUREBITS : {
-            /*
-             * systemd-executor sets SECBIT_NO_SECUREBITS etc. before
-             * spawning services; without root privilege escalation on
-             * this kernel, accept and record the requested mask.
-             */
-            task_t *task = current_task();
-            if (!task) return -ESRCH;
-            if (arg2 & ~0xffULL) return -EINVAL;
-            task->securebits = (uint8_t)arg2;
-            return 0;
-        }
-        case PR_GET_SECUREBITS : {
-            task_t *task = current_task();
-            if (!task) return -ESRCH;
-            return (int64_t)task->securebits;
-        }
         case PR_SET_MM :
             /*
              * systemd-executor rewrites /proc/self/cmdline bounds
@@ -4907,13 +5084,12 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             if (!task) return -ESRCH;
 
             /* clear_child_tid holds the thread's tid address when set via clone */
-            uintptr_t addr = 0;
+            uintptr_t addr = task->clear_child_tid;
             if (copy_to_user((void *)arg2, &addr, sizeof(addr))) return -EFAULT;
             return 0;
         }
         default :
-            /* Be permissive for systemd's optional features (ambient caps, etc.) */
-            return 0;
+            return -EINVAL;
     }
 }
 
@@ -4937,7 +5113,7 @@ static int64_t sys_swapon(uint64_t path, uint64_t flags, uint64_t arg2, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
+    if (!namespace_initial_root(proc)) return -EPERM;
     if (!path) return -EFAULT;
     char name[CONFIG_VFS_PATH_MAX] = {0};
     if (strncpy_from_user(name, (const char *)path, sizeof(name)) < 0) return -EFAULT;
@@ -4954,7 +5130,7 @@ static int64_t sys_swapoff(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
+    if (!namespace_initial_root(proc)) return -EPERM;
     if (!path) return -EFAULT;
     char name[CONFIG_VFS_PATH_MAX] = {0};
     if (strncpy_from_user(name, (const char *)path, sizeof(name)) < 0) return -EFAULT;
@@ -4969,7 +5145,7 @@ static int64_t sys_init_module_impl(uint64_t image, uint64_t length, uint64_t us
     (void)arg5;
     process_t *process = process_current();
     if (!process) return -ESRCH;
-    if (process->uid != 0) return -EPERM;
+    if (!namespace_initial_root(process)) return -EPERM;
     if (!image || !length) return -EINVAL;
     if (length > SYSCALL_MODULE_MAX_SIZE) return -EFBIG;
 
@@ -4999,7 +5175,7 @@ static int64_t sys_finit_module_impl(uint64_t fd, uint64_t user_params, uint64_t
     (void)arg5;
     process_t *process = process_current();
     if (!process) return -ESRCH;
-    if (process->uid != 0) return -EPERM;
+    if (!namespace_initial_root(process)) return -EPERM;
 
     char params[CONFIG_MODULE_PARAM_MAX];
     int  ret = copy_module_params(user_params, params);
@@ -5051,7 +5227,7 @@ static int64_t sys_delete_module_impl(uint64_t user_name, uint64_t flags, uint64
     (void)arg5;
     process_t *process = process_current();
     if (!process) return -ESRCH;
-    if (process->uid != 0) return -EPERM;
+    if (!namespace_initial_root(process)) return -EPERM;
     char name[CONFIG_MODULE_NAME_LEN];
     if (!user_name) return -EFAULT;
     int ret = strncpy_from_user(name, (const char *)user_name, sizeof(name));
@@ -5167,8 +5343,8 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_GETGID]                  = sys_getgid,
     [SYS_SETUID]                  = sys_setuid_impl,
     [SYS_SETGID]                  = sys_setgid_impl,
-    [SYS_GETEUID]                 = sys_getuid,
-    [SYS_GETEGID]                 = sys_getgid,
+    [SYS_GETEUID]                 = sys_geteuid,
+    [SYS_GETEGID]                 = sys_getegid,
     [SYS_SETPGID]                 = sys_setpgid_wrap,
     [SYS_GETPPID]                 = sys_getppid,
     [SYS_GETPGRP]                 = sys_getpgrp_wrap,
@@ -5282,11 +5458,11 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_RESTART_SYSCALL]         = sys_restart_syscall,
     [SYS_SEMTIMEDOP]              = sys_semtimedop_wrap,
     [SYS_FADVISE64]               = sys_fadvise64,
-    [SYS_TIMER_CREATE]            = sys_unimplemented,
-    [SYS_TIMER_SETTIME]           = sys_unimplemented,
-    [SYS_TIMER_GETTIME]           = sys_unimplemented,
-    [SYS_TIMER_GETOVERRUN]        = sys_unimplemented,
-    [SYS_TIMER_DELETE]            = sys_unimplemented,
+    [SYS_TIMER_CREATE]            = sys_timer_create,
+    [SYS_TIMER_SETTIME]           = sys_timer_settime,
+    [SYS_TIMER_GETTIME]           = sys_timer_gettime,
+    [SYS_TIMER_GETOVERRUN]        = sys_timer_getoverrun,
+    [SYS_TIMER_DELETE]            = sys_timer_delete,
     [SYS_CLOCK_SETTIME]           = sys_clock_settime_impl,
     [SYS_CLOCK_GETTIME]           = sys_clock_gettime_impl,
     [SYS_CLOCK_GETRES]            = sys_clock_getres_impl,
@@ -5297,9 +5473,9 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_TGKILL]                  = sys_tgkill_wrap,
     [SYS_UTIMES]                  = sys_utimes_impl,
     [SYS_VSERVER]                 = sys_unimplemented,
-    [SYS_MBIND]                   = sys_unimplemented,
-    [SYS_SET_MEMPOLICY]           = sys_unimplemented,
-    [SYS_GET_MEMPOLICY]           = sys_unimplemented,
+    [SYS_MBIND]                   = sys_mbind,
+    [SYS_SET_MEMPOLICY]           = sys_set_mempolicy,
+    [SYS_GET_MEMPOLICY]           = sys_get_mempolicy,
     [SYS_MQ_OPEN]                 = sys_mq_open_wrap,
     [SYS_MQ_UNLINK]               = sys_mq_unlink_wrap,
     [SYS_MQ_TIMEDSEND]            = sys_mq_timedsend_wrap,
@@ -5372,7 +5548,7 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_GETCPU]                  = sys_getcpu_impl,
     [SYS_PROCESS_VM_READV]        = sys_process_vm_readv_impl,
     [SYS_PROCESS_VM_WRITEV]       = sys_process_vm_writev_impl,
-    [SYS_KCMP]                    = sys_unimplemented,
+    [SYS_KCMP]                    = sys_kcmp,
     [SYS_FINIT_MODULE]            = sys_finit_module_impl,
     [SYS_SCHED_SETATTR]           = sys_sched_setattr_impl,
     [SYS_SCHED_GETATTR]           = sys_sched_getattr_impl,
@@ -5399,8 +5575,8 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_IO_URING_SETUP]          = sys_unimplemented,
     [SYS_IO_URING_ENTER]          = sys_unimplemented,
     [SYS_IO_URING_REGISTER]       = sys_unimplemented,
-    [SYS_OPEN_TREE]               = sys_unimplemented,
-    [SYS_MOVE_MOUNT]              = sys_unimplemented,
+    [SYS_OPEN_TREE]               = sys_open_tree,
+    [SYS_MOVE_MOUNT]              = sys_move_mount,
     [SYS_FSOPEN]                  = sys_unimplemented,
     [SYS_FSCONFIG]                = sys_unimplemented,
     [SYS_FSMOUNT]                 = sys_unimplemented,
@@ -5413,7 +5589,7 @@ static const syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FACCESSAT2]              = sys_faccessat2_impl,
     [SYS_PROCESS_MADVISE]         = sys_process_madvise_impl,
     [SYS_EPOLL_PWAIT2]            = sys_epoll_pwait2_impl,
-    [SYS_MOUNT_SETATTR]           = sys_unimplemented,
+    [SYS_MOUNT_SETATTR]           = sys_mount_setattr,
     [SYS_QUOTACTL_FD]             = sys_unimplemented,
     [SYS_LANDLOCK_CREATE_RULESET] = sys_unimplemented,
     [SYS_LANDLOCK_ADD_RULE]       = sys_unimplemented,
@@ -5494,8 +5670,8 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
 
     if (num == SYS_FORK || num == SYS_VFORK || num == SYS_CLONE) {
         uint64_t clone_flags = num == SYS_CLONE ? frame->rdi : SIGCHLD;
-        bool     vfork       = num == SYS_VFORK || (clone_flags & CLONE_VFORK);
-        uint64_t tid_flags   = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
+        bool     vfork     = num == SYS_VFORK || (clone_flags & CLONE_VFORK);
+        uint64_t tid_flags = CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID;
 
         /*
          * Be permissive: accept namespace/sandbox flags used by
@@ -5528,7 +5704,14 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
             uint64_t       *kstack      = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
             syscall_frame_t child_frame = *frame;
             child_frame.rax             = 0;
-            if (vfork && num == SYS_CLONE) child_frame.rsp = frame->rsi;
+            /*
+             * clone(2)'s second argument is the child's user stack; glibc's
+             * clone() wrapper pushes the entry function and its argument onto
+             * it and has the child pop them, so the child must resume there
+             * rather than on the parent's stack.  Matches Linux's
+             * copy_thread(): ax = 0 and `if (sp) childregs->sp = sp;`.
+             */
+            if (num == SYS_CLONE && frame->rsi) child_frame.rsp = frame->rsi;
             kstack -= sizeof(syscall_frame_t) / sizeof(uint64_t);
             memcpy(kstack, &child_frame, sizeof(syscall_frame_t));
             *(--kstack)              = (uint64_t)syscall_return;
@@ -5561,8 +5744,12 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
                 if (new_ns) {
                     if (child->task->nsproxy) nsproxy_put(child->task->nsproxy);
                     child->task->nsproxy = new_ns;
-                    if (child->nsproxy) nsproxy_put(child->nsproxy);
-                    child->nsproxy = nsproxy_get(new_ns);
+                    child->nsproxy = new_ns;
+                    if (ns_flags & CLONE_NEWUSER) capability_enter_userns(child->task);
+                } else {
+                    process_fork_discard(child);
+                    child = NULL;
+                    error = ns_err;
                 }
             }
         }
@@ -5623,14 +5810,20 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
     if (num == SYS_EXECVE) {
         retval     = do_execve((const char *)frame->rdi, (char *const *)frame->rsi, (char *const *)frame->rdx, frame);
         frame->rax = (uint64_t)retval;
-        if (!retval) ptrace_exec_event(frame);
+        if (!retval) {
+            capability_exec(current_task());
+            ptrace_exec_event(frame);
+        }
         goto check_signals;
     }
 
     if (num == SYS_EXECVEAT) {
         retval     = do_execveat(frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame);
         frame->rax = (uint64_t)retval;
-        if (!retval) ptrace_exec_event(frame);
+        if (!retval) {
+            capability_exec(current_task());
+            ptrace_exec_event(frame);
+        }
         goto check_signals;
     }
 

@@ -14,38 +14,9 @@
 #include <libs/std/stdint.h>
 #include <libs/util/rbtree.h>
 #include <process/kthread.h>
+#include <process/sched_domain.h>
 
 #define SCHED_NICE_0_LOAD 1024ULL // Weight of a nice-0 task (EEVDF)
-
-typedef enum {
-    SCHED_DOMAIN_SMT = 0,
-    SCHED_DOMAIN_PACKAGE,
-    SCHED_DOMAIN_SYSTEM,
-} sched_domain_level_t;
-
-enum {
-    SCHED_DOMAIN_BALANCE_WAKE     = 1U << 0,
-    SCHED_DOMAIN_BALANCE_NEWIDLE  = 1U << 1,
-    SCHED_DOMAIN_BALANCE_PERIODIC = 1U << 2,
-    SCHED_DOMAIN_WAKE_AFFINE      = 1U << 3,
-    SCHED_DOMAIN_SHARE_CAPACITY   = 1U << 4,
-    SCHED_DOMAIN_SHARE_CACHE      = 1U << 5,
-};
-
-typedef struct {
-        uint8_t  level;
-        uint8_t  reserved;
-        uint16_t flags;
-        uint16_t span_weight;
-        uint16_t group_count;
-        uint32_t balance_interval;
-} sched_domain_t;
-
-typedef struct {
-        uint8_t        nr_domains;
-        uint8_t        reserved[7];
-        sched_domain_t domains[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
-} sched_domain_cpu_t;
 
 /* Per-CPU EEVDF runqueue */
 
@@ -63,6 +34,10 @@ typedef struct {
         uint64_t         nr_steals;       // tasks pulled while this CPU was idle
         uint64_t         nr_wakeups;      // wakeups targeted at this rq
         uint64_t         last_domain_balance[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
+        uint32_t         domain_interval[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
+        uint64_t         domain_attempts[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
+        uint64_t         domain_moved[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
+        task_t          *affinity_pending; // detached until context_switch clears on_cpu
         uint64_t         user_ticks;
         uint64_t         system_ticks;
         uint64_t         idle_ticks;
@@ -89,10 +64,9 @@ typedef struct {
 
 /* External interface */
 
-extern scheduler_t         scheduler;
-extern eevdf_rq_t         *cpu_rqs;
-extern uint32_t            cpu_scheduler_count;
-extern sched_domain_cpu_t *cpu_sched_domains;
+extern scheduler_t scheduler;
+extern eevdf_rq_t *cpu_rqs;
+extern uint32_t    cpu_scheduler_count;
 
 /* Enqueue a task onto its assigned CPU's ready queue */
 void enqueue_task(task_t *task);
@@ -105,6 +79,13 @@ void request_task_cpu(task_t *task);
 
 /* Move a non-running task to another CPU */
 int task_set_cpu(task_t *task, uint32_t cpu_id);
+
+/* Update task affinity/cpuset under scheduler.lock, migrating at a safe switch. */
+int  sched_setaffinity(task_t *task, const cpumask_t *mask);
+int  sched_getaffinity(task_t *task, cpumask_t *mask);
+int  sched_set_cpuset(task_t *task, const cpumask_t *mask, nodemask_t mems);
+int  sched_set_cpuset_locked(task_t *task, const cpumask_t *mask, nodemask_t mems);
+bool sched_task_cpu_allowed(const task_t *task, uint32_t cpu);
 
 /* Yield the current CPU to another runnable task */
 void sched_yield(void);

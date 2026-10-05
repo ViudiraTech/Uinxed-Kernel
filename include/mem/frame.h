@@ -15,6 +15,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/buddy.h>
+#include <mem/numa.h>
 #include <sync/spin_lock.h>
 
 _Static_assert(CONFIG_FRAME_PCP_HIGH >= CONFIG_FRAME_PCP_BATCH, "per-CPU frame cache must hold one full drain batch");
@@ -44,6 +45,17 @@ void init_frame(void);
 
 /* Allocate memory frames */
 uint64_t alloc_frames(size_t count);
+
+/* Node-specific allocation; strict forbids remote fallback. */
+uint64_t alloc_frames_node(size_t count, uint16_t node, bool strict);
+
+/* User pages obey task memory policy and effective cpuset.mems. */
+uint64_t alloc_frames_user(size_t count, unsigned alignment_order, uint64_t page_index);
+uint64_t alloc_frames_policy(size_t count, unsigned alignment_order, uint64_t page_index, const numa_policy_t *policy);
+
+/* Memory-bearing nodes and per-node accounting include cached free pages. */
+nodemask_t frame_memory_nodes(void);
+int        frame_get_node_stats(uint16_t node, frame_stats_t *stats);
 
 /* Reclaim pages under the frame allocator's recursion guard. */
 int frame_reclaim_pages(size_t target);

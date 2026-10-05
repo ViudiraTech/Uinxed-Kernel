@@ -41,7 +41,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         obj->backing_page_count = ALIGN_UP(size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
         obj->backing_phys       = alloc_frames(obj->backing_page_count);
         if (!obj->backing_phys) {
-            DRM_ERROR("GEM backing frame allocation failed (%llu pages)\n", obj->backing_page_count);
+            DRM_ERROR("GEM backing frame allocation failed (%llu pages)\n", (unsigned long long)obj->backing_page_count);
             free(obj);
             return NULL;
         }
@@ -52,7 +52,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         obj->num_entries = 1;
         obj->entries     = malloc(sizeof(struct virtio_gpu_mem_entry));
         if (!obj->entries) {
-            DRM_ERROR("GEM memory entry allocation failed (size=%llu)\n", size);
+            DRM_ERROR("GEM memory entry allocation failed (size=%llu)\n", (unsigned long long)size);
             free_frames(obj->backing_phys, obj->backing_page_count);
             free(obj);
             return NULL;
@@ -63,7 +63,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
     }
 
     if (size && drm_gem_create_mmap_offset(&obj->base)) {
-        DRM_ERROR("GEM mmap offset allocation failed (size=%llu)\n", size);
+        DRM_ERROR("GEM mmap offset allocation failed (size=%llu)\n", (unsigned long long)size);
         free(obj->entries);
         free_frames(obj->backing_phys, obj->backing_page_count);
         free(obj);
@@ -105,8 +105,9 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
 /* Create a dumb-buffer backed by a host-side 2D resource. */
 int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args)
 {
-    struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
+    struct virtio_gpu_device *vgdev  = (struct virtio_gpu_device *)dev->dev_private;
     struct virtio_gpu_object *obj;
+    uint32_t                  ctx_id = 0;
     size_t                    size;
     int                       ret;
     uint32_t                  handle;
@@ -130,6 +131,24 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     obj->depth      = 24;
     obj->created_3d = false;
 
+    /*
+     * 3D mode: the object belongs to the requesting file's virgl context, and
+     * the host requires that context to exist before the resource is created
+     * against it -- creating the resource first leaves the later attach with
+     * nothing to bind to and the host refuses the scanout.
+     */
+    if (vgdev->has_virgl) {
+        struct virtio_gpu_fpriv *vfpriv = file_priv ? (struct virtio_gpu_fpriv *)file_priv->driver_priv : NULL;
+
+        if (!vfpriv) return -EINVAL;
+        ret = virtgpu_ensure_context(vgdev, vfpriv);
+        if (ret) {
+            DRM_ERROR("Dumb_create: virgl context creation failed (ret=%d)\n", ret);
+            return ret;
+        }
+        ctx_id = vfpriv->ctx_id;
+    }
+
     /* Allocate a host-side resource ID */
     obj->hw_res_handle = virtgpu_resource_id_alloc(vgdev);
 
@@ -150,6 +169,17 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
         return ret;
     }
     obj->backing_attached = true;
+
+    /* 3D mode: bind the resource to the same context it was created for. */
+    if (ctx_id) {
+        ret = virtgpu_object_attach_context(vgdev, obj, ctx_id);
+        if (ret) {
+            DRM_ERROR("Dumb_create: context attach failed (ret=%d, res_id=%u)\n", ret, obj->hw_res_handle);
+            virtgpu_gem_free_object(&obj->base);
+            return ret;
+        }
+        obj->ctx_id = ctx_id;
+    }
 
     /* Create GEM handle for userspace */
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);

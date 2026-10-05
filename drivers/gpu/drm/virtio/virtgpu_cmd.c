@@ -128,11 +128,11 @@ int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_o
 
     if (!vgdev || !obj || !blob || (!!obj->num_entries != !!obj->entries)) return -EINVAL;
 
-    cmd_size = sizeof(*cmd) + (size_t)obj->num_entries * sizeof(*obj->entries);
+    cmd_size = sizeof(*cmd) + ((size_t)obj->num_entries * sizeof(*obj->entries));
     cmd      = malloc(cmd_size);
     if (!cmd) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-        if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Create_blob: command allocation failed (size=%llu)\n", cmd_size);
+        if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Create_blob: command allocation failed (size=%llu)\n", (unsigned long long)cmd_size);
         return -ENOMEM;
     }
     memset(cmd, 0, cmd_size);
@@ -179,7 +179,7 @@ int virtgpu_cmd_attach_backing(struct virtio_gpu_device *vgdev, struct virtio_gp
 
     if (!obj->num_entries || !obj->entries) return -EINVAL;
 
-    cmd_size = sizeof(*cmd) + obj->num_entries * sizeof(struct virtio_gpu_mem_entry);
+    cmd_size = sizeof(*cmd) + (obj->num_entries * sizeof(struct virtio_gpu_mem_entry));
     cmd      = malloc(cmd_size);
     if (!cmd) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
@@ -248,7 +248,7 @@ int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct
     if (!vgdev || !obj || !xf || !xf->box.w || !xf->box.h || xf->box.z || xf->box.d > 1 || xf->box.x >= obj->width || xf->box.y >= obj->height || xf->box.w > obj->width - xf->box.x
         || xf->box.h > obj->height - xf->box.y || xf->level || xf->stride || xf->layer_stride)
         return -EINVAL;
-    if ((uint64_t)xf->offset + (uint64_t)(xf->box.h - 1) * obj->stride + (uint64_t)xf->box.w * 4 > obj->base.size) return -EINVAL;
+    if ((uint64_t)xf->offset + ((uint64_t)(xf->box.h - 1) * obj->stride) + ((uint64_t)xf->box.w * 4) > obj->base.size) return -EINVAL;
 
     memset(&cmd, 0, sizeof(cmd));
     cmd.hdr.type    = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D;
@@ -297,7 +297,7 @@ int virtgpu_cmd_update_2d_rects(struct virtio_gpu_device *vgdev, struct virtio_g
         const struct virtio_gpu_rect *rect = &rects[i];
         if (!rect->width || !rect->height || rect->x >= obj->width || rect->y >= obj->height || rect->width > obj->width - rect->x || rect->height > obj->height - rect->y
             || offsets[i] > obj->base.size || (uint64_t)(rect->height - 1) * obj->stride > obj->base.size - offsets[i]
-            || (uint64_t)rect->width * sizeof(uint32_t) > obj->base.size - offsets[i] - (uint64_t)(rect->height - 1) * obj->stride) {
+            || (uint64_t)rect->width * sizeof(uint32_t) > obj->base.size - offsets[i] - ((uint64_t)(rect->height - 1) * obj->stride)) {
             return -EINVAL;
         }
 

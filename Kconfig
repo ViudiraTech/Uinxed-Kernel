@@ -195,12 +195,35 @@ menu "Scheduler"
     help
       Initial time slice assigned to a newly created task.
 
+  config SCHED_MAX_CPUS
+    int "Maximum CPUs represented by scheduler masks"
+    default 1024
+    range 64 4096
+
+  config NUMA
+    bool "NUMA topology and node-local memory allocation"
+    default y
+    help
+      Discover CPU and memory affinity from ACPI SRAT and SLIT. Invalid or
+      absent firmware tables safely fall back to a single UMA node.
+
+  config NUMA_MAX_NODES
+    int "Maximum NUMA nodes"
+    default 64
+    range 1 64
+
+  config NUMA_MAX_RANGES
+    int "Maximum firmware memory affinity ranges"
+    default 256
+    range 16 4096
+
   config SCHED_DOMAIN_MAX_LEVELS
     int "Maximum scheduler domain nesting levels"
-    default 3
-    range 1 8
+    default 8
+    range 2 16
     help
-      Depth of the hierarchical scheduling domain structure.
+      Maximum SMT/package/node/distance domain depth. The final slot always
+      covers the entire machine even when intermediate distances are omitted.
 endmenu
 
 menu "Process management"

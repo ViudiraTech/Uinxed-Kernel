@@ -136,6 +136,12 @@ struct kobject;
 struct kset;
 struct kobj_type;
 
+struct vfs_node;
+bool net_sysfs_node_visible(struct vfs_node *node);
+#if CONFIG_NET
+bool net_sysfs_kobject_visible(struct kobject *kobj);
+#endif
+
 /* Core attribute types */
 
 struct attribute {

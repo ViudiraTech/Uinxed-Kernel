@@ -9,11 +9,14 @@
  */
 
 #include <cgroup/cgroup.h>
+#include <fs/cgroup/cgroupfs.h>
+#include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
 #include <fs/core/vfs_stub.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <sync/mutex.h>
 
 #if CONFIG_CGROUP
 
@@ -61,11 +64,24 @@ typedef enum cgroupfs_type {
     /* cpuset */
     CGROUPFS_CPUSET_CPUS,
     CGROUPFS_CPUSET_MEMS,
+    CGROUPFS_CPUSET_CPUS_EFFECTIVE,
+    CGROUPFS_CPUSET_MEMS_EFFECTIVE,
 } cgroupfs_type_t;
 
+typedef struct cgroup_event_path {
+        char                      path[CONFIG_VFS_PATH_MAX];
+        cgroup_t                 *cgroup;
+        uint64_t                  observed;
+        struct cgroup_event_path *next;
+} cgroup_event_path_t;
+
+static mutex_t              event_paths_lock;
+static cgroup_event_path_t *event_paths;
+
 typedef struct {
-        cgroupfs_type_t type;
-        cgroup_t       *cgroup;
+        cgroupfs_type_t      type;
+        cgroup_t            *cgroup;
+        cgroup_event_path_t *events;
 } cgroupfs_node_t;
 
 static int cgroupfs_id;
@@ -97,10 +113,25 @@ static int add_file(vfs_node_t parent, const char *name, cgroupfs_type_t type, u
         vfs_free(node);
         return -ENOMEM;
     }
-    node->fsid  = cgroupfs_id;
-    node->type  = file_stream;
+    node->fsid = cgroupfs_id;
+    /* Control files have finite content; stream reads restart at offset zero. */
+    node->type  = file_none;
     node->mode  = mode;
     node->flags = VFS_NODE_VIRTUAL;
+    if (type == CGROUPFS_EVENTS) {
+        cgroup_event_path_t *entry = calloc(1, sizeof(*entry));
+        if (entry && vfs_node_path(node, entry->path, sizeof(entry->path)) == EOK) {
+            cgroupfs_node_t *handle = node->handle;
+            entry->cgroup           = handle->cgroup;
+            entry->observed         = cgroup_event_sequence(handle->cgroup);
+            handle->events          = entry;
+            mutex_lock(&event_paths_lock);
+            entry->next = event_paths;
+            event_paths = entry;
+            mutex_unlock(&event_paths_lock);
+        } else
+            free(entry);
+    }
     return EOK;
 }
 
@@ -113,41 +144,43 @@ static int populate(vfs_node_t dir)
             uint16_t        mode;
             uint64_t        ctrl_flag; // 0 = core control file
     } files[] = {
-        {"cgroup.controllers",     CGROUPFS_CONTROLLERS,         0444, 0                       },
-        {"cgroup.subtree_control", CGROUPFS_SUBTREE_CONTROL,     0644, 0                       },
-        {"cgroup.procs",           CGROUPFS_PROCS,               0644, 0                       },
-        {"cgroup.threads",         CGROUPFS_THREADS,             0644, 0                       },
-        {"cgroup.events",          CGROUPFS_EVENTS,              0444, 0                       },
-        {"cgroup.type",            CGROUPFS_TYPE,                0644, 0                       },
-        {"cgroup.kill",            CGROUPFS_KILL,                0200, 0                       },
-        {"cgroup.freeze",          CGROUPFS_FREEZE,              0644, 0                       },
-        {"cgroup.stat",            CGROUPFS_STAT,                0444, 0                       },
-        {"cgroup.max.descendants", CGROUPFS_MAX_DESCENDANTS,     0644, 0                       },
-        {"cgroup.max.depth",       CGROUPFS_MAX_DEPTH,           0644, 0                       },
+        {"cgroup.controllers",     CGROUPFS_CONTROLLERS,           0444, 0                       },
+        {"cgroup.subtree_control", CGROUPFS_SUBTREE_CONTROL,       0644, 0                       },
+        {"cgroup.procs",           CGROUPFS_PROCS,                 0644, 0                       },
+        {"cgroup.threads",         CGROUPFS_THREADS,               0644, 0                       },
+        {"cgroup.events",          CGROUPFS_EVENTS,                0444, 0                       },
+        {"cgroup.type",            CGROUPFS_TYPE,                  0644, 0                       },
+        {"cgroup.kill",            CGROUPFS_KILL,                  0200, 0                       },
+        {"cgroup.freeze",          CGROUPFS_FREEZE,                0644, 0                       },
+        {"cgroup.stat",            CGROUPFS_STAT,                  0444, 0                       },
+        {"cgroup.max.descendants", CGROUPFS_MAX_DESCENDANTS,       0644, 0                       },
+        {"cgroup.max.depth",       CGROUPFS_MAX_DEPTH,             0644, 0                       },
 
-        {"pids.current",           CGROUPFS_PIDS_CURRENT,        0444, CGROUP_CONTROLLER_PIDS  },
-        {"pids.max",               CGROUPFS_PIDS_MAX,            0644, CGROUP_CONTROLLER_PIDS  },
-        {"pids.events",            CGROUPFS_PIDS_EVENTS,         0444, CGROUP_CONTROLLER_PIDS  },
+        {"pids.current",           CGROUPFS_PIDS_CURRENT,          0444, CGROUP_CONTROLLER_PIDS  },
+        {"pids.max",               CGROUPFS_PIDS_MAX,              0644, CGROUP_CONTROLLER_PIDS  },
+        {"pids.events",            CGROUPFS_PIDS_EVENTS,           0444, CGROUP_CONTROLLER_PIDS  },
 
-        {"memory.current",         CGROUPFS_MEMORY_CURRENT,      0444, CGROUP_CONTROLLER_MEMORY},
-        {"memory.max",             CGROUPFS_MEMORY_MAX,          0644, CGROUP_CONTROLLER_MEMORY},
-        {"memory.high",            CGROUPFS_MEMORY_HIGH,         0644, CGROUP_CONTROLLER_MEMORY},
-        {"memory.low",             CGROUPFS_MEMORY_LOW,          0644, CGROUP_CONTROLLER_MEMORY},
-        {"memory.stat",            CGROUPFS_MEMORY_STAT,         0444, CGROUP_CONTROLLER_MEMORY},
-        {"memory.events",          CGROUPFS_MEMORY_EVENTS,       0444, CGROUP_CONTROLLER_MEMORY},
-        {"memory.swap.current",    CGROUPFS_MEMORY_SWAP_CURRENT, 0444, CGROUP_CONTROLLER_MEMORY},
-        {"memory.swap.max",        CGROUPFS_MEMORY_SWAP_MAX,     0644, CGROUP_CONTROLLER_MEMORY},
+        {"memory.current",         CGROUPFS_MEMORY_CURRENT,        0444, CGROUP_CONTROLLER_MEMORY},
+        {"memory.max",             CGROUPFS_MEMORY_MAX,            0644, CGROUP_CONTROLLER_MEMORY},
+        {"memory.high",            CGROUPFS_MEMORY_HIGH,           0644, CGROUP_CONTROLLER_MEMORY},
+        {"memory.low",             CGROUPFS_MEMORY_LOW,            0644, CGROUP_CONTROLLER_MEMORY},
+        {"memory.stat",            CGROUPFS_MEMORY_STAT,           0444, CGROUP_CONTROLLER_MEMORY},
+        {"memory.events",          CGROUPFS_MEMORY_EVENTS,         0444, CGROUP_CONTROLLER_MEMORY},
+        {"memory.swap.current",    CGROUPFS_MEMORY_SWAP_CURRENT,   0444, CGROUP_CONTROLLER_MEMORY},
+        {"memory.swap.max",        CGROUPFS_MEMORY_SWAP_MAX,       0644, CGROUP_CONTROLLER_MEMORY},
 
-        {"cpu.max",                CGROUPFS_CPU_MAX,             0644, CGROUP_CONTROLLER_CPU   },
-        {"cpu.weight",             CGROUPFS_CPU_WEIGHT,          0644, CGROUP_CONTROLLER_CPU   },
-        {"cpu.stat",               CGROUPFS_CPU_STAT,            0444, CGROUP_CONTROLLER_CPU   },
+        {"cpu.max",                CGROUPFS_CPU_MAX,               0644, CGROUP_CONTROLLER_CPU   },
+        {"cpu.weight",             CGROUPFS_CPU_WEIGHT,            0644, CGROUP_CONTROLLER_CPU   },
+        {"cpu.stat",               CGROUPFS_CPU_STAT,              0444, CGROUP_CONTROLLER_CPU   },
 
-        {"io.max",                 CGROUPFS_IO_MAX,              0644, CGROUP_CONTROLLER_IO    },
-        {"io.weight",              CGROUPFS_IO_WEIGHT,           0644, CGROUP_CONTROLLER_IO    },
-        {"io.stat",                CGROUPFS_IO_STAT,             0444, CGROUP_CONTROLLER_IO    },
+        {"io.max",                 CGROUPFS_IO_MAX,                0644, CGROUP_CONTROLLER_IO    },
+        {"io.weight",              CGROUPFS_IO_WEIGHT,             0644, CGROUP_CONTROLLER_IO    },
+        {"io.stat",                CGROUPFS_IO_STAT,               0444, CGROUP_CONTROLLER_IO    },
 
-        {"cpuset.cpus",            CGROUPFS_CPUSET_CPUS,         0644, CGROUP_CONTROLLER_CPUSET},
-        {"cpuset.mems",            CGROUPFS_CPUSET_MEMS,         0644, CGROUP_CONTROLLER_CPUSET},
+        {"cpuset.cpus.effective",  CGROUPFS_CPUSET_CPUS_EFFECTIVE, 0444, CGROUP_CONTROLLER_CPUSET},
+        {"cpuset.mems.effective",  CGROUPFS_CPUSET_MEMS_EFFECTIVE, 0444, CGROUP_CONTROLLER_CPUSET},
+        {"cpuset.cpus",            CGROUPFS_CPUSET_CPUS,           0644, CGROUP_CONTROLLER_CPUSET},
+        {"cpuset.mems",            CGROUPFS_CPUSET_MEMS,           0644, CGROUP_CONTROLLER_CPUSET},
     };
 
     cgroup_t *cgroup = ((cgroupfs_node_t *)dir->handle)->cgroup;
@@ -169,7 +202,7 @@ static int mount_cgroup2(const char *src, vfs_node_t node)
     (void)src;
     if (!node) return -EINVAL;
     if (!cgroup_root()) return -ENODEV;
-    node->handle = new_handle(CGROUPFS_DIR, cgroup_root());
+    node->handle = new_handle(CGROUPFS_DIR, cgroup_namespace_root());
     if (!node->handle) return -ENOMEM;
     node->fsid = cgroupfs_id;
     node->type = file_dir;
@@ -182,6 +215,7 @@ static int mount_cgroup2(const char *src, vfs_node_t node)
 static int render(cgroupfs_node_t *node, char *buf, size_t size)
 {
     if (!node->cgroup) return -ENOENT;
+    if (!cgroup_namespace_visible(node->cgroup)) return -EACCES;
     switch (node->type) {
         case CGROUPFS_CONTROLLERS :
             return cgroup_show_controllers(node->cgroup, buf, size);
@@ -234,6 +268,10 @@ static int render(cgroupfs_node_t *node, char *buf, size_t size)
             return cgroup_show_io_weight(node->cgroup, buf, size);
         case CGROUPFS_IO_STAT :
             return cgroup_show_io_empty(node->cgroup, buf, size);
+        case CGROUPFS_CPUSET_CPUS_EFFECTIVE :
+            return cgroup_show_cpuset(node->cgroup, buf, size, false, true);
+        case CGROUPFS_CPUSET_MEMS_EFFECTIVE :
+            return cgroup_show_cpuset(node->cgroup, buf, size, true, true);
         case CGROUPFS_CPUSET_CPUS :
             return cgroup_show_cpuset_cpus(node->cgroup, buf, size);
         case CGROUPFS_CPUSET_MEMS :
@@ -248,8 +286,9 @@ static int64_t file_read(vfs_node_t vnode, void *private_data, uint64_t flags, v
 {
     char buf[CGROUPFS_BUFSIZE];
     int  length;
-    (void)private_data;
     (void)flags;
+    if (!vnode || !vnode->handle) return -ENOENT;
+    if (!offset && private_data && ((cgroupfs_node_t *)vnode->handle)->type == CGROUPFS_EVENTS) *(uint64_t *)private_data = cgroup_event_sequence(((cgroupfs_node_t *)vnode->handle)->cgroup);
     if (!vnode->handle) return -ENOENT;
     length = render(vnode->handle, buf, sizeof(buf));
     if (length < 0) return length;
@@ -268,6 +307,7 @@ static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, 
     (void)private_data;
     (void)flags;
     if (!node) return -ENOENT;
+    if (!cgroup_namespace_visible(node->cgroup)) return -EACCES;
     if (offset) return -EINVAL;
 
     switch (node->type) {
@@ -350,6 +390,7 @@ static int stat_node(void *handle, vfs_node_t node)
 {
     cgroupfs_node_t *cn = handle;
     if (!cn) return -ENOENT;
+    if (!cgroup_namespace_visible(cn->cgroup)) return -EACCES;
     if (cn->type == CGROUPFS_DIR) {
         node->type = file_dir;
         return populate(node);
@@ -365,6 +406,7 @@ static int mkdir_node(void *parent, const char *name, vfs_node_t node)
     cgroup_t        *cgroup;
     int              status;
     if (!pn || pn->type != CGROUPFS_DIR) return -ENOTDIR;
+    if (!cgroup_namespace_visible(pn->cgroup)) return -EACCES;
     status = cgroup_create(pn->cgroup, name, &cgroup);
     if (status != EOK) return status;
     node->handle = new_handle(CGROUPFS_DIR, cgroup);
@@ -388,6 +430,7 @@ static int delete_node(void *parent, vfs_node_t node)
     int              status;
     (void)parent;
     if (!cn) return -ENOENT;
+    if (!cgroup_namespace_visible(cn->cgroup)) return -EACCES;
     if (cn->type != CGROUPFS_DIR) return -EROFS;
     status = cgroup_destroy(cn->cgroup);
     return status;
@@ -397,27 +440,98 @@ static int delete_node(void *parent, vfs_node_t node)
 static int free_handle(void *handle)
 {
     cgroupfs_node_t *node = handle;
+    if (node && node->events) {
+        mutex_lock(&event_paths_lock);
+        cgroup_event_path_t **link = &event_paths;
+        while (*link && *link != node->events) link = &(*link)->next;
+        if (*link) *link = node->events->next;
+        mutex_unlock(&event_paths_lock);
+        free(node->events);
+    }
     if (node) cgroup_put(node->cgroup);
     free(node);
     return EOK;
 }
 
+static void unmount_cgroup2(void *handle)
+{
+    (void)free_handle(handle);
+}
+
+/* Deliver outside cgroup and filesystem registry locks, including oneshot watches. */
+void cgroupfs_notify_events(void)
+{
+    for (unsigned budget = 0; budget < 32; budget++) {
+        char path[CONFIG_VFS_PATH_MAX];
+        bool changed = false;
+        mutex_lock(&event_paths_lock);
+        for (cgroup_event_path_t *entry = event_paths; entry; entry = entry->next) {
+            uint64_t sequence = cgroup_event_sequence(entry->cgroup);
+            if (sequence == entry->observed) continue;
+            entry->observed = sequence;
+            memcpy(path, entry->path, sizeof(path));
+            changed = true;
+            break;
+        }
+        mutex_unlock(&event_paths_lock);
+        if (!changed) break;
+        vfs_node_t node = vfs_open(path);
+        if (!node) continue;
+        inotify_notify(node, IN_MODIFY);
+        vfs_poll_notify(node, POLLPRI | POLLERR);
+        vfs_close(node);
+    }
+}
+
+static int control_open(vfs_node_t node, uint64_t flags, void **private_data)
+{
+    (void)flags;
+    cgroupfs_node_t *handle = node->handle;
+    *private_data           = NULL;
+    if (handle->type != CGROUPFS_EVENTS) return EOK;
+    uint64_t *sequence = malloc(sizeof(*sequence));
+    if (!sequence) return -ENOMEM;
+    *sequence     = cgroup_event_sequence(handle->cgroup);
+    *private_data = sequence;
+    return EOK;
+}
+
+static void control_release(vfs_node_t node, void *private_data)
+{
+    (void)node;
+    free(private_data);
+}
+
+static int control_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
+{
+    (void)flags;
+    int              ready  = (int)(events & (POLLIN | POLLOUT));
+    cgroupfs_node_t *handle = node->handle;
+    if (handle->type == CGROUPFS_EVENTS && private_data && *(uint64_t *)private_data != cgroup_event_sequence(handle->cgroup)) ready |= POLLPRI | POLLERR;
+    return ready;
+}
+
 static struct vfs_callback callbacks = {
-    .mount      = mount_cgroup2,
-    .read       = legacy_read,
-    .write      = legacy_write,
-    .mkdir      = mkdir_node,
-    .mkfile     = vfs_stub_mk_readonly,
-    .stat       = stat_node,
-    .free       = free_handle,
-    .delete     = delete_node,
-    .file_read  = file_read,
-    .file_write = file_write,
+    .mount        = mount_cgroup2,
+    .unmount      = unmount_cgroup2,
+    .read         = legacy_read,
+    .write        = legacy_write,
+    .mkdir        = mkdir_node,
+    .mkfile       = vfs_stub_mk_readonly,
+    .stat         = stat_node,
+    .free         = free_handle,
+    .delete       = delete_node,
+    .file_open    = control_open,
+    .file_release = control_release,
+    .file_poll    = control_poll,
+    .file_read    = file_read,
+    .file_write   = file_write,
 };
 
 /* Register the cgroup2 filesystem with the VFS layer. */
 void cgroupfs_regist(void)
 {
+    mutex_init(&event_paths_lock);
     cgroupfs_id = vfs_regist_fs_flags("cgroup2", &callbacks, VFS_FS_NODEV);
     if (cgroupfs_id & ERRNO_MASK) {
         plogk("cgroup2: Registration failed (%d)\n", cgroupfs_id);

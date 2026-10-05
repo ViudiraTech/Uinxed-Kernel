@@ -69,6 +69,10 @@ void msleep(uint64_t ms);
 /* Wall-clock time shared by syscalls and persistent filesystem timestamps. */
 int64_t  timer_realtime_ns(void);
 uint64_t timer_monotonic_ns(void);
+/* Read time and its TSC anchor together; cycles is zero for other clocksources. */
+uint64_t timer_monotonic_sample(uint64_t *cycles);
+/* Apply the wall-clock offset to an already sampled monotonic timestamp. */
+int64_t  timer_realtime_from_monotonic_ns(uint64_t monotonic);
 uint64_t timer_monotonic_resolution_ns(void);
 void     timer_realtime_set_ns(int64_t nanoseconds);
 uint32_t timer_realtime_seconds32(void);

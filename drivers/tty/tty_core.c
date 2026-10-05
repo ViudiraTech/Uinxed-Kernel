@@ -77,6 +77,33 @@ bool tty_core_graphics_mode(tty_core_t *tty)
     return graphics;
 }
 
+/*
+ * Virtual terminal bookkeeping.  VT 1 owns the console that printk and the
+ * boot console write to; the remaining VTs are usable by display servers but
+ * have no scanout of their own, so the console must go quiet while one of
+ * them is active.
+ */
+static int      vt_active_number = 1;
+static uint32_t vt_allocated     = 1U << 1; // VT 1 is the console; it is never handed out
+static int      vt_graphics_users;
+
+/* Lowest VT that has not been handed out yet, or 0 when none is free. */
+static int vt_alloc_lowest_free(void)
+{
+    for (int vt = 1; vt < CONFIG_VT_COUNT; vt++)
+        if (!(vt_allocated & (1U << vt))) {
+            vt_allocated |= 1U << vt;
+            return vt;
+        }
+    return 0;
+}
+
+bool tty_core_console_suspended(void)
+{
+    if (__atomic_load_n(&vt_graphics_users, __ATOMIC_ACQUIRE) > 0) return true;
+    return __atomic_load_n(&vt_active_number, __ATOMIC_ACQUIRE) != 1;
+}
+
 /* Return the current keyboard translation mode. */
 uint8_t tty_core_keyboard_mode(tty_core_t *tty)
 {
@@ -488,11 +515,11 @@ int64_t tty_core_read(tty_core_t *tty, void *buffer, size_t size, uint64_t flags
         }
         if (!(tty->termios.c_lflag & ICANON) && vtime) {
             if (!minimum) {
-                if (!deadline) deadline = sched_ticks() + (uint64_t)vtime * TTY_TICKS_PER_DECISECOND;
+                if (!deadline) deadline = sched_ticks() + ((uint64_t)vtime * TTY_TICKS_PER_DECISECOND);
             } else if (tty->input_count) {
                 if (tty->input_count != observed) {
                     observed = tty->input_count;
-                    deadline = sched_ticks() + (uint64_t)vtime * TTY_TICKS_PER_DECISECOND;
+                    deadline = sched_ticks() + ((uint64_t)vtime * TTY_TICKS_PER_DECISECOND);
                 }
             }
             if (deadline && sched_ticks() >= deadline) break;
@@ -676,13 +703,27 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             value = tty->kd_mode;
             spin_unlock(&tty->lock);
             return copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0;
-        case KDSETMODE :
+        case KDSETMODE : {
             value = (int)(uintptr_t)user_arg;
             if (value != KD_TEXT && value != KD_GRAPHICS) return -EINVAL;
             spin_lock(&tty->lock);
-            tty->kd_mode = (uint8_t)value;
+            uint8_t previous = tty->kd_mode;
+            tty->kd_mode     = (uint8_t)value;
+            bool is_vt       = tty->is_vt;
             spin_unlock(&tty->lock);
+            /*
+             * One console backs every VT, so a compositor taking over its VT
+             * has to silence console output for the machine, not just for its
+             * own tty.
+             */
+            if (is_vt && previous != (uint8_t)value) {
+                if (value == KD_GRAPHICS)
+                    (void)__atomic_add_fetch(&vt_graphics_users, 1, __ATOMIC_ACQ_REL);
+                else
+                    (void)__atomic_sub_fetch(&vt_graphics_users, 1, __ATOMIC_ACQ_REL);
+            }
             return 0;
+        }
         case KDGKBMODE :
             spin_lock(&tty->lock);
             value = tty->kb_mode;
@@ -731,20 +772,36 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             return 0;
         }
         case VT_GETSTATE : {
-            struct vt_stat state = {.v_active = 1, .v_signal = 0, .v_state = (uint16_t)(1U << 1)};
+            struct vt_stat state = {
+                .v_active = (uint16_t)__atomic_load_n(&vt_active_number, __ATOMIC_ACQUIRE),
+                .v_signal = 0,
+                .v_state  = (uint16_t)(vt_allocated & ((1U << CONFIG_VT_COUNT) - 1)),
+            };
             return copy_to_user(user_arg, &state, sizeof(state)) ? -EFAULT : 0;
         }
         case VT_OPENQRY :
-            value = 1;
+            value = vt_alloc_lowest_free();
             return copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0;
-        case VT_ACTIVATE :
-        case VT_WAITACTIVE :
-            return (int)(uintptr_t)user_arg == 1 ? 0 : -ENXIO;
+        case VT_ACTIVATE : {
+            int vt = (int)(uintptr_t)user_arg;
+            if (vt < 1 || vt >= CONFIG_VT_COUNT) return -ENXIO;
+            __atomic_store_n(&vt_active_number, vt, __ATOMIC_RELEASE);
+            return 0;
+        }
+        case VT_WAITACTIVE : {
+            int vt = (int)(uintptr_t)user_arg;
+            if (vt < 1 || vt >= CONFIG_VT_COUNT) return -ENXIO;
+            /* Activation completes before VT_ACTIVATE returns in this model. */
+            return vt == __atomic_load_n(&vt_active_number, __ATOMIC_ACQUIRE) ? 0 : -EINVAL;
+        }
         case VT_RELDISP :
             return (int)(uintptr_t)user_arg == VT_ACKACQ ? 0 : -EINVAL;
         case VT_DISALLOCATE :
             value = (int)(uintptr_t)user_arg;
-            return value == 0 || value == 1 ? 0 : -ENXIO;
+            if (value == 0) return 0;
+            if (value < 1 || value >= CONFIG_VT_COUNT) return -ENXIO;
+            vt_allocated &= ~(1U << value);
+            return 0;
         case TIOCSWINSZ :
             if (copy_from_user(&winsize, user_arg, sizeof(winsize))) return -EFAULT;
             spin_lock(&tty->lock);

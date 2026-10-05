@@ -10,6 +10,7 @@
 
 #include <kernel/printk.h>
 #include <libs/std/string.h>
+#include <process/namespace.h>
 #include <mem/alloc.h>
 #include <net/core/endian.h>
 #include <net/core/ethernet.h>
@@ -254,6 +255,7 @@ static void ipv6_route_visit(net_device_t *device, void *context)
 {
     ipv6_route_search_t *search = context;
     if ((device->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) != (NETDEV_F_UP | NETDEV_F_RUNNING)) return;
+    if (ipv6_address_is_loopback(search->destination) != !!(device->flags & NETDEV_F_LOOPBACK)) return;
     ipv6_address_t link_local;
     memcpy(link_local.bytes, device->ipv6_link_local, 16);
     if (!ipv6_address_is_unicast(&link_local)) return;
@@ -274,9 +276,14 @@ static void ipv6_route_visit(net_device_t *device, void *context)
 /* Choose the device, source address, and next hop for a destination. */
 int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop)
 {
-    if (!destination || !device || !source || !next_hop || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination)) return -EINVAL;
+    return ipv6_route_ns(net_namespace_current(), destination, device, source, next_hop);
+}
+
+int ipv6_route_ns(net_namespace_t *ns, const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop)
+{
+    if (!destination || !device || !source || !next_hop || ipv6_address_is_unspecified(destination)) return -EINVAL;
     ipv6_route_search_t search = {.destination = destination};
-    netdev_iterate(ipv6_route_visit, &search);
+    netdev_iterate_ns(ns, ipv6_route_visit, &search);
     net_device_t *selected = search.direct ? search.direct : search.router;
     if (!selected) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
@@ -300,7 +307,7 @@ int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_ad
 /* Transmit a packet, prepending the IPv6 header and resolving the next hop. */
 int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit, net_pbuf_t *packet)
 {
-    if (!destination || !packet || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination) || packet->length > IPV6_MAX_PAYLOAD) return -EINVAL;
+    if (!destination || !packet || ipv6_address_is_unspecified(destination) || packet->length > IPV6_MAX_PAYLOAD) return -EINVAL;
     ipv6_address_t selected_source, next_hop;
     int            release = 0;
     if (!device) {
@@ -319,7 +326,8 @@ int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_a
     }
     if (source && !ipv6_address_is_unspecified(source)) selected_source = *source;
     uint32_t mtu = device->ipv6_mtu ? device->ipv6_mtu : device->mtu;
-    if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&selected_source) || (!ipv6_address_is_unicast(&selected_source) && !ipv6_address_is_unspecified(&selected_source))
+    bool loopback_device = (device->flags & NETDEV_F_LOOPBACK) != 0;
+    if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&selected_source) != loopback_device || ipv6_address_is_loopback(destination) != loopback_device || (!ipv6_address_is_unicast(&selected_source) && !ipv6_address_is_unspecified(&selected_source))
         || packet->length + IPV6_HEADER_LEN > mtu || packet->length + IPV6_HEADER_LEN > UINT16_MAX) {
         if (release) netdev_put(device);
         return -EMSGSIZE;
@@ -343,7 +351,9 @@ int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_a
     memcpy(header + 8, selected_source.bytes, 16);
     memcpy(header + 24, destination->bytes, 16);
     int status;
-    if (ipv6_address_is_multicast(destination)) {
+    if (loopback_device) {
+        status = ethernet_output(device, packet, device->address, ETH_TYPE_IPV6);
+    } else if (ipv6_address_is_multicast(destination)) {
         uint8_t mac[6];
         ipv6_multicast_ethernet(destination, mac);
         status = ethernet_output(device, packet, mac, ETH_TYPE_IPV6);
@@ -415,6 +425,7 @@ static void ipv6_reassembly_clear(ipv6_reassembly_t *entry)
 {
     free(entry->data);
     free(entry->bitmap);
+    if (entry->device) netdev_put(entry->device);
     memset(entry, 0, sizeof(*entry));
 }
 
@@ -442,6 +453,7 @@ static ipv6_reassembly_t *ipv6_reassembly_find(net_device_t *device, const net_i
         return NULL;
     }
     memset(slot->bitmap, 0, IPV6_REASSEMBLY_BITMAP_SIZE);
+    netdev_get(device);
     slot->device      = device;
     slot->source      = ip->source;
     slot->destination = ip->destination;
@@ -558,7 +570,8 @@ int ipv6_input(net_device_t *device, net_pbuf_t *packet)
     net_ipv6_packet_t parsed;
     int               parse_status = net_ipv6_parse(packet->data, packet->length, &parsed);
     if (parse_status) goto bad_status;
-    if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&parsed.source) || (!ipv6_address_is_unicast(&parsed.source) && !ipv6_address_is_unspecified(&parsed.source))
+    bool loopback_device = (device->flags & NETDEV_F_LOOPBACK) != 0;
+    if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&parsed.source) != loopback_device || ipv6_address_is_loopback(&parsed.destination) != loopback_device || (!ipv6_address_is_unicast(&parsed.source) && !ipv6_address_is_unspecified(&parsed.source))
         || !ipv6_is_local(device, &parsed.destination)) {
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
@@ -664,6 +677,7 @@ void ipv6_timer(uint64_t now_ticks)
         if (ipv6_reassembly[i].device && now_ticks >= ipv6_reassembly[i].expires) {
             if (ipv6_reassembly[i].have_first) {
                 device       = ipv6_reassembly[i].device;
+                netdev_get(device);
                 destination  = ipv6_reassembly[i].source;
                 quote_length = IPV6_HEADER_LEN + 8U + load_be16(ipv6_reassembly[i].first_quote + 4) - 8U;
                 memcpy(quote, ipv6_reassembly[i].first_quote, quote_length);
@@ -671,7 +685,10 @@ void ipv6_timer(uint64_t now_ticks)
             ipv6_reassembly_clear(&ipv6_reassembly[i]);
         }
         spin_unlock(&ipv6_reassembly_lock);
-        if (device) icmpv6_error(device, &destination, ICMPV6_TIME_EXCEEDED, ICMPV6_REASSEMBLY_TIMEOUT, 0, quote, quote_length);
+        if (device) {
+            icmpv6_error(device, &destination, ICMPV6_TIME_EXCEEDED, ICMPV6_REASSEMBLY_TIMEOUT, 0, quote, quote_length);
+            netdev_put(device);
+        }
     }
 }
 

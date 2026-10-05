@@ -18,6 +18,7 @@
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <kernel/vdso/vdso.h>
 #include <process/elf_loader.h>
 #include <process/process.h>
 #include <process/sched.h>
@@ -504,7 +505,7 @@ static size_t string_array_size(char *const arr[])
 }
 
 /* Build the initial user stack: argv/envp/auxv vectors and the strings they point to */
-static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base, uintptr_t main_entry, char *const argv[], char *const envp[],
+static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base, uintptr_t main_entry, uintptr_t vdso_base, char *const argv[], char *const envp[],
                             uintptr_t *rsp_out)
 {
     int         argc      = count_string_array(argv);
@@ -513,7 +514,7 @@ static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum
     size_t      envp_strs = string_array_size(envp);
     const char *execfn    = argc > 0 ? argv[0] : proc->name;
 
-    const size_t aux_pairs    = 19;
+    const size_t aux_pairs    = 20;
     size_t       vector_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + (aux_pairs * 2);
     size_t       strings_size = argv_strs + envp_strs + strlen(execfn) + 1 + sizeof("x86_64") + 16;
     size_t       total_needed = ALIGN_UP(vector_words * sizeof(uint64_t) + strings_size + 16, 16);
@@ -610,6 +611,8 @@ static int setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum
     vectors[n++] = random_addr;
     vectors[n++] = AT_EXECFN;
     vectors[n++] = execfn_addr;
+    vectors[n++] = AT_SYSINFO_EHDR;
+    vectors[n++] = vdso_base;
     vectors[n++] = AT_NULL;
     vectors[n++] = 0;
 
@@ -711,7 +714,8 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     if (!valid_entry) return -ENOEXEC;
 
     uintptr_t user_rsp  = 0;
-    int       stack_ret = setup_user_stack(proc, phdr_addr, ehdr->e_phnum, ehdr->e_phentsize, interpreter_base, ehdr->e_entry + load_bias, argv, envp, &user_rsp);
+    uintptr_t vdso_base = vdso_map_process(proc);
+    int       stack_ret = setup_user_stack(proc, phdr_addr, ehdr->e_phnum, ehdr->e_phentsize, interpreter_base, ehdr->e_entry + load_bias, vdso_base, argv, envp, &user_rsp);
     if (stack_ret) return stack_ret;
 
     proc->task->context.rbx    = 0;
@@ -862,7 +866,8 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
     }
 
     uintptr_t user_rsp  = 0;
-    int       stack_ret = setup_user_stack(proc, phdr_addr, ehdr.e_phnum, ehdr.e_phentsize, interpreter_base, ehdr.e_entry + load_bias, argv, envp, &user_rsp);
+    uintptr_t vdso_base = vdso_map_process(proc);
+    int       stack_ret = setup_user_stack(proc, phdr_addr, ehdr.e_phnum, ehdr.e_phentsize, interpreter_base, ehdr.e_entry + load_bias, vdso_base, argv, envp, &user_rsp);
     if (stack_ret) {
         free(source.window);
         free(phdrs);

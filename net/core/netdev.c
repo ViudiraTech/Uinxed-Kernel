@@ -18,12 +18,13 @@
 #include <net/ipv4/dhcp.h>
 #include <net/ipv4/ipv4.h>
 #include <net/ipv6/ndp.h>
+#include <process/namespace.h>
 
 #if CONFIG_NET
 
-static net_device_t       *devices[CONFIG_NETDEV_MAX];
+#define NETDEV_REGISTRY_MAX ((size_t)CONFIG_NETDEV_MAX * 16U)
+static net_device_t       *devices[NETDEV_REGISTRY_MAX];
 static spinlock_t          devices_lock;
-static uint32_t            next_ifindex = 1;
 static netdev_lifecycle_fn lifecycle_notifier;
 static void               *lifecycle_context;
 
@@ -31,24 +32,28 @@ static void               *lifecycle_context;
 int netdev_register(net_device_t *device)
 {
     if (!device || !device->ops || !device->ops->xmit || !device->name[0] || device->mtu < NETDEV_MTU_MIN || device->mtu > CONFIG_NETDEV_MTU_MAX) return -EINVAL;
+    if (!device->net_ns) device->net_ns = &init_net_ns;
     spin_lock(&devices_lock);
+    uint32_t next_ifindex = 1;
     int slot = -1;
-    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
-        if (devices[i] && !strncmp(devices[i]->name, device->name, CONFIG_NETDEV_NAME_MAX)) {
+    for (unsigned i = 0; i < NETDEV_REGISTRY_MAX; i++) {
+        if (devices[i] && devices[i]->net_ns == device->net_ns && !strncmp(devices[i]->name, device->name, CONFIG_NETDEV_NAME_MAX)) {
             spin_unlock(&devices_lock);
             plogk("net: Register %s failed: name already in use.\n", device->name);
             return -EEXIST;
         }
+        if (devices[i] && devices[i]->net_ns == device->net_ns && devices[i]->ifindex >= next_ifindex) next_ifindex = devices[i]->ifindex + 1;
         if (!devices[i] && slot < 0) slot = (int)i;
     }
     if (slot < 0) {
         spin_unlock(&devices_lock);
         return -ENOSPC;
     }
-    device->refs    = 1;
+    device->refs = 1;
+    /* ifindex 0 is invalid; a full uint32_t space wraps to it, so skip it. */
+    if (next_ifindex == 0) next_ifindex = 1;
     device->ifindex = next_ifindex;
     ++next_ifindex;
-    if (next_ifindex == 0) next_ifindex = 1;
     device->registered           = 1;
     devices[slot]                = device;
     netdev_lifecycle_fn notifier = lifecycle_notifier;
@@ -97,7 +102,7 @@ int netdev_unregister(net_device_t *device)
     if (!device) return -EINVAL;
     spin_lock(&devices_lock);
     int found = 0;
-    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
+    for (unsigned i = 0; i < NETDEV_REGISTRY_MAX; i++) {
         if (devices[i] == device) {
             devices[i] = NULL;
             found      = 1;
@@ -116,6 +121,7 @@ int netdev_unregister(net_device_t *device)
     spin_unlock(&devices_lock);
     if (lifecycle_notifier) lifecycle_notifier(device, NETDEV_UNREGISTERED, lifecycle_context);
     if (active && device->ops->stop) device->ops->stop(device);
+    ipv4_device_removed(device);
     arp_device_removed(device);
     dhcp_device_removed(device);
     ndp_device_removed(device);
@@ -136,11 +142,16 @@ static net_device_t *device_get_locked(net_device_t *device)
 /* Look up a registered device by name and take a reference on it. */
 net_device_t *netdev_get_by_name(const char *name)
 {
+    return netdev_get_by_name_ns(net_namespace_current(), name);
+}
+
+net_device_t *netdev_get_by_name_ns(net_namespace_t *ns, const char *name)
+{
     if (!name) return NULL;
     spin_lock(&devices_lock);
     net_device_t *result = NULL;
-    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
-        if (devices[i] && !strncmp(devices[i]->name, name, CONFIG_NETDEV_NAME_MAX)) {
+    for (unsigned i = 0; i < NETDEV_REGISTRY_MAX; i++) {
+        if (devices[i] && devices[i]->net_ns == ns && !strncmp(devices[i]->name, name, CONFIG_NETDEV_NAME_MAX)) {
             result = device_get_locked(devices[i]);
             break;
         }
@@ -152,11 +163,16 @@ net_device_t *netdev_get_by_name(const char *name)
 /* Return the first non-loopback device that is up and running. */
 net_device_t *netdev_get_default(void)
 {
+    return netdev_get_default_ns(net_namespace_current());
+}
+
+net_device_t *netdev_get_default_ns(net_namespace_t *ns)
+{
     spin_lock(&devices_lock);
     net_device_t *result   = NULL;
     net_device_t *loopback = NULL;
-    for (unsigned i = 0; i < CONFIG_NETDEV_MAX; i++) {
-        if (devices[i] && (devices[i]->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) == (NETDEV_F_UP | NETDEV_F_RUNNING)) {
+    for (unsigned i = 0; i < NETDEV_REGISTRY_MAX; i++) {
+        if (devices[i] && devices[i]->net_ns == ns && (devices[i]->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) == (NETDEV_F_UP | NETDEV_F_RUNNING)) {
             if (!(devices[i]->flags & NETDEV_F_LOOPBACK)) {
                 result = device_get_locked(devices[i]);
                 break;
@@ -172,12 +188,17 @@ net_device_t *netdev_get_default(void)
 /* Invoke callback for a snapshot of all registered devices, outside the table lock. */
 void netdev_iterate(netdev_iter_fn callback, void *context)
 {
+    netdev_iterate_ns(net_namespace_current(), callback, context);
+}
+
+void netdev_iterate_ns(net_namespace_t *ns, netdev_iter_fn callback, void *context)
+{
     if (!callback) return;
-    net_device_t *snapshot[CONFIG_NETDEV_MAX];
+    net_device_t *snapshot[NETDEV_REGISTRY_MAX];
     size_t        count = 0;
     spin_lock(&devices_lock);
-    for (size_t i = 0; i < CONFIG_NETDEV_MAX; i++)
-        if (devices[i]) snapshot[count++] = device_get_locked(devices[i]);
+    for (size_t i = 0; i < NETDEV_REGISTRY_MAX; i++)
+        if (devices[i] && devices[i]->net_ns == ns) snapshot[count++] = device_get_locked(devices[i]);
     spin_unlock(&devices_lock);
     for (size_t i = 0; i < count; i++) {
         callback(snapshot[i], context);
@@ -204,8 +225,13 @@ void netdev_put(net_device_t *device)
 {
     if (!device) return;
     spin_lock(&device->lock);
-    if (device->refs) device->refs--;
+    bool release = false;
+    if (device->refs) {
+        device->refs--;
+        release = device->refs == 0;
+    }
     spin_unlock(&device->lock);
+    if (release && device->release) device->release(device);
 }
 
 /* Bring the device up or down, invoking the driver's open/stop hooks. */

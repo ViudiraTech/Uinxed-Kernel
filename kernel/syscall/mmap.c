@@ -523,7 +523,12 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
         return 0;
     }
 
-    protect_change_t *changes = calloc(count, sizeof(*changes));
+    /*
+     * The first and last VMA are split after this count is taken, and each
+     * split inserts one more VMA into the range that the rollback loop walks,
+     * so reserve room for both to keep the fill loop inside the allocation.
+     */
+    protect_change_t *changes = calloc(count + 2, sizeof(*changes));
     if (!changes) {
         spin_unlock(&proc->mmap_lock);
         return -ENOMEM;
@@ -615,7 +620,7 @@ int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
         uintptr_t overlap_start = addr > vma->start ? addr : vma->start;
         uintptr_t overlap_end   = end < vma->end ? end : vma->end;
         ranges[used].file       = vfs_node_retain(vma->vm_file);
-        ranges[used].start      = vma->vm_pgoff * PAGE_4K_SIZE + overlap_start - vma->start;
+        ranges[used].start      = (vma->vm_pgoff * PAGE_4K_SIZE) + overlap_start - vma->start;
         ranges[used].end        = ranges[used].start + overlap_end - overlap_start - 1;
         ranges[used].shared     = (vma->flags & VM_SHARED) != 0;
         ranges[used].writable   = (vma->flags & VM_WRITE) != 0;
@@ -828,21 +833,52 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
 int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec)
 {
     process_t *proc = process_current();
-    if (!proc) return -ESRCH;
+    if (!proc || !proc->user_page_dir) return -ESRCH;
     if (!vec) return -EFAULT;
 
-    size_t   pages = ALIGN_UP(length, PAGE_4K_SIZE) / PAGE_4K_SIZE;
-    uint8_t *residency;
+    /* Linux rejects an unaligned address and a range that leaves the address space. */
+    if (addr & (PAGE_4K_SIZE - 1)) return -EINVAL;
+    if (length > PROCESS_USER_STACK_TOP - addr) return -ENOMEM;
+    if (!length) return 0;
 
-    residency = malloc(pages);
+    size_t pages = ALIGN_UP(length, PAGE_4K_SIZE) / PAGE_4K_SIZE;
+
+    /* The vector must be writable before any residency is collected. */
+    if (!user_access_ok((void *)vec, pages, 1)) return -EFAULT;
+
+    uint8_t *residency = malloc(pages);
     if (!residency) return -ENOMEM;
 
+    /*
+     * A range that is not fully mapped is an error, not an empty residency
+     * report; without this check a bogus length walks the entire address space.
+     */
+    int result = EOK;
+    spin_lock(&proc->mmap_lock);
     for (size_t i = 0; i < pages; i++) {
-        uintptr_t phys = walk_page_tables(proc->user_page_dir, (uintptr_t)addr + (i * PAGE_4K_SIZE));
-        residency[i]   = (phys && phys != (uintptr_t)-1) ? 1 : 0;
+        uintptr_t page   = (uintptr_t)addr + (i * PAGE_4K_SIZE);
+        bool      mapped = false;
+        for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+            if (page >= vma->start && page < vma->end) {
+                mapped = true;
+                break;
+            }
+        }
+        if (!mapped) {
+            result = -ENOMEM;
+            break;
+        }
+        residency[i] = 0;
     }
+    spin_unlock(&proc->mmap_lock);
 
-    int ret = copy_to_user((void *)vec, residency, pages) ? -EFAULT : EOK;
+    if (!result) {
+        for (size_t i = 0; i < pages; i++) {
+            uintptr_t phys = walk_page_tables(proc->user_page_dir, (uintptr_t)addr + (i * PAGE_4K_SIZE));
+            residency[i]   = (phys && phys != (uintptr_t)-1) ? 1 : 0;
+        }
+        if (copy_to_user((void *)vec, residency, pages)) result = -EFAULT;
+    }
     free(residency);
-    return ret;
+    return result;
 }

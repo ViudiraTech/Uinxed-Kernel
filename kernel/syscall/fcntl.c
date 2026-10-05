@@ -146,6 +146,11 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             if (result == EOK) result = seals;
             break;
         }
+        case F_OFD_GETLK :
+        case F_OFD_SETLK :
+        case F_OFD_SETLKW :
+            result = ofd_lock_command(file, cmd, arg);
+            break;
         case F_GETLK : {
             if (arg) {
                 /* Write back an unlocked lock struct */

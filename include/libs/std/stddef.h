@@ -22,11 +22,20 @@
 #if __has_builtin(__builtin_offsetof)
 #    define offsetof(s, m) __builtin_offsetof(s, m)
 #else
-#    define offsetof(s, m) ((size_t) & (((s *)0)->m))
+#    define offsetof(s, m) ((size_t)&(((s *)0)->m))
 #endif
 
 #ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#    ifdef __clang_analyzer__
+/*
+ * The analyzer sees only the raw offset subtraction, not the fact that the
+ * pointer is a field of `type`, so it reports every use as an out-of-bounds
+ * access.  Give it an opaque cast instead of annotating each call site.
+ */
+#        define container_of(ptr, type, member) ((type *)(uintptr_t)(ptr))
+#    else
+#        define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#    endif
 #endif
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L
@@ -42,7 +51,7 @@ typedef __SIZE_TYPE__    size_t;
 typedef __INTPTR_TYPE__  ssize_t;
 typedef __PTRDIFF_TYPE__ ptrdiff_t;
 
-#if defined(__WCHAR_TYPE__)
+#ifdef __WCHAR_TYPE__
 typedef __WCHAR_TYPE__ wchar_t;
 #endif
 

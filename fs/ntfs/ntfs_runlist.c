@@ -231,7 +231,7 @@ int64_t ntfs_write_by_runlist(ntfs_mount_t *mnt, uint8_t *rl, int rl_len, uint64
         size_t cluster_offset = (size_t)(position & mnt->cluster_mask);
         size_t chunk          = (size_t)(run_end - (int64_t)position);
         if (chunk > size - done) chunk = size - done;
-        if ((uint64_t)run_lcn + (cluster_offset + chunk + mnt->cluster_size - 1) / mnt->cluster_size > (uint64_t)mnt->nr_clusters) {
+        if ((uint64_t)run_lcn + ((cluster_offset + chunk + mnt->cluster_size - 1) / mnt->cluster_size) > (uint64_t)mnt->nr_clusters) {
             static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
             if (ratelimit_allow(&ratelimit)) plogk("ntfs: Drive %u: write overruns volume end at LCN %lld\n", mnt->dev.drive, run_lcn);
             return done ? (int64_t)done : -EIO;
@@ -334,7 +334,7 @@ int ntfs_bitmap_change_extents(ntfs_mount_t *mnt, const int64_t *extent_lcn, con
             if (allocated) {
                 bytes[slot].after |= (uint8_t)(1U << (cluster & 7));
             } else {
-                bytes[slot].after &= (uint8_t) ~(1U << (cluster & 7));
+                bytes[slot].after &= (uint8_t)~(1U << (cluster & 7));
             }
         }
     }

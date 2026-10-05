@@ -12,6 +12,7 @@
 #define INCLUDE_UACCESS_H_
 
 #include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
 
 struct process;
 
@@ -23,6 +24,8 @@ int user_access_ok_process(struct process *proc, const void *uaddr, size_t size,
 /* Copy to/from user memory, faulting on bad addresses. */
 int copy_from_user(void *dst, const void *src, size_t size);
 int copy_to_user(void *dst, const void *src, size_t size);
+/* Atomic user-word access with the same demand/COW fault fixup as user copies. */
+int cmpxchg_user32(uint32_t *addr, uint32_t expected, uint32_t desired, uint32_t *observed);
 int copy_from_user_process_nofault(struct process *proc, void *dst, const void *src, size_t size);
 int copy_to_user_process_nofault(struct process *proc, void *dst, const void *src, size_t size);
 int copy_from_user_process_nofault_current(struct process *proc, void *dst, const void *src, size_t size);

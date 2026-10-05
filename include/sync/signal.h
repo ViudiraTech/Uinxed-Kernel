@@ -82,11 +82,7 @@ typedef uint64_t sigset_t;
 
 typedef void (*sig_handler_t)(int);
 
-/*
- * Linux x86-64 struct sigaction. sa_mask is the full 128-byte user-visible
- * sigset_t the syscall ABI requires; only its low 64 bits carry signals here,
- * which is exactly the window rt_sigaction's sigsetsize argument addresses.
- */
+/* Expanded action storage; glibc's public sigaction is not the syscall wire ABI. */
 typedef struct {
         sig_handler_t sa_handler;
         uint64_t      sa_mask[16];
@@ -98,6 +94,19 @@ _Static_assert(sizeof(sigaction_t) == 152, "x86-64 struct sigaction ABI size");
 _Static_assert(offsetof(sigaction_t, sa_mask) == 8, "x86-64 sigaction sa_mask offset");
 _Static_assert(offsetof(sigaction_t, sa_flags) == 136, "x86-64 sigaction sa_flags offset");
 _Static_assert(offsetof(sigaction_t, sa_restorer) == 144, "x86-64 sigaction sa_restorer offset");
+
+/* Linux x86-64 rt_sigaction uses handler, flags, restorer and an 8-byte mask. */
+typedef struct {
+        sig_handler_t handler;
+        uint64_t      flags;
+        uint64_t      restorer;
+        sigset_t      mask;
+} linux_sigaction_t;
+
+_Static_assert(sizeof(linux_sigaction_t) == 32, "x86-64 rt_sigaction wire size");
+_Static_assert(offsetof(linux_sigaction_t, flags) == 8, "rt_sigaction flags offset");
+_Static_assert(offsetof(linux_sigaction_t, restorer) == 16, "rt_sigaction restorer offset");
+_Static_assert(offsetof(linux_sigaction_t, mask) == 24, "rt_sigaction mask offset");
 
 /* siginfo_t */
 
@@ -233,15 +242,21 @@ _Static_assert(offsetof(siginfo_t, _sifields._sigchld._stime) == 40, "x86-64 sig
 #define si_arch      _sifields._sigsys._arch
 
 /* si_code values */
-#define SI_USER     0
-#define SI_KERNEL   0x80
-#define SI_QUEUE    (-1)
-#define SI_TIMER    (-2)
-#define SI_MESGQ    (-3)
-#define SI_ASYNCIO  (-4)
-#define SI_SIGIO    (-5)
-#define SI_TKILL    (-6)
-#define SI_DETHREAD (-7)
+#define SI_USER    0
+#define SI_KERNEL  0x80
+#define SI_QUEUE   (-1)
+#define SI_TIMER   (-2)
+#define SI_MESGQ   (-3)
+#define SI_ASYNCIO (-4)
+
+/* sigevent sigev_notify values, Linux x86-64 (bits/sigevent-consts.h). */
+#define SIGEV_SIGNAL    0
+#define SIGEV_NONE      1
+#define SIGEV_THREAD    2
+#define SIGEV_THREAD_ID 4
+#define SI_SIGIO        (-5)
+#define SI_TKILL        (-6)
+#define SI_DETHREAD     (-7)
 
 #define ILL_ILLOPC 1
 #define ILL_ILLOPN 2
@@ -502,7 +517,7 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame);
 int64_t sys_kill_impl(int64_t pid, int sig);
 int64_t sys_tkill_impl(int64_t tid, int sig);
 int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig);
-int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, size_t sigsetsize);
+int64_t sys_rt_sigaction(int sig, const linux_sigaction_t *act, linux_sigaction_t *oact, size_t sigsetsize);
 int64_t sys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oset, size_t sigsetsize);
 int64_t sys_rt_sigreturn(void);
 int64_t sys_rt_sigpending(sigset_t *set, size_t sigsetsize);

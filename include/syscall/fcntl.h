@@ -28,6 +28,9 @@
 #define F_GETSIG        11
 #define F_SETOWN_EX     15
 #define F_GETOWN_EX     16
+#define F_OFD_GETLK     36
+#define F_OFD_SETLK     37
+#define F_OFD_SETLKW    38
 #define F_DUPFD_CLOEXEC 1030
 #define F_ADD_SEALS     1033
 #define F_GET_SEALS     1034
@@ -87,5 +90,9 @@
 
 /* Syscall implementation */
 int64_t sys_fcntl(int fd, int cmd, uint64_t arg);
+
+struct process_file;
+int  ofd_lock_command(struct process_file *file, int command, uint64_t user);
+void ofd_lock_release(struct process_file *file);
 
 #endif // INCLUDE_FCNTL_H_

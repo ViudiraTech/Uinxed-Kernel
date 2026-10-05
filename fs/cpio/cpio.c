@@ -210,9 +210,8 @@ static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t 
 }
 
 /* Extract the initramfs module into the VFS as the root filesystem. */
-void init_cpio(void)
+static void cpio_unpack_module(lmodule_t *module)
 {
-    lmodule_t *module = get_lmodule("initramfs");
     if (!module) return;
 
     vfs_node_t root = get_rootdir();
@@ -329,4 +328,11 @@ void init_cpio(void)
         return;
     }
     plogk("cpio: Loaded initramfs: %zu bytes, %zu entries, format=%s, storage=%s\n", size, entries, format, allocated ? "copied" : "module-backed COW");
+}
+
+/* Load the base archive, then optional small updates without rebuilding it. */
+void init_cpio(void)
+{
+    cpio_unpack_module(get_lmodule("initramfs"));
+    cpio_unpack_module(get_lmodule("initramfs-overlay"));
 }

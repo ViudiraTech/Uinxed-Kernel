@@ -14,6 +14,7 @@
 #include <net/core/endian.h>
 #include <net/transport/udp.h>
 #include <process/sched.h>
+#include <process/namespace.h>
 
 #if CONFIG_INET && CONFIG_NET
 
@@ -82,7 +83,7 @@ static int udp_port_used_locked(uint32_t address, uint16_t port, const udp_endpo
 {
     for (unsigned i = 0; i < CONFIG_UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
-        if (ep && ep != ignore && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address)) return 1;
+        if (ep && ep != ignore && ep->net_ns == ignore->net_ns && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address)) return 1;
     }
     return 0;
 }
@@ -92,6 +93,7 @@ udp_endpoint_t *udp_open_family(uint16_t family)
 {
     udp_endpoint_t *ep = calloc(1, sizeof(*ep));
     if (!ep) return NULL;
+    ep->net_ns = net_ns_get(net_namespace_current());
     ep->family = family;
     wait_queue_init(&ep->wait);
     spin_lock(&udp_table_lock);
@@ -103,6 +105,7 @@ udp_endpoint_t *udp_open_family(uint16_t family)
         }
     }
     spin_unlock(&udp_table_lock);
+    net_ns_put(ep->net_ns);
     free(ep);
     return NULL;
 }
@@ -131,6 +134,7 @@ void udp_close(udp_endpoint_t *ep)
         packet = next;
     }
     wait_queue_wake_all(&ep->wait);
+    net_ns_put(ep->net_ns);
     free(ep);
 }
 
@@ -206,8 +210,9 @@ int udp_connect6(udp_endpoint_t *ep, const ipv6_address_t *address, uint16_t por
     if (status) return status;
     net_device_t  *device;
     ipv6_address_t source, next_hop;
-    status = ipv6_route(address, &device, &source, &next_hop);
+    status = ipv6_route_ns(ep->net_ns, address, &device, &source, &next_hop);
     if (status) return status;
+    if (ep->bound_ifindex && ep->bound_ifindex != device->ifindex) { netdev_put(device); return -ENETUNREACH; }
     netdev_put(device);
     spin_lock(&ep->lock);
     ep->native6 = 1;
@@ -247,8 +252,9 @@ int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t desti
     if (!destination || !port) return -EDESTADDRREQ;
     net_device_t *device;
     uint32_t      next_hop;
-    status = ipv4_route(destination, &device, &next_hop);
+    status = ipv4_route_ns(ep->net_ns, destination, &device, &next_hop);
     if (status) return status;
+    if (ep->bound_ifindex && ep->bound_ifindex != device->ifindex) { netdev_put(device); return -ENETUNREACH; }
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LEN + length, NET_PBUF_HEADROOM);
     if (!packet) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
@@ -283,8 +289,9 @@ int udp_send6(udp_endpoint_t *ep, const void *data, size_t length, const ipv6_ad
     if (ipv6_address_is_unspecified(destination) || !port) return -EDESTADDRREQ;
     net_device_t  *device;
     ipv6_address_t source, next_hop;
-    status = ipv6_route(destination, &device, &source, &next_hop);
+    status = ipv6_route_ns(ep->net_ns, destination, &device, &source, &next_hop);
     if (status) return status;
+    if (ep->bound_ifindex && ep->bound_ifindex != device->ifindex) { netdev_put(device); return -ENETUNREACH; }
     if (!ipv6_address_is_unspecified(&ep->local_address6)) source = ep->local_address6;
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LEN + length, NET_PBUF_HEADROOM);
     if (!packet) {
@@ -360,7 +367,7 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     spin_lock(&udp_table_lock);
     for (unsigned i = 0; i < CONFIG_UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
-        if (!ep || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6))) || !ep->bound || ep->local_port != destination_port
+        if (!ep || ep->net_ns != device->net_ns || (ep->bound_ifindex && ep->bound_ifindex != device->ifindex) || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6))) || !ep->bound || ep->local_port != destination_port
             || (ep->local_address && ep->local_address != ip->destination)) {
             continue;
         }
@@ -446,7 +453,7 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     spin_lock(&udp_table_lock);
     for (unsigned i = 0; i < CONFIG_UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
-        if (!ep || ep->family != AF_INET6 || !ep->bound || ep->local_port != destination_port
+        if (!ep || ep->net_ns != device->net_ns || (ep->bound_ifindex && ep->bound_ifindex != device->ifindex) || ep->family != AF_INET6 || !ep->bound || ep->local_port != destination_port
             || (!ipv6_address_is_unspecified(&ep->local_address6) && !ipv6_address_equal(&ep->local_address6, &ip->destination))) {
             continue;
         }
@@ -546,7 +553,7 @@ int udp_get_error(udp_endpoint_t *endpoint)
  * endpoint.  Unconnected sockets do not get asynchronous errors without an
  * error queue option, which this stack does not expose yet.
  */
-void udp_control_error(uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu)
+void udp_control_error(net_namespace_t *ns, uint32_t source, uint32_t destination, const void *quoted, size_t quoted_length, int error, uint32_t mtu)
 {
     (void)mtu;
     if (!quoted || quoted_length < UDP_HEADER_LEN || error >= 0) return;
@@ -561,7 +568,7 @@ void udp_control_error(uint32_t source, uint32_t destination, const void *quoted
     spin_lock(&udp_table_lock);
     for (unsigned i = 0; i < CONFIG_UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
-        if (!ep) continue;
+        if (!ep || ep->net_ns != ns) continue;
         spin_lock(&ep->lock);
         if ((ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6))) || !ep->bound || ep->local_port != local_port
             || ep->remote_address != destination || ep->remote_port != remote_port || (ep->local_address && ep->local_address != source)) {

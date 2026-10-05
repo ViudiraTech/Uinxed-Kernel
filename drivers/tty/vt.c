@@ -596,7 +596,7 @@ static void vga_console_write(console_t *c, const uint8_t *buf, size_t len)
     (void)c;
 
     /* Do not paint over a compositor's framebuffer in graphics mode. */
-    if (console_tty_ready && tty_core_graphics_mode(&console_tty)) return;
+    if (console_tty_ready && (tty_core_graphics_mode(&console_tty) || tty_core_console_suspended())) return;
     for (size_t i = 0; i < len; i++) {
         tty_vga_queue_push((char)buf[i]);
         if (tty_vga_queue_used() >= CONFIG_TTY_BUF_SIZE) tty_vga_flush_locked();

@@ -318,7 +318,7 @@ static void vt_ansi_rgb_from_256_color(uint8_t i, rgb_t *c)
         i /= 6;
         c->r = i * 255 / 6;
     } else {
-        c->r = c->g = c->b = i * 10 - 2312;
+        c->r = c->g = c->b = (i * 10) - 2312;
     }
 }
 
@@ -825,7 +825,7 @@ csi_getpars:
                     }
                     return;
                 case '0' ... '9' :
-                    s->par[s->npar] = s->par[s->npar] * 10 + (c - '0');
+                    s->par[s->npar] = (s->par[s->npar] * 10) + (c - '0');
                     return;
                 default :
                     break;
@@ -846,7 +846,7 @@ csi_getpars:
                     s->state = ANSI_normal;
                     return;
                 case '0' ... '9' :
-                    s->par[0] = s->par[0] * 10 + (c - '0');
+                    s->par[0] = (s->par[0] * 10) + (c - '0');
                     return;
                 case ';' :
                     s->state = ANSI_osc_string;
