@@ -52,9 +52,9 @@ The protected base is `build/xfce/xfce-clean.iso`, SHA-256
 The unchanged `initramfs.cpio` SHA-256 is
 `28e64ca32e1ea5542de1bcd40839b51cb69a9772c723a431fa5f7d406c65191b`.
 The validated PR `UxImage` SHA-256 is
-`8f8ef38faddbb735a68ef837d4416780df09e4f1140ddd111a06417d06a65ee4`.
+`23256e2ad0702c79971e047a3975a49adf12d9abb15f078c06e333183846b35d`.
 The delivery ISO SHA-256 is
-`195d8d8d466e81d7d8dde150dc48c4c3ac0efb26b0ec5db767a9fe90c665724c`.
+`dca0b1db06f86079ff1a53cd35a12933e1e0f120fd03cc790407630c82281524`.
 `scripts/update-desktop-iso.sh` checks both the embedded kernel and base archive.
 
 The delivery target is `build/xfce/xfce_clean.iso`; the prior delivery image is
@@ -70,3 +70,19 @@ claimed fixed. No change is made to PR #88.
 
 Raw serial logs, screenshots, image/build verification, ref inventories and the
 cleanup recovery bundle are in the main checkout's `build/delivery-20261005/`.
+
+## CI follow-up
+
+The Ubuntu CI lint job flagged pointer-table sizeof expressions and a possible
+freed child remaining in its parent's list after a detach returns early.
+Use explicit pointer-width allocation sizes and consume each child-list entry
+under the namespace lock before detaching/releasing its inode. No lint check is
+disabled. The regression compiles the actual reclaim loop with ASan/UBSan;
+`--baseline 51eb14f9` reproduces the prior heap-use-after-free, and the fixed loop
+reclaims three children without dangling list entries.
+
+Local clang-tidy 19 passed the default (VirtIO disabled) configuration, and the
+CI repair kernel repeated all seven guest checks with zero failures, including
+initctl restart and 2,000,000 vDSO samples. Logs are `ci-guest-acceptance.txt`,
+`ci-guest-serial.log`, `ci-fix-full-clang19.log` and `ci-fix-vfs-local.log` in the
+delivery evidence directory. The hashes above identify the updated kernel/ISO.

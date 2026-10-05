@@ -2746,7 +2746,7 @@ static int vfs_propagate_attach_locked(vfs_mount_table_t *table, vfs_mount_attac
     int result = vfs_receivers_locked(table, root->parent, root, &receivers, &receiver_count);
     if (result != EOK) return result;
     size_t capacity = vfs_mount_count_locked(table);
-    vfs_mount_attachment_t **tree = calloc(capacity, sizeof(*tree));
+    vfs_mount_attachment_t **tree = calloc(capacity, sizeof(void *));
     if (!tree) { free(receivers); return -ENOMEM; }
     size_t tree_count = 1;
     tree[0] = root;
@@ -2754,7 +2754,7 @@ static int vfs_propagate_attach_locked(vfs_mount_table_t *table, vfs_mount_attac
     for (size_t cursor = 0; cursor < tree_count && tree_count < capacity; cursor++)
         for (vfs_mount_attachment_t *entry = table->entries; entry && tree_count < capacity; entry = entry->next)
             if (entry->parent == tree[cursor]) tree[tree_count++] = entry;
-    if (receiver_count > SIZE_MAX / tree_count / sizeof(vfs_mount_attachment_t *)) {
+    if (receiver_count > SIZE_MAX / tree_count / sizeof(void *)) {
         free(tree); free(receivers); return -ENOMEM;
     }
     vfs_mount_attachment_t **copies = calloc(receiver_count * tree_count, sizeof(*copies));
@@ -2968,7 +2968,7 @@ static int vfs_propagate_remove_locked(vfs_mount_table_t *table, vfs_mount_attac
     size_t count = 0;
     int result = vfs_receivers_locked(table, root->parent, root, &receivers, &count);
     if (result != EOK) return result;
-    vfs_mount_attachment_t **roots = calloc(count, sizeof(*roots));
+    vfs_mount_attachment_t **roots = calloc(count, sizeof(void *));
     if (!roots) { free(receivers); return -ENOMEM; }
     roots[0] = root;
     for (size_t r = 1; r < count; r++) {
@@ -4466,11 +4466,20 @@ void vfs_free_child(vfs_node_t vfs)
     if (!vfs) return;
     for (;;) {
         mutex_lock(&vfs_namespace_lock);
-        while (vfs->child && !vfs->child->data) vfs->child = clist_delete_node(vfs->child, vfs->child);
-        vfs_node_t child = vfs->child ? vfs->child->data : NULL;
-        if (child) child->refcount++;
+        clist_t entry = vfs->child;
+        if (!entry) {
+            mutex_unlock(&vfs_namespace_lock);
+            break;
+        }
+        vfs_node_t child = entry->data;
+        /* Remove the list reference before a detach can release the inode. */
+        vfs->child = clist_delete_node(vfs->child, entry);
+        if (child) {
+            vfs_dcache_remove(child);
+            child->refcount++;
+        }
         mutex_unlock(&vfs_namespace_lock);
-        if (!child) break;
+        if (!child) continue;
         vfs_namespace_detach(child);
         vfs_close(child);
     }
