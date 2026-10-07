@@ -1226,16 +1226,6 @@ menu "Device Drivers"
         Resolution used for the kernel console when a GPU driver reports
         neither a usable EDID nor display-info scanout modes.
 
-    config SIMPLEDRM
-      bool "Simple framebuffer (simpledrm) DRM driver"
-      depends on DRM
-      default y
-      help
-        Software-scanout DRM driver for the bootloader-provided GOP
-        framebuffer.  Used as a fallback when no real GPU driver can
-        probe, giving userspace compositors (Weston) a working KMS
-        device without dedicated GPU hardware.
-
     config DRM_MAX_DEVICES
       int "Maximum DRM devices"
       depends on DRM
@@ -1266,6 +1256,27 @@ menu "Device Drivers"
       range 1 64
       help
         GPU driver implementations the graphics core can host.
+
+    menu "GPU drivers"
+      config SIMPLEDRM
+        bool "Simple framebuffer (simpledrm) DRM driver"
+        depends on DRM
+        default y
+        help
+          Software-scanout DRM driver for the bootloader-provided GOP
+          framebuffer.  Used as a fallback when no real GPU driver can
+          probe, giving userspace compositors (Weston) a working KMS
+          device without dedicated GPU hardware.
+
+      config VIRTIO_GPU
+        bool "VirtIO GPU DRM driver"
+        depends on DRM && VIRTIO_PCI
+        default n
+        help
+          VirtIO-GPU DRM driver for paravirtualised GPU devices.
+          Provides KMS display pipeline, render node, and optional
+          3D acceleration via virgl context protocol.
+    endmenu
   endmenu
 
   menu "VirtIO drivers"
@@ -1274,8 +1285,8 @@ menu "Device Drivers"
       default n
       help
         Enable support for the VirtIO family of paravirtualised
-        devices.  Individual transports and device drivers are
-        enabled by the options below.
+        devices.  Individual transports are enabled by the options
+        below; device drivers live in their own subsystem's menu.
 
     config VIRTIO_PCI
       bool "VirtIO PCI transport layer"
@@ -1284,15 +1295,6 @@ menu "Device Drivers"
       help
         Enable the VirtIO PCI transport layer, providing generic
         MMIO-based capability discovery and virtqueue management.
-
-    config VIRTIO_GPU
-      bool "VirtIO GPU DRM driver"
-      depends on DRM && VIRTIO_PCI
-      default n
-      help
-        VirtIO-GPU DRM driver for paravirtualised GPU devices.
-        Provides KMS display pipeline, render node, and optional
-        3D acceleration via virgl context protocol.
   endmenu
 
   menu "Audio support"
@@ -1320,13 +1322,6 @@ menu "Device Drivers"
         Sound Blaster 16 and ESS AudioDrive PCI audio driver.
         Enable for legacy ISA/PCI SB16-compatible sound cards.
 
-    config AUDIO_PCSPKR
-      bool "PC speaker (buzzer) support"
-      default n
-      help
-        PC internal speaker support via PIT channel 2 for basic
-        beep functionality.
-
     config AUDIO_VIRTIO_SND
       bool "VirtIO sound (virtio-snd) driver"
       depends on AUDIO && VIRTIO_PCI
@@ -1336,6 +1331,13 @@ menu "Device Drivers"
         as emulated by QEMU (-device virtio-sound-pci).  Provides
         one playback and one capture PCM stream through the audio
         core.
+
+    config AUDIO_PCSPKR
+      bool "PC speaker (buzzer) support"
+      default n
+      help
+        PC internal speaker support via PIT channel 2 for basic
+        beep functionality.
 
     config AUDIO_MAX_CARDS
       int "Maximum sound cards"
