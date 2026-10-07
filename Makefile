@@ -41,13 +41,6 @@ CC_INCLUDES    := -Iinclude -include include/kernel/config.h -MMD
 CC_INLINE       = -fno-inline-functions $(if $(findstring clang,$(CC)),-finline-hint-functions,-fno-inline-small-functions -fno-inline-functions-called-once)
 
 CC_FLAGS        = $(CC_OPT) $(CC_TARGET) $(CC_CODEGEN) $(CC_WARN) $(CC_SECTIONS) $(CC_INLINE) $(CC_INCLUDES)
-# gcc resolves LTO symbols before expand(), which rewrites the strcat() calls in
-# kobject_get_path() into a strcpy() call.  That late reference is invisible to the
-# LTO symbol table, so it decides string.c's strcpy has no outside user and emits it
-# as a local symbol; the link then only succeeds when both happen to share an LTO
-# partition.  The string routines are leaf code with nothing to gain from LTO, so
-# build them as plain objects and keep their symbols globally visible.
-libs/std/string.o: CC_FLAGS += -fno-lto
 LD_FLAGS       := $(CC_OPT) $(CC_SECTIONS) $(CC_INLINE) -nostdlib -pie -T assets/linker.ld -Wl,--gc-sections -Wl,--build-id=none
 CLANGD_DROP    := $(CC_SECTIONS) $(CC_INLINE) -MMD
 
