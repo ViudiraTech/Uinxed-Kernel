@@ -162,6 +162,13 @@ struct vp_device {
         void *private_data;
 };
 
+/* One segment of a chained request; outgoing segments precede incoming segments */
+struct vp_virtq_seg {
+        void    *data;
+        uint32_t len;
+        int      write; // 0: driver -> device, 1: device -> driver
+};
+
 /* Find a VirtIO PCI device by vendor/device ID and fill in dev */
 int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev);
 
@@ -201,19 +208,7 @@ int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write);
 /* Add an out-only buffer followed by an in-only buffer to a virtqueue */
 int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len);
 
-/* One segment of a chained request; out segments must precede in segments */
-struct vp_virtq_seg {
-        void    *data;
-        uint32_t len;
-        int      write; /* 0: driver -> device, 1: device -> driver */
-};
-
-/*
- * Add an arbitrarily long chain of segments to a virtqueue.  `cookie` is
- * handed back by virtqueue_get_buf() for the whole chain (pass NULL to get
- * segs[0].data instead), which lets a caller map a completion back onto the
- * request object it belongs to.
- */
+/* Add a chain of segments to a virtqueue; cookie is returned by virtqueue_get_buf(), or segs[0].data when NULL. */
 int virtqueue_add_chain(struct vp_virtqueue *vq, void *cookie, const struct vp_virtq_seg *segs, int count);
 
 /* Pop a used buffer from a virtqueue, returning its data and length */

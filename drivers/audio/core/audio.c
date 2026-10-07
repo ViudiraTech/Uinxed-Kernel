@@ -200,19 +200,7 @@ static size_t frame_bytes(const audio_pcm_format_t *fmt)
     return (size_t)(fmt->bits / 8) * fmt->channels;
 }
 
-/*
- * Number of frames queued in the ring but not consumed yet.
- *
- * appl_ptr is the producer cursor (the application for playback, the driver
- * for capture) and hw_ptr is the consumer cursor, so the backlog is
- * appl_ptr - hw_ptr taken forwards through the boundary.  Everything else is
- * expressed in terms of this value: pcm_ring_buffer_space() returns
- * boundary - avail - 1 as the free room, the read/write paths use it as
- * "frames to consume" and "frames already queued", and poll uses it as
- * POLLIN readiness.  Walking the difference the other way round reports a
- * ring as full when it is empty, which lets playback overwrite frames the
- * device has not played yet.
- */
+/* Backlog of queued frames not yet consumed; appl_ptr is the producer cursor, hw_ptr the consumer. Reversing it reports a ring as full when it is empty, so playback overwrites unplayed frames. */
 snd_pcm_sframes_t pcm_ring_buffer_avail(audio_pcm_file_t *pf)
 {
     snd_pcm_uframes_t hw  = pf->hw_ptr;
@@ -344,10 +332,11 @@ static void audio_pcm_destroy(audio_pcm_file_t *pf)
         if (*link) *link = pf->next;
         spin_unlock_irqrestore(&pf->card->pcm_lock, rflags);
     }
-    pf->next = NULL;
 
+    pf->next      = NULL;
     pf->lock.lock = 0;
     pcm_ring_buffer_destroy(pf);
+
     pf->state = SNDRV_PCM_STATE_OPEN;
     wait_queue_wake_all(&pf->read_wait);
     wait_queue_wake_all(&pf->write_wait);
@@ -532,6 +521,7 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
             spin_unlock(&pf->lock);
             int status = card->ops->start(card);
             spin_lock(&pf->lock);
+
             if (status != EOK) {
                 /*
                  * The driver armed nothing, so nothing will ever drain the ring.
@@ -545,7 +535,6 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
             }
             continue;
         }
-
         if (pf->period_event) pf->period_event = 0;
     }
     spin_unlock(&pf->lock);
@@ -634,6 +623,7 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
         return r;
     }
     spin_unlock(&pf->lock);
+
     /*
      * The driver must accept the parameters before the state below advertises a
      * prepared capture stream.  Dropping this result leaves the card with

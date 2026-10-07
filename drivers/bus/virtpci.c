@@ -405,11 +405,12 @@ int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, v
     return 0;
 }
 
-/* Queue a chain of segments: out buffers first, then in buffers. */
+/* Add a chain of segments to a virtqueue; out segments must precede in segments. */
 int virtqueue_add_chain(struct vp_virtqueue *vq, void *cookie, const struct vp_virtq_seg *segs, int count)
 {
     uint16_t head = 0;
     uint16_t prev = 0;
+
     if (!vq || !segs || count < 1) return -EINVAL;
 
     /* Validate everything before a single descriptor is consumed. */
@@ -418,6 +419,7 @@ int virtqueue_add_chain(struct vp_virtqueue *vq, void *cookie, const struct vp_v
     }
 
     spin_lock(&vq->lock);
+
     if (vq->broken) {
         spin_unlock(&vq->lock);
         return -ENODEV;
@@ -426,12 +428,11 @@ int virtqueue_add_chain(struct vp_virtqueue *vq, void *cookie, const struct vp_v
         spin_unlock(&vq->lock);
         return -ENOSPC;
     }
-
     for (int i = 0; i < count; i++) {
-        uint16_t id   = vq->free_head;
+        uint16_t id = vq->free_head;
+
         vq->free_head = vq->free_descs[id];
         vq->num_free--;
-
         vq->desc[id].addr  = (uint64_t)(uintptr_t)virt_any_to_phys((uintptr_t)segs[i].data);
         vq->desc[id].len   = segs[i].len;
         vq->desc[id].flags = segs[i].write ? VRING_DESC_F_WRITE : 0;

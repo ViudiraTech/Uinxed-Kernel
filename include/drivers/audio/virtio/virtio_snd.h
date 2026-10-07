@@ -13,14 +13,6 @@
 
 #include <libs/std/stdint.h>
 
-/* Device configuration space (virtio specification 5.14.6.1). */
-struct virtio_snd_config {
-        uint32_t jacks;
-        uint32_t streams;
-        uint32_t chmaps;
-        uint32_t controls;
-};
-
 /* Device virtqueue indexes (virtio specification 5.14.6.2). */
 #define VIRTIO_SND_VQ_CONTROL 0
 #define VIRTIO_SND_VQ_EVENT   1
@@ -63,6 +55,14 @@ struct virtio_snd_config {
 #define VIRTIO_SND_PCM_RATE_96000  10
 #define VIRTIO_SND_PCM_RATE_176400 11
 #define VIRTIO_SND_PCM_RATE_192000 12
+
+/* Device configuration space (virtio specification 5.14.6.1). */
+struct virtio_snd_config {
+        uint32_t jacks;
+        uint32_t streams;
+        uint32_t chmaps;
+        uint32_t controls;
+};
 
 /* Common message header. */
 struct virtio_snd_hdr {
