@@ -405,6 +405,63 @@ int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, v
     return 0;
 }
 
+/* Add a chain of segments to a virtqueue; out segments must precede in segments. */
+int virtqueue_add_chain(struct vp_virtqueue *vq, void *cookie, const struct vp_virtq_seg *segs, int count)
+{
+    uint16_t head = 0;
+    uint16_t prev = 0;
+
+    if (!vq || !segs || count < 1) return -EINVAL;
+
+    /* Validate everything before a single descriptor is consumed. */
+    for (int i = 0; i < count; i++) {
+        if (!segs[i].data || segs[i].len == 0) return -EINVAL;
+    }
+
+    spin_lock(&vq->lock);
+
+    if (vq->broken) {
+        spin_unlock(&vq->lock);
+        return -ENODEV;
+    }
+    if (vq->num_free < count) {
+        spin_unlock(&vq->lock);
+        return -ENOSPC;
+    }
+    for (int i = 0; i < count; i++) {
+        uint16_t id = vq->free_head;
+
+        vq->free_head = vq->free_descs[id];
+        vq->num_free--;
+        vq->desc[id].addr  = (uint64_t)(uintptr_t)virt_any_to_phys((uintptr_t)segs[i].data);
+        vq->desc[id].len   = segs[i].len;
+        vq->desc[id].flags = segs[i].write ? VRING_DESC_F_WRITE : 0;
+        vq->desc[id].next  = 0;
+        vq->desc_data[id]  = segs[i].data;
+
+        if (i == 0) {
+            head = id;
+        } else {
+            vq->desc[prev].flags |= VRING_DESC_F_NEXT;
+            vq->desc[prev].next = id;
+        }
+        prev = id;
+    }
+
+    /* The chain head carries the caller's cookie for virtqueue_get_buf(). */
+    vq->desc_data[head] = cookie ? cookie : segs[0].data;
+
+    /* Update avail ring */
+    vq->avail->ring[vq->avail_idx_shadow & (vq->num_max - 1)] = head;
+    vq->avail_idx_shadow++;
+
+    compiler_barrier();
+    vq->avail->idx = vq->avail_idx_shadow;
+
+    spin_unlock(&vq->lock);
+    return 0;
+}
+
 /* Pop a used buffer from the used ring, releasing its descriptors. */
 void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
 {

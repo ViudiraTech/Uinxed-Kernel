@@ -161,6 +161,10 @@
 #    define CONFIG_AUDIO_SB16 0
 #endif
 
+#ifndef CONFIG_AUDIO_VIRTIO_SND
+#    define CONFIG_AUDIO_VIRTIO_SND 0
+#endif
+
 #ifndef CONFIG_SWAP
 #    define CONFIG_SWAP 1
 #endif

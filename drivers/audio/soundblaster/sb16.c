@@ -520,7 +520,6 @@ int sb16_detect(sb16_device_t *dev)
         uint8_t major = 0, minor = 0;
         if (sb16_dsp_version(dev, &major, &minor)) continue;
 
-        plogk("sb16: DSP version %u.%u at port 0x%x\n", major, minor, dev->base);
         dev->detected = 1;
         dev->dma8     = SB16_DMA8;
         dev->dma16    = SB16_DMA16;
@@ -557,23 +556,19 @@ void sb16_init(void)
     memset(&sb16_dev, 0, sizeof(sb16_device_t));
     sb16_dev.input_source = SB16_MIXER_INPUT_MIC;
 
-    if (sb16_detect(&sb16_dev)) {
-        sb16_dev.base  = 0x220;
-        sb16_dev.irq   = SB16_IRQ_5;
-        sb16_dev.dma8  = SB16_DMA8;
-        sb16_dev.dma16 = SB16_DMA16;
-        if (sb16_dsp_reset(&sb16_dev)) {
-            plogk("sb16: DSP reset failed at port 0x%x\n", sb16_dev.base);
-            return;
-        }
-        uint8_t major = 0, minor = 0;
-        if (sb16_dsp_version(&sb16_dev, &major, &minor)) {
-            plogk("sb16: DSP version query failed at port 0x%x\n", sb16_dev.base);
-            return;
-        }
-        plogk("sb16: DSP version %u.%u at port 0x%x\n", major, minor, sb16_dev.base);
-        sb16_dev.detected = 1;
+    if (sb16_detect(&sb16_dev) != EOK) return;
+    if (sb16_dsp_reset(&sb16_dev)) {
+        plogk("sb16: DSP reset failed at port 0x%x\n", sb16_dev.base);
+        return;
     }
+
+    uint8_t major = 0, minor = 0;
+    if (sb16_dsp_version(&sb16_dev, &major, &minor)) {
+        plogk("sb16: DSP version query failed at port 0x%x\n", sb16_dev.base);
+        return;
+    }
+
+    plogk("sb16: DSP version %u.%u at port 0x%x\n", major, minor, sb16_dev.base);
 
     sb16_dev.sample_rate  = 22050;
     sb16_dev.bits         = 8;
@@ -601,7 +596,8 @@ void sb16_init(void)
         .bits        = sb16_dev.bits,
         .channels    = sb16_dev.channels,
     };
-    audio_register_card("Sound Blaster 16", &format, &sb16_audio_ops, &sb16_dev);
+    int card_id = audio_register_card("Sound Blaster 16", &format, &sb16_audio_ops, &sb16_dev);
+    if (card_id < 0) plogk("sb16: sound card registration failed: %d\n", card_id);
 }
 
 #endif
