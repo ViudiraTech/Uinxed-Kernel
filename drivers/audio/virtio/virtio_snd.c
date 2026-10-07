@@ -62,7 +62,7 @@ struct virtsnd_msg {
         uint8_t *mem;
         uint64_t phys;
         size_t   pages;
-        size_t   length; /* payload bytes staged or captured */
+        size_t   length; // payload bytes staged or captured
         bool     in_flight;
 };
 
@@ -100,9 +100,9 @@ struct virtio_snd {
         bool                running[2];
         struct virtsnd_pool pool[2];
 
-        mutex_t      ops_lock; /* serialises start/stop/drain/set_params */
-        mutex_t      ctl_lock; /* serialises control-message exchanges */
-        spinlock_t   lock;     /* protects pools, running[] and params */
+        mutex_t      ops_lock; // serialises start/stop/drain/set_params
+        mutex_t      ctl_lock; // serialises control-message exchanges
+        spinlock_t   lock;     // protects pools, running[] and params
         wait_queue_t ctl_wait;
         wait_queue_t pump_wait;
 
@@ -264,6 +264,7 @@ static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, 
     int                  ret   = EOK;
     uint32_t             len   = 0;
     void                *cookie;
+    bool                 timed = false;
 
     if (!req || req_len == 0 || req_len > PAGE_4K_SIZE) return -EINVAL;
     if (items_len + sizeof(struct virtio_snd_hdr) > PAGE_4K_SIZE) return -EINVAL;
@@ -290,8 +291,8 @@ static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, 
 
         for (;;) {
             cookie = virtqueue_get_buf(vq, &len);
-            if (cookie) break;
 
+            if (cookie) break;
             if (interruptible) {
                 if (fast_polls++ < VIRTIO_SND_CTL_FAST_POLLS) {
                     cpu_relax();
@@ -299,7 +300,8 @@ static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, 
                     continue;
                 }
                 if (sched_ticks() >= deadline) {
-                    ret = virtsnd_mark_broken(vq);
+                    ret   = virtsnd_mark_broken(vq);
+                    timed = true;
                     goto out;
                 }
 
@@ -317,7 +319,8 @@ static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, 
 
             /* No scheduler or no interrupt: bounded busy poll, as virtgpu does. */
             if (++spins > VIRTIO_SND_CTL_BOOT_SPINS) {
-                ret = virtsnd_mark_broken(vq);
+                ret   = virtsnd_mark_broken(vq);
+                timed = true;
                 goto out;
             }
             cpu_relax();
@@ -330,9 +333,12 @@ static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, 
         ret = virtsnd_status_to_errno(status);
         if (ret == EOK && items && items_len) memcpy(items, snd->ctl_resp + sizeof(struct virtio_snd_hdr), items_len);
     }
-
 out:
     mutex_unlock(&snd->ctl_lock);
+    if (timed) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: control queue %d stopped responding, card unusable.\n", vq->index);
+    }
     return ret;
 }
 
@@ -647,14 +653,13 @@ static void virtsnd_fill_rx(struct virtio_snd *snd)
         spin_unlock(&snd->lock);
     }
     spin_unlock_irqrestore(&snd->card->pcm_lock, rflags);
-
     if (submitted) virtqueue_kick(&snd->vq[VIRTIO_SND_VQ_RX]);
 }
 
 /* Reap everything the device has finished and top the queues back up. */
 static void virtsnd_pump(struct virtio_snd *snd)
 {
-    if (!snd->card) return; /* Set before the pump can ever be scheduled. */
+    if (!snd->card) return; // Set before the pump can ever be scheduled.
 
     virtsnd_reap_events(snd);
     virtsnd_reap_tx(snd);
@@ -664,8 +669,8 @@ static void virtsnd_pump(struct virtio_snd *snd)
         spin_lock(&snd->lock);
         const bool running = snd->running[d];
         spin_unlock(&snd->lock);
-        if (!running) continue;
 
+        if (!running) continue;
         if (d == VIRTIO_SND_D_OUTPUT) {
             virtsnd_fill_tx(snd);
         } else {
@@ -683,10 +688,11 @@ static void virtsnd_wait_inflight(struct virtio_snd *snd, int d)
         spin_lock(&snd->lock);
         const int inflight = snd->pool[d].inflight;
         spin_unlock(&snd->lock);
-        if (inflight == 0) return;
 
+        if (inflight == 0) return;
         if (sched_ticks() >= deadline) {
-            plogk("virtio_snd: stream drain timed out with %d message(s) in flight\n", inflight);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: stream drain timed out with %d message(s) in flight.\n", inflight);
             return;
         }
 
@@ -706,22 +712,22 @@ static void virtsnd_stop_direction(struct virtio_snd *snd, int d)
     const bool was_running = snd->running[d];
     snd->running[d]        = false;
     spin_unlock(&snd->lock);
-    if (!was_running) return;
 
+    if (!was_running) return;
     if (snd->stream_id[d] != VIRTIO_SND_NO_STREAM) {
         const uint32_t id = (uint32_t)snd->stream_id[d];
         (void)virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_STOP, id);
         (void)virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_RELEASE, id);
     }
+
     virtsnd_wait_inflight(snd, d);
 }
 
 /*
- * Pump worker.  Reaps completions, refills the queues and then sleeps: the
- * interrupt wakes it as soon as the device is done with a message, so a short
- * deadline is only needed while a running stream has gone completely idle and
- * the application may stage new data at any moment.  Without a working
- * interrupt the deadline stays short and the pump degrades to a timer.
+ * Pump worker: reaps completions, refills the queues, then sleeps.  The interrupt wakes
+ * it as soon as the device finishes a message, so a short deadline is only needed while
+ * a running stream has gone idle and the application may stage data at any moment; a
+ * missing interrupt leaves the short deadline in place and the pump becomes a timer.
  */
 static int virtsnd_worker(void *arg)
 {
@@ -822,7 +828,8 @@ static int virtsnd_set_params(audio_card_t *card, const audio_pcm_format_t *fmt,
         } else {
             virtsnd_pool_release(&snd->pool[i]);
             snd->params_valid[i] = false;
-            plogk("virtio_snd: failed to allocate %d message(s) of %u bytes: %d\n", count, period, ret);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: failed to allocate %d message(s) of %u bytes: %d\n", count, period, ret);
         }
         spin_unlock(&snd->lock);
     }
@@ -856,19 +863,19 @@ static int virtsnd_start(audio_card_t *card)
         spin_lock(&snd->lock);
         const bool started = snd->running[d];
         spin_unlock(&snd->lock);
-        if (started) continue;
 
+        if (started) continue;
         if (!snd->params_valid[d]) {
             /*
-             * SET_PARAMS never reached the device for a file that is already
-             * allowed to block.  Skipping silently reports EOK, the core then
-             * publishes RUNNING on that strength, and nothing is left to feed
-             * the ring: read() sleeps forever without a single line of output.
-             * A file still in SETUP cannot wait yet, so leaving it alone keeps
-             * an unconfigured capture node from failing someone else's start.
+             * SET_PARAMS never reached the device for a file already allowed to block:
+             * skipping silently reports EOK, the core publishes RUNNING, and read() then
+             * sleeps forever with no output.  A file still in SETUP cannot wait yet, so
+             * leaving it alone keeps an unconfigured capture node from failing someone
+             * else's start.
              */
             if (virtsnd_direction_pending(snd, type)) {
-                plogk("virtio_snd: %s file needs the stream but stream %u has no parameters\n", d == VIRTIO_SND_D_OUTPUT ? "playback" : "capture", id);
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: %s file needs the stream but stream %u has no parameters.\n", d == VIRTIO_SND_D_OUTPUT ? "playback" : "capture", id);
                 ret = -EBADFD;
                 break;
             }
@@ -876,25 +883,21 @@ static int virtsnd_start(audio_card_t *card)
         }
 
         /*
-         * Device sequence: SET_PARAMS -> PREPARE -> START, and running[] is
-         * raised only once START was accepted.
-         *
-         * The device completes TX buffers queued on a stopped stream without
-         * playing them, which would silently drop the first period, and it
-         * rejects STOP for a stream that was never started (a protocol error
-         * that takes the whole device down).  So arming the pump early loses
-         * audio on the happy path and poisons the state machine on a failed
-         * start; doing it last costs only the microseconds between START and
-         * the first fill.
+         * Device sequence: SET_PARAMS -> PREPARE -> START; running[] is raised only once
+         * START was accepted.  The device completes TX buffers queued on a stopped
+         * stream without playing them (silently dropping the first period) and rejects
+         * STOP for a stream never started (a protocol error that takes the whole device
+         * down), so arming the pump early loses audio and poisons the state on a failed
+         * start; arming it last costs only the microseconds before the first fill.
          */
         ret = virtsnd_check_format(snd, d, &snd->fmt[d], &vformat, &vrate);
         if (ret == EOK) ret = virtsnd_pcm_params(snd, d, vformat, vrate);
         if (ret == EOK) ret = virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_PREPARE, id);
         if (ret == EOK) ret = virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_START, id);
-
         if (ret != EOK) {
             /* Nothing was armed, so there is no buffer queued to unwind. */
-            plogk("virtio_snd: failed to start %s stream %u: %d\n", d == VIRTIO_SND_D_OUTPUT ? "playback" : "capture", id, ret);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: failed to start %s stream %u: %d\n", d == VIRTIO_SND_D_OUTPUT ? "playback" : "capture", id, ret);
             break;
         }
 
@@ -969,15 +972,15 @@ static int virtsnd_msix_prepare(pci_device_cache_t *pci_dev, void *context)
 {
     struct virtio_snd *snd = context;
     struct vp_device  *vp  = &snd->vp;
-
     (void)pci_dev;
-    if (!vp->common) return -ENODEV;
 
+    if (!vp->common) return -ENODEV;
     for (int i = 0; i < VIRTIO_SND_VQ_MAX; i++) {
         vp->common->queue_select      = (uint16_t)i;
         vp->common->queue_msix_vector = 0;
         if (vp->common->queue_msix_vector == UINT16_MAX) return -ENODEV;
     }
+
     vp->common->msix_config = 0;
     if (vp->common->msix_config == UINT16_MAX) return -ENODEV;
     return 0;
@@ -994,13 +997,23 @@ static void virtsnd_irq_init(struct virtio_snd *snd)
         .msix_setup   = virtsnd_msix_prepare,
         .msix_context = snd,
     };
+
     if (pci_request_irq(snd->vp.pci_dev, &request, &snd->irq_state) < 0) {
-        plogk("virtio_snd: interrupt setup failed, falling back to timed polling\n");
+        plogk("virtio_snd: interrupt setup failed, falling back to timed polling.\n");
         return;
     }
 
     __atomic_store_n(&virtsnd_irq_device, snd, __ATOMIC_RELEASE);
     snd->irq_enabled = true;
+}
+
+/* Disable the device interrupt and release the configured MSI/MSI-X vector. */
+static void virtsnd_irq_fini(struct virtio_snd *snd)
+{
+    if (!snd || !snd->irq_enabled) return;
+    __atomic_store_n(&virtsnd_irq_device, NULL, __ATOMIC_RELEASE);
+    pci_free_irq(snd->vp.pci_dev, &snd->irq_state);
+    snd->irq_enabled = false;
 }
 
 /* Set up the four device virtqueues plus their staging buffers. */
@@ -1106,18 +1119,24 @@ static int virtsnd_query_streams(struct virtio_snd *snd)
 /* Give back everything held before the sound card was published. */
 static void virtsnd_cleanup(struct virtio_snd *snd)
 {
+    /* Stop the ISR from reaching this device before anything is torn down. */
+    virtsnd_irq_fini(snd);
+
     virtsnd_pool_release(&snd->pool[VIRTIO_SND_D_OUTPUT]);
     virtsnd_pool_release(&snd->pool[VIRTIO_SND_D_INPUT]);
     virtsnd_free_page(snd->ctl_req);
     virtsnd_free_page(snd->ctl_resp);
     virtsnd_free_page(snd->events);
+
     snd->ctl_req  = NULL;
     snd->ctl_resp = NULL;
     snd->events   = NULL;
+
     for (int i = 0; i < VIRTIO_SND_VQ_MAX; i++) {
         if (snd->vq[i].desc) vp_del_vq(&snd->vq[i]);
     }
     if (snd->streams) free(snd->streams);
+
     snd->streams = NULL;
     vp_release_device(&snd->vp);
 }
@@ -1148,15 +1167,11 @@ void virtio_snd_init(void)
     if (ret != EOK) ret = vp_find_device(PCI_VENDOR_ID_REDHAT, PCI_DEVICE_ID_VIRTIO_SOUND_LEGACY, &snd->vp);
     if (ret != EOK) {
         free(snd);
-        return; /* No virtio-snd device: probe quietly, like hda_init(). */
+        return; // No virtio-snd device: probe quietly, like hda_init().
     }
 
-    /*
-     * The virtqueues are only usable once the device can perform DMA, so
-     * enable memory decoding and bus mastering before any ring is programmed.
-     */
+    /* Virtqueues need DMA, so enable mem decoding and bus mastering first. */
     pci_enable_device(snd->vp.pci_dev, PCI_CMD_MEM | PCI_CMD_BUSMASTER);
-
     vp_setup_device(&snd->vp);
 
     /* virtio-snd only exists on a version-1 device (specification 5.14.6). */
@@ -1194,7 +1209,7 @@ void virtio_snd_init(void)
         goto fail_queues;
     }
     if (snd->stream_id[VIRTIO_SND_D_OUTPUT] == VIRTIO_SND_NO_STREAM && snd->stream_id[VIRTIO_SND_D_INPUT] == VIRTIO_SND_NO_STREAM) {
-        plogk("virtio_snd: device exposes no playback or capture stream\n");
+        plogk("virtio_snd: device exposes no playback or capture stream.\n");
         goto fail_queues;
     }
 
@@ -1202,16 +1217,24 @@ void virtio_snd_init(void)
     fmt.bits        = 16;
     fmt.channels    = 2;
 
+    /* Report the device before publishing the card, as hda_init() and sb16_init() do. */
+    virtsnd_irq_init(snd); // Best effort: the pump polls on a short deadline without it.
+    plogk("virtio_snd: %u stream(s), playback id %d, capture id %d, %s interrupts.\n", snd->cfg.streams, snd->stream_id[VIRTIO_SND_D_OUTPUT], snd->stream_id[VIRTIO_SND_D_INPUT],
+          snd->irq_enabled ? "MSI-X" : "timed");
+
     card_id = audio_register_card("VirtIO Sound", &fmt, &virtsnd_audio_ops, snd);
-    if (card_id < 0) goto fail_queues;
+    if (card_id < 0) {
+        plogk("virtio_snd: sound card registration failed: %d\n", card_id);
+        goto fail_queues;
+    }
+
     snd->card = audio_get_card((uint32_t)card_id);
     if (!snd->card) {
         /*
-         * Impossible: the id was just handed out.  Keep the device alive with
-         * the data path disabled rather than freeing memory the registered
-         * card still points at.
+         * Impossible: the id was just handed out.  Keep the device alive with the data
+         * path disabled rather than freeing memory the registered card still points at.
          */
-        plogk("virtio_snd: card %d vanished right after registration\n", card_id);
+        plogk("virtio_snd: card %d vanished right after registration.\n", card_id);
         return;
     }
 
@@ -1220,23 +1243,16 @@ void virtio_snd_init(void)
         snd->worker_started = true;
     } else {
         /* The card exists but nothing would pump it: refuse I/O instead of stalling. */
-        plogk("virtio_snd: pump worker not registered (%d), PCM data path disabled\n", ret);
+        plogk("virtio_snd: pump worker not registered (%d), PCM data path disabled.\n", ret);
     }
-
-    virtsnd_irq_init(snd); /* Best effort: the pump polls on a short deadline without it. */
-
-    plogk("virtio_snd: %u stream(s), playback id %d, capture id %d, %s interrupts\n", snd->cfg.streams, snd->stream_id[VIRTIO_SND_D_OUTPUT], snd->stream_id[VIRTIO_SND_D_INPUT],
-          snd->irq_enabled ? "MSI-X" : "timed");
     return;
-
 fail_queues:
     virtsnd_cleanup(snd);
     free(snd);
     return;
-
 fail_device:
     vp_release_device(&snd->vp);
     free(snd);
 }
 
-#endif // CONFIG_AUDIO && CONFIG_AUDIO_VIRTIO_SND && CONFIG_VIRTIO_PCI
+#endif
