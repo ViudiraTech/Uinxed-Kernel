@@ -27,21 +27,15 @@ void cpuid_count(uint32_t code, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, 
     __asm__ volatile("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(code), "c"(subleaf) : "memory");
 }
 
-/* Check whether a CPUID leaf reports bit @bit of the @reg register */
-int cpu_has_feature(uint32_t leaf, cpuid_reg_t reg, uint32_t bit)
+/* Safe CPUID wrapper - uses local temporaries to avoid register clobber issues */
+void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
 {
-    uint32_t eax, ebx, ecx, edx;
-    uint32_t regs[4];
-
-    if (reg > CPUID_REG_EDX || bit > 31) return 0;
-
-    cpuid_safe(leaf, 0, &eax, &ebx, &ecx, &edx);
-    regs[CPUID_REG_EAX] = eax;
-    regs[CPUID_REG_EBX] = ebx;
-    regs[CPUID_REG_ECX] = ecx;
-    regs[CPUID_REG_EDX] = edx;
-
-    return ((regs[reg] >> bit) & 1) != 0;
+    uint32_t _a, _b, _c, _d;
+    __asm__ volatile("cpuid" : "=a"(_a), "=b"(_b), "=c"(_c), "=d"(_d) : "a"(leaf), "c"(sub) : "memory");
+    if (a) *a = _a;
+    if (b) *b = _b;
+    if (c) *c = _c;
+    if (d) *d = _d;
 }
 
 /* Get CPU manufacturer name */
@@ -281,17 +275,6 @@ int cpu_support_avx512f(void)
     if (eax < 7) return 0;
     cpuid_count(0x00000007, 0, &eax, &ebx, &ecx, &edx);
     return ((ebx & (1 << 16)) != 0);
-}
-
-/* Safe CPUID wrapper - uses local temporaries to avoid register clobber issues */
-void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
-{
-    uint32_t _a, _b, _c, _d;
-    __asm__ volatile("cpuid" : "=a"(_a), "=b"(_b), "=c"(_c), "=d"(_d) : "a"(leaf), "c"(sub) : "memory");
-    if (a) *a = _a;
-    if (b) *b = _b;
-    if (c) *c = _c;
-    if (d) *d = _d;
 }
 
 /* Build a space-separated CPU feature flag string from real CPUID bits */
