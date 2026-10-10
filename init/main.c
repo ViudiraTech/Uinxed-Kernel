@@ -10,6 +10,7 @@
 
 #include <arch/cpu/cpuid.h>
 #include <arch/cpu/fpu.h>
+#include <arch/cpu/microcode/microcode.h>
 #include <arch/cpu/smp.h>
 #include <arch/firmware/smbios.h>
 #include <arch/misc/common.h>
@@ -17,6 +18,7 @@
 #include <cgroup/cgroup.h>
 #include <drivers/audio/intel/hda.h>
 #include <drivers/audio/soundblaster/sb16.h>
+#include <drivers/audio/virtio/virtio_snd.h>
 #include <drivers/base/device.h>
 #include <drivers/block/ata/pata/ide.h>
 #include <drivers/block/ata/sata/ahci.h>
@@ -288,6 +290,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     /* Architecture */
     log_buffer_print(&fpu_log);                                    //
                                                                    //
+    init_microcode();                                              // Processor Microcode
     init_gdt();                                                    // Global Descriptor Table
     init_idt();                                                    // Interrupt Descriptor Table
     isr_registe_handle();                                          //
@@ -379,6 +382,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     usb_host_pci_scan();           // Discover and init all USB host controllers
     sb16_init();                   // Sound Blaster 16
     hda_init();                    // Intel HD Audio
+    virtio_snd_init();             // VirtIO sound (virtio-snd)
                                    //
     /* RAM Filesystem */           //
     init_cpio();                   // Copy In, Copy Out

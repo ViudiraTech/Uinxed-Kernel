@@ -1130,7 +1130,8 @@ void hda_init(void)
     hda_ctrl.buffer_bytes  = (size_t)HDA_DMA_BUFFER_SIZE;
     hda_ctrl.period_bytes  = HDA_DMA_BUFFER_SIZE / HDA_PERIOD_FRAGS;
 
-    audio_register_card("Intel HD Audio", &fmt, &hda_audio_ops, &hda_ctrl);
+    int card_id = audio_register_card("Intel HD Audio", &fmt, &hda_audio_ops, &hda_ctrl);
+    if (card_id < 0) plogk("hda: sound card registration failed: %d\n", card_id);
 }
 
 #endif

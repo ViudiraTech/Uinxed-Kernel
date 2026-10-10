@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/cpuid.h>
 #include <arch/misc/common.h>
 #include <libs/std/string.h>
 
@@ -24,6 +25,17 @@ void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t 
 void cpuid_count(uint32_t code, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
 {
     __asm__ volatile("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(code), "c"(subleaf) : "memory");
+}
+
+/* Safe CPUID wrapper - uses local temporaries to avoid register clobber issues */
+void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
+{
+    uint32_t _a, _b, _c, _d;
+    __asm__ volatile("cpuid" : "=a"(_a), "=b"(_b), "=c"(_c), "=d"(_d) : "a"(leaf), "c"(sub) : "memory");
+    if (a) *a = _a;
+    if (b) *b = _b;
+    if (c) *c = _c;
+    if (d) *d = _d;
 }
 
 /* Get CPU manufacturer name */
@@ -46,6 +58,30 @@ char *get_model_name(void)
     cpuid(0x80000004, &p[8], &p[9], &p[10], &p[11]);
     model_name[48] = 0;
     return model_name;
+}
+
+/* Get the CPU family number from CPUID.1:EAX, extended encoding included */
+uint32_t get_cpu_family(void)
+{
+    uint32_t eax, ebx, ecx, edx, family;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+    family = (eax >> 8) & 0xf;
+    return family == 0xf ? family + ((eax >> 20) & 0xff) : family;
+}
+
+/* Get the CPU model number from CPUID.1:EAX, extended encoding included */
+uint32_t get_cpu_model(void)
+{
+    uint32_t eax, ebx, ecx, edx, family, model;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+
+    family = (eax >> 8) & 0xf;
+    if (family == 0xf) family += (eax >> 20) & 0xff;
+
+    model = (eax >> 4) & 0xf;
+    if (family >= 0x6) model |= ((eax >> 16) & 0xf) << 4;
+
+    return model;
 }
 
 /* Get the CPU physical address size */
@@ -239,17 +275,6 @@ int cpu_support_avx512f(void)
     if (eax < 7) return 0;
     cpuid_count(0x00000007, 0, &eax, &ebx, &ecx, &edx);
     return ((ebx & (1 << 16)) != 0);
-}
-
-/* Safe CPUID wrapper - uses local temporaries to avoid register clobber issues */
-void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
-{
-    uint32_t _a, _b, _c, _d;
-    __asm__ volatile("cpuid" : "=a"(_a), "=b"(_b), "=c"(_c), "=d"(_d) : "a"(leaf), "c"(sub) : "memory");
-    if (a) *a = _a;
-    if (b) *b = _b;
-    if (c) *c = _c;
-    if (d) *d = _d;
 }
 
 /* Build a space-separated CPU feature flag string from real CPUID bits */

@@ -200,13 +200,13 @@ static size_t frame_bytes(const audio_pcm_format_t *fmt)
     return (size_t)(fmt->bits / 8) * fmt->channels;
 }
 
-/* Number of recorded frames available for the application. */
+/* Backlog of queued frames not yet consumed; appl_ptr is the producer cursor, hw_ptr the consumer. Reversing it reports a ring as full when it is empty, so playback overwrites unplayed frames. */
 snd_pcm_sframes_t pcm_ring_buffer_avail(audio_pcm_file_t *pf)
 {
     snd_pcm_uframes_t hw  = pf->hw_ptr;
     snd_pcm_uframes_t app = pf->appl_ptr;
-    if (hw < app) hw += pf->boundary;
-    return (snd_pcm_sframes_t)(hw - app);
+    if (app < hw) app += pf->boundary;
+    return (snd_pcm_sframes_t)(app - hw);
 }
 
 /* Free frame capacity left in the ring. */
@@ -301,6 +301,21 @@ static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
     wait_queue_init(&pf->read_wait);
     wait_queue_init(&pf->write_wait);
 
+    /*
+     * Publish the file on the card's open-file list.  card->pcm_files was
+     * never populated before, so drivers had no way to find the ring they
+     * have to pump; the list and its lock exist exactly for that purpose.
+     * Drivers look a file up under card->pcm_lock and keep the lock for as
+     * long as they touch it, which is what makes this pointer safe to hand
+     * out to them.
+     */
+    {
+        uint64_t rflags     = spin_lock_irqsave(&pf->card->pcm_lock);
+        pf->next            = pf->card->pcm_files;
+        pf->card->pcm_files = pf;
+        spin_unlock_irqrestore(&pf->card->pcm_lock, rflags);
+    }
+
     return pf;
 }
 
@@ -308,8 +323,20 @@ static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
 static void audio_pcm_destroy(audio_pcm_file_t *pf)
 {
     if (!pf) return;
+
+    /* Unpublish first so no driver can pick the file up from now on. */
+    if (pf->card) {
+        uint64_t           rflags = spin_lock_irqsave(&pf->card->pcm_lock);
+        audio_pcm_file_t **link   = &pf->card->pcm_files;
+        while (*link && *link != pf) link = &(*link)->next;
+        if (*link) *link = pf->next;
+        spin_unlock_irqrestore(&pf->card->pcm_lock, rflags);
+    }
+
+    pf->next      = NULL;
     pf->lock.lock = 0;
     pcm_ring_buffer_destroy(pf);
+
     pf->state = SNDRV_PCM_STATE_OPEN;
     wait_queue_wake_all(&pf->read_wait);
     wait_queue_wake_all(&pf->write_wait);
@@ -371,6 +398,25 @@ int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags, void *add
 
     if (pf->type != audio_node_pcm_capture) return 0;
     if (pf->state < SNDRV_PCM_STATE_PREPARED) return 0;
+
+    /*
+     * Mirror the playback auto-start in audio_file_write(): hand the capture
+     * stream to the driver on the first read() instead of requiring a prior
+     * SNDRV_PCM_IOCTL_START, otherwise a plain read() has nothing to wait
+     * for.  The call runs without pf->lock, the same ordering rule the write
+     * path documents for card->ops->start.
+     *
+     * Only the driver knows whether it actually armed the stream, so its
+     * verdict decides the state.  Publishing RUNNING after a refused start
+     * would leave nothing on the other side of the ring, and the loop below
+     * has neither a timeout nor a signal exit: read() would sleep forever
+     * with no log output at all.
+     */
+    if (pf->state == SNDRV_PCM_STATE_PREPARED && card->ops->start) {
+        int status = card->ops->start(card);
+        if (status != EOK) return status;
+        pf->state = SNDRV_PCM_STATE_RUNNING;
+    }
 
     size_t fb     = frame_bytes(&pf->fmt);
     size_t frames = size / fb;
@@ -467,15 +513,28 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
              * write() to complete.  card->ops->start runs without pf->lock: the HDA start
              * path takes hda_ctrl.lock, and the HDA ISR takes hda_ctrl.lock then pf->lock,
              * so calling start under pf->lock would invert that order and AB-BA deadlock on
-             * SMP.  Once RUNNING, the PREPARED guard above prevents a second start.
+             * SMP.  Once RUNNING, the PREPARED guard above prevents a second start, so the
+             * state still has to be raised before the call even though only the driver can
+             * tell whether it succeeded.
              */
             pf->state = SNDRV_PCM_STATE_RUNNING;
             spin_unlock(&pf->lock);
-            card->ops->start(card);
+            int status = card->ops->start(card);
             spin_lock(&pf->lock);
+
+            if (status != EOK) {
+                /*
+                 * The driver armed nothing, so nothing will ever drain the ring.
+                 * Fall back to PREPARED so the failure is reported instead of
+                 * silently accumulating frames until a later write blocks on a
+                 * buffer no device is consuming, and so a retry is possible.
+                 */
+                if (pf->state == SNDRV_PCM_STATE_RUNNING) pf->state = SNDRV_PCM_STATE_PREPARED;
+                ret = (size_t)status;
+                break;
+            }
             continue;
         }
-
         if (pf->period_event) pf->period_event = 0;
     }
     spin_unlock(&pf->lock);
@@ -564,7 +623,17 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
         return r;
     }
     spin_unlock(&pf->lock);
-    if (pf->card->ops->set_params) pf->card->ops->set_params(pf->card, &fmt, buf_frames * fb, pf->period_bytes);
+
+    /*
+     * The driver must accept the parameters before the state below advertises a
+     * prepared capture stream.  Dropping this result leaves the card with
+     * nothing to arm while the file is already allowed to block, which is how
+     * a reader ends up waiting on a ring nobody fills.
+     */
+    if (pf->card->ops->set_params) {
+        int sp = pf->card->ops->set_params(pf->card, &fmt, buf_frames * fb, pf->period_bytes);
+        if (sp != EOK) return sp;
+    }
 
     params.buffer_size  = (unsigned int)pf->boundary;
     params.period_size  = (unsigned int)pf->period_size;
@@ -677,6 +746,13 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
         case SNDRV_PCM_IOCTL_STATUS :
             return audio_status_ioctl(pf, arg);
         case SNDRV_PCM_IOCTL_PREPARE :
+            /*
+             * A ring only exists once parameters are in place, which is also
+             * the moment the driver received them.  PREPARE is what a blocking
+             * read()/write() is launched from, so reaching it beforehand would
+             * arm nothing on the card and leave the caller asleep forever.
+             */
+            if (!pf->ring_buf) return -EBADFD;
             pf->state    = SNDRV_PCM_STATE_PREPARED;
             pf->appl_ptr = 0;
             pf->hw_ptr   = 0;
@@ -684,7 +760,8 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
             return EOK;
         case SNDRV_PCM_IOCTL_START :
             if (pf->state == SNDRV_PCM_STATE_PREPARED) {
-                if (card->ops->start) card->ops->start(card);
+                int status = card->ops->start ? card->ops->start(card) : EOK;
+                if (status != EOK) return status;
                 pf->state = SNDRV_PCM_STATE_RUNNING;
             }
             return EOK;
@@ -708,7 +785,8 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
                 if (card->ops->stop) card->ops->stop(card);
                 pf->state = SNDRV_PCM_STATE_PAUSED;
             } else {
-                if (card->ops->start) card->ops->start(card);
+                int status = card->ops->start ? card->ops->start(card) : EOK;
+                if (status != EOK) return status;
                 pf->state = SNDRV_PCM_STATE_RUNNING;
             }
             return EOK;
@@ -782,7 +860,7 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
             pf->period_bytes    = pf->period_size * frame_bytes(&fmt);
             status              = pcm_ring_buffer_init(pf, 16384);
             spin_unlock(&pf->lock);
-            if (card->ops->set_params) card->ops->set_params(card, &fmt, 16384 * frame_bytes(&fmt), pf->period_bytes);
+            if (status == EOK && card->ops->set_params) status = card->ops->set_params(card, &fmt, 16384 * frame_bytes(&fmt), pf->period_bytes);
             return status;
         }
         case AUDIO_IOCTL_STOP :
@@ -792,7 +870,8 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
         case AUDIO_IOCTL_START :
             if (pf->type != audio_node_pcm_playback) return -EINVAL;
             if (pf->state == SNDRV_PCM_STATE_PREPARED || pf->state == SNDRV_PCM_STATE_SETUP) {
-                if (card->ops->start) card->ops->start(card);
+                int start_status = card->ops->start ? card->ops->start(card) : EOK;
+                if (start_status != EOK) return start_status;
                 pf->state = SNDRV_PCM_STATE_RUNNING;
             }
             return EOK;
@@ -839,7 +918,7 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
             pf->start_threshold = pf->period_size * 2;
             pf->avail_min       = pf->period_size;
             status              = pcm_ring_buffer_init(pf, p.buf_bytes / frame_bytes(&p.fmt));
-            if (card->ops->set_params) card->ops->set_params(card, &p.fmt, p.buf_bytes, p.per_bytes);
+            if (status == EOK && card->ops->set_params) status = card->ops->set_params(card, &p.fmt, p.buf_bytes, p.per_bytes);
             return status;
         }
         default :
