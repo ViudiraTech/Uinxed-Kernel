@@ -21,6 +21,13 @@
 #define PCI_DEVICE_ID_VIRTIO_BASE 0x1000
 #define PCI_DEVICE_ID_VIRTIO_GPU  0x1050
 
+/* Non-transitional (modern-only) and transitional sound device IDs */
+#define PCI_DEVICE_ID_VIRTIO_SOUND        0x1059
+#define PCI_DEVICE_ID_VIRTIO_SOUND_LEGACY 0x1019
+
+/* Negotiated feature bits (virtio spec section 6) */
+#define VIRTIO_F_VERSION_1 32
+
 /* VirtIO PCI capability types (PCI SIG vendor-defined) */
 
 #define VIRTIO_PCI_CAP_COMMON_CFG        1
@@ -155,6 +162,13 @@ struct vp_device {
         void *private_data;
 };
 
+/* One segment of a chained request; outgoing segments precede incoming segments */
+struct vp_virtq_seg {
+        void    *data;
+        uint32_t len;
+        int      write; // 0: driver -> device, 1: device -> driver
+};
+
 /* Find a VirtIO PCI device by vendor/device ID and fill in dev */
 int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev);
 
@@ -193,6 +207,9 @@ int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write);
 
 /* Add an out-only buffer followed by an in-only buffer to a virtqueue */
 int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len);
+
+/* Add a chain of segments to a virtqueue; cookie is returned by virtqueue_get_buf(), or segs[0].data when NULL. */
+int virtqueue_add_chain(struct vp_virtqueue *vq, void *cookie, const struct vp_virtq_seg *segs, int count);
 
 /* Pop a used buffer from a virtqueue, returning its data and length */
 void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len);

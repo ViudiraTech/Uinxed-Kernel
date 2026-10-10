@@ -10,6 +10,7 @@
 
 #include <arch/cpu/cpuid.h>
 #include <arch/cpu/cpumask.h>
+#include <arch/cpu/microcode/microcode.h>
 #include <arch/cpu/smp.h>
 #include <cgroup/cgroup.h>
 #include <drivers/char/random.h>
@@ -627,14 +628,9 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
     uint32_t eax1, ebx1, ecx1, edx1;
     cpuid_safe(0x00000001, 0, &eax1, &ebx1, &ecx1, &edx1);
 
-    uint32_t stepping   = eax1 & 0xF;
-    uint32_t model      = (eax1 >> 4) & 0xF;
-    uint32_t family     = (eax1 >> 8) & 0xF;
-    uint32_t ext_model  = (eax1 >> 16) & 0xF;
-    uint32_t ext_family = (eax1 >> 20) & 0xFF;
-
-    if (family == 0xF) family += ext_family;
-    if (family == 0x6 || family == 0xF) model = (ext_model << 4) | model;
+    uint32_t stepping = eax1 & 0xF;
+    uint32_t family   = get_cpu_family();
+    uint32_t model    = get_cpu_model();
 
     uint32_t cpuid_level  = eax1;
     uint32_t clflush_size = ((ebx1 >> 24) & 0xFF) * 8;
@@ -695,6 +691,7 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
                      "model\t\t: %u\n"
                      "model name\t: %s\n"
                      "stepping\t: %u\n"
+                     "microcode\t: 0x%x\n"
                      "cpu MHz\t\t: %llu.%01llu\n"
                      "cache size\t: %u KB\n"
                      "physical id\t: %u\n"
@@ -714,8 +711,8 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
                      "cache_alignment\t: %u\n"
                      "address sizes\t: %u bits physical, %u bits virtual\n"
                      "power management:\n\n",
-                     i, vendor, family, model, model_name, stepping, cpu_mhz, cpu_mhz_fp, cache_size, i, max_logical, 0U, 1U, i, i, (edx1 & (1 << 0)) ? "yes" : "no", (edx1 & (1 << 0)) ? "yes" : "no",
-                     cpuid_level, flags_buf, bogo, bogo_fp, clflush_size, clflush_size, phys_bits, virt_bits);
+                     i, vendor, family, model, model_name, stepping, microcode_revision(i), cpu_mhz, cpu_mhz_fp, cache_size, i, max_logical, 0U, 1U, i, i, (edx1 & (1 << 0)) ? "yes" : "no",
+                     (edx1 & (1 << 0)) ? "yes" : "no", cpuid_level, flags_buf, bogo, bogo_fp, clflush_size, clflush_size, phys_bits, virt_bits);
         p += n;
         remaining -= n;
     }

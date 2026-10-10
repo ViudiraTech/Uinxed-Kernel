@@ -41,8 +41,14 @@ void video_draw_logo(uint32_t count)
     uint32_t x    = KLOGO_LEFT_MARGIN;
     uint32_t y    = (KLOGO_AREA_HEIGHT - KLOGO_HEIGHT) / 2;
 
+    /*
+     * Keep drawing the whole sequence: a logo that only partly fits is still
+     * drawn, so the row runs off the right edge instead of stopping short as
+     * soon as the next logo no longer fits.  Whatever falls outside the
+     * screen is discarded by video_draw_pixel().
+     */
     for (uint32_t i = 0; i < count; i++) {
-        if (x + KLOGO_WIDTH > width) break;
+        if (x >= width) break;
         bmp_analysis(logo, x, y, 1);
         x += KLOGO_WIDTH + KLOGO_GAP;
     }
