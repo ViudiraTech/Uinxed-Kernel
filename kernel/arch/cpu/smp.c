@@ -22,6 +22,7 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/numa.h>
 #include <process/sched.h>
 #include <syscall/syscall.h>
 
@@ -535,6 +536,7 @@ void smp_init(void)
 
     cpu_count = smp->cpu_count;
     if (CONFIG_CPU_MAX_COUNT && cpu_count > CONFIG_CPU_MAX_COUNT) cpu_count = CONFIG_CPU_MAX_COUNT;
+    if (cpu_count > CONFIG_SCHED_MAX_CPUS) cpu_count = CONFIG_SCHED_MAX_CPUS;
     cpus              = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
     tlb_shootdown_ack = calloc(cpu_count, sizeof(*tlb_shootdown_ack));
     if (!cpus || !tlb_shootdown_ack) panic("smp: Cannot allocate CPU state.");
@@ -576,6 +578,7 @@ void smp_init(void)
         struct limine_smp_info *cpu = smp->cpus[source_index];
         cpus[i].id                  = i;
         cpus[i].lapic_id            = cpu->lapic_id;
+        numa_bind_cpu(i, cpu->lapic_id);
         if (topology_valid) {
             uint32_t smt_mask  = smp_topology_mask(smt_shift);
             uint32_t core_bits = core_shift > smt_shift ? core_shift - smt_shift : 0;

@@ -16,6 +16,7 @@
 #include <mem/page.h>
 #include <process/process.h>
 #include <process/sched.h>
+#include <process/uaccess.h>
 
 /*
  * The active process page table already maps both the kernel and userspace.
@@ -28,6 +29,7 @@
 extern int  __uaccess_copy_direct(void *dst, const void *src, size_t size);
 extern int  __uaccess_clear_direct(void *dst, size_t size);
 extern void __uaccess_copy_fault(void);
+extern int  __uaccess_cmpxchg32(uint32_t *addr, uint32_t expected, uint32_t desired, uint32_t *observed);
 
 __asm__(".text\n"
         ".global __uaccess_copy_direct\n"
@@ -57,6 +59,33 @@ __asm__(".text\n"
         "__uaccess_copy_fault:\n"
         "ret\n"
         ".size __uaccess_copy_fault, .-__uaccess_copy_fault\n");
+
+__asm__(".text\n"
+        ".global __uaccess_cmpxchg32\n"
+        ".type __uaccess_cmpxchg32, @function\n"
+        "__uaccess_cmpxchg32:\n"
+        "movl %esi, %eax\n"
+        "lock cmpxchgl %edx, (%rdi)\n"
+        "movl %eax, (%rcx)\n"
+        "xorl %eax, %eax\n"
+        "ret\n"
+        ".size __uaccess_cmpxchg32, .-__uaccess_cmpxchg32\n");
+
+int cmpxchg_user32(uint32_t *addr, uint32_t expected, uint32_t desired, uint32_t *observed)
+{
+    task_t *task = current_task();
+    if (!task || !observed || ((uintptr_t)addr & 3U) || !user_range_ok(addr, sizeof(*addr))) return -EFAULT;
+    uintptr_t old_resume        = task->uaccess_fault_resume;
+    uint8_t   old_nofault       = task->uaccess_fault_nofault;
+    task->uaccess_fault_nofault = 0;
+    task->uaccess_fault_resume  = (uintptr_t)__uaccess_copy_fault;
+    compiler_barrier();
+    int result = __uaccess_cmpxchg32(addr, expected, desired, observed);
+    compiler_barrier();
+    task->uaccess_fault_resume  = old_resume;
+    task->uaccess_fault_nofault = old_nofault;
+    return result;
+}
 
 /* Copy between address spaces for a task using the fault fixup. */
 static int copy_user_direct_task(task_t *task, void *dst, const void *src, size_t size, int nofault)

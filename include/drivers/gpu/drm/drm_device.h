@@ -53,6 +53,7 @@
 #define DRM_AUTH      0x1
 #define DRM_MASTER    0x2
 #define DRM_ROOT_ONLY 0x4
+#define DRM_RENDER_ALLOW 0x8
 #define DRM_UNLOCKED  0x8
 
 /* DRM_MAJOR */
@@ -702,6 +703,7 @@ struct drm_gem_handle_entry {
 
 struct drm_file {
         bool authenticated;
+        bool is_render;
         bool universal_planes;
         bool atomic;
         bool aspect_ratio_allowed;
@@ -738,6 +740,16 @@ struct drm_file {
 
 struct drm_device {
         struct drm_driver     *driver;
+        struct device         *parent; // owning bus device; becomes /sys/class/drm/cardN/device
+
+        /*
+         * The <bus device>/drm directory that holds cardN and renderDN, mirroring
+         * Linux's layout.  libdrm's drmGetNodeTypeFromFd() reads
+         * /sys/dev/char/<maj>:<min>/device/drm and classifies a node by the entry
+         * it finds there, so without this directory every DRM node looks unknown
+         * and Mesa refuses to treat the GPU as render-capable.
+         */
+        struct device         *sysfs_dir;
         void                  *dev_private;
         struct drm_mode_config mode_config;
 
@@ -817,7 +829,7 @@ int drm_minor_alloc(int type);
 void drm_minor_free(int type, int index);
 
 /* Allocate and register a new drm_device bound to @driver. */
-struct drm_device *drm_dev_alloc(struct drm_driver *driver);
+struct drm_device *drm_dev_alloc(struct drm_driver *driver, struct device *parent);
 
 /* Register the device: create devtmpfs nodes, expose KMS. */
 int drm_dev_register(struct drm_device *dev, uint64_t flags);

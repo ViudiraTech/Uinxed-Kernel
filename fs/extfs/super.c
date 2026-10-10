@@ -87,7 +87,7 @@ static uint16_t extfs_crc16(uint16_t crc, const void *data, size_t size)
     const uint8_t *bytes = data;
     while (size--) {
         crc ^= *bytes++;
-        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (uint16_t)(0xA001U & (uint16_t) - (int16_t)(crc & 1));
+        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (uint16_t)(0xA001U & (uint16_t)-(int16_t)(crc & 1));
     }
     return crc;
 }
@@ -315,8 +315,8 @@ int extfs_read_inode_raw(extfs_sb_info_t *sb, uint32_t ino, ext2_inode_t *raw)
 
     group       = (ino - 1) / sb->inodes_per_group;
     offset      = (ino - 1) % sb->inodes_per_group;
-    block       = sb->group_desc[group].bg_inode_table + (offset * sb->inode_size) / sb->block_size;
-    byte_offset = extfs_block_offset(sb, block) + (offset * sb->inode_size) % sb->block_size;
+    block       = sb->group_desc[group].bg_inode_table + ((offset * sb->inode_size) / sb->block_size);
+    byte_offset = extfs_block_offset(sb, block) + ((offset * sb->inode_size) % sb->block_size);
 
     uint8_t *inode = malloc(sb->inode_size);
     if (!inode) return -ENOMEM;
@@ -350,8 +350,8 @@ int extfs_write_inode_raw(extfs_sb_info_t *sb, uint32_t ino, const ext2_inode_t 
 
     group       = (ino - 1) / sb->inodes_per_group;
     offset      = (ino - 1) % sb->inodes_per_group;
-    block       = sb->group_desc[group].bg_inode_table + (offset * sb->inode_size) / sb->block_size;
-    byte_offset = extfs_block_offset(sb, block) + (offset * sb->inode_size) % sb->block_size;
+    block       = sb->group_desc[group].bg_inode_table + ((offset * sb->inode_size) / sb->block_size);
+    byte_offset = extfs_block_offset(sb, block) + ((offset * sb->inode_size) % sb->block_size);
 
     /* Preserve ext4 extra inode fields and update the checksum over the full inode. */
     uint8_t *inode = malloc(sb->inode_size);
@@ -387,9 +387,9 @@ int extfs_read_group_desc(extfs_sb_info_t *sb, uint32_t group, ext2_group_desc_t
     uint64_t byte_offset;
 
     if (!sb || !desc || group >= sb->groups_count) return -EINVAL;
-    desc_block  = sb->s_first_data_block + 1 + group / sb->desc_per_block;
+    desc_block  = sb->s_first_data_block + 1 + (group / sb->desc_per_block);
     desc_offset = group % sb->desc_per_block;
-    byte_offset = extfs_block_offset(sb, desc_block) + (uint64_t)desc_offset * sb->desc_size;
+    byte_offset = extfs_block_offset(sb, desc_block) + ((uint64_t)desc_offset * sb->desc_size);
 
     memset(desc, 0, sizeof(*desc));
     return extfs_disk_read(sb, byte_offset, desc, sb->desc_size);
@@ -403,9 +403,9 @@ int extfs_write_group_desc(extfs_sb_info_t *sb, uint32_t group, const ext2_group
 
     if (!sb || !desc || sb->read_only) return sb && sb->read_only ? -EROFS : -EINVAL;
     if (group >= sb->groups_count) return -EINVAL;
-    desc_block  = sb->s_first_data_block + 1 + group / sb->desc_per_block;
+    desc_block  = sb->s_first_data_block + 1 + (group / sb->desc_per_block);
     desc_offset = group % sb->desc_per_block;
-    byte_offset = extfs_block_offset(sb, desc_block) + (uint64_t)desc_offset * sb->desc_size;
+    byte_offset = extfs_block_offset(sb, desc_block) + ((uint64_t)desc_offset * sb->desc_size);
 
     ext2_group_desc_t copy            = *desc;
     copy.bg_checksum                  = extfs_group_desc_checksum(sb, group, &copy);

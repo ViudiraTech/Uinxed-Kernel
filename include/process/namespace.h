@@ -21,9 +21,12 @@
 struct task;
 struct process;
 struct cgroup;
+struct user_namespace;
 
 /* Refcount and lock shared by every namespace. */
 typedef struct ns_common {
+        uint64_t   id;
+        struct user_namespace *owner;
         uint32_t   refcount;
         spinlock_t lock;
 } ns_common_t;
@@ -54,6 +57,7 @@ typedef struct pid_namespace {
         struct pid_namespace *parent;
         uint64_t              pid_max;
         uint64_t              next_pid;
+        uint32_t             *pid_refs; // task, process-group and session ID reservations
         ns_common_t           ns;
         struct process       *child_reaper;
         bool                  dead;
@@ -115,6 +119,13 @@ void namespace_init(void);
 
 /* Return the UTS namespace of the current process, or the initial one outside process context */
 uts_namespace_t *uts_namespace_current(void);
+ipc_namespace_t *ipc_namespace_current(void);
+net_namespace_t *net_namespace_current(void);
+user_namespace_t *user_namespace_current(void);
+mnt_namespace_t *mnt_namespace_current(void);
+uint32_t user_ns_map_id(user_namespace_t *ns, uint32_t id, bool gid);
+uint32_t user_ns_unmap_id(user_namespace_t *ns, uint32_t id, bool gid);
+bool namespace_initial_root(const struct process *proc);
 
 /* Allocate an init nsproxy */
 nsproxy_t *nsproxy_get(nsproxy_t *ns);
@@ -128,6 +139,10 @@ int namespace_unshare(uint64_t unshare_flags);
 
 /* Switch namespace via fd */
 int namespace_setns(int fd, int nstype);
+struct vfs_node;
+void namespace_fs_init(void);
+struct vfs_node *namespace_open_handle(struct process *proc, const char *name);
+uint64_t namespace_object_id(struct process *proc, const char *name);
 
 /* Individual namespace helpers */
 uts_namespace_t *uts_ns_get(uts_namespace_t *ns);

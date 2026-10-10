@@ -15,6 +15,7 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
+#include <process/pid_namespace.h>
 #include <process/ptrace.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
@@ -206,7 +207,7 @@ void signal_itimer_real_tick(uint64_t now)
             if (periods > (UINT64_MAX - deadline) / interval) {
                 proc->itimer_value[0] = UINT64_MAX;
             } else {
-                proc->itimer_value[0] = deadline + periods * interval;
+                proc->itimer_value[0] = deadline + (periods * interval);
             }
             link = &proc->itimer_real_next;
         }
@@ -524,7 +525,7 @@ int signal_check_perm(const process_t *from, const process_t *to)
  * Caller holds state->lock (state == &proc->signal), so the disposition and
  * blocked mask are stable.
  */
-static bool signal_task_ignored(const process_t *proc, const task_t *target, int sig)
+static bool signal_task_ignored(const process_t *proc, const task_t *target, int sig, const siginfo_t *info)
 {
     /* signal_task_ignored(): a blocked signal is never ignored, since its disposition may change before it is unblocked. */
     const task_t *mask_owner = target ? target : proc->task;
@@ -537,7 +538,11 @@ static bool signal_task_ignored(const process_t *proc, const task_t *target, int
      * SIGNAL_UNKILLABLE: the global init ignores any signal whose disposition
      * is SIG_DFL; it only receives signals for which it has a handler.
      */
-    if (is_global_init(proc) && proc->signal.sighand[sig].sa_handler == SIG_DFL) return true;
+    if (process_is_pid_ns_init(proc) && proc->signal.sighand[sig].sa_handler == SIG_DFL) {
+        bool forced = !is_global_init(proc) && (sig == SIGKILL || sig == SIGSTOP) &&
+            (!info || info->si_code == SI_KERNEL || info->si_pid == 0);
+        if (!forced) return true;
+    }
 
     /*
      * SIGCONT must never be reported as ignored here: its resume side effect
@@ -574,7 +579,7 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, task_t *ta
     if (ignored) *ignored = false;
 
     /* Drop signals ignored for this task before enqueueing. */
-    if (signal_task_ignored(proc, target, sig)) {
+    if (signal_task_ignored(proc, target, sig, info)) {
         if (ignored) *ignored = true;
         return 0;
     }
@@ -598,9 +603,9 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, task_t *ta
     } else {
         memset(&queue_info, 0, sizeof(siginfo_t));
         queue_info.si_signo = sig;
-        queue_info.si_code  = SI_USER;
-        queue_info.si_pid   = (int32_t)(proc->task ? proc->task->pid : 0);
-        queue_info.si_uid   = proc->uid;
+        queue_info.si_code  = SI_KERNEL;
+        queue_info.si_pid   = 0;
+        queue_info.si_uid   = 0;
     }
     queue_info.si_signo = sig;
 
@@ -865,7 +870,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
          * uncatchable SIGKILL/SIGSTOP).  This closes the blocked-then-
          * unblocked window that the send-time check cannot observe.
          */
-        if (is_global_init(proc) && sig != SIGKILL && sig != SIGSTOP) return SIG_DELIV_HANDLED;
+        if (process_is_pid_ns_init(proc) && sig != SIGKILL && sig != SIGSTOP) return SIG_DELIV_HANDLED;
         int ret = signal_handle_default(proc, sig);
         if (ret == 1) return SIG_DELIV_TERM;
         return SIG_DELIV_HANDLED;
@@ -1243,7 +1248,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
     if (sig < 0 || sig >= NSIG) return -EINVAL;
 
     if (pid > 0) {
-        process_t *proc = process_find_get(pid);
+        process_t *proc = process_find_ns_get(pid_ns_current(), pid);
         if (!proc) return -ESRCH;
 
         process_t *cur = process_current();
@@ -1264,7 +1269,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         memset(&info, 0, sizeof(info));
         info.si_signo = sig;
         info.si_code  = SI_USER;
-        info.si_pid   = cur->task->pid;
+        info.si_pid   = (int32_t)task_tgid_nr_ns(cur->task, proc->task->pid_ns);
         info.si_uid   = cur->uid;
 
         int ret = signal_send(proc, sig, &info);
@@ -1288,7 +1293,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         int        found = 0;
 
         while ((target = process_iterate_get(&pos))) {
-            if (target == cur || !target->task || is_global_init(target) || signal_check_perm(cur, target) < 0) {
+            if (target == cur || !target->task || !task_tgid_nr(target->task) || process_is_pid_ns_init(target) || signal_check_perm(cur, target) < 0) {
                 process_put(target);
                 continue;
             }
@@ -1298,7 +1303,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
                 memset(&info, 0, sizeof(info));
                 info.si_signo = sig;
                 info.si_code  = SI_USER;
-                info.si_pid   = cur->task->pid;
+                info.si_pid   = (int32_t)task_tgid_nr_ns(cur->task, target->task->pid_ns);
                 info.si_uid   = cur->uid;
                 (void)signal_send(target, sig, &info);
             }
@@ -1310,11 +1315,21 @@ int64_t sys_kill_impl(int64_t pid, int sig)
 
     /* pid < -1: send to process group -pid */
     {
-        pid_t      pgid = -pid;
-        process_t *cur  = process_current();
+        if (pid == INT64_MIN) return -ESRCH;
+        uint64_t wanted = (uint64_t)-pid;
+        process_t *cur = process_current();
         if (!cur) return -ESRCH;
-
-        return signal_send_group(pgid, 0, sig, cur, SI_USER);
+        size_t position = 0;
+        process_t *member;
+        while ((member = process_iterate_get(&position))) {
+            if (process_pgid_nr_ns(member, pid_ns_current()) == wanted) {
+                pid_t global_group = member->pgid;
+                process_put(member);
+                return signal_send_group(global_group, 0, sig, cur, SI_USER);
+            }
+            process_put(member);
+        }
+        return -ESRCH;
     }
 }
 
@@ -1324,7 +1339,7 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
     if (sig < 0 || sig >= NSIG) return -EINVAL;
 
     process_t *target = NULL;
-    task_t    *task   = process_task_find_get(tid, &target);
+    task_t    *task   = process_task_find_ns_get(pid_ns_current(), tid, &target);
     if (!task || !target) return -ESRCH;
 
     process_t *cur = process_current();
@@ -1345,7 +1360,7 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
     memset(&info, 0, sizeof(info));
     info.si_signo = sig;
     info.si_code  = SI_TKILL;
-    info.si_pid   = cur->task->pid;
+    info.si_pid   = (int32_t)task_tgid_nr_ns(cur->task, target->task->pid_ns);
     info.si_uid   = cur->uid;
 
     int ret = signal_send_thread(task, sig, &info);
@@ -1359,8 +1374,8 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
     if (sig < 0 || sig >= NSIG) return -EINVAL;
 
     process_t *target = NULL;
-    task_t    *task   = process_task_find_get(tid, &target);
-    if (!task || !target || (pid_t)task->tgid != tgid) {
+    task_t    *task   = process_task_find_ns_get(pid_ns_current(), tid, &target);
+    if (!task || !target || (pid_t)task_tgid_nr(task) != tgid) {
         process_put(target);
         return -ESRCH;
     }
@@ -1383,7 +1398,7 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
     memset(&info, 0, sizeof(info));
     info.si_signo = sig;
     info.si_code  = SI_TKILL;
-    info.si_pid   = cur->task->pid;
+    info.si_pid   = (int32_t)task_tgid_nr_ns(cur->task, target->task->pid_ns);
     info.si_uid   = cur->uid;
 
     int ret = signal_send_thread(task, sig, &info);
@@ -1392,7 +1407,7 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
 }
 
 /* sys_rt_sigaction - Examine and change a signal action */
-int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, size_t sigsetsize)
+int64_t sys_rt_sigaction(int sig, const linux_sigaction_t *act, linux_sigaction_t *oact, size_t sigsetsize)
 {
     if (!sig_valid(sig)) return -EINVAL;
     if (sig_is_uncatchable(sig)) return -EINVAL;
@@ -1402,8 +1417,17 @@ int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, siz
     if (!proc) return -ESRCH;
 
     /* The user copies can fault, so they stay outside the signal lock. */
-    sigaction_t new_sa;
-    if (act && copy_from_user(&new_sa, act, sizeof(sigaction_t))) return -EFAULT;
+    sigaction_t new_sa = {0};
+    if (act) {
+        linux_sigaction_t wire;
+        if (copy_from_user(&wire, act, sizeof(wire))) return -EFAULT;
+        new_sa.sa_handler  = wire.handler;
+        new_sa.sa_flags    = (int32_t)wire.flags;
+        new_sa.sa_restorer = wire.restorer;
+        new_sa.sa_mask[0]  = wire.mask;
+        sigdelset(&new_sa.sa_mask[0], SIGKILL);
+        sigdelset(&new_sa.sa_mask[0], SIGSTOP);
+    }
     if (act && new_sa.sa_handler == SIG_ERR) return -EINVAL;
     if (act && sig != SIGCHLD) new_sa.sa_flags &= ~(SA_NOCLDSTOP | SA_NOCLDWAIT);
 
@@ -1417,7 +1441,10 @@ int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, siz
 
     spin_unlock(&state->lock);
 
-    if (have_old && copy_to_user(oact, &old_sa, sizeof(sigaction_t))) return -EFAULT;
+    if (have_old) {
+        linux_sigaction_t wire = {.handler = old_sa.sa_handler, .flags = (uint32_t)old_sa.sa_flags, .restorer = old_sa.sa_restorer, .mask = old_sa.sa_mask[0]};
+        if (copy_to_user(oact, &wire, sizeof(wire))) return -EFAULT;
+    }
     return 0;
 }
 
@@ -1762,7 +1789,7 @@ int64_t sys_rt_sigqueueinfo(int64_t pid, int sig, siginfo_t *info)
     if (!sig_valid(sig)) return -EINVAL;
     if (sig == SIGKILL || sig == SIGSTOP) return -EINVAL;
 
-    process_t *proc = process_find_get(pid);
+    process_t *proc = process_find_ns_get(pid_ns_current(), pid);
     if (!proc) return -ESRCH;
 
     siginfo_t user_info;
@@ -1795,8 +1822,8 @@ int64_t sys_rt_tgsigqueueinfo(int64_t tgid, int64_t tid, int sig, siginfo_t *inf
     if (sig == SIGKILL || sig == SIGSTOP) return -EINVAL;
 
     process_t *proc = NULL;
-    task_t    *task = process_task_find_get(tid, &proc);
-    if (!task || !proc || (int64_t)task->tgid != tgid) {
+    task_t    *task = process_task_find_ns_get(pid_ns_current(), tid, &proc);
+    if (!task || !proc || (int64_t)task_tgid_nr(task) != tgid) {
         process_put(proc);
         return -ESRCH;
     }
@@ -1947,11 +1974,11 @@ int64_t sys_getsid(int64_t pid)
 {
     if (pid == 0) {
         process_t *proc = process_current();
-        return proc ? (int64_t)proc->sid : -ESRCH;
+        return proc ? (int64_t)process_sid_nr_ns(proc, pid_ns_current()) : -ESRCH;
     }
-    process_t *proc = process_find_get(pid);
+    process_t *proc = process_find_ns_get(pid_ns_current(), pid);
     if (!proc) return -ESRCH;
-    int64_t sid = proc->sid;
+    int64_t sid = (int64_t)process_sid_nr_ns(proc, pid_ns_current());
     process_put(proc);
     return sid;
 }
@@ -1961,11 +1988,11 @@ int64_t sys_getpgid(int64_t pid)
 {
     if (pid == 0) {
         process_t *proc = process_current();
-        return proc ? (int64_t)proc->pgid : -ESRCH;
+        return proc ? (int64_t)process_pgid_nr_ns(proc, pid_ns_current()) : -ESRCH;
     }
-    process_t *proc = process_find_get(pid);
+    process_t *proc = process_find_ns_get(pid_ns_current(), pid);
     if (!proc) return -ESRCH;
-    int64_t pgid = proc->pgid;
+    int64_t pgid = (int64_t)process_pgid_nr_ns(proc, pid_ns_current());
     process_put(proc);
     return pgid;
 }
@@ -1980,7 +2007,7 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
     int        found  = 0;
     int        result = 0;
     while ((target = process_group_iterate_get(&pos, pgid, sid))) {
-        if (sender && signal_check_perm(sender, target) < 0) {
+        if (sender && (!task_tgid_nr_ns(target->task, sender->task->pid_ns) || signal_check_perm(sender, target) < 0)) {
             process_put(target);
             continue;
         }
@@ -1990,7 +2017,7 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
             info.si_signo = sig;
             info.si_code  = code;
             if (sender) {
-                info.si_pid = sender->task ? (int32_t)sender->task->pid : 0;
+                info.si_pid = sender->task ? (int32_t)task_tgid_nr_ns(sender->task, target->task->pid_ns) : 0;
                 info.si_uid = sender->uid;
             }
             int ret = signal_send(target, sig, &info);

@@ -12,6 +12,7 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>
+#include <mem/heap.h>
 
 #if CONFIG_DRM
 
@@ -181,13 +182,47 @@ void drm_sysfs_init(void)
 #    endif
 }
 
+/*
+ * Create the "<bus device>/drm" directory that groups the minor nodes, once per
+ * GPU.  Linux puts cardN and renderDN inside it so that
+ * /sys/dev/char/<maj>:<min>/device/drm is a real directory; libdrm walks that
+ * directory to tell a primary node from a render node.
+ */
+static struct device *drm_sysfs_group_dir(struct drm_device *dev)
+{
+    if (!dev || !dev->parent) return NULL;
+    if (dev->sysfs_dir) return dev->sysfs_dir;
+
+    struct device *dir = calloc(1, sizeof(*dir));
+    if (!dir) return NULL;
+
+    dir->parent = dev->parent;
+    if (kobject_set_name(&dir->kobj, "%s", "drm") != EOK || device_register(dir) != EOK) {
+        plogk("drm_sysfs: Failed to create the drm grouping directory\n");
+        free(dir);
+        return NULL;
+    }
+    dev->sysfs_dir = dir;
+    return dir;
+}
+
 /* Publish one GPU under /sys/class/drm/. */
 void drm_sysfs_register_device(struct drm_device *dev)
 {
     (void)dev;
 #    if CONFIG_SYSFS
     if (!dev || !dev->primary) return;
-    if (!device_create(&drm_class, NULL, MKDEV(DRM_MAJOR, dev->primary->index), dev, "card%d", dev->primary->index)) plogk("drm_sysfs: Failed to create /sys/class/drm/card%d\n", dev->primary->index);
+    struct device *dir  = drm_sysfs_group_dir(dev);
+    struct device *card = device_create(&drm_class, dev->parent, MKDEV(DRM_MAJOR, dev->primary->index), dev, "card%d", dev->primary->index);
+    if (!card) {
+        plogk("drm_sysfs: Failed to create /sys/class/drm/card%d\n", dev->primary->index);
+        return;
+    }
+    if (dir) {
+        char name[24];
+        (void)snprintf(name, sizeof(name), "card%d", dev->primary->index);
+        (void)sysfs_create_symlink(&dir->kobj, &card->kobj, name);
+    }
 #    endif
 }
 
@@ -197,8 +232,17 @@ void drm_sysfs_register_render_device(struct drm_device *dev)
     (void)dev;
 #    if CONFIG_SYSFS
     if (!dev || !dev->render || !dev->driver || !(dev->driver->driver_features & DRIVER_RENDER)) return;
-    if (!device_create(&drm_class, NULL, MKDEV(DRM_MAJOR, 128 + dev->render->index), dev, "renderD%d", 128 + dev->render->index))
+    struct device *dir   = drm_sysfs_group_dir(dev);
+    struct device *rnode = device_create(&drm_class, dev->parent, MKDEV(DRM_MAJOR, 128 + dev->render->index), dev, "renderD%d", 128 + dev->render->index);
+    if (!rnode) {
         plogk("drm_sysfs: Failed to create /sys/class/drm/renderD%d\n", 128 + dev->render->index);
+        return;
+    }
+    if (dir) {
+        char name[24];
+        (void)snprintf(name, sizeof(name), "renderD%d", 128 + dev->render->index);
+        (void)sysfs_create_symlink(&dir->kobj, &rnode->kobj, name);
+    }
 #    endif
 }
 

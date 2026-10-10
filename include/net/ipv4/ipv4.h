@@ -64,8 +64,9 @@ static inline int ipv4_input(net_device_t *, net_pbuf_t *)
 
 int  ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl, net_pbuf_t *packet);
 int  ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop);
+int  ipv4_route_ns(struct net_namespace *ns, uint32_t destination, net_device_t **device, uint32_t *next_hop);
 int  ipv4_set_error_hook(ipv4_error_hook_t hook);
-void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length);
+void ipv4_control_error(struct net_namespace *ns, uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length);
 void ipv4_timer(uint64_t now_ticks);
 void ipv4_device_removed(net_device_t *device);
 

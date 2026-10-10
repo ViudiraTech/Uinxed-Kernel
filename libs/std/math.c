@@ -17,7 +17,7 @@
  * clang does not implement it and needs #pragma clang attribute instead.
  */
 
-#if defined(__clang__)
+#ifdef __clang__
 #    pragma clang attribute push(__attribute__((target("sse2"))), apply_to = function)
 #elif defined(__GNUC__)
 #    pragma GCC target("sse2")
@@ -527,7 +527,7 @@ double ldexp(double x, int exp)
     return r;
 }
 
-#if defined(__clang__)
+#ifdef __clang__
 #    pragma clang attribute pop
 #endif
 #if defined(__GNUC__) && !defined(__clang__)

@@ -32,12 +32,24 @@
 #define VFS_NODE_SWAPFILE         (1ULL << 54)
 #define VFS_NODE_PARENT_RETAINED  (1ULL << 53)
 #define VFS_NODE_RENAME_BUSY      (1ULL << 52)
+/* Bind-mount root: it presents a source subtree and owns neither handle nor children. */
+#define VFS_NODE_BIND_ALIAS       (1ULL << 51)
 
 /* Persistent mount attributes kept on the namespace mount-point node. */
 #define MOUNT_FLAG_RDONLY (1ULL << 0)
 #define MOUNT_FLAG_NOSUID (1ULL << 1)
 #define MOUNT_FLAG_NODEV  (1ULL << 2)
 #define MOUNT_FLAG_NOEXEC (1ULL << 3)
+#define MOUNT_FLAG_NOATIME (1ULL << 4)
+#define MOUNT_FLAG_NODIRATIME (1ULL << 5)
+#define MOUNT_FLAG_RELATIME (1ULL << 6)
+#define MOUNT_FLAG_ATIME (MOUNT_FLAG_NOATIME | MOUNT_FLAG_NODIRATIME | MOUNT_FLAG_RELATIME)
+
+/* Mount events reach peers and downstream slaves; numbering is internal. */
+#define VFS_MOUNT_PRIVATE    0U
+#define VFS_MOUNT_SHARED     1U
+#define VFS_MOUNT_SLAVE      2U
+#define VFS_MOUNT_UNBINDABLE 3U
 
 #define VFS_RENAME_NOREPLACE (1U << 0)
 
@@ -57,6 +69,7 @@ typedef struct vfs_inode             vfs_inode_t;
 typedef struct pagecache_mapping     pagecache_mapping_t;
 typedef struct vfs_poll_subscription vfs_poll_subscription_t;
 struct process;
+struct vfs_mount_attachment;
 
 /*
  * A rename is one filesystem operation, not a delete followed by a move.
@@ -196,35 +209,43 @@ typedef struct vfs_callback {
         vfs_resize_t                resize;                // Change the persistent file size
         vfs_sync_t                  sync;                  // Commit data and metadata to stable storage
         vfs_chmod_t                 chmod;                 // Validate a permission-mode change
+        vfs_node_t (*follow_link)(vfs_node_t node);         // Magic symlink returning a retained object
 } *vfs_callback_t;
 
 typedef struct vfs_node {
-        vfs_node_t           parent;       // Parent directory
-        vfs_node_t           linkto;       // Node pointed to by the symbolic link
-        char                *name;         // Name
-        char                *linkname;     // Symbolic link name
-        uint64_t             realsize;     // Actual space occupied by the project (optional)
-        uint64_t             size;         // File size or 0 if it is a folder
-        int64_t              createtime;   // Status-change time (legacy field name)
-        int64_t              readtime;     // Last read time
-        int64_t              writetime;    // Last write time
-        uint64_t             inode;        // Node number
-        uint32_t             nlink;        // Number of namespace links to the inode
-        uint64_t             blksz;        // Block size
-        uint32_t             owner;        // Owner
-        uint32_t             group;        // All groups
-        uint32_t             permissions;  // Permissions
-        uint16_t             type;         // Type
-        uint32_t             refcount;     // Reference count
-        uint16_t             mode;         // Mode
-        uint16_t             fsid;         // File system mount ID
-        void                *handle;       // Handle to the file
-        uint64_t             flags;        // File flags
-        clist_t              child;        // Child nodes
-        vfs_node_t           root;         // Root directory
-        int                  visited;      // Whether to synchronize with the specific file system
-        int                  is_mount;     // Whether it is a mount point
-        uint64_t             mount_id;     // Stable namespace mount identifier
+        vfs_node_t           parent;         // Parent directory
+        vfs_node_t           linkto;         // Node pointed to by the symbolic link
+        char                *name;           // Name
+        char                *linkname;       // Symbolic link name
+        uint64_t             realsize;       // Actual space occupied by the project (optional)
+        uint64_t             size;           // File size or 0 if it is a folder
+        int64_t              createtime;     // Status-change time (legacy field name)
+        int64_t              readtime;       // Last read time
+        int64_t              writetime;      // Last write time
+        uint64_t             inode;          // Node number
+        uint32_t             nlink;          // Number of namespace links to the inode
+        uint64_t             blksz;          // Block size
+        uint32_t             owner;          // Owner
+        uint32_t             group;          // All groups
+        uint32_t             permissions;    // Permissions
+        uint16_t             type;           // Type
+        uint32_t             refcount;       // Reference count
+        uint16_t             mode;           // Mode
+        uint16_t             fsid;           // File system mount ID
+        void                *handle;         // Handle to the file
+        uint64_t             flags;          // File flags
+        clist_t              child;          // Child nodes
+        vfs_node_t           root;           // Root directory
+        int                  visited;        // Whether to synchronize with the specific file system
+        int                  is_mount;       // Whether it is a mount point
+        uint64_t             mount_id;       // Stable namespace mount identifier
+        uint32_t             mount_refs;     // Namespace attachments pinning this dentry
+        vfs_node_t           alias;          // Bind root: content comes from this subtree
+        void                *covered_handle; // backing directory restored after unmount
+        vfs_node_t           covered_root;
+        clist_t              covered_children;
+        uint16_t             covered_fsid;
+        bool                 covered_valid;
         char                *mount_source; // Informational source shown by procfs
         dev_t                dev;          // Device number
         dev_t                rdev;         // Real device number
@@ -292,10 +313,13 @@ int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, struct proce
 
 /* Change a file's mode or ownership using permission semantics. */
 int vfs_chmod_process(vfs_node_t node, uint16_t mode, struct process *proc);
+int vfs_chmod_process_at(vfs_node_t node, uint16_t mode, struct process *proc, uint64_t mount_id);
 int vfs_chown_process(vfs_node_t node, uint32_t owner, uint32_t group, struct process *proc);
 
 /* Change atime/mtime and advance ctime using ownership rules. */
 int vfs_set_times_process(vfs_node_t node, int64_t atime, int64_t mtime, uint32_t flags, struct process *proc);
+int vfs_chown_process_at(vfs_node_t node, uint32_t owner, uint32_t group, struct process *proc, uint64_t mount_id);
+int vfs_set_times_process_at(vfs_node_t node, int64_t atime, int64_t mtime, uint32_t flags, struct process *proc, uint64_t mount_id);
 
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name);
@@ -388,12 +412,48 @@ int vfs_mount(const char *src, vfs_node_t node);
 
 /* Mount a named file system to a directory */
 int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node);
+int vfs_mount_fs_at(const char *fstype, const char *src, vfs_node_t node, uint64_t parent_mount, uint64_t attributes);
 
 /* Unmount a file system from a directory */
 int vfs_umount(const char *path);
+/* Change mount flags of a mount point, optionally across its subtree. */
+int vfs_mount_setattr(vfs_node_t node, uint64_t set_flags, uint64_t clr_flags, bool recursive);
+int vfs_mount_update(vfs_node_t node, uint64_t arrival_id, uint64_t set_flags, uint64_t clr_flags, uint32_t type, bool recursive);
+/* Change the propagation type of a mount, optionally across its subtree. */
+int vfs_mount_setpropagation(vfs_node_t node, uint32_t type, bool recursive);
+
+int vfs_umount_flags(const char *path, bool nofollow, bool detach);
 
 /* Format the current namespace in /proc/mounts or mountinfo syntax. */
 size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo);
+
+/* Mount movement and generation events used by /proc/self/mountinfo. */
+int                vfs_move_mount(vfs_node_t source, vfs_node_t target);
+int                vfs_move_mount_at(vfs_node_t source, vfs_node_t target, uint64_t source_mount, uint64_t target_mount);
+/* Attach a second view of an existing subtree; no superblock is created. */
+int                vfs_bind_mount(vfs_node_t source, vfs_node_t target, uint64_t flags, uint64_t parent_mount, uint64_t source_mount);
+/* Resolve a path and report the mount the walk arrived through. */
+vfs_node_t         vfs_open_mount(const char *str, uint64_t *mount_out);
+void               vfs_mount_identity(vfs_node_t node, uint64_t arrival_id, uint64_t *id, bool *is_root);
+vfs_node_t         vfs_open_checked_at(const char *path, bool nofollow, int *error, uint64_t *mount_id);
+int                vfs_node_path_at(vfs_node_t node, uint64_t mount_id, char *path, size_t size);
+void               vfs_mount_open_ref(uint64_t id, bool acquire);
+uint64_t           vfs_mount_flags_id(uint64_t id);
+uint64_t           vfs_mount_generation(void);
+void               vfs_mount_changed(void);
+vfs_poll_source_t *vfs_mount_poll_source(void);
+
+struct mnt_namespace;
+uint64_t vfs_mount_generation_ns(struct mnt_namespace *ns);
+vfs_poll_source_t *vfs_mount_poll_source_ns(struct mnt_namespace *ns);
+size_t vfs_format_mount_table_ns(struct mnt_namespace *ns, char *buffer, size_t capacity, bool mountinfo);
+/* Namespace clones share filesystem objects, but own their attachment/attribute tables. */
+int  vfs_mntns_clone(struct mnt_namespace *source, struct mnt_namespace *target);
+void vfs_mntns_destroy(struct mnt_namespace *ns);
+int  vfs_namespace_bind(vfs_node_t source, vfs_node_t target, uint64_t flags);
+uint64_t vfs_mount_flags(vfs_node_t node);
+bool vfs_is_mountpoint(vfs_node_t node);
+int vfs_set_filesystem_magic(uint16_t fsid, uint32_t magic);
 
 /* Read data from a file node into the provided memory buffer */
 size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size);
@@ -409,6 +469,7 @@ int  vfs_fsync(vfs_node_t file, uint32_t *wb_err, int data_only);
 int  vfs_writeback_range(vfs_node_t file, uint64_t start, uint64_t end, int data_only);
 int  vfs_sync_all(void);
 int  vfs_truncate(vfs_node_t file, uint64_t size);
+int  vfs_truncate_at(vfs_node_t file, uint64_t size, uint64_t mount_id);
 int  vfs_invalidate_pages(vfs_node_t file, uint64_t start, uint64_t end, int discard_dirty);
 int  vfs_drop_pages(vfs_node_t file, uint64_t start, uint64_t end, int writeback);
 int  vfs_readahead(vfs_node_t file, uint64_t offset, size_t size);
@@ -439,13 +500,13 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
 int64_t vfs_file_read_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
 
 /* VFS operation: file write granted. */
-int64_t vfs_file_write_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+int64_t vfs_file_write_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc, uint64_t mount_id);
 
 /* VFS operation: file read user granted. */
 int64_t vfs_file_read_user_granted(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
 
 /* VFS operation: file write user granted. */
-int64_t vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc);
+int64_t vfs_file_write_user_granted(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size, struct process *proc, uint64_t mount_id);
 
 /* VFS operation: file ioctl. */
 int vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
@@ -455,6 +516,7 @@ int vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t ev
 
 /* VFS operation: mount is readonly. */
 int vfs_mount_is_readonly(vfs_node_t node);
+int vfs_mount_is_readonly_at(vfs_node_t node, uint64_t mount_id);
 
 /* VFS operation: the node's filesystem can host device nodes. */
 bool vfs_node_supports_device_nodes(vfs_node_t node);

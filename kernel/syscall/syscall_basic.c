@@ -9,6 +9,7 @@
  */
 
 #include <arch/cpu/smp.h>
+#include <drivers/char/random.h>
 #include <fs/core/vfs.h>
 #include <ipc/pipe.h>
 #include <kernel/errno.h>
@@ -20,6 +21,7 @@
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
+#include <security/capability.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
@@ -71,7 +73,7 @@ typedef struct linux_tms {
  * query_module / quotactl / nfsservctl / getpmsg / putpmsg / afs_syscall /
  * tuxcall / lookup_dcookie / remap_file_pages / kexec_load /
  * add_key / request_key / keyctl / migrate_pages / move_pages /
- * mbind / set_mempolicy / get_mempolicy / kexec_file_load / bpf /
+ * kexec_file_load / bpf /
  * userfaultfd / io_uring_setup / io_uring_enter / io_uring_register /
  * open_tree / move_mount / fsopen / fsconfig / fsmount / fspick /
  * fanotify_init / fanotify_mark / get_thread_area / set_thread_area /
@@ -95,7 +97,7 @@ static int itimer_time_to_ticks(int64_t sec, int64_t usec, uint64_t *ticks)
     if (!ticks || sec < 0 || usec < 0 || usec >= 1000000) return -EINVAL;
     uint64_t sub_ticks = ((uint64_t)usec * CONFIG_TIMER_HZ + 999999ULL) / 1000000ULL;
     if ((uint64_t)sec > (UINT64_MAX - sub_ticks) / CONFIG_TIMER_HZ) return -EINVAL;
-    *ticks = (uint64_t)sec * CONFIG_TIMER_HZ + sub_ticks;
+    *ticks = ((uint64_t)sec * CONFIG_TIMER_HZ) + sub_ticks;
     return 0;
 }
 
@@ -187,7 +189,9 @@ int64_t sys_getgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
     if (size == 0) return count;
     if (size < count) return -EINVAL;
     if (count && !list) return -EFAULT;
-    if (count && copy_to_user((void *)list, proc->supplementary_groups, (size_t)count * sizeof(uint32_t))) return -EFAULT;
+    uint32_t groups[CONFIG_PROCESS_MAX_GROUPS];
+    for (uint16_t i = 0; i < count; i++) groups[i] = user_ns_unmap_id(user_namespace_current(), proc->supplementary_groups[i], true);
+    if (count && copy_to_user((void *)list, groups, (size_t)count * sizeof(uint32_t))) return -EFAULT;
     return count;
 }
 
@@ -200,54 +204,97 @@ int64_t sys_setgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0) return -EPERM;
+    if (!user_namespace_current()->setgroups_allowed || !capability_ns(current_task(), user_namespace_current(), CAP_SETGID)) return -EPERM;
     if (size > CONFIG_PROCESS_MAX_GROUPS) return -EINVAL;
     if (size && !list) return -EFAULT;
 
     uint32_t groups[CONFIG_PROCESS_MAX_GROUPS];
     if (size && copy_from_user(groups, (const void *)list, (size_t)size * sizeof(uint32_t))) return -EFAULT;
+    for (uint64_t i = 0; i < size; i++) {
+        groups[i] = user_ns_map_id(user_namespace_current(), groups[i], true);
+        if (groups[i] == UINT32_MAX) return -EINVAL;
+    }
     if (size) memcpy(proc->supplementary_groups, groups, (size_t)size * sizeof(uint32_t));
     proc->supplementary_group_count = (uint16_t)size;
     return 0;
 }
 
-/* capget syscall: read process capabilities */
+/* Decode all Linux capability ABI versions and negotiate an unknown version. */
+static int capability_header(uint64_t user, linux_cap_header_t *header, size_t *words)
+{
+    if (!user || copy_from_user(header, (const void *)user, sizeof(*header))) return -EFAULT;
+    if (header->version == 0x19980330)
+        *words = 1;
+    else if (header->version == 0x20071026 || header->version == 0x20080522)
+        *words = 2;
+    else {
+        header->version = 0x20080522;
+        return copy_to_user((void *)user, header, sizeof(*header)) ? -EFAULT : -EINVAL;
+    }
+    return 0;
+}
+
+/* capget exposes both 32-bit words, including capabilities 32..40. */
 int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (!header) return -EFAULT;
     linux_cap_header_t hdr;
-    if (copy_from_user(&hdr, (const void *)header, sizeof(hdr))) return -EFAULT;
-    if (hdr.version != 0x20080522) return -EINVAL;
+    size_t             words;
+    int                result = capability_header(header, &hdr, &words);
+    if (result) return result;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    process_t *target = (hdr.pid == 0 || hdr.pid == (int32_t)proc->task->pid) ? proc : process_find_get((pid_t)hdr.pid);
-    if (!target) return -ESRCH;
-    linux_cap_data_t caps = {0};
-    if (target->uid == 0) caps.effective = caps.permitted = caps.inheritable = 0xFFFFFFFFu;
-    if (target != proc) process_put(target);
-    if (data && copy_to_user((void *)data, &caps, sizeof(caps))) return -EFAULT;
-    return 0;
+    task_t    *target   = current_task();
+    process_t *owner    = NULL;
+    bool       retained = hdr.pid != 0 && hdr.pid != (int32_t)target->pid;
+    if (retained) {
+        target = pid_find_task_get((uint64_t)hdr.pid);
+        if (!target) return -ESRCH;
+        owner = process_find_get((pid_t)target->tgid);
+        if (!owner || target->process != owner) {
+            if (owner) process_put(owner);
+            task_put(target);
+            return -ESRCH;
+        }
+    }
+    linux_cap_data_t caps[2] = {{0}, {0}};
+    uint64_t         effective, permitted, inheritable;
+    capability_get(target, &effective, &permitted, &inheritable);
+    for (size_t word = 0; word < words; word++) {
+        caps[word].effective   = (uint32_t)(effective >> (word * 32));
+        caps[word].permitted   = (uint32_t)(permitted >> (word * 32));
+        caps[word].inheritable = (uint32_t)(inheritable >> (word * 32));
+    }
+    if (retained) {
+        process_put(owner);
+        task_put(target);
+    }
+    return data && copy_to_user((void *)data, caps, words * sizeof(caps[0])) ? -EFAULT : 0;
 }
 
-/* capset syscall: set process capabilities */
+/* A service that changed UID may still clear its already-empty capabilities. */
 int64_t sys_capset_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    (void)data;
-    if (!header) return -EFAULT;
     linux_cap_header_t hdr;
-    if (copy_from_user(&hdr, (const void *)header, sizeof(hdr))) return -EFAULT;
-    if (hdr.version != 0x20080522) return -EINVAL;
+    size_t             words;
+    int                result = capability_header(header, &hdr, &words);
+    if (result) return result;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
-    return 0;
+    if (!proc) return -ESRCH;
+    if (hdr.pid && hdr.pid != (int32_t)current_task()->pid) return -EPERM;
+    linux_cap_data_t caps[2] = {{0}, {0}};
+    if (!data || copy_from_user(caps, (const void *)data, words * sizeof(caps[0]))) return -EFAULT;
+    uint64_t effective   = caps[0].effective | ((uint64_t)caps[1].effective << 32);
+    uint64_t permitted   = caps[0].permitted | ((uint64_t)caps[1].permitted << 32);
+    uint64_t inheritable = caps[0].inheritable | ((uint64_t)caps[1].inheritable << 32);
+    return capability_set(current_task(), effective, permitted, inheritable);
 }
 
 /* flock syscall: validate the fd (no mandatory locks) */
@@ -298,6 +345,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
 
     vfs_node_t      node = NULL;
     process_file_t *file = NULL;
+    uint64_t        mount_id = 0;
     int             ret  = EOK;
 
     if (!upath) {
@@ -316,7 +364,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
             if (dirfd == PROCESS_AT_FDCWD) {
                 char resolved[CONFIG_VFS_PATH_MAX];
                 ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, ".", resolved, sizeof(resolved));
-                if (ret == EOK) node = vfs_open_checked(resolved, &ret);
+                if (ret == EOK) node = vfs_open_checked_at(resolved, false, &ret, &mount_id);
             } else {
                 file = process_fd_get(proc, dirfd);
                 if (!file) return -EBADF;
@@ -325,7 +373,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
         } else {
             char resolved[CONFIG_VFS_PATH_MAX];
             ret = process_resolve_path_at(proc, dirfd, input, resolved, sizeof(resolved));
-            if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(resolved, &ret) : vfs_open_checked(resolved, &ret);
+            if (ret == EOK) node = vfs_open_checked_at(resolved, (flags & AT_SYMLINK_NOFOLLOW) != 0, &ret, &mount_id);
         }
     }
 
@@ -334,7 +382,7 @@ static int set_times_at(process_t *proc, int dirfd, uint64_t upath, const linux_
         return ret == EOK ? -ENOENT : ret;
     }
     vfs_update(node);
-    ret = vfs_set_times_process(node, atime, mtime, time_flags, proc);
+    ret = vfs_set_times_process_at(node, atime, mtime, time_flags, proc, file ? file->mount_id : mount_id);
     if (file) {
         process_file_put(file);
     } else {
@@ -411,7 +459,7 @@ int64_t sys_setpriority_impl(uint64_t which, uint64_t who, uint64_t niceval, uin
     if ((int64_t)niceval < -20 || (int64_t)niceval > 19) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if ((int64_t)niceval < 0 && proc->uid != 0) return -EACCES;
+    if ((int64_t)niceval < 0 && !namespace_initial_root(proc)) return -EACCES;
     return 0;
 }
 
@@ -483,36 +531,44 @@ int64_t sys_sched_rr_get_interval_impl(uint64_t pid, uint64_t tp, uint64_t arg2,
     return copy_to_user((void *)tp, &ts, sizeof(ts)) ? -EFAULT : 0;
 }
 
-/* sched_setaffinity syscall */
+/* sched_setaffinity: permission checks match ownership, with a bounded user copy. */
 int64_t sys_sched_setaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)pid;
-    (void)cpusetsize;
-    (void)mask;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
-    return 0;
-}
-
-/* sched_getaffinity syscall */
-int64_t sys_sched_getaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)pid;
     (void)arg3;
     (void)arg4;
     (void)arg5;
     if (!mask) return -EFAULT;
-    uint32_t ncpus    = get_cpu_count();
-    uint8_t  buf[128] = {0};
-    size_t   bytes    = (ncpus + 7) / 8;
-    if (bytes > cpusetsize) bytes = cpusetsize;
-    if (bytes > sizeof(buf)) bytes = sizeof(buf);
-    memset(buf, 0xFF, bytes);
-    if (ncpus % 8) buf[bytes - 1] &= (uint8_t)((1u << (ncpus % 8)) - 1u);
-    return copy_to_user((void *)mask, buf, cpusetsize) ? -EFAULT : (int64_t)bytes;
+    if (!cpusetsize) return -EINVAL;
+    cpumask_t affinity = {0};
+    size_t    bytes    = cpusetsize < sizeof(affinity) ? (size_t)cpusetsize : sizeof(affinity);
+    if (copy_from_user(&affinity, (const void *)mask, bytes)) return -EFAULT;
+    task_t *task = pid ? pid_find_task_get(pid) : current_task();
+    if (!task) return -ESRCH;
+    if (!pid) task_ref(task);
+    process_t *caller = process_current();
+    int        result = -EPERM;
+    if (caller && task->process && (!caller->uid || caller->uid == task->process->uid)) result = sched_setaffinity(task, &affinity);
+    task_put(task);
+    return result;
+}
+
+/* Return only the kernel's rounded CPU-mask length, never cpusetsize bytes. */
+int64_t sys_sched_getaffinity_impl(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    size_t bytes = (sched_cpu_count() + 63) / 64 * sizeof(uint64_t);
+    if (cpusetsize < bytes || cpusetsize % sizeof(uint64_t)) return -EINVAL;
+    if (!mask) return -EFAULT;
+    task_t *task = pid ? pid_find_task_get(pid) : current_task();
+    if (!task) return -ESRCH;
+    if (!pid) task_ref(task);
+    cpumask_t affinity;
+    int       result = sched_getaffinity(task, &affinity);
+    task_put(task);
+    if (result) return result;
+    return copy_to_user((void *)mask, &affinity, bytes) ? -EFAULT : (int64_t)bytes;
 }
 
 /* sched_setattr syscall */
@@ -525,7 +581,7 @@ int64_t sys_sched_setattr_impl(uint64_t pid, uint64_t attr, uint64_t flags, uint
     (void)arg5;
     if (flags) return -EINVAL;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
+    if (!proc || !namespace_initial_root(proc)) return -EPERM;
     return 0;
 }
 
@@ -551,7 +607,7 @@ int64_t sys_sethostname_impl(uint64_t name, uint64_t len, uint64_t arg2, uint64_
     if (!name) return -EFAULT;
     if (len > 64) return -EINVAL;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
+    if (!proc || !capability_ns(current_task(), uts_namespace_current()->ns.owner, CAP_SYS_ADMIN)) return -EPERM;
 
     char buffer[65];
     if (copy_from_user(buffer, (const void *)name, len)) return -EFAULT;
@@ -574,7 +630,7 @@ int64_t sys_setdomainname_impl(uint64_t name, uint64_t len, uint64_t arg2, uint6
     if (!name) return -EFAULT;
     if (len > 64) return -EINVAL;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
+    if (!proc || !capability_ns(current_task(), uts_namespace_current()->ns.owner, CAP_SYS_ADMIN)) return -EPERM;
 
     char buffer[65];
     if (copy_from_user(buffer, (const void *)name, len)) return -EFAULT;
@@ -596,7 +652,7 @@ int64_t sys_set_robust_list_impl(uint64_t head, uint64_t len, uint64_t arg2, uin
     (void)arg5;
     if (len != 24) return -EINVAL; // sizeof(struct robust_list_head)
     task_t *task = current_task();
-    if (task) task->clear_child_tid = head;
+    if (task) __atomic_store_n(&task->robust_list, head, __ATOMIC_RELAXED);
     return 0;
 }
 
@@ -608,24 +664,33 @@ int64_t sys_get_robust_list_impl(uint64_t pid, uint64_t head_ptr, uint64_t len_p
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    process_t *target = proc;
-    if (pid != 0 && pid != proc->task->pid) {
-        target = process_find_get((pid_t)pid);
+    if (!head_ptr || !len_ptr) return -EFAULT;
+    task_t *target   = current_task();
+    bool    retained = pid != 0 && pid != target->pid;
+    if (retained) {
+        target = pid_find_task_get(pid);
         if (!target) return -ESRCH;
+        process_t *owner = process_find_get((pid_t)target->tgid);
+        if (!owner || target->process != owner || (owner->uid != proc->uid && !capability_has(current_task(), CAP_SYS_PTRACE))) {
+            if (owner) process_put(owner);
+            task_put(target);
+            return -EPERM;
+        }
+        process_put(owner);
     }
-    uint64_t head = target->task->clear_child_tid;
+    uint64_t head = __atomic_load_n(&target->robust_list, __ATOMIC_RELAXED);
     if (head_ptr && copy_to_user((void *)head_ptr, &head, sizeof(head))) {
-        if (target != proc) process_put(target);
+        if (retained) task_put(target);
         return -EFAULT;
     }
     if (len_ptr) {
         uint64_t sz = 24;
         if (copy_to_user((void *)len_ptr, &sz, sizeof(sz))) {
-            if (target != proc) process_put(target);
+            if (retained) task_put(target);
             return -EFAULT;
         }
     }
-    if (target != proc) process_put(target);
+    if (retained) task_put(target);
     return 0;
 }
 
@@ -639,6 +704,7 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
 
     vfs_node_t      node = NULL;
     process_file_t *file = NULL;
+    uint64_t        mount_id = 0;
     int             ret  = EOK;
     if (!path) {
         if (!(flags & AT_EMPTY_PATH) || (int)dirfd == PROCESS_AT_FDCWD) return -EFAULT;
@@ -655,7 +721,7 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
             if ((int)dirfd == PROCESS_AT_FDCWD) {
                 char resolved[CONFIG_VFS_PATH_MAX];
                 ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, ".", resolved, sizeof(resolved));
-                if (ret == EOK) node = vfs_open_checked(resolved, &ret);
+                if (ret == EOK) node = vfs_open_checked_at(resolved, false, &ret, &mount_id);
             } else {
                 file = process_fd_get(proc, (int)dirfd);
                 if (!file) return -EBADF;
@@ -664,7 +730,7 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
         } else {
             char resolved[CONFIG_VFS_PATH_MAX];
             ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
-            if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow_checked(resolved, &ret) : vfs_open_checked(resolved, &ret);
+            if (ret == EOK) node = vfs_open_checked_at(resolved, (flags & AT_SYMLINK_NOFOLLOW) != 0, &ret, &mount_id);
         }
     }
 
@@ -673,7 +739,7 @@ int64_t sys_fchownat_impl(uint64_t dirfd, uint64_t path, uint64_t owner, uint64_
         return ret == EOK ? -ENOENT : ret;
     }
     vfs_update(node);
-    ret = vfs_chown_process(node, (uint32_t)owner, (uint32_t)group, proc);
+    ret = vfs_chown_process_at(node, (uint32_t)owner, (uint32_t)group, proc, file ? file->mount_id : mount_id);
     if (file) {
         process_file_put(file);
     } else {
@@ -723,9 +789,10 @@ int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t
     if (ret != 0) return ret;
 
     int        lookup_error = EOK;
-    vfs_node_t node         = vfs_open_checked(resolved, &lookup_error);
+    uint64_t mount_id = 0;
+    vfs_node_t node = vfs_open_checked_at(resolved, false, &lookup_error, &mount_id);
     if (!node) return lookup_error;
-    int result = vfs_chmod_process(node, (uint16_t)mode, proc);
+    int result = vfs_chmod_process_at(node, (uint16_t)mode, proc, mount_id);
     vfs_close(node);
     return result;
 }
@@ -746,15 +813,33 @@ int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3
 }
 
 /* Check whether a UID transition is permitted */
+/* Unprivileged callers may only restate one of their three user IDs. */
 static bool credential_uid_allowed(const process_t *proc, uint32_t uid)
 {
-    return uid == CREDENTIAL_ID_UNCHANGED || proc->uid == 0 || uid == proc->uid || uid == proc->fsuid;
+    return uid == CREDENTIAL_ID_UNCHANGED || capability_ns(current_task(), user_namespace_current(), CAP_SETUID) || uid == proc->uid || uid == proc->ruid || uid == proc->suid;
+}
+
+/* setfsuid(2) additionally accepts the current filesystem ID. */
+static bool credential_fsuid_allowed(const process_t *proc, uint32_t uid)
+{
+    return credential_uid_allowed(proc, uid) || uid == proc->fsuid;
+}
+
+/* Apply the capability transition for a credential change and commit it. */
+static void credential_uid_commit(process_t *proc, const uid_set_t *new_ids)
+{
+    uid_set_t old_ids = {proc->ruid, proc->uid, proc->suid};
+    capability_uid_change(current_task(), &old_ids, new_ids);
+    proc->ruid  = new_ids->real;
+    proc->uid   = new_ids->effective;
+    proc->suid  = new_ids->saved;
+    proc->fsuid = new_ids->effective;
 }
 
 /* Check whether a GID transition is permitted */
 static bool credential_gid_allowed(const process_t *proc, uint32_t gid)
 {
-    return gid == CREDENTIAL_ID_UNCHANGED || proc->uid == 0 || gid == proc->gid || gid == proc->fsgid;
+    return gid == CREDENTIAL_ID_UNCHANGED || capability_ns(current_task(), user_namespace_current(), CAP_SETGID) || gid == proc->gid || gid == proc->rgid || gid == proc->sgid || gid == proc->fsgid;
 }
 
 /* setuid syscall */
@@ -767,11 +852,17 @@ int64_t sys_setuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if ((uint32_t)uid != CREDENTIAL_ID_UNCHANGED) {
+        uid = user_ns_map_id(user_namespace_current(), (uint32_t)uid, false);
+        if (uid == UINT32_MAX) return -EINVAL;
+    }
     uint32_t requested = (uint32_t)uid;
     if (requested == CREDENTIAL_ID_UNCHANGED) return -EINVAL;
     if (!credential_uid_allowed(proc, requested)) return -EPERM;
-    proc->uid   = requested;
-    proc->fsuid = requested;
+    /* setuid(2) sets all three IDs for a privileged caller. */
+    uid_set_t ids = {proc->ruid, requested, proc->suid};
+    if (capability_ns(current_task(), user_namespace_current(), CAP_SETUID)) ids.real = ids.saved = requested;
+    credential_uid_commit(proc, &ids);
     return 0;
 }
 
@@ -785,9 +876,14 @@ int64_t sys_setgid_impl(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t arg
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if ((uint32_t)gid != CREDENTIAL_ID_UNCHANGED) {
+        gid = user_ns_map_id(user_namespace_current(), (uint32_t)gid, true);
+        if (gid == UINT32_MAX) return -EINVAL;
+    }
     uint32_t requested = (uint32_t)gid;
     if (requested == CREDENTIAL_ID_UNCHANGED) return -EINVAL;
     if (!credential_gid_allowed(proc, requested)) return -EPERM;
+    if (capability_ns(current_task(), user_namespace_current(), CAP_SETGID)) proc->rgid = proc->sgid = requested;
     proc->gid   = requested;
     proc->fsgid = requested;
     return 0;
@@ -802,12 +898,24 @@ int64_t sys_setreuid_impl(uint64_t ruid, uint64_t euid, uint64_t arg2, uint64_t 
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if ((uint32_t)ruid != CREDENTIAL_ID_UNCHANGED) {
+        ruid = user_ns_map_id(user_namespace_current(), (uint32_t)ruid, false);
+        if (ruid == UINT32_MAX) return -EINVAL;
+    }
+    if ((uint32_t)euid != CREDENTIAL_ID_UNCHANGED) {
+        euid = user_ns_map_id(user_namespace_current(), (uint32_t)euid, false);
+        if (euid == UINT32_MAX) return -EINVAL;
+    }
     uint32_t real = (uint32_t)ruid, effective = (uint32_t)euid;
     if (!credential_uid_allowed(proc, real) || !credential_uid_allowed(proc, effective)) return -EPERM;
+    uid_set_t new_ids = {proc->ruid, proc->uid, proc->suid};
+    if (real != CREDENTIAL_ID_UNCHANGED) new_ids.real = real;
     if (effective != CREDENTIAL_ID_UNCHANGED) {
-        proc->uid   = effective;
-        proc->fsuid = effective;
+        new_ids.effective = effective;
+        /* Setting the effective ID or a different real ID refreshes the saved ID. */
+        if (real != CREDENTIAL_ID_UNCHANGED || effective != proc->ruid) new_ids.saved = effective;
     }
+    credential_uid_commit(proc, &new_ids);
     return 0;
 }
 
@@ -820,9 +928,19 @@ int64_t sys_setregid_impl(uint64_t rgid, uint64_t egid, uint64_t arg2, uint64_t 
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if ((uint32_t)rgid != CREDENTIAL_ID_UNCHANGED) {
+        rgid = user_ns_map_id(user_namespace_current(), (uint32_t)rgid, true);
+        if (rgid == UINT32_MAX) return -EINVAL;
+    }
+    if ((uint32_t)egid != CREDENTIAL_ID_UNCHANGED) {
+        egid = user_ns_map_id(user_namespace_current(), (uint32_t)egid, true);
+        if (egid == UINT32_MAX) return -EINVAL;
+    }
     uint32_t real = (uint32_t)rgid, effective = (uint32_t)egid;
     if (!credential_gid_allowed(proc, real) || !credential_gid_allowed(proc, effective)) return -EPERM;
+    if (real != CREDENTIAL_ID_UNCHANGED) proc->rgid = real;
     if (effective != CREDENTIAL_ID_UNCHANGED) {
+        if (real != CREDENTIAL_ID_UNCHANGED || effective != proc->rgid) proc->sgid = effective;
         proc->gid   = effective;
         proc->fsgid = effective;
     }
@@ -837,12 +955,25 @@ int64_t sys_setresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if ((uint32_t)ruid != CREDENTIAL_ID_UNCHANGED) {
+        ruid = user_ns_map_id(user_namespace_current(), (uint32_t)ruid, false);
+        if (ruid == UINT32_MAX) return -EINVAL;
+    }
+    if ((uint32_t)euid != CREDENTIAL_ID_UNCHANGED) {
+        euid = user_ns_map_id(user_namespace_current(), (uint32_t)euid, false);
+        if (euid == UINT32_MAX) return -EINVAL;
+    }
+    if ((uint32_t)suid != CREDENTIAL_ID_UNCHANGED) {
+        suid = user_ns_map_id(user_namespace_current(), (uint32_t)suid, false);
+        if (suid == UINT32_MAX) return -EINVAL;
+    }
     uint32_t real = (uint32_t)ruid, effective = (uint32_t)euid, saved = (uint32_t)suid;
     if (!credential_uid_allowed(proc, real) || !credential_uid_allowed(proc, effective) || !credential_uid_allowed(proc, saved)) return -EPERM;
-    if (effective != CREDENTIAL_ID_UNCHANGED) {
-        proc->uid   = effective;
-        proc->fsuid = effective;
-    }
+    uid_set_t new_ids = {proc->ruid, proc->uid, proc->suid};
+    if (real != CREDENTIAL_ID_UNCHANGED) new_ids.real = real;
+    if (effective != CREDENTIAL_ID_UNCHANGED) new_ids.effective = effective;
+    if (saved != CREDENTIAL_ID_UNCHANGED) new_ids.saved = saved;
+    credential_uid_commit(proc, &new_ids);
     return 0;
 }
 
@@ -854,8 +985,22 @@ int64_t sys_setresgid_impl(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if ((uint32_t)rgid != CREDENTIAL_ID_UNCHANGED) {
+        rgid = user_ns_map_id(user_namespace_current(), (uint32_t)rgid, true);
+        if (rgid == UINT32_MAX) return -EINVAL;
+    }
+    if ((uint32_t)egid != CREDENTIAL_ID_UNCHANGED) {
+        egid = user_ns_map_id(user_namespace_current(), (uint32_t)egid, true);
+        if (egid == UINT32_MAX) return -EINVAL;
+    }
+    if ((uint32_t)sgid != CREDENTIAL_ID_UNCHANGED) {
+        sgid = user_ns_map_id(user_namespace_current(), (uint32_t)sgid, true);
+        if (sgid == UINT32_MAX) return -EINVAL;
+    }
     uint32_t real = (uint32_t)rgid, effective = (uint32_t)egid, saved = (uint32_t)sgid;
     if (!credential_gid_allowed(proc, real) || !credential_gid_allowed(proc, effective) || !credential_gid_allowed(proc, saved)) return -EPERM;
+    if (real != CREDENTIAL_ID_UNCHANGED) proc->rgid = real;
+    if (saved != CREDENTIAL_ID_UNCHANGED) proc->sgid = saved;
     if (effective != CREDENTIAL_ID_UNCHANGED) {
         proc->gid   = effective;
         proc->fsgid = effective;
@@ -873,9 +1018,9 @@ int64_t sys_setfsuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t a
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    uint32_t old = proc->fsuid, requested = (uint32_t)uid;
-    if (requested != CREDENTIAL_ID_UNCHANGED && credential_uid_allowed(proc, requested)) proc->fsuid = requested;
-    return old;
+    uint32_t old = proc->fsuid, requested = user_ns_map_id(user_namespace_current(), (uint32_t)uid, false);
+    if (requested != CREDENTIAL_ID_UNCHANGED && credential_fsuid_allowed(proc, requested)) proc->fsuid = requested;
+    return user_ns_unmap_id(user_namespace_current(), old, false);
 }
 
 /* setfsgid syscall */
@@ -888,9 +1033,9 @@ int64_t sys_setfsgid_impl(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t a
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    uint32_t old = proc->fsgid, requested = (uint32_t)gid;
+    uint32_t old = proc->fsgid, requested = user_ns_map_id(user_namespace_current(), (uint32_t)gid, true);
     if (requested != CREDENTIAL_ID_UNCHANGED && credential_gid_allowed(proc, requested)) proc->fsgid = requested;
-    return old;
+    return user_ns_unmap_id(user_namespace_current(), old, true);
 }
 
 /* getresuid syscall */
@@ -901,10 +1046,12 @@ int64_t sys_getresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    uint32_t uid = proc->uid;
-    if (ruid && copy_to_user((void *)ruid, &uid, sizeof(uid))) return -EFAULT;
-    if (euid && copy_to_user((void *)euid, &uid, sizeof(uid))) return -EFAULT;
-    if (suid && copy_to_user((void *)suid, &uid, sizeof(uid))) return -EFAULT;
+    uint32_t ruid_value = user_ns_unmap_id(user_namespace_current(), proc->ruid, false);
+    if (copy_to_user((void *)ruid, &ruid_value, sizeof(ruid_value))) return -EFAULT;
+    uint32_t euid_value = user_ns_unmap_id(user_namespace_current(), proc->uid, false);
+    if (copy_to_user((void *)euid, &euid_value, sizeof(euid_value))) return -EFAULT;
+    uint32_t suid_value = user_ns_unmap_id(user_namespace_current(), proc->suid, false);
+    if (copy_to_user((void *)suid, &suid_value, sizeof(suid_value))) return -EFAULT;
     return 0;
 }
 
@@ -916,10 +1063,12 @@ int64_t sys_getresgid_impl(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    uint32_t gid = proc->gid;
-    if (rgid && copy_to_user((void *)rgid, &gid, sizeof(gid))) return -EFAULT;
-    if (egid && copy_to_user((void *)egid, &gid, sizeof(gid))) return -EFAULT;
-    if (sgid && copy_to_user((void *)sgid, &gid, sizeof(gid))) return -EFAULT;
+    uint32_t rgid_value = user_ns_unmap_id(user_namespace_current(), proc->rgid, true);
+    if (copy_to_user((void *)rgid, &rgid_value, sizeof(rgid_value))) return -EFAULT;
+    uint32_t egid_value = user_ns_unmap_id(user_namespace_current(), proc->gid, true);
+    if (copy_to_user((void *)egid, &egid_value, sizeof(egid_value))) return -EFAULT;
+    uint32_t sgid_value = user_ns_unmap_id(user_namespace_current(), proc->sgid, true);
+    if (copy_to_user((void *)sgid, &sgid_value, sizeof(sgid_value))) return -EFAULT;
     return 0;
 }
 
@@ -987,7 +1136,7 @@ int64_t sys_fchdir_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3
         return -ENOTDIR;
     }
     char path[CONFIG_VFS_PATH_MAX];
-    int  ret = vfs_node_path(pf->node, path, sizeof(path));
+    int  ret = vfs_node_path_at(pf->node, pf->mount_id, path, sizeof(path));
     if (ret != EOK) {
         process_file_put(pf);
         return ret;
@@ -1014,9 +1163,10 @@ int64_t sys_truncate_impl(uint64_t path, uint64_t length, uint64_t arg2, uint64_
     char resolved[CONFIG_VFS_PATH_MAX];
     ret = process_resolve_path_at(proc, PROCESS_AT_FDCWD, name, resolved, sizeof(resolved));
     if (ret) return ret;
-    vfs_node_t node = vfs_open(resolved);
+    uint64_t mount_id = 0;
+    vfs_node_t node = vfs_open_checked_at(resolved, false, NULL, &mount_id);
     if (!node) return -ENOENT;
-    ret = vfs_truncate(node, length);
+    ret = vfs_truncate_at(node, length, mount_id);
     vfs_close(node);
     return ret;
 }
@@ -1044,7 +1194,7 @@ int64_t sys_ftruncate_impl(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t
     if (memfd_is_node(pf->node)) {
         ret = memfd_resize(pf->node, length);
     } else {
-        ret = vfs_truncate(pf->node, length);
+    ret = vfs_truncate_at(pf->node, length, pf->mount_id);
     }
     process_file_put(pf);
     return ret;
@@ -1154,7 +1304,7 @@ int64_t sys_getcpu_impl(uint64_t cpu, uint64_t node, uint64_t tcache, uint64_t a
     (void)arg5;
     task_t  *task = current_task();
     uint32_t c    = task ? task->cpu_id : 0;
-    uint32_t n    = 0;
+    uint32_t n    = numa_cpu_node(c);
     if (cpu && copy_to_user((void *)cpu, &c, sizeof(c))) return -EFAULT;
     if (node && copy_to_user((void *)node, &n, sizeof(n))) return -EFAULT;
     return 0;
@@ -1171,25 +1321,13 @@ int64_t sys_getrandom_impl(uint64_t buf, uint64_t buflen, uint64_t flags, uint64
     if (!buflen) return 0;
     if (buflen > 33554431) return -EINVAL; // max: 32 MiB - 1
 
-    static spinlock_t random_lock;
-    static uint64_t   seed;
-    uint8_t           output[256];
-    uint64_t          done = 0;
+    uint8_t  output[256];
+    uint64_t done = 0;
     while (done < buflen) {
         size_t count = buflen - done;
         if (count > sizeof(output)) count = sizeof(output);
 
-        spin_lock(&random_lock);
-        uint64_t state = seed;
-        if (!state) state = (uint64_t)timer_realtime_ns() ^ sched_ticks() ^ 0x9e3779b97f4a7c15ULL;
-        for (size_t i = 0; i < count; i++) {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            output[i] = (uint8_t)state;
-        }
-        seed = state;
-        spin_unlock(&random_lock);
+        mem_random_bytes(output, count);
 
         if (copy_to_user((void *)(buf + done), output, count)) return done ? (int64_t)done : -EFAULT;
         done += count;
@@ -1345,7 +1483,7 @@ int64_t sys_fallocate_impl(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t
         return -EOPNOTSUPP;
     } // FALLOC_FL_PUNCH_HOLE
     int ret = EOK;
-    if (offset + len > pf->node->size) ret = vfs_truncate(pf->node, offset + len);
+    if (offset + len > pf->node->size) ret = vfs_truncate_at(pf->node, offset + len, pf->mount_id);
     process_file_put(pf);
     return ret;
 }

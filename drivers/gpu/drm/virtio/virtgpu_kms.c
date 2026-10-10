@@ -320,7 +320,7 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
     if (!raw_spin_trylock(&vgdev_flush_lock)) return;
 
     damage = (struct virtio_gpu_rect) {x, y, width, height};
-    offset = (uint64_t)y * vgdev_flush_obj->stride + (uint64_t)x * sizeof(uint32_t);
+    offset = ((uint64_t)y * vgdev_flush_obj->stride) + ((uint64_t)x * sizeof(uint32_t));
     {
         int flush_ret = virtgpu_cmd_update_2d(vgdev_flush_ctx, vgdev_flush_obj, &damage, offset);
 
@@ -399,6 +399,16 @@ static int virtgpu_kms_initial_try_mode(struct virtio_gpu_device *vgdev, struct 
     obj->created_3d    = false;
     obj->hw_res_handle = virtgpu_resource_id_alloc(vgdev);
 
+    /*
+     * 3D mode: the host renderer rejects resources that do not belong to a
+     * context, so the driver's own context has to exist before the scanout
+     * resource is created against it.
+     */
+    if (vgdev->has_virgl) {
+        ret = virtgpu_kernel_context_ensure(vgdev);
+        if (ret) goto err_free_obj;
+    }
+
     ret = virtgpu_cmd_create_resource_2d(vgdev, obj);
     if (ret) {
         obj->hw_res_handle = 0;
@@ -408,6 +418,15 @@ static int virtgpu_kms_initial_try_mode(struct virtio_gpu_device *vgdev, struct 
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
     if (ret) goto err_free_obj;
     obj->backing_attached = true;
+
+    if (vgdev->has_virgl) {
+        ret = virtgpu_object_attach_context(vgdev, obj, vgdev->kernel_ctx_id);
+        if (ret) {
+            DRM_ERROR("Scanout: context attach failed (ret=%d, res_id=%u)\n", ret, obj->hw_res_handle);
+            goto err_free_obj;
+        }
+        obj->ctx_id = vgdev->kernel_ctx_id;
+    }
 
     fb = malloc(sizeof(*fb));
     if (!fb) {

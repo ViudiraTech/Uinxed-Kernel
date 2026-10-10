@@ -33,7 +33,7 @@
 #ifndef FF_DEFINED
 #define FF_DEFINED 80386 // Revision ID
 
-#if !defined(FFCONF_DEF)
+#ifndef FFCONF_DEF
 #    include <fs/fatfs/ffconf.h> // FatFs configuration options
 #endif
 #if FF_DEFINED != FFCONF_DEF

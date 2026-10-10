@@ -11,8 +11,11 @@
 #include <cgroup/cgroup.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
+#include <mem/frame.h>
 #include <mem/heap.h>
 #include <process/process.h>
+#include <process/namespace.h>
+#include <process/pid_namespace.h>
 #include <process/sched.h>
 
 #if CONFIG_CGROUP
@@ -46,10 +49,11 @@ typedef struct cgroup {
         uint64_t io_weight;
 
         /* cpuset controller */
-        char cpuset_cpus[64];
-        char cpuset_mems[64];
+        cpumask_t  cpuset_cpus; // empty means inherit
+        nodemask_t cpuset_mems;
 
         /* state */
+        uint64_t events_sequence;
         int      frozen;
         uint32_t refcount;
         int      dying;
@@ -71,7 +75,7 @@ static int parse_u64(const char *value, size_t size, uint64_t *result)
     for (; i < size && value[i] >= '0' && value[i] <= '9'; i++) {
         uint64_t digit = (uint64_t)(value[i] - '0');
         if (n > (UINT64_MAX - digit) / 10) return -ERANGE;
-        n = n * 10 + digit;
+        n = (n * 10) + digit;
     }
     while (i < size && (value[i] == ' ' || value[i] == '\t' || value[i] == '\n')) i++;
     if (i != size) return -EINVAL;
@@ -125,15 +129,20 @@ static int charge_locked(cgroup_t *cgroup)
             return -EAGAIN;
         }
     }
-    for (cgroup_t *cg = cgroup; cg; cg = cg->parent) cg->pids_current++;
+    for (cgroup_t *cg = cgroup; cg; cg = cg->parent) {
+        if (++cg->pids_current == 1) __atomic_add_fetch(&cg->events_sequence, 1, __ATOMIC_RELEASE);
+    }
     return EOK;
 }
 
 /* Release one task's charge from the cgroup and its ancestors */
 static void uncharge_locked(cgroup_t *cgroup)
 {
-    for (cgroup_t *cg = cgroup; cg; cg = cg->parent)
-        if (cg->pids_current) cg->pids_current--;
+    for (cgroup_t *cg = cgroup; cg; cg = cg->parent) {
+        if (!cg->pids_current) continue;
+        cg->pids_current--;
+        if (!cg->pids_current) __atomic_add_fetch(&cg->events_sequence, 1, __ATOMIC_RELEASE);
+    }
 }
 
 /* Find a task by PID, descending into child cgroups */
@@ -148,6 +157,17 @@ static task_t *find_task_locked(cgroup_t *cg, uint64_t pid)
         if (task) return task;
     }
     return NULL;
+}
+
+/* cgroup_lock nests outside scheduler.lock; scheduling reads cached task masks. */
+static void effective_cpuset_locked(cgroup_t *cg, cpumask_t *cpus, nodemask_t *mems)
+{
+    cpumask_fill(cpus, sched_cpu_count());
+    *mems = frame_memory_nodes();
+    for (; cg; cg = cg->parent) {
+        if (cpumask_weight(&cg->cpuset_cpus)) cpumask_and(cpus, cpus, &cg->cpuset_cpus);
+        if (cg->cpuset_mems) *mems &= cg->cpuset_mems;
+    }
 }
 
 /* Move a task into a cgroup, charging and enforcing pids.max on the way */
@@ -165,11 +185,18 @@ static int attach_task_locked(cgroup_t *target, task_t *task)
         }
     }
 
+    cpumask_t  cpus;
+    nodemask_t mems;
+    effective_cpuset_locked(target, &cpus, &mems);
+    int status = sched_set_cpuset(task, &cpus, mems);
+    if (status) return status;
     uncharge_locked(old);
     ilist_remove(&task->cgroup_node);
     task->cgroup = target;
     ilist_insert_before(&target->tasks, &task->cgroup_node);
-    for (cgroup_t *cg = target; cg; cg = cg->parent) cg->pids_current++;
+    for (cgroup_t *cg = target; cg; cg = cg->parent) {
+        if (++cg->pids_current == 1) __atomic_add_fetch(&cg->events_sequence, 1, __ATOMIC_RELEASE);
+    }
     return EOK;
 }
 
@@ -188,9 +215,9 @@ void cgroup_init(void)
     root_cgroup.memory_swap_max = CGROUP_MEMORY_MAX;
     root_cgroup.cpu_weight      = 100;
     root_cgroup.io_weight       = 100;
-    strncpy(root_cgroup.cpuset_cpus, "0-63", sizeof(root_cgroup.cpuset_cpus) - 1);
-    strncpy(root_cgroup.cpuset_mems, "0", sizeof(root_cgroup.cpuset_mems) - 1);
-    root_cgroup.refcount = 1;
+    cpumask_fill(&root_cgroup.cpuset_cpus, sched_cpu_count());
+    root_cgroup.cpuset_mems = frame_memory_nodes();
+    root_cgroup.refcount    = 1;
     ilist_init(&root_cgroup.tasks);
     cgroup_lock.lock = 0;
     cgroup_ready     = 1;
@@ -222,6 +249,22 @@ int cgroup_register_controller(const char *name, uint64_t id)
 cgroup_t *cgroup_root(void)
 {
     return cgroup_ready ? &root_cgroup : NULL;
+}
+
+cgroup_t *cgroup_namespace_root(void)
+{
+    process_t *proc = process_current();
+    cgroup_namespace_t *ns = proc && proc->nsproxy ? proc->nsproxy->cgroup_ns : &init_cgroup_ns;
+    return ns && ns->root_cgroup ? ns->root_cgroup : cgroup_root();
+}
+
+bool cgroup_namespace_visible(cgroup_t *cg)
+{
+    if (!cg) return false;
+    spin_lock(&cgroup_lock);
+    bool visible = !cg->dying && is_descendant(cg, cgroup_namespace_root());
+    spin_unlock(&cgroup_lock);
+    return visible;
 }
 
 /* Take a reference on a cgroup, refusing to resurrect a dying one */
@@ -265,7 +308,11 @@ int cgroup_task_fork(task_t *task, task_t *parent)
     if (!task || !cgroup_ready) return EOK;
     target = parent && parent->cgroup ? parent->cgroup : &root_cgroup;
     spin_lock(&cgroup_lock);
-    status = charge_locked(target);
+    cpumask_t  cpus;
+    nodemask_t mems;
+    effective_cpuset_locked(target, &cpus, &mems);
+    status = sched_set_cpuset(task, &cpus, mems);
+    if (!status) status = charge_locked(target);
     if (status == EOK) {
         task->cgroup = target;
         ilist_insert_before(&target->tasks, &task->cgroup_node);
@@ -319,8 +366,7 @@ int cgroup_create(cgroup_t *parent, const char *name, cgroup_t **result)
     cg->memory_swap_max = CGROUP_MEMORY_MAX;
     cg->cpu_weight      = 100;
     cg->io_weight       = 100;
-    strncpy(cg->cpuset_cpus, parent->cpuset_cpus, sizeof(cg->cpuset_cpus) - 1);
-    strncpy(cg->cpuset_mems, parent->cpuset_mems, sizeof(cg->cpuset_mems) - 1);
+    /* Empty cpus/mems inherit the live parent constraints. */
     cg->refcount = 1;
     ilist_init(&cg->tasks);
 
@@ -483,6 +529,7 @@ int cgroup_set_freeze(cgroup_t *cg, const char *value, size_t size)
     if (val > 1) return -EINVAL;
 
     spin_lock(&cgroup_lock);
+    if (cg->frozen != (int)val) __atomic_add_fetch(&cg->events_sequence, 1, __ATOMIC_RELEASE);
     cg->frozen = (int)val;
     spin_unlock(&cgroup_lock);
     return EOK;
@@ -621,28 +668,87 @@ int cgroup_set_io_weight(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
-/* Set the cgroup cpuset cpus attribute. */
-int cgroup_set_cpuset_cpus(cgroup_t *cg, const char *value, size_t size)
+/* Validate an entire descendant tree before applying any new constraints. */
+static int validate_cpuset_locked(cgroup_t *cg)
 {
-    if (!cg || !value || !size || !cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
-    spin_lock(&cgroup_lock);
-    size_t len = size < sizeof(cg->cpuset_cpus) - 1 ? size : sizeof(cg->cpuset_cpus) - 1;
-    memcpy(cg->cpuset_cpus, value, len);
-    cg->cpuset_cpus[len] = '\0';
-    spin_unlock(&cgroup_lock);
-    return EOK;
+    cpumask_t  cpus;
+    nodemask_t mems;
+    effective_cpuset_locked(cg, &cpus, &mems);
+    if (!cpumask_weight(&cpus) || !mems) return -EINVAL;
+    for (ilist_node_t *node = cg->tasks.next; node != &cg->tasks; node = node->next) {
+        task_t   *task = container_of(node, task_t, cgroup_node);
+        cpumask_t effective;
+        cpumask_and(&effective, &cpus, &task->cpus_allowed);
+        if (!cpumask_weight(&effective)) return -EBUSY;
+    }
+    for (clist_t child = cg->children; child; child = child->next) {
+        int result = validate_cpuset_locked(child->data);
+        if (result) return result;
+    }
+    return 0;
 }
 
-/* Set the cgroup cpuset mems attribute. */
+/* A running task is moved at its next safe context switch. */
+static void publish_cpuset_locked(cgroup_t *cg)
+{
+    cpumask_t  cpus;
+    nodemask_t mems;
+    effective_cpuset_locked(cg, &cpus, &mems);
+    for (ilist_node_t *node = cg->tasks.next; node != &cg->tasks; node = node->next) {
+        task_t *task = container_of(node, task_t, cgroup_node);
+        if (task->state != TASK_ZOMBIE) (void)sched_set_cpuset_locked(task, &cpus, mems);
+    }
+    for (clist_t child = cg->children; child; child = child->next) publish_cpuset_locked(child->data);
+}
+
+int cgroup_set_cpuset_cpus(cgroup_t *cg, const char *value, size_t size)
+{
+    if (!cg || !value || !cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
+    cpumask_t parsed;
+    int       result = cpumask_parse_list(value, size, sched_cpu_count(), &parsed);
+    if (result) return result;
+    spin_lock(&cgroup_lock);
+    if (cg == &root_cgroup) {
+        spin_unlock(&cgroup_lock);
+        return -EACCES;
+    }
+    cpumask_t old   = cg->cpuset_cpus;
+    cg->cpuset_cpus = parsed;
+    uint64_t flags  = spin_lock_irqsave(&scheduler.lock);
+    result          = validate_cpuset_locked(cg);
+    if (result)
+        cg->cpuset_cpus = old;
+    else
+        publish_cpuset_locked(cg);
+    spin_unlock_irqrestore(&scheduler.lock, flags);
+    spin_unlock(&cgroup_lock);
+    return result;
+}
+
 int cgroup_set_cpuset_mems(cgroup_t *cg, const char *value, size_t size)
 {
-    if (!cg || !value || !size || !cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
+    if (!cg || !value || !cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
+    cpumask_t parsed;
+    int       result = cpumask_parse_list(value, size, numa_topology.nr_nodes, &parsed);
+    if (result) return result;
+    nodemask_t nodes = parsed.bits[0];
+    if (nodes & ~frame_memory_nodes()) return -EINVAL;
     spin_lock(&cgroup_lock);
-    size_t len = size < sizeof(cg->cpuset_mems) - 1 ? size : sizeof(cg->cpuset_mems) - 1;
-    memcpy(cg->cpuset_mems, value, len);
-    cg->cpuset_mems[len] = '\0';
+    if (cg == &root_cgroup) {
+        spin_unlock(&cgroup_lock);
+        return -EACCES;
+    }
+    nodemask_t old  = cg->cpuset_mems;
+    cg->cpuset_mems = nodes;
+    uint64_t flags  = spin_lock_irqsave(&scheduler.lock);
+    result          = validate_cpuset_locked(cg);
+    if (result)
+        cg->cpuset_mems = old;
+    else
+        publish_cpuset_locked(cg);
+    spin_unlock_irqrestore(&scheduler.lock, flags);
     spin_unlock(&cgroup_lock);
-    return EOK;
+    return result;
 }
 
 /* Move the task with the given PID (or current task if 0) into this cgroup */
@@ -653,9 +759,14 @@ int cgroup_move_pid(cgroup_t *cg, const char *value, size_t size)
     task_t  *task;
 
     if (status != EOK) return status;
+    if (!cgroup_namespace_visible(cg)) return -EACCES;
+    if (pid) {
+        pid = pid_global_nr_ns(pid_ns_current(), pid);
+        if (!pid) return -ESRCH;
+    }
     spin_lock(&cgroup_lock);
     task = pid == 0 ? current_task() : find_task_locked(&root_cgroup, pid);
-    if (!task || task->state == TASK_ZOMBIE) {
+    if (!task || task->state == TASK_ZOMBIE || !is_descendant(task->cgroup, cgroup_namespace_root())) {
         status = -ESRCH;
     } else {
         status = attach_task_locked(cg, task);
@@ -735,8 +846,14 @@ int cgroup_show_procs(cgroup_t *cg, char *buf, size_t size)
     spin_lock(&cgroup_lock);
     for (ilist_node_t *n = cg->tasks.next; n != &cg->tasks; n = n->next) {
         task_t *task = container_of(n, task_t, cgroup_node);
+        uint64_t visible = task_tgid_nr(task);
+        if (!visible) continue;
+        bool already_shown = false;
+        for (ilist_node_t *previous = cg->tasks.next; previous != n; previous = previous->next)
+            if (task_tgid_nr(container_of(previous, task_t, cgroup_node)) == visible) { already_shown = true; break; }
+        if (already_shown) continue;
         if (at >= size) break;
-        int written = snprintf(buf + at, size - at, "%llu\n", (task->pid));
+        int written = snprintf(buf + at, size - at, "%llu\n", visible);
         if (written < 0) break;
         if ((size_t)written >= size - at) {
             at = size;
@@ -751,10 +868,28 @@ int cgroup_show_procs(cgroup_t *cg, char *buf, size_t size)
 /* Read the cgroup threads attribute. */
 int cgroup_show_threads(cgroup_t *cg, char *buf, size_t size)
 {
-    return cgroup_show_procs(cg, buf, size);
+    size_t at = 0;
+    spin_lock(&cgroup_lock);
+    for (ilist_node_t *n = cg->tasks.next; n != &cg->tasks; n = n->next) {
+        task_t *task = container_of(n, task_t, cgroup_node);
+        uint64_t visible = task_pid_nr(task);
+        if (!visible) continue;
+        int written = snprintf(at < size ? buf + at : buf + size - 1, at < size ? size - at : 0, "%llu\n", visible);
+        if (written < 0) break;
+        at += (size_t)written;
+        if (at >= size) break;
+    }
+    spin_unlock(&cgroup_lock);
+    return (int)(at < size ? at : size);
 }
 
 /* Format the cgroup.events file for this cgroup */
+/* Read without taking cgroup_lock so filesystem notifications can run deferred. */
+uint64_t cgroup_event_sequence(cgroup_t *cg)
+{
+    return cg ? __atomic_load_n(&cg->events_sequence, __ATOMIC_ACQUIRE) : 0;
+}
+
 int cgroup_show_events(cgroup_t *cg, char *buf, size_t size)
 {
     int populated, frozen;
@@ -900,18 +1035,35 @@ int cgroup_show_io_weight(cgroup_t *cg, char *buf, size_t size)
     return snprintf(buf, size, "default %llu\n", cg->io_weight ? cg->io_weight : 100ULL);
 }
 
-/* cpuset controller formatting */
-int cgroup_show_cpuset_cpus(cgroup_t *cg, char *buf, size_t size)
+/* Snapshot configuration/effective masks under the hierarchy lock. */
+int cgroup_show_cpuset(cgroup_t *cg, char *buf, size_t size, bool memory, bool effective)
 {
     if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
-    return snprintf(buf, size, "%s\n", cg->cpuset_cpus[0] ? cg->cpuset_cpus : "0-63");
+    cpumask_t  cpus;
+    nodemask_t mems;
+    spin_lock(&cgroup_lock);
+    if (effective)
+        effective_cpuset_locked(cg, &cpus, &mems);
+    else {
+        cpus = cg->cpuset_cpus;
+        mems = cg->cpuset_mems;
+    }
+    spin_unlock(&cgroup_lock);
+    if (memory) {
+        cpumask_clear(&cpus);
+        cpus.bits[0] = mems;
+    }
+    return cpumask_format_list(buf, size, &cpus);
 }
 
-/* Read the cgroup cpuset mems attribute. */
+int cgroup_show_cpuset_cpus(cgroup_t *cg, char *buf, size_t size)
+{
+    return cgroup_show_cpuset(cg, buf, size, false, false);
+}
+
 int cgroup_show_cpuset_mems(cgroup_t *cg, char *buf, size_t size)
 {
-    if (!cgroup_controller_available(cg, CGROUP_CONTROLLER_CPUSET)) return -EOPNOTSUPP;
-    return snprintf(buf, size, "%s\n", cg->cpuset_mems[0] ? cg->cpuset_mems : "0");
+    return cgroup_show_cpuset(cg, buf, size, true, false);
 }
 
 /* Format the full path of a cgroup, relative to the root hierarchy */
@@ -943,6 +1095,37 @@ int cgroup_format_path(cgroup_t *cg, char *buf, size_t size)
     return (int)length;
 }
 
+/* Linux cgroup namespace paths may start with ../ when outside its root. */
+int cgroup_format_path_ns(cgroup_t *cg, cgroup_t *root, char *buf, size_t size)
+{
+    if (!cg || !root || !buf || size < 2) return -EINVAL;
+    spin_lock(&cgroup_lock);
+    if (cg->dying || root->dying) { spin_unlock(&cgroup_lock); return -ENOENT; }
+    cgroup_t *common = root;
+    size_t upward = 0;
+    while (common && !is_descendant(cg, common)) { common = common->parent; upward++; }
+    if (!common) { spin_unlock(&cgroup_lock); return -ENOENT; }
+    size_t at = size - 1;
+    buf[at] = '\0';
+    for (cgroup_t *current = cg; current != common; current = current->parent) {
+        size_t length = strlen(current->name);
+        if (length + 1 > at) { spin_unlock(&cgroup_lock); return -ENAMETOOLONG; }
+        at -= length;
+        memcpy(buf + at, current->name, length);
+        buf[--at] = '/';
+    }
+    for (size_t i = 0; i < upward; i++) {
+        if (at < 3) { spin_unlock(&cgroup_lock); return -ENAMETOOLONG; }
+        at -= 3;
+        memcpy(buf + at, "/..", 3);
+    }
+    if (at == size - 1) buf[--at] = '/';
+    size_t length = size - at - 1;
+    memmove(buf, buf + at, length + 1);
+    spin_unlock(&cgroup_lock);
+    return (int)length;
+}
+
 /* Count the cgroups in this subtree, including the given one */
 static uint64_t cgroup_count_locked(cgroup_t *cg)
 {
@@ -956,7 +1139,7 @@ int cgroup_format_proc_cgroups(char *buf, size_t size)
 {
     if (!buf || !size) return -EINVAL;
     spin_lock(&cgroup_lock);
-    uint64_t count       = cgroup_ready ? cgroup_count_locked(&root_cgroup) : 0;
+    uint64_t count       = cgroup_ready ? cgroup_count_locked(cgroup_namespace_root()) : 0;
     uint64_t controllers = registered_controllers;
     spin_unlock(&cgroup_lock);
 

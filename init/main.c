@@ -65,6 +65,7 @@
 #include <fs/sysfs/pci_sysfs.h>
 #include <fs/sysfs/rtc_sysfs.h>
 #include <fs/sysfs/sound_sysfs.h>
+#include <fs/sysfs/topology_sysfs.h>
 #include <fs/sysfs/tpm_sysfs.h>
 #include <fs/sysfs/tty_sysfs.h>
 #include <fs/sysfs/usb_sysfs.h>
@@ -78,10 +79,12 @@
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
 #include <kernel/timer/timer.h>
+#include <kernel/vdso/vdso.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/numa.h>
 #include <mem/swap.h>
 #include <net/core/loopback.h>
 #include <net/core/netdev.h>
@@ -91,6 +94,7 @@
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
 #include <process/elf_loader.h>
+#include <process/namespace.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <security/seccomp.h>
@@ -146,12 +150,10 @@ static void swapper_run_init(void)
      * PID 1 starts with full system credentials.  Login/session services are
      * responsible for dropping to the configured desktop user later.
      */
-    init->uid      = 0;
-    init->gid      = 0;
-    init->fsuid    = 0;
-    init->fsgid    = 0;
-    init_process   = init;
-    pid_t init_sid = 0;
+    init->ruid = init->uid = init->suid = init->fsuid = 0;
+    init->rgid = init->gid = init->sgid = init->fsgid = 0;
+    init_process                                      = init;
+    pid_t init_sid                                    = 0;
     if (process_setsid(init, &init_sid) || init_sid != 1 || init->pgid != 1) panic("Failed to establish init session.");
 
     /*
@@ -252,6 +254,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     fpu_init();             // Floating-Point Unit / Streaming SIMD Extensions
                             //
     /* Memory Management */ //
+    numa_init();            // Early SRAT/SLIT topology
     init_frame();           // Physical Memory Frame
     page_init();            // Standard 4-Level Page Table
     init_heap();            // Standard Memory Heap
@@ -324,6 +327,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     init_vfs();                                                    // Virtual Filesystem
     tmpfs_regist();                                                // Temporary File System
     procfs_regist();                                               // Process File System
+    namespace_fs_init();                                           // Namespace file descriptors
     sysfs_regist();                                                // Register sysfs with the VFS layer
     cgroupfs_regist();                                             // Unified Control Group File System
 
@@ -384,6 +388,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     init_cpio();                   // Copy In, Copy Out
                                    //
     /* Sysfs Population */         //
+    topology_sysfs_init();         // CPU/node topology and scheduling domains
     kernel_sysfs_init();           // /sys/kernel/{version,cmdline,hostname,...}
     pci_sysfs_init();              // /sys/bus/pci/ + /sys/devices/pci*
     i2c_sysfs_init();              // /sys/bus/i2c + /sys/class/i2c-dev
@@ -421,6 +426,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     rtl8139_start_workers();      // Register rtl8139 workers
     usb_host_start_workers();     // Register USB host workers
     video_start_refresh_worker(); // Register display refresh worker
+    vdso_init();                  // Publish the shared time page and vDSO image
     timer_deferred_init();        // Register timer bottom-half processing
     kernel_workers_start();       // Create every registered kernel worker
     swapper_enqueue_init();       // Finally make init runnable

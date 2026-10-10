@@ -71,7 +71,7 @@ static int extfs_dx_checksum_verify(extfs_handle_t *dir_h, uint32_t logical, con
     uint16_t limit, count;
     memcpy(&limit, block + count_offset, 2);
     memcpy(&count, block + count_offset + 2, 2);
-    if (!count || count > limit || count_offset + (uint32_t)limit * 8 + 8 > dir_h->sb->block_size) return 0;
+    if (!count || count > limit || count_offset + ((uint32_t)limit * 8) + 8 > dir_h->sb->block_size) return 0;
     const uint8_t *tail = block + count_offset + ((size_t)limit * 8);
     uint32_t       reserved, stored;
     memcpy(&reserved, tail, 4);
@@ -92,7 +92,7 @@ static int extfs_dir_is_dx_node(extfs_handle_t *dir_h, const uint8_t *block)
     if (fake->inode || fake->rec_len != dir_h->sb->block_size) return 0;
     memcpy(&limit, block + 8, 2);
     memcpy(&count, block + 10, 2);
-    return count && count <= limit && 8 + (uint32_t)limit * 8 <= dir_h->sb->block_size;
+    return count && count <= limit && 8 + ((uint32_t)limit * 8) <= dir_h->sb->block_size;
 }
 
 /* Verify a directory block, covering linear and HTree checksums. */
@@ -286,7 +286,7 @@ int extfs_dir_lookup(extfs_handle_t *dir_h, const char *name, uint32_t *ino)
     uint64_t dir_size = raw.i_size;
     for (block_num = 0; (uint64_t)block_num * sb->block_size < dir_size; block_num++) {
         uint32_t offset = 0;
-        uint32_t valid  = (uint32_t)((dir_size - (uint64_t)block_num * sb->block_size) > sb->block_size ? sb->block_size : dir_size - ((uint64_t)block_num * sb->block_size));
+        uint32_t valid  = (uint32_t)((dir_size - ((uint64_t)block_num * sb->block_size)) > sb->block_size ? sb->block_size : dir_size - ((uint64_t)block_num * sb->block_size));
 
         phys = extfs_map_block(dir_h, block_num, 0);
         if (!phys) continue;

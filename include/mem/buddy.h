@@ -14,7 +14,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define BUDDY_INDEX_NONE ((int32_t) - 1)
+#define BUDDY_INDEX_NONE ((int32_t)-1)
 
 typedef enum {
     BUDDY_PAGE_RESERVED = 0,
@@ -30,7 +30,7 @@ typedef struct {
         uint32_t tag; // Caller-owned while the page is allocated/reserved.
         uint8_t  order;
         uint8_t  state;
-        uint16_t reserved;
+        uint16_t reserved; // immutable node ID in bits 1..15; bit 0 is PCP handoff
 } buddy_page_t;
 
 typedef struct {
@@ -38,6 +38,7 @@ typedef struct {
         size_t        page_count;
         size_t        free_pages;
         uint8_t       max_order;
+        uint16_t      node; // free lists own only pages with this node ID
         int32_t       free_head[CONFIG_BUDDY_MAX_ORDER + 1];
         size_t        free_count[CONFIG_BUDDY_MAX_ORDER + 1];
 } buddy_allocator_t;

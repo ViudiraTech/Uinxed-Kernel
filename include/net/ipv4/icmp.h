@@ -40,6 +40,8 @@ typedef struct icmp_endpoint icmp_endpoint_t;
 typedef void (*icmp_event_callback_t)(icmp_endpoint_t *endpoint, uint32_t events, void *context);
 
 typedef struct icmp_endpoint {
+        struct net_namespace *net_ns;
+        uint32_t bound_ifindex;
         uint32_t              local_address;
         uint32_t              remote_address;
         uint16_t              queue_length;

@@ -94,7 +94,7 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *buffer, size_t size)
 {
     for (size_t i = 0; i < size; i++) {
         crc ^= buffer[i];
-        for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0xEDB88320U & (uint32_t) - (int32_t)(crc & 1));
+        for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0xEDB88320U & (uint32_t)-(int32_t)(crc & 1));
     }
     return crc;
 }
@@ -322,7 +322,7 @@ static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_
     if (!location->entry_count || location->entry_size < 128 || location->entry_size % 128 || !is_power_of_two(location->entry_size / 128)) return -EINVAL;
     if (location->entry_count > UINT64_MAX / location->entry_size) return -EOVERFLOW;
     location->entries_bytes = (uint64_t)location->entry_count * location->entry_size;
-    entry_blocks            = location->entries_bytes / device->sector_size + (location->entries_bytes % device->sector_size != 0);
+    entry_blocks            = (location->entries_bytes / device->sector_size) + (location->entries_bytes % device->sector_size != 0);
 
     if (!entry_blocks || location->entries_lba >= device->sector_count || entry_blocks > device->sector_count - location->entries_lba) return -EINVAL;
     table_end = location->entries_lba + entry_blocks;

@@ -639,7 +639,7 @@ static void ehci_service_periodic(ehci_controller_t *ctrl)
             actual = 0;
         }
         if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE) && (actual || status != EOK)) transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
-        transfer->next_poll = nano_time() + (uint64_t)transfer->interval_ms * 1000000ULL;
+        transfer->next_poll = nano_time() + ((uint64_t)transfer->interval_ms * 1000000ULL);
         __atomic_store_n(&transfer->in_callback, false, __ATOMIC_RELEASE);
     }
 }

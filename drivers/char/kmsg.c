@@ -13,6 +13,7 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <syscall/poll.h>
 
 #define KMSG_MAJOR 1
 #define KMSG_MINOR 11
@@ -32,6 +33,15 @@ static int64_t kmsg_read(void *ctx, void *private_data, uint64_t flags, void *bu
      * kmsg reader observes no queued record rather than EOF.
      */
     return -EAGAIN;
+}
+
+/* Match read readiness: the console-only backend has no queued records. */
+static int kmsg_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
+{
+    (void)ctx;
+    (void)private_data;
+    (void)flags;
+    return (int)(events & POLLOUT);
 }
 
 /* Print the written message to the kernel log. */
@@ -74,6 +84,7 @@ void kmsgdev_init(void)
     static const tmpfs_device_ops_t ops = {
         .file_read  = kmsg_read,
         .file_write = kmsg_write,
+        .file_poll  = kmsg_poll,
     };
     if (cdev_add("", "kmsg", KMSG_MAJOR, KMSG_MINOR, 1, file_stream, 0600, &ops) != EOK) plogk("chrdev: Cannot register /dev/kmsg\n");
 }

@@ -97,11 +97,13 @@ typedef struct vm_area {
         void            *vm_private_data;   // driver-private per-VMA data
         void (*vm_private_put)(void *data); // release hook for vm_private_data
         void (*vm_private_get)(void *data); // fork-copy hook for vm_private_data
-        bool vm_pagecache;                  // VMA pins a regular-file cache mapping
+        numa_policy_t mempolicy;            // default inherits the faulting task policy
+        bool          vm_pagecache;         // VMA pins a regular-file cache mapping
 } vm_area_t;
 
 typedef struct process_file {
         vfs_node_t             node;
+        uint64_t               mount_id;
         size_t                 offset;
         uint64_t               flags;
         uint32_t               refcount;
@@ -145,6 +147,14 @@ typedef struct process {
         slist_t           children;
         wait_queue_t      child_wait; // fork/exit/wait condition queue
 
+        /*
+         * Readiness source shared by every pidfd that refers to this process.
+         * It is closed on exit, which both wakes current epoll/poll waiters and
+         * makes later subscribers report ready immediately.  Zero-initialised
+         * by calloc(), which is the correct initial state for a poll source.
+         */
+        vfs_poll_source_t pidfd_source;
+
         /* Persistent queue for pause/sigsuspend; never points into a syscall stack. */
         wait_queue_t signal_wait;
 
@@ -153,14 +163,23 @@ typedef struct process {
          * releases the parent while the child remains alive.  The condition
          * and waiter list are both protected by vfork_wait.lock.
          */
-        wait_queue_t    vfork_wait;
-        bool            vfork_done;
-        int             exit_code;
-        int             wait_stop_signal;
-        bool            wait_stop_pending;
-        bool            wait_continue_pending;
-        uint32_t        uid;
+        wait_queue_t vfork_wait;
+        bool         vfork_done;
+        int          exit_code;
+        int          wait_stop_signal;
+        bool         wait_stop_pending;
+        bool         wait_continue_pending;
+        /*
+         * Real, effective and saved set-user-ID.  Capability transitions key
+         * off all three (see capabilities(7)), so the effective ID alone is
+         * not enough to model setuid(2)/setreuid(2)/setresuid(2).
+         */
+        uint32_t        ruid;
+        uint32_t        uid; // effective user ID
+        uint32_t        suid;
+        uint32_t        rgid;
         uint32_t        gid;
+        uint32_t        sgid;
         uint32_t        fsuid;
         uint32_t        fsgid;
         uint32_t        supplementary_groups[CONFIG_PROCESS_MAX_GROUPS];
@@ -198,6 +217,8 @@ typedef struct process {
         spinlock_t      seccomp_lock;
         pid_t           pgid;
         pid_t           sid;
+        uint32_t        pgid_numbers[PID_NS_MAX_LEVEL + 1];
+        uint32_t        sid_numbers[PID_NS_MAX_LEVEL + 1];
         bool            is_child_subreaper;
         tty_core_t     *controlling_tty;
         char            name[PROCESS_NAME_LEN];
@@ -361,6 +382,7 @@ void process_mmap_destroy_detached(process_t *proc, vm_area_t *list);
 
 /* Attach an opened VFS node to a file descriptor table */
 int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags);
+int process_fd_install_at(process_t *proc, vfs_node_t node, uint64_t flags, uint64_t mount_id);
 
 /* Install another reference to an existing open-file description. */
 int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flags);
@@ -422,6 +444,7 @@ process_file_t *process_fd_get(process_t *proc, int fd);
 /* Descriptor-like references used while an SCM_RIGHTS fd is in flight. */
 process_file_t *process_fd_get_for_transfer(process_t *proc, int fd);
 void            process_file_put_transfer(process_file_t *file);
+void            process_file_get_transfer(process_file_t *file);
 
 /* Poll an open-file description for events. */
 int process_file_poll(process_file_t *file, size_t events);

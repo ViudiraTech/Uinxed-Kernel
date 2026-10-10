@@ -279,7 +279,7 @@ int ndp_router_solicit(net_device_t *device)
 /* Derive the link-local address, set the MTU, and solicit a router. */
 void ndp_device_up(net_device_t *device)
 {
-    if (!device) return;
+    if (!device || (device->flags & NETDEV_F_LOOPBACK)) return;
     ipv6_address_t link_local;
     ipv6_link_local_from_mac(&link_local, device->address);
     memcpy(device->ipv6_link_local, link_local.bytes, 16);

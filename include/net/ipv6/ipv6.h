@@ -93,6 +93,7 @@ static inline int ipv6_input(net_device_t *, net_pbuf_t *)
 
 int  ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit, net_pbuf_t *packet);
 int  ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop);
+int  ipv6_route_ns(struct net_namespace *ns, const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop);
 int  ipv6_set_transport_handler(uint8_t protocol, ipv6_transport_input_t handler);
 int  ipv6_set_error_hook(ipv6_error_hook_t hook);
 void ipv6_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length);

@@ -55,6 +55,7 @@
 /* rtnetlink message types used for read-only network discovery. */
 #define RTM_NEWLINK  16
 #define RTM_GETLINK  18
+#define RTM_SETLINK  19
 #define RTM_NEWADDR  20
 #define RTM_GETADDR  22
 #define RTM_NEWROUTE 24
@@ -170,15 +171,16 @@ _Static_assert(sizeof(rtattr_t) == 4, "Linux rtattr ABI");
 #define NETLINK_SMC            22 // SMC protocol
 #define NETLINK_INET_DIAG      23 // INET socket monitoring
 
-#define NETLINK_ADD_MEMBERSHIP  1  // Join a multicast group
-#define NETLINK_DROP_MEMBERSHIP 2  // Leave a multicast group
-#define NETLINK_PKTINFO         3  // Request packet metadata (dst port/pid)
-#define NETLINK_BROADCAST_ERROR 4  // Notify multicast send errors to the group
-#define NETLINK_NO_ENOBUFS      5  // Suppress ENOBUFS when the socket queue is full
-#define NETLINK_LISTEN_ALL_NSID 8  // Listen across all network namespaces
-#define NETLINK_CAP_ACK         10 // Require CAP_NET_ADMIN for netlink acks
-#define NETLINK_EXT_ACK         11 // Request extended acknowledgement
-#define NETLINK_GET_STRICT_CHK  12 // Strict checking for GET requests
+#define NETLINK_ADD_MEMBERSHIP   1  // Join a multicast group
+#define NETLINK_DROP_MEMBERSHIP  2  // Leave a multicast group
+#define NETLINK_PKTINFO          3  // Request packet metadata (dst port/pid)
+#define NETLINK_BROADCAST_ERROR  4  // Notify multicast send errors to the group
+#define NETLINK_NO_ENOBUFS       5  // Suppress ENOBUFS when the socket queue is full
+#define NETLINK_LISTEN_ALL_NSID  8  // Listen across all network namespaces
+#define NETLINK_LIST_MEMBERSHIPS 9  // Query the subscribed multicast-group bitmap
+#define NETLINK_CAP_ACK          10 // Require CAP_NET_ADMIN for netlink acks
+#define NETLINK_EXT_ACK          11 // Request extended acknowledgement
+#define NETLINK_GET_STRICT_CHK   12 // Strict checking for GET requests
 
 /* Netlink socket state - per-socket private data */
 #define NL_SOCK_RECV_BUF_SIZE (128 * 1024) // 128KB default recv buffer
@@ -292,6 +294,7 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
 void netlink_close(struct socket *sk);
 
 /* Netlink-specific poll */
+int netlink_readable_bytes(struct socket *sk);
 int netlink_poll(struct socket *sk, size_t events);
 
 int netlink_packet_info_enabled(struct socket *sk);
@@ -346,6 +349,10 @@ static inline int netlink_recvmsg_kern(struct socket *, void *, size_t, sockaddr
 }
 static inline void netlink_close(struct socket *) {}
 static inline int  netlink_poll(struct socket *, size_t)
+{
+    return -ENOSYS;
+}
+static inline int netlink_readable_bytes(struct socket *)
 {
     return -ENOSYS;
 }

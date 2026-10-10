@@ -68,7 +68,7 @@ static int vp_scan_caps(struct vp_device *dev)
          *   dword 3: length (le32)
          */
         for (i = 0; i < 4; i++) {
-            reg.offset  = cap_off + i * 4;
+            reg.offset  = cap_off + (i * 4);
             cap_data[i] = read_pci(reg);
         }
 
@@ -246,7 +246,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     vq->notify_off       = common->queue_notify_off;
 
     /* Allocate descriptor table, available ring, used ring as one block */
-    alloc_size = num * sizeof(struct vring_desc) + sizeof(struct vring_avail) + num * sizeof(uint16_t) + sizeof(struct vring_used) + num * sizeof(struct vring_used_elem);
+    alloc_size = (num * sizeof(struct vring_desc)) + sizeof(struct vring_avail) + (num * sizeof(uint16_t)) + sizeof(struct vring_used) + (num * sizeof(struct vring_used_elem));
 
     /* Align to page */
     alloc_size = (alloc_size + 4095) & ~4095;
@@ -261,8 +261,8 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     memset(vq->queue_mem, 0, alloc_size);
 
     vq->desc  = (struct vring_desc *)vq->queue_mem;
-    vq->avail = (struct vring_avail *)((uint8_t *)vq->desc + num * sizeof(struct vring_desc));
-    vq->used  = (struct vring_used *)((uint8_t *)vq->avail + sizeof(struct vring_avail) + num * sizeof(uint16_t));
+    vq->avail = (struct vring_avail *)((uint8_t *)vq->desc + (num * sizeof(struct vring_desc)));
+    vq->used  = (struct vring_used *)((uint8_t *)vq->avail + sizeof(struct vring_avail) + (num * sizeof(uint16_t)));
 
     /* Initialize free descriptor list */
     vq->free_descs = malloc(num * sizeof(uint16_t));

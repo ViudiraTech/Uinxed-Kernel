@@ -10255,7 +10255,7 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
             hi = sizeof CVTBL(uni2oem, FF_CODE_PAGE) / 4 - 1;
             li = 0;
             for (n = 16; n; n--) {
-                i = li + (hi - li) / 2;
+                i = li + ((hi - li) / 2);
                 if (uc == p[(unsigned long)i * 2]) break;
                 if (uc > p[(unsigned long)i * 2]) {
                     li = i;
@@ -10284,7 +10284,7 @@ WCHAR ff_oem2uni(WCHAR oem, WORD cp)
             hi = sizeof CVTBL(oem2uni, FF_CODE_PAGE) / 4 - 1;
             li = 0;
             for (n = 16; n; n--) {
-                i = li + (hi - li) / 2;
+                i = li + ((hi - li) / 2);
                 if (oem == p[(unsigned long)i * 2]) break;
                 if (oem > p[(unsigned long)i * 2]) {
                     li = i;
@@ -10331,19 +10331,19 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
                 switch (cp) { // Get conversion table
                     case 932 :
                         p  = uni2oem932;
-                        hi = sizeof uni2oem932 / 4 - 1;
+                        hi = (sizeof uni2oem932 / 4) - 1;
                         break;
                     case 936 :
                         p  = uni2oem936;
-                        hi = sizeof uni2oem936 / 4 - 1;
+                        hi = (sizeof uni2oem936 / 4) - 1;
                         break;
                     case 949 :
                         p  = uni2oem949;
-                        hi = sizeof uni2oem949 / 4 - 1;
+                        hi = (sizeof uni2oem949 / 4) - 1;
                         break;
                     case 950 :
                         p  = uni2oem950;
-                        hi = sizeof uni2oem950 / 4 - 1;
+                        hi = (sizeof uni2oem950 / 4) - 1;
                         break;
                     default :
                         break;
@@ -10351,7 +10351,7 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
                 if (p) { // Is it valid code page?
                     li = 0;
                     for (n = 16; n; n--) { // Find OEM code
-                        i = li + (hi - li) / 2;
+                        i = li + ((hi - li) / 2);
                         if (uc == p[(QWORD)i * 2]) break;
                         if (uc > p[(QWORD)i * 2]) {
                             li = i;
@@ -10388,19 +10388,19 @@ WCHAR ff_oem2uni(WCHAR oem, WORD cp)
             switch (cp) {
                 case 932 :
                     p  = oem2uni932;
-                    hi = sizeof oem2uni932 / 4 - 1;
+                    hi = (sizeof oem2uni932 / 4) - 1;
                     break;
                 case 936 :
                     p  = oem2uni936;
-                    hi = sizeof oem2uni936 / 4 - 1;
+                    hi = (sizeof oem2uni936 / 4) - 1;
                     break;
                 case 949 :
                     p  = oem2uni949;
-                    hi = sizeof oem2uni949 / 4 - 1;
+                    hi = (sizeof oem2uni949 / 4) - 1;
                     break;
                 case 950 :
                     p  = oem2uni950;
-                    hi = sizeof oem2uni950 / 4 - 1;
+                    hi = (sizeof oem2uni950 / 4) - 1;
                     break;
                 default :
                     break;
@@ -10408,7 +10408,7 @@ WCHAR ff_oem2uni(WCHAR oem, WORD cp)
             if (p) {
                 li = 0;
                 for (n = 16; n; n--) {
-                    i = li + (hi - li) / 2;
+                    i = li + ((hi - li) / 2);
                     if (oem == p[(QWORD)i * 2]) break;
                     if (oem > p[(QWORD)i * 2]) {
                         li = i;

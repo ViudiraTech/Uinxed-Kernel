@@ -11,6 +11,7 @@
 #include <fs/core/vfs_stub.h>
 #include <fs/tmpfs/tmpfs.h>
 #include <kernel/printk.h>
+#include <kernel/termios.h>
 #include <libs/std/string.h>
 #include <libs/util/bitops.h>
 #include <mem/heap.h>
@@ -18,6 +19,7 @@
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
 #include <process/process.h>
+#include <process/namespace.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <syscall/fcntl.h>
@@ -38,6 +40,14 @@ typedef struct unix_seqpacket_header {
         uint32_t length;
         ucred_t  credentials;
 } unix_seqpacket_header_t;
+
+/* Datagram metadata and the rights count belong to the complete queued record. */
+typedef struct unix_dgram_header {
+        uint32_t      length;
+        sockaddr_un_t address;
+        ucred_t       credentials;
+        uint16_t      rights_count;
+} unix_dgram_header_t;
 
 /* Bound-address registry - UNIX-domain namespace */
 typedef struct sock_bound {
@@ -62,7 +72,7 @@ static void sock_blocked_wake_all(socket_t *sk);
 static void socket_poll_notify(socket_t *sk, uint32_t events);
 static void socket_disconnect_peer(socket_t *sk);
 
-static int  sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out);
+static int  sock_bound_lookup(net_namespace_t *ns, const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out);
 static int  sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen, int abstract);
 static void sock_bound_remove(socket_t *sk);
 
@@ -94,10 +104,11 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags);
 
 /* AF_UNIX gram send. */
-static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags);
+static int unix_dgram_send_rights(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags, process_file_t **rights, size_t rights_count);
 
 /* AF_UNIX gram recv. */
-static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials, int *message_flags, size_t *record_size);
+static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials, int *message_flags, size_t *record_size,
+                           process_file_t **received_rights, size_t *received_count);
 
 /* Socket vfs read. */
 static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size);
@@ -346,51 +357,32 @@ static void sock_blocked_wake_all(socket_t *sk)
 }
 
 /* Bound-address registry */
-static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out)
+static int sock_bound_lookup(net_namespace_t *ns, const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out)
 {
+    /* Pathname sockets are filesystem objects, abstract names are netns-local. */
+    vfs_node_t node = abstract ? NULL : vfs_open(addr->sun_path);
+    if (!abstract && !node) { *out = NULL; return -EADDRNOTAVAIL; }
     spin_lock(&sock_bound_lock);
     for (int i = 0; i < CONFIG_SOCK_BOUND_MAX; i++) {
-        if (sock_bound_tab[i].sk == NULL) continue;
-        if (sock_bound_tab[i].abstract != abstract) continue;
-
+        sock_bound_t *entry = &sock_bound_tab[i];
+        if (!entry->sk || entry->abstract != abstract) continue;
+        bool match;
         if (abstract) {
-            uint32_t len_a = sock_bound_tab[i].addrlen > sizeof(uint16_t) ? sock_bound_tab[i].addrlen - sizeof(uint16_t) : 0;
-            uint32_t len_b = addrlen > sizeof(uint16_t) ? addrlen - sizeof(uint16_t) : 0;
-            bool     match = false;
-            if (len_a == len_b && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, len_a) == 0) {
-                match = true;
-            } else if (sock_bound_tab[i].addr.sun_path[0] == '\0' && addr->sun_path[0] == '\0') {
-                size_t sa_len = strnlen_local(sock_bound_tab[i].addr.sun_path + 1, UNIX_PATH_MAX - 1);
-                size_t sb_len = strnlen_local(addr->sun_path + 1, UNIX_PATH_MAX - 1);
-                if (sa_len == sb_len && memcmp(sock_bound_tab[i].addr.sun_path + 1, addr->sun_path + 1, sa_len) == 0) match = true;
-            }
-            if (match) {
-                *out = sock_bound_tab[i].sk;
-                socket_ref(*out);
-                spin_unlock(&sock_bound_lock);
-                return EOK;
-            }
+            match = entry->sk->net_ns == ns && entry->addrlen == addrlen
+                    && !memcmp(entry->addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t));
         } else {
-            /*
-             * Pathname addresses are identified by sun_path.  Applications
-             * may use either the minimal sockaddr length or a larger structure
-             * containing the same NUL-terminated path, so unlike abstract
-             * names addrlen must not participate in this match.
-             */
-            if (strncmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, UNIX_PATH_MAX) == 0) {
-                /* Also verify the saved path length matches */
-                size_t a = strlen(sock_bound_tab[i].addr.sun_path);
-                size_t b = strnlen_local(addr->sun_path, UNIX_PATH_MAX);
-                if (a == b) {
-                    *out = sock_bound_tab[i].sk;
-                    socket_ref(*out);
-                    spin_unlock(&sock_bound_lock);
-                    return EOK;
-                }
-            }
+            vfs_node_t bound = entry->sk->bound_node;
+            match = bound && bound->fsid == node->fsid && bound->inode == node->inode;
+        }
+        if (match && socket_try_ref(entry->sk)) {
+            *out = entry->sk;
+            spin_unlock(&sock_bound_lock);
+            if (node) vfs_close(node);
+            return EOK;
         }
     }
     spin_unlock(&sock_bound_lock);
+    if (node) vfs_close(node);
     *out = NULL;
     return -EADDRNOTAVAIL;
 }
@@ -400,26 +392,19 @@ static int sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addr
 {
     spin_lock(&sock_bound_lock);
 
-    /* Check for duplicates */
+    /* Abstract names include every byte in the supplied sockaddr length. */
     for (int i = 0; i < CONFIG_SOCK_BOUND_MAX; i++) {
-        if (sock_bound_tab[i].sk == NULL) continue;
-        if (sock_bound_tab[i].abstract != abstract) continue;
-
+        sock_bound_t *entry = &sock_bound_tab[i];
+        if (!entry->sk || entry->abstract != abstract) continue;
+        bool duplicate;
         if (abstract) {
-            if (sock_bound_tab[i].addrlen == addrlen && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
-                spin_unlock(&sock_bound_lock);
-                return -EADDRINUSE;
-            }
+            duplicate = entry->sk->net_ns == sk->net_ns && entry->addrlen == addrlen
+                        && !memcmp(entry->addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t));
         } else {
-            if (strncmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, UNIX_PATH_MAX) == 0) {
-                size_t a = strlen(sock_bound_tab[i].addr.sun_path);
-                size_t b = strnlen_local(addr->sun_path, UNIX_PATH_MAX);
-                if (a == b) {
-                    spin_unlock(&sock_bound_lock);
-                    return -EADDRINUSE;
-                }
-            }
+            vfs_node_t a = entry->sk->bound_node, b = sk->bound_node;
+            duplicate = a && b && a->fsid == b->fsid && a->inode == b->inode;
         }
+        if (duplicate) { spin_unlock(&sock_bound_lock); return -EADDRINUSE; }
     }
 
     /* Find free slot */
@@ -471,7 +456,7 @@ size_t socket_format_unix_table(char *buffer, size_t capacity)
     for (int i = 0; i < CONFIG_SOCK_BOUND_MAX && used < capacity - 1; i++) {
         sock_bound_t *bound = &sock_bound_tab[i];
         socket_t     *sk    = bound->sk;
-        if (!sk) continue;
+        if (!sk || sk->net_ns != net_namespace_current()) continue;
 
         char   path[UNIX_PATH_MAX + 1];
         size_t path_len = bound->addrlen > sizeof(uint16_t) ? bound->addrlen - sizeof(uint16_t) : 0;
@@ -555,6 +540,7 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     sk = calloc(1, sizeof(socket_t));
     if (!sk) return NULL;
 
+    sk->net_ns   = net_ns_get(net_namespace_current());
     sk->state    = SOCK_STATE_UNCONNECTED;
     sk->family   = family;
     sk->type     = type;
@@ -563,6 +549,7 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     wait_queue_init(&sk->waitq);
 
     if (sock_buf_init(&sk->recv_buf, CONFIG_SOCK_BUF_SIZE) != EOK) {
+        net_ns_put(sk->net_ns);
         free(sk);
         return NULL;
     }
@@ -611,6 +598,7 @@ static socket_t *inet_socket_alloc(uint16_t family, uint16_t type, uint16_t prot
 {
     socket_t *sk = calloc(1, sizeof(socket_t));
     if (!sk) return NULL;
+    sk->net_ns   = net_ns_get(net_namespace_current());
     sk->state    = SOCK_STATE_UNCONNECTED;
     sk->family   = family;
     sk->type     = type;
@@ -830,6 +818,7 @@ static void socket_destroy(socket_t *sk)
     sock_buf_free(&sk->recv_buf);
     sock_buf_free(&sk->send_buf);
 
+    net_ns_put(sk->net_ns);
     free(sk);
 }
 
@@ -1122,7 +1111,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     if (ret != EOK) return ret;
 
     /* Look up the listening socket */
-    ret = sock_bound_lookup(addr, addrlen, abstract, &listener);
+    ret = sock_bound_lookup(sk->net_ns, addr, addrlen, abstract, &listener);
     if (ret != EOK || !listener) return -ECONNREFUSED;
 
     spin_lock(&listener->lock);
@@ -1151,6 +1140,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
         return -ENOMEM;
     }
 
+    server->net_ns   = net_ns_get(listener->net_ns);
     server->state    = SOCK_STATE_CONNECTED;
     server->family   = sk->family;
     server->type     = sk->type;
@@ -1162,6 +1152,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     if (sock_buf_init(&server->recv_buf, CONFIG_SOCK_BUF_SIZE) != EOK) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("socket: Unix stream connect recv buffer allocation failed.\n");
+        net_ns_put(server->net_ns);
         free(server);
         spin_unlock(&listener->lock);
         return -ENOMEM;
@@ -1170,6 +1161,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("socket: Unix stream connect send buffer allocation failed.\n");
         sock_buf_free(&server->recv_buf);
+        net_ns_put(server->net_ns);
         free(server);
         spin_unlock(&listener->lock);
         return -ENOMEM;
@@ -1197,7 +1189,11 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
         socket_unref(server);
         return error;
     }
-    server->peer = sk;
+    server->peer_credentials       = (ucred_t) {sk->pid, sk->uid, sk->gid};
+    server->peer_credentials_valid = true;
+    sk->peer_credentials           = (ucred_t) {server->pid, server->uid, server->gid};
+    sk->peer_credentials_valid     = true;
+    server->peer                   = sk;
     socket_ref(sk);
     sk->peer = server;
     socket_ref(server);
@@ -1677,7 +1673,7 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
 }
 
 /* UNIX datagram send */
-static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags)
+static int unix_dgram_send_rights(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags, process_file_t **rights, size_t rights_count)
 {
     socket_t *dest __attribute__((cleanup(socket_scoped_unref))) = NULL;
     int       abstract;
@@ -1687,7 +1683,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
     if (sk->type != SOCK_DGRAM) return -EOPNOTSUPP;
     is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
 
-    const uint32_t header_size = sizeof(uint32_t) + sizeof(sockaddr_un_t) + sizeof(ucred_t);
+    const uint32_t header_size = sizeof(unix_dgram_header_t);
     if (len > CONFIG_SOCK_BUF_MAX - header_size) return -EMSGSIZE;
 
     /* If no destination address, use peer address (connected dgram) */
@@ -1695,7 +1691,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
         ret = unix_addr_parse(addr, addrlen, &abstract);
         if (ret != EOK) return ret;
 
-        ret = sock_bound_lookup(addr, addrlen, abstract, &dest);
+        ret = sock_bound_lookup(sk->net_ns, addr, addrlen, abstract, &dest);
         if (ret != EOK || !dest) return -ECONNREFUSED;
     } else {
         spin_lock(&sk->lock);
@@ -1708,12 +1704,16 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
     if (dest == sk) return -EINVAL;
 
     spin_lock(&dest->lock);
+    if (dest->type != SOCK_DGRAM || dest->state == SOCK_STATE_DISCONNECTING || (dest->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD))) {
+        spin_unlock(&dest->lock);
+        return -ECONNREFUSED;
+    }
     uint32_t total = header_size + (uint32_t)len;
     if (total > dest->recv_buf.capacity) {
         spin_unlock(&dest->lock);
         return -EMSGSIZE;
     }
-    while (sock_buf_space(&dest->recv_buf) < total) {
+    while (sock_buf_space(&dest->recv_buf) < total || rights_count > (size_t)(CONFIG_SOCK_RIGHTS_MAX - dest->rights_count)) {
         if (dest->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD) || dest->state == SOCK_STATE_DISCONNECTING) {
             spin_unlock(&dest->lock);
             return -ECONNREFUSED;
@@ -1740,12 +1740,17 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
         sender.uid = process->uid;
         sender.gid = process->gid;
     }
-    bool     publish_readable = sock_buf_available(&dest->recv_buf) == 0;
-    uint32_t msg_len          = (uint32_t)len;
-    uint32_t written          = 0;
-    if (sock_buf_write(&dest->recv_buf, &msg_len, sizeof(msg_len)) == sizeof(msg_len) && sock_buf_write(&dest->recv_buf, &sk->local_addr, sizeof(sockaddr_un_t)) == sizeof(sockaddr_un_t)
-        && sock_buf_write(&dest->recv_buf, &sender, sizeof(sender)) == sizeof(sender)) {
-        written = msg_len ? sock_buf_write(&dest->recv_buf, buf, msg_len) : 0;
+    bool                publish_readable = sock_buf_available(&dest->recv_buf) == 0;
+    unix_dgram_header_t header           = {.length = (uint32_t)len, .credentials = sender, .rights_count = (uint16_t)rights_count};
+    memcpy(&header.address, &sk->local_addr, sizeof(header.address));
+    uint32_t written = 0;
+    if (sock_buf_write(&dest->recv_buf, &header, sizeof(header)) == sizeof(header)) written = len ? sock_buf_write(&dest->recv_buf, buf, (uint32_t)len) : 0;
+    if (written == len) {
+        for (size_t i = 0; i < rights_count; i++) {
+            dest->rights[dest->rights_tail] = rights[i];
+            dest->rights_tail               = (uint16_t)((dest->rights_tail + 1U) % CONFIG_SOCK_RIGHTS_MAX);
+            dest->rights_count++;
+        }
     }
 
     spin_unlock(&dest->lock);
@@ -1762,15 +1767,23 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
     return (int)written;
 }
 
-/* UNIX datagram recv */
-static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials, int *message_flags, size_t *record_size)
+/* Plain send/write calls carry no descriptors. */
+static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags)
 {
-    int            is_nonblock;
-    int            peek;
-    uint32_t       msg_len;
-    sockaddr_un_t  sender_addr;
-    ucred_t        sender_credentials;
-    const uint32_t header_size = sizeof(uint32_t) + sizeof(sockaddr_un_t) + sizeof(ucred_t);
+    return unix_dgram_send_rights(sk, buf, len, addr, addrlen, flags, NULL, 0);
+}
+
+/* UNIX datagram recv */
+static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials, int *message_flags, size_t *record_size,
+                           process_file_t **received_rights, size_t *received_count)
+{
+    int                 is_nonblock;
+    int                 peek;
+    uint32_t            msg_len;
+    unix_dgram_header_t header = {0};
+    process_file_t     *discard[CONFIG_SOCK_RIGHTS_MAX];
+    size_t              discarded   = 0;
+    const uint32_t      header_size = sizeof(header);
 
     if (sk->type != SOCK_DGRAM) return -EOPNOTSUPP;
 
@@ -1778,6 +1791,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
     peek        = (flags & MSG_PEEK) ? 1 : 0;
     if (message_flags) *message_flags = 0;
     if (record_size) *record_size = 0;
+    if (received_count) *received_count = 0;
 
     spin_lock(&sk->lock);
 
@@ -1810,8 +1824,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
         }
     }
 
-    if (sock_buf_peek_at(&sk->recv_buf, sizeof(uint32_t), &sender_addr, sizeof(sender_addr)) != sizeof(sender_addr)
-        || sock_buf_peek_at(&sk->recv_buf, sizeof(uint32_t) + sizeof(sender_addr), &sender_credentials, sizeof(sender_credentials)) != sizeof(sender_credentials)) {
+    if (sock_buf_peek_at(&sk->recv_buf, 0, &header, sizeof(header)) != sizeof(header) || header.rights_count > sk->rights_count) {
         spin_unlock(&sk->lock);
         return -EIO;
     }
@@ -1828,16 +1841,38 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
     bool publish_writable = !peek && sock_buf_space(&sk->recv_buf) == 0;
     if (!peek) sock_buf_discard(&sk->recv_buf, header_size + msg_len);
 
+    for (size_t i = 0; i < header.rights_count; i++) {
+        size_t          index = peek ? (sk->rights_head + i) % CONFIG_SOCK_RIGHTS_MAX : sk->rights_head;
+        process_file_t *file  = sk->rights[index];
+        if (peek) {
+            if (received_rights) {
+                process_file_get_transfer(file);
+                received_rights[i] = file;
+            }
+        } else {
+            sk->rights[index] = NULL;
+            sk->rights_head   = (uint16_t)((sk->rights_head + 1U) % CONFIG_SOCK_RIGHTS_MAX);
+            sk->rights_count--;
+            if (received_rights)
+                received_rights[i] = file;
+            else
+                discard[discarded++] = file;
+        }
+    }
+    if (received_rights && received_count) *received_count = header.rights_count;
+
     spin_unlock(&sk->lock);
+
+    for (size_t i = 0; i < discarded; i++) process_file_put_transfer(discard[i]);
 
     /* Return the sender to the syscall layer in a kernel buffer. */
     if (addr && addrlen) {
-        uint32_t copy_len = *addrlen < sizeof(sender_addr) ? *addrlen : sizeof(sender_addr);
-        memcpy(addr, &sender_addr, copy_len);
-        *addrlen = sizeof(sender_addr);
+        uint32_t copy_len = *addrlen < sizeof(header.address) ? *addrlen : sizeof(header.address);
+        memcpy(addr, &header.address, copy_len);
+        *addrlen = sizeof(header.address);
     }
 
-    if (credentials) *credentials = sender_credentials;
+    if (credentials) *credentials = header.credentials;
     if (message_flags && rd < msg_len) *message_flags |= MSG_TRUNC;
     if (record_size) *record_size = msg_len;
 
@@ -1927,7 +1962,7 @@ static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size
     }
 
     if (sk->type == SOCK_DGRAM) {
-        ret = unix_dgram_recv(sk, addr, size, NULL, NULL, sk->flags, NULL, NULL, NULL);
+        ret = unix_dgram_recv(sk, addr, size, NULL, NULL, sk->flags, NULL, NULL, NULL, NULL, NULL);
     } else if (sk->type == SOCK_SEQPACKET) {
         ret = unix_seqpacket_recv(sk, addr, size, 0, NULL, NULL, NULL, NULL);
     } else {
@@ -1984,7 +2019,7 @@ static int64_t socket_vfs_file_read(vfs_node_t node, void *private_data, uint64_
         return ops && ops->recvfrom ? ops->recvfrom(sk->priv, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL) : -EOPNOTSUPP;
     }
     if (sk->socket_read) return sk->socket_read(sk, addr, size, NULL, NULL);
-    if (sk->type == SOCK_DGRAM) return unix_dgram_recv(sk, addr, size, NULL, NULL, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL, NULL);
+    if (sk->type == SOCK_DGRAM) return unix_dgram_recv(sk, addr, size, NULL, NULL, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL, NULL, NULL, NULL);
     if (sk->type == SOCK_SEQPACKET) return unix_seqpacket_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL, NULL, NULL);
     return unix_stream_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
 }
@@ -2062,11 +2097,29 @@ static int socket_vfs_free(void *handle)
     return EOK;
 }
 
-/* Socket ioctl: only inet/inet6 sockets, dispatched to the transport backend. */
+/* Queue-size queries are shared; interface ioctls use the INET backend. */
 static int socket_vfs_ioctl(void *f, size_t o, void *a)
 {
     socket_t *sk = f;
-    if (!sk || (sk->family != AF_INET && sk->family != AF_INET6)) return -ENOTTY;
+    if (!sk) return -EBADF;
+    if (o == FIONREAD && (sk->family == AF_UNIX || sk->family == AF_NETLINK)) {
+        int length;
+        if (sk->family == AF_NETLINK)
+            length = netlink_readable_bytes(sk);
+        else {
+            spin_lock(&sk->lock);
+            uint32_t available = sk->recv_buf.size;
+            if (sk->type == SOCK_DGRAM || sk->type == SOCK_SEQPACKET) {
+                available = 0;
+                if (sk->recv_buf.size >= sizeof(uint32_t)) (void)sock_buf_peek_at(&sk->recv_buf, 0, &available, sizeof(available));
+            }
+            length = available > INT32_MAX ? INT32_MAX : (int)available;
+            spin_unlock(&sk->lock);
+        }
+        if (length < 0) return length;
+        return !a || copy_to_user(a, &length, sizeof(length)) ? -EFAULT : EOK;
+    }
+    if (sk->family != AF_INET && sk->family != AF_INET6) return -ENOTTY;
     const struct inet_backend_ops *ops = inet_backend_get();
     if (!ops || !ops->ioctl) return -EOPNOTSUPP;
     if (!a) return -EFAULT;
@@ -2264,6 +2317,8 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
             ops->close(context);
             return -ENOMEM;
         }
+        net_ns_put(accepted->net_ns);
+        accepted->net_ns = net_ns_get(sk->net_ns);
         ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, kaddrlen);
         if (ret < 0) {
             socket_free(accepted);
@@ -2276,6 +2331,43 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 
     ret = unix_accept(sk, (sockaddr_un_t *)addr, addrlen, flags);
     return (int64_t)ret;
+}
+
+/* Datagram connect pins a destination without creating a reverse peer link. */
+static int unix_dgram_connect(socket_t *sk, const sockaddr_un_t *address, uint32_t length)
+{
+    if (address->sun_family == AF_UNSPEC) {
+        socket_disconnect_peer(sk);
+        spin_lock(&sk->lock);
+        sk->state                  = SOCK_STATE_UNCONNECTED;
+        sk->peer_addr_len          = 0;
+        sk->peer_credentials_valid = false;
+        spin_unlock(&sk->lock);
+        return EOK;
+    }
+    int abstract;
+    int result = unix_addr_parse(address, length, &abstract);
+    if (result) return result;
+    socket_t *destination __attribute__((cleanup(socket_scoped_unref))) = NULL;
+    result                                                              = sock_bound_lookup(sk->net_ns, address, length, abstract, &destination);
+    if (result || !destination) return -ECONNREFUSED;
+    if (destination == sk) return -EINVAL;
+    socket_pair_lock(sk, destination);
+    if (destination->type != SOCK_DGRAM || destination->state == SOCK_STATE_DISCONNECTING || sk->state == SOCK_STATE_DISCONNECTING) {
+        socket_pair_unlock(sk, destination);
+        return -EPROTOTYPE;
+    }
+    socket_t *old = sk->peer;
+    socket_ref(destination);
+    sk->peer                   = destination;
+    sk->peer_addr              = destination->local_addr;
+    sk->peer_addr_len          = destination->local_addr_len;
+    sk->peer_credentials       = (ucred_t) {destination->pid, destination->uid, destination->gid};
+    sk->peer_credentials_valid = true;
+    sk->state                  = SOCK_STATE_CONNECTED;
+    socket_pair_unlock(sk, destination);
+    if (old) socket_unref(old);
+    return EOK;
 }
 
 /* sys_connect */
@@ -2315,6 +2407,7 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 
     memset(&kaddr, 0, sizeof(kaddr));
     if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
+    if (sk->type == SOCK_DGRAM) return unix_dgram_connect(sk, &kaddr, addrlen);
 
     spin_lock(&sk->lock);
 
@@ -2450,7 +2543,7 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
     if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
 
     if (!buf && len) return -EFAULT;
-    if (!len) return 0;
+    if (!len && sk->family != AF_NETLINK && sk->type != SOCK_DGRAM && sk->type != SOCK_SEQPACKET) return 0;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
@@ -2464,8 +2557,9 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
             inet_buf = malloc(len);
             if (!inet_buf) return -ENOMEM;
         }
-        inet_ret = ops->recvfrom(sk->priv, inet_buf, len, flags, addr ? (sockaddr_t *)&kaddr : NULL, addr ? &kaddrlen : NULL);
-        if (inet_ret > 0 && copy_to_user(buf, inet_buf, (size_t)inet_ret)) inet_ret = -EFAULT;
+        inet_ret      = ops->recvfrom(sk->priv, inet_buf, len, flags, addr ? (sockaddr_t *)&kaddr : NULL, addr ? &kaddrlen : NULL);
+        size_t copied = inet_ret > 0 && (size_t)inet_ret < len ? (size_t)inet_ret : len;
+        if (inet_ret > 0 && copied && copy_to_user(buf, inet_buf, copied)) inet_ret = -EFAULT;
         if (inet_ret >= 0 && addr) {
             int copy_ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, kaddrlen);
             if (copy_ret < 0) inet_ret = copy_ret;
@@ -2483,8 +2577,8 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
         int           message_flags;
 
         if ((addr == NULL) != (addrlen == NULL)) return -EFAULT;
-        kbuf = malloc(len);
-        if (!kbuf) return -ENOMEM;
+        kbuf = len ? malloc(len) : NULL;
+        if (len && !kbuf) return -ENOMEM;
         ret = netlink_recvmsg_kern(sk, kbuf, len, addr ? &sender : NULL, flags, &sender_uid, &sender_gid, &message_flags);
         if (ret > 0) {
             size_t copied = (size_t)ret < len ? (size_t)ret : len;
@@ -2508,7 +2602,7 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
         sockaddr_un_t sender;
         uint32_t      sender_len = sizeof(sender);
         size_t        record_len = 0;
-        ret                      = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags, NULL, NULL, &record_len);
+        ret                      = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags, NULL, NULL, &record_len, NULL, NULL);
         if (ret >= 0 && addr) {
             int copy_ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sender, sender_len);
             if (copy_ret < 0) ret = copy_ret;
@@ -2675,14 +2769,13 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
     if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
 
     if (sk->type == SOCK_DGRAM) {
-        if (rights_count) return -EOPNOTSUPP;
         sockaddr_un_t kaddr;
         if (kmsg->msg_name && kmsg->msg_namelen > 0) {
             if (kmsg->msg_namelen > sizeof(sockaddr_un_t)) return -EINVAL;
             if (copy_from_user(&kaddr, kmsg->msg_name, kmsg->msg_namelen)) return -EFAULT;
-            ret = unix_dgram_send(sk, kbuf, total_len, &kaddr, kmsg->msg_namelen, flags);
+            ret = unix_dgram_send_rights(sk, kbuf, total_len, &kaddr, kmsg->msg_namelen, flags, rights, rights_count);
         } else {
-            ret = unix_dgram_send(sk, kbuf, total_len, NULL, 0, flags);
+            ret = unix_dgram_send_rights(sk, kbuf, total_len, NULL, 0, flags, rights, rights_count);
         }
     } else if (sk->type == SOCK_SEQPACKET) {
         if (rights_count) return -EOPNOTSUPP;
@@ -2697,13 +2790,17 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
 /* Core recvmsg dispatch with kernel-side message buffers. */
 static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec_t *iov, void *kbuf, size_t total_len, int flags)
 {
-    int     ret;
-    int     msg_flags = 0;
-    int     installed_rights[CONFIG_SOCK_RIGHTS_MAX];
-    size_t  installed_rights_count      = 0;
-    size_t  seqpacket_record_len        = 0;
-    ucred_t seqpacket_credentials       = {0};
-    bool    seqpacket_credentials_valid = false;
+    int             ret;
+    int             msg_flags = 0;
+    int             installed_rights[CONFIG_SOCK_RIGHTS_MAX];
+    size_t          installed_rights_count      = 0;
+    size_t          seqpacket_record_len        = 0;
+    ucred_t         seqpacket_credentials       = {0};
+    bool            seqpacket_credentials_valid = false;
+    process_file_t *packet_rights[CONFIG_SOCK_RIGHTS_MAX];
+    size_t          packet_rights_count = 0;
+    ucred_t         packet_credentials  = {0};
+    size_t          packet_record_len   = 0;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
@@ -2803,45 +2900,15 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t sender;
         uint32_t      sender_len = sizeof(sender);
-        ucred_t       sender_credentials;
-        size_t        record_len = 0;
-        ret                      = unix_dgram_recv(sk, kbuf, total_len, kmsg->msg_name ? &sender : NULL, kmsg->msg_name ? &sender_len : NULL, flags, &sender_credentials, &msg_flags, &record_len);
+        ret = unix_dgram_recv(sk, kbuf, total_len, kmsg->msg_name ? &sender : NULL, kmsg->msg_name ? &sender_len : NULL, flags, &packet_credentials, &msg_flags, &packet_record_len, packet_rights,
+                              &packet_rights_count);
         if (ret >= 0 && kmsg->msg_name) {
             uint32_t copylen = kmsg->msg_namelen < sender_len ? kmsg->msg_namelen : sender_len;
-            if (copylen && copy_to_user(kmsg->msg_name, &sender, copylen)) return -EFAULT;
+            if (copylen && copy_to_user(kmsg->msg_name, &sender, copylen)) {
+                socket_release_rights(packet_rights, packet_rights_count);
+                return -EFAULT;
+            }
             kmsg->msg_namelen = sender_len;
-        }
-        size_t control_capacity = kmsg->msg_controllen;
-        kmsg->msg_controllen    = 0;
-        if (ret >= 0 && sk->passcred) {
-            uint8_t control[CMSG_SPACE(sizeof(ucred_t))];
-            memset(control, 0, sizeof(control));
-            cmsghdr_t *cmsg  = (cmsghdr_t *)control;
-            cmsg->cmsg_len   = CMSG_LEN(sizeof(ucred_t));
-            cmsg->cmsg_level = SOL_SOCKET;
-            cmsg->cmsg_type  = SCM_CREDENTIALS;
-            memcpy(CMSG_DATA(cmsg), &sender_credentials, sizeof(sender_credentials));
-            if (kmsg->msg_control && control_capacity >= sizeof(control)) {
-                if (copy_to_user(kmsg->msg_control, control, sizeof(control))) return -EFAULT;
-                kmsg->msg_controllen = sizeof(control);
-            } else {
-                msg_flags |= MSG_CTRUNC;
-            }
-        }
-        if (ret >= 0 && (flags & MSG_TRUNC)) {
-            int copied = ret;
-            if (copied > 0) {
-                uint8_t *src       = (uint8_t *)kbuf;
-                size_t   remaining = (size_t)copied;
-                for (size_t i = 0; i < kmsg->msg_iovlen && remaining; i++) {
-                    size_t chunk = iov[i].iov_len < remaining ? iov[i].iov_len : remaining;
-                    if (copy_to_user(iov[i].iov_base, src, chunk)) return -EFAULT;
-                    src += chunk;
-                    remaining -= chunk;
-                }
-            }
-            kmsg->msg_flags = msg_flags;
-            return (int64_t)record_len;
         }
     } else if (sk->type == SOCK_SEQPACKET) {
         ret = unix_seqpacket_recv(sk, kbuf, total_len, flags, &msg_flags, &seqpacket_record_len, &seqpacket_credentials, &seqpacket_credentials_valid);
@@ -2854,7 +2921,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
      * references to the sender's open-file descriptions, not fresh opens of
      * the vnode; seatd relies on that to hand its DRM fd to Weston.
      */
-    if (sk->type != SOCK_DGRAM) {
+    {
         size_t  control_capacity = kmsg->msg_controllen;
         uint8_t control[CMSG_SPACE(CONFIG_SOCK_RIGHTS_MAX * sizeof(int)) + CMSG_SPACE(sizeof(ucred_t))];
         size_t  control_used = 0;
@@ -2862,7 +2929,8 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         memset(control, 0, sizeof(control));
 
         process_file_t *received_rights[CONFIG_SOCK_RIGHTS_MAX];
-        size_t          received_rights_count = 0;
+        size_t          received_rights_count = packet_rights_count;
+        for (size_t i = 0; i < packet_rights_count; i++) received_rights[i] = packet_rights[i];
         if (ret > 0 && sk->type == SOCK_STREAM && !(flags & MSG_PEEK)) received_rights_count = socket_take_rights(sk, received_rights, CONFIG_SOCK_RIGHTS_MAX);
 
         if (received_rights_count > 0) {
@@ -2908,12 +2976,12 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         ucred_t credentials       = seqpacket_credentials;
         spin_lock(&sk->lock);
         passcred = sk->passcred;
-        if (sk->type == SOCK_STREAM) {
-            socket_t *peer    = sk->peer;
-            credentials_valid = peer != NULL;
-            credentials.pid   = peer ? peer->pid : 0;
-            credentials.uid   = peer ? peer->uid : 0;
-            credentials.gid   = peer ? peer->gid : 0;
+        if (sk->type == SOCK_DGRAM) {
+            credentials       = packet_credentials;
+            credentials_valid = ret >= 0 && packet_credentials.pid != 0;
+        } else if (sk->type == SOCK_STREAM) {
+            credentials_valid = sk->peer_credentials_valid;
+            credentials       = sk->peer_credentials;
         }
         spin_unlock(&sk->lock);
 
@@ -2959,6 +3027,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
     /* Write back msg_flags */
     kmsg->msg_flags = msg_flags;
 
+    if (ret >= 0 && sk->type == SOCK_DGRAM && (flags & MSG_TRUNC)) return (int64_t)packet_record_len;
     if (ret >= 0 && sk->type == SOCK_SEQPACKET && (flags & MSG_TRUNC)) return (int64_t)seqpacket_record_len;
     return (int64_t)ret;
 }
@@ -3035,7 +3104,7 @@ int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
     }
 
     ret = do_sendmsg_kern(fd, sk, &kmsg, iov, kbuf, total_len, flags, rights, rights_count);
-    if (ret <= 0 && rights_count) socket_release_rights(rights, rights_count);
+    if (rights_count && (ret < 0 || (ret == 0 && sk->type != SOCK_DGRAM))) socket_release_rights(rights, rights_count);
 
     free(kbuf);
     free(iov);
@@ -3178,7 +3247,10 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     sk2->so_error      = 0;
     sk2->flags         = socket_flags & SOCK_NONBLOCK;
 
-    sk1->peer = sk2;
+    sk1->peer_credentials       = (ucred_t) {sk2->pid, sk2->uid, sk2->gid};
+    sk2->peer_credentials       = (ucred_t) {sk1->pid, sk1->uid, sk1->gid};
+    sk1->peer_credentials_valid = sk2->peer_credentials_valid = true;
+    sk1->peer                                                 = sk2;
     socket_ref(sk2);
     sk2->peer = sk1;
     socket_ref(sk1);
@@ -3560,15 +3632,7 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
             break;
         case SO_PEERCRED : {
             ucred_t cred;
-            if (sk->peer) {
-                cred.pid = sk->peer->pid;
-                cred.uid = sk->peer->uid;
-                cred.gid = sk->peer->gid;
-            } else {
-                cred.pid = 0;
-                cred.uid = 0;
-                cred.gid = 0;
-            }
+            cred    = sk->peer_credentials_valid ? sk->peer_credentials : (ucred_t) {0, UINT32_MAX, UINT32_MAX};
             koptlen = sizeof(ucred_t);
             spin_unlock(&sk->lock);
             if (copy_to_user(optval, &cred, sizeof(ucred_t))) return -EFAULT;

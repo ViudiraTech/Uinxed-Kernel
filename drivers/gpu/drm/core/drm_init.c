@@ -213,7 +213,7 @@ static int drm_parse_minor(const char *s)
     if (!s || !*s) return -1;
     for (; *s; s++) {
         if (*s < '0' || *s > '9') return -1;
-        minor = minor * 10 + (*s - '0');
+        minor = (minor * 10) + (*s - '0');
         if (minor < 0) return -1; // signed overflow
     }
     return minor;
@@ -293,6 +293,7 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
      */
     vfs_node_t node = (vfs_node_t)node_ptr;
     process_t *proc = process_current();
+    file->is_render = node && node->name && !strncmp(node->name, "renderD", 7);
     if (node && node->name && !strncmp(node->name, "card", 4) && proc && proc->uid == 0) file->authenticated = true;
 
     /*

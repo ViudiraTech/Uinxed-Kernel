@@ -15,8 +15,13 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
+/* LTO can synthesise calls to these (strcat becomes strlen+strcpy), and
+ * --gc-sections would then drop the definition that call still needs. */
+#define __LIBS_STD_KEEP __attribute__((used))
+
+
 /* Copy n bytes from memory area str2 to memory area str1 */
-void *memcpy(void *str1, const void *str2, size_t n)
+__LIBS_STD_KEEP void *memcpy(void *str1, const void *str2, size_t n)
 {
     if (str1 == str2 || !n) return str1;
 
@@ -31,7 +36,7 @@ void *memcpy(void *str1, const void *str2, size_t n)
 }
 
 /* Sets a memory area to the specified value */
-void *memset(void *str, int c, size_t n)
+__LIBS_STD_KEEP void *memset(void *str, int c, size_t n)
 {
     void    *dest  = str;
     size_t   words = n / sizeof(uint64_t);
@@ -45,7 +50,7 @@ void *memset(void *str, int c, size_t n)
 }
 
 /* Copies n characters from str2 to str1, accounting for overlaps */
-void *memmove(void *str1, const void *str2, size_t n)
+__LIBS_STD_KEEP void *memmove(void *str1, const void *str2, size_t n)
 {
     if (str1 == str2 || !n) return str1;
     uint8_t       *dest = (uint8_t *)str1;
@@ -65,7 +70,7 @@ void *memmove(void *str1, const void *str2, size_t n)
 }
 
 /* Compares the first n bytes of memory area str1 with those of memory area str2 */
-int memcmp(const void *str1, const void *str2, size_t n)
+__LIBS_STD_KEEP int memcmp(const void *str1, const void *str2, size_t n)
 {
     const uint8_t *_str1 = (const uint8_t *)str1;
     const uint8_t *_str2 = (const uint8_t *)str2;
@@ -79,7 +84,7 @@ int memcmp(const void *str1, const void *str2, size_t n)
 }
 
 /* Finds the first occurrence of c in the first n bytes of a memory area */
-void *memchr(const void *str, int c, size_t n)
+__LIBS_STD_KEEP void *memchr(const void *str, int c, size_t n)
 {
     const uint8_t *bytes = (const uint8_t *)str;
     const uint8_t  value = (uint8_t)c;
@@ -90,7 +95,7 @@ void *memchr(const void *str, int c, size_t n)
 }
 
 /* Calculates the length of the string str */
-size_t strlen(const char *str)
+__LIBS_STD_KEEP size_t strlen(const char *str)
 {
     size_t len = 0;
     while (*str++ != '\0') len++;
@@ -98,7 +103,7 @@ size_t strlen(const char *str)
 }
 
 /* Copies the string pointed to by src to dest */
-char *strcpy(char *dest, const char *src)
+__LIBS_STD_KEEP char *strcpy(char *dest, const char *src)
 {
     char *_dest = dest;
     while ((*dest++ = *src++) != '\0');
@@ -106,7 +111,7 @@ char *strcpy(char *dest, const char *src)
 }
 
 /* Copies the string pointed to by src to dest, up to n characters. */
-char *strncpy(char *dest, const char *src, size_t n)
+__LIBS_STD_KEEP char *strncpy(char *dest, const char *src, size_t n)
 {
     char  *result = dest;
     size_t i      = 0;
@@ -126,7 +131,7 @@ char *strncpy(char *dest, const char *src, size_t n)
 }
 
 /* Compares the string pointed to by str1 with the string pointed to by str2 */
-int strcmp(const char *str1, const char *str2)
+__LIBS_STD_KEEP int strcmp(const char *str1, const char *str2)
 {
     const uint8_t *_str1 = (const uint8_t *)str1;
     const uint8_t *_str2 = (const uint8_t *)str2;
@@ -141,7 +146,7 @@ int strcmp(const char *str1, const char *str2)
 }
 
 /* Compares the first n characters of two strings for equality */
-int strncmp(const char *str1, const char *str2, size_t n)
+__LIBS_STD_KEEP int strncmp(const char *str1, const char *str2, size_t n)
 {
     const uint8_t *_str1 = (const uint8_t *)str1;
     const uint8_t *end   = (const uint8_t *)str1 + n;
@@ -158,7 +163,7 @@ int strncmp(const char *str1, const char *str2, size_t n)
 }
 
 /* Append the string pointed to by src to the end of the string pointed to by dest */
-char *strcat(char *dest, const char *src)
+__LIBS_STD_KEEP char *strcat(char *dest, const char *src)
 {
     const char *_dest = dest;
     while (*dest++ != '\0');
@@ -168,7 +173,7 @@ char *strcat(char *dest, const char *src)
 }
 
 /* Finds a character in a string and returns the position of the character in the string */
-char *strchr(const char *str, int c)
+__LIBS_STD_KEEP char *strchr(const char *str, int c)
 {
     for (; *str != '\0'; str++)
         if (*str == c) return (char *)str;
@@ -176,7 +181,7 @@ char *strchr(const char *str, int c)
 }
 
 /* Searches the string pointed to by the parameter str for the last occurrence of the character c */
-char *strrchr(const char *str, int c)
+__LIBS_STD_KEEP char *strrchr(const char *str, int c)
 {
     const char *finded = 0;
     for (; *str != '\0'; str++)

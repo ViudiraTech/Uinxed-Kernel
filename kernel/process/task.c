@@ -11,9 +11,13 @@
 #include <arch/cpu/fpu.h>
 #include <cgroup/cgroup.h>
 #include <kernel/printk.h>
+#include <libs/std/string.h>
+#include <mem/frame.h>
 #include <mem/heap.h>
 #include <process/namespace.h>
+#include <process/pid_namespace.h>
 #include <process/sched.h>
+#include <security/capability.h>
 #include <security/seccomp.h>
 
 #define PID_HASH_BITS 8
@@ -27,6 +31,7 @@ typedef struct pid_entry {
 
 static pid_entry_t *pid_hash[PID_HASH_SIZE] = {NULL};
 static spinlock_t   pid_hash_lock           = {.lock = 0, .rflags = 0};
+static uint32_t initial_pid_refs[CONFIG_PROCESS_TABLE_SIZE];
 
 /* Return the PID hash bucket for a PID */
 static uint32_t pid_hash_index(uint64_t pid)
@@ -109,6 +114,165 @@ static bool pid_hash_contains_locked(uint64_t pid)
     return false;
 }
 
+pid_namespace_t *pid_ns_current(void)
+{
+    task_t *task = cpu_rqs ? current_task() : NULL;
+    return task && task->pid_ns ? task->pid_ns : &init_pid_ns;
+}
+
+bool pid_ns_is_descendant(pid_namespace_t *ns, pid_namespace_t *ancestor)
+{
+    for (; ns; ns = ns->parent) if (ns == ancestor) return true;
+    return false;
+}
+
+uint64_t task_pid_nr_ns(const task_t *task, pid_namespace_t *ns)
+{
+    if (!task || !ns || ns->level > PID_NS_MAX_LEVEL || !pid_ns_is_descendant(task->pid_ns, ns)) return 0;
+    return task->pid_numbers[ns->level];
+}
+
+uint64_t task_tgid_nr_ns(const task_t *task, pid_namespace_t *ns)
+{
+    if (!task || !ns || ns->level > PID_NS_MAX_LEVEL || !pid_ns_is_descendant(task->pid_ns, ns)) return 0;
+    return task->tgid_numbers[ns->level];
+}
+
+uint64_t task_pid_nr(const task_t *task) { return task_pid_nr_ns(task, pid_ns_current()); }
+uint64_t task_tgid_nr(const task_t *task) { return task_tgid_nr_ns(task, pid_ns_current()); }
+
+static task_t *pid_find_ns_locked(pid_namespace_t *ns, uint64_t nr)
+{
+    if (!ns || !nr) return NULL;
+    for (size_t bucket = 0; bucket < PID_HASH_SIZE; bucket++) {
+        for (pid_entry_t *entry = pid_hash[bucket]; entry; entry = entry->next) {
+            if (task_pid_nr_ns(entry->task, ns) == nr) return entry->task;
+        }
+    }
+    return NULL;
+}
+
+task_t *pid_find_task_ns_get(pid_namespace_t *ns, uint64_t nr)
+{
+    spin_lock(&pid_hash_lock);
+    task_t *task = pid_find_ns_locked(ns, nr);
+    if (task) task_ref(task);
+    spin_unlock(&pid_hash_lock);
+    return task;
+}
+
+uint64_t pid_global_nr_ns(pid_namespace_t *ns, uint64_t nr)
+{
+    spin_lock(&pid_hash_lock);
+    task_t *task = pid_find_ns_locked(ns, nr);
+    uint64_t result = task ? task->pid : 0;
+    spin_unlock(&pid_hash_lock);
+    return result;
+}
+
+uint64_t pid_nr_ns(pid_namespace_t *ns, uint64_t global_pid)
+{
+    uint64_t result = 0;
+    spin_lock(&pid_hash_lock);
+    for (pid_entry_t *entry = pid_hash[pid_hash_index(global_pid)]; entry; entry = entry->next) {
+        if (entry->task->pid == global_pid) {
+            result = task_pid_nr_ns(entry->task, ns);
+            break;
+        }
+    }
+    spin_unlock(&pid_hash_lock);
+    return result;
+}
+
+/* Allocation and lookups share the hash lock, including every ancestor's number. */
+static uint32_t pid_alloc_ns_locked(pid_namespace_t *ns)
+{
+    uint64_t limit = ns->pid_max;
+    if (limit > CONFIG_PROCESS_TABLE_SIZE) limit = CONFIG_PROCESS_TABLE_SIZE;
+    if (limit <= 1) return 0;
+    uint64_t start = ns->next_pid;
+    if (!start || start >= limit) start = 1;
+    for (uint64_t i = 0; i < limit - 1; i++) {
+        uint64_t nr = 1 + ((start - 1 + i) % (limit - 1));
+        if (!ns->pid_refs[nr]) {
+            ns->next_pid = nr + 1;
+            if (ns->next_pid >= limit) ns->next_pid = 1;
+            return (uint32_t)nr;
+        }
+    }
+    return 0;
+}
+
+int pid_task_set_namespace(task_t *task, pid_namespace_t *ns)
+{
+    if (!task || !ns || ns->level > PID_NS_MAX_LEVEL) return -EINVAL;
+    if (task->pid_ns == ns) return __atomic_load_n(&ns->dead, __ATOMIC_ACQUIRE) ? -ENOMEM : EOK;
+    uint32_t numbers[PID_NS_MAX_LEVEL + 1] = {0};
+    pid_namespace_t *pin = pid_ns_get(ns);
+    int error = EOK;
+    for (pid_namespace_t *ancestor = ns; ancestor && ancestor->level <= PID_NS_MAX_LEVEL; ancestor = ancestor->parent) {
+        if (ancestor->pid_refs) continue;
+        uint32_t *refs = ancestor == &init_pid_ns ? initial_pid_refs : calloc(CONFIG_PROCESS_TABLE_SIZE, sizeof(uint32_t));
+        if (!refs) { pid_ns_put(pin); return -ENOMEM; }
+        spin_lock(&pid_hash_lock);
+        if (!ancestor->pid_refs) { ancestor->pid_refs = refs; refs = NULL; }
+        spin_unlock(&pid_hash_lock);
+        if (refs && refs != initial_pid_refs) free(refs);
+    }
+    spin_lock(&pid_hash_lock);
+    for (pid_namespace_t *ancestor = ns; ancestor; ancestor = ancestor->parent) {
+        /* Every pid_numbers/tgid_numbers/pgid_numbers array is indexed by level,
+         * so hold the level in a local: the helpers below cannot move it. */
+        uint32_t level = ancestor->level;
+        if (level > PID_NS_MAX_LEVEL) { error = -EINVAL; break; }
+        if (__atomic_load_n(&ancestor->dead, __ATOMIC_ACQUIRE)) { error = -ENOMEM; break; }
+        if (ancestor == &init_pid_ns) {
+            numbers[level] = (uint32_t)task->pid;
+        } else {
+            uint32_t visible = (uint32_t)task_pid_nr_ns(task, ancestor);
+            numbers[level] = visible ? visible : pid_alloc_ns_locked(ancestor);
+        }
+        if (!numbers[level]) { error = -EAGAIN; break; }
+    }
+    pid_namespace_t *old = NULL;
+    if (!error) {
+        old = task->pid_ns;
+        for (pid_namespace_t *ancestor = old; ancestor && ancestor->level <= PID_NS_MAX_LEVEL; ancestor = ancestor->parent)
+            if (task->pid_numbers[ancestor->level]) ancestor->pid_refs[task->pid_numbers[ancestor->level]]--;
+        for (pid_namespace_t *ancestor = ns; ancestor && ancestor->level <= PID_NS_MAX_LEVEL; ancestor = ancestor->parent)
+            ancestor->pid_refs[numbers[ancestor->level]]++;
+        task->pid_ns = pin;
+        memcpy(task->pid_numbers, numbers, sizeof(numbers));
+        memcpy(task->tgid_numbers, numbers, sizeof(numbers));
+    } else {
+        for (pid_namespace_t *ancestor = ns; ancestor && ancestor->level <= PID_NS_MAX_LEVEL; ancestor = ancestor->parent)
+            if (numbers[ancestor->level] == 1 && !pid_find_ns_locked(ancestor, 1)) ancestor->next_pid = 1;
+    }
+    spin_unlock(&pid_hash_lock);
+    if (error) pid_ns_put(pin);
+    else pid_ns_put(old);
+    return error;
+}
+
+void pid_ns_numbers_get(pid_namespace_t *ns, const uint32_t *numbers)
+{
+    spin_lock(&pid_hash_lock);
+    for (; ns; ns = ns->parent) if (numbers[ns->level]) ns->pid_refs[numbers[ns->level]]++;
+    spin_unlock(&pid_hash_lock);
+}
+
+void pid_ns_numbers_put(pid_namespace_t *ns, const uint32_t *numbers)
+{
+    spin_lock(&pid_hash_lock);
+    for (; ns; ns = ns->parent) if (numbers[ns->level]) ns->pid_refs[numbers[ns->level]]--;
+    spin_unlock(&pid_hash_lock);
+}
+
+void pid_namespace_destroy(pid_namespace_t *ns)
+{
+    if (ns && ns != &init_pid_ns) free(ns->pid_refs);
+}
+
 /*
  * Allocate a PID in [1, CONFIG_PROCESS_TABLE_SIZE), reusing freed PIDs once the monotonically
  * increasing next_pid wraps.  A task's PID is removed from the hash in task_free(),
@@ -124,7 +288,7 @@ static uint64_t alloc_pid_locked(void)
         uint64_t candidate = start + i;
         if (candidate >= CONFIG_PROCESS_TABLE_SIZE) candidate -= (CONFIG_PROCESS_TABLE_SIZE - 1);
 
-        if (!pid_hash_contains_locked(candidate)) {
+        if (!initial_pid_refs[candidate] && !pid_hash_contains_locked(candidate)) {
             scheduler.next_pid = candidate + 1;
             if (scheduler.next_pid >= CONFIG_PROCESS_TABLE_SIZE) scheduler.next_pid = 1;
             return candidate;
@@ -217,7 +381,18 @@ task_t *task_alloc_status(const char *name, int *error)
     task->pi_owned_lock.rflags = 0;
     wait_queue_init(&task->kthread.exit_wait);
 
-    if (cgroup_root()) parent = current_task();
+    if (cpu_rqs) parent = current_task();
+    cpumask_fill(&task->cpus_allowed, sched_cpu_count());
+    cpumask_fill(&task->cpuset_cpus, sched_cpu_count());
+    task->mems_allowed = frame_memory_nodes();
+    if (parent && parent->pid) {
+        uint64_t flags             = spin_lock_irqsave(&scheduler.lock);
+        task->cpus_allowed         = parent->cpus_allowed;
+        task->mempolicy            = parent->mempolicy;
+        task->numa_interleave_next = parent->numa_interleave_next;
+        spin_unlock_irqrestore(&scheduler.lock, flags);
+    }
+    capability_inherit(task, parent);
     int status = cgroup_task_fork(task, parent);
     if (status != EOK) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
@@ -252,6 +427,12 @@ task_t *task_alloc_status(const char *name, int *error)
     pid_hash_add(task, pid_entry);
     __atomic_add_fetch(&scheduler.tasks_created, 1, __ATOMIC_RELAXED);
     spin_unlock(&pid_hash_lock);
+    status = pid_task_set_namespace(task, parent && parent->pid_ns ? parent->pid_ns : &init_pid_ns);
+    if (status) {
+        task_free(task);
+        if (error) *error = status;
+        return NULL;
+    }
     return task;
 }
 
@@ -272,6 +453,7 @@ void task_put(task_t *task)
 {
     if (!task) return;
     if (__atomic_sub_fetch(&task->refcount, 1, __ATOMIC_RELEASE) == 0) {
+        pid_ns_put(task->pid_ns);
         if (task->nsproxy) nsproxy_put(task->nsproxy);
         free(task->kernel_stack);
         fpu_task_destroy(task);
@@ -298,6 +480,10 @@ void task_free(task_t *task)
 
     spin_lock(&pid_hash_lock);
     pid_entry_t *pid_entry = pid_hash_remove(task);
+    for (pid_namespace_t *ns = task->pid_ns; ns; ns = ns->parent)
+        if (task->pid_numbers[ns->level]) ns->pid_refs[task->pid_numbers[ns->level]]--;
+    for (pid_namespace_t *ns = task->pid_ns; ns && ns != &init_pid_ns; ns = ns->parent)
+        if (task_pid_nr_ns(task, ns) == 1 && !__atomic_load_n(&ns->dead, __ATOMIC_ACQUIRE)) ns->next_pid = 1;
     spin_unlock(&pid_hash_lock);
     free(pid_entry);
     task_put(task);

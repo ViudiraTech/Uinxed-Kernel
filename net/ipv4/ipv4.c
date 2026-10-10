@@ -10,6 +10,7 @@
 
 #include <kernel/printk.h>
 #include <libs/std/string.h>
+#include <process/namespace.h>
 #include <mem/alloc.h>
 #include <net/core/endian.h>
 #include <net/ipv4/arp.h>
@@ -154,6 +155,11 @@ static void ipv4_route_visit(net_device_t *device, void *context)
 /* Choose the device and next hop for a destination, taking a device ref. */
 int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
 {
+    return ipv4_route_ns(net_namespace_current(), destination, device, next_hop);
+}
+
+int ipv4_route_ns(net_namespace_t *ns, uint32_t destination, net_device_t **device, uint32_t *next_hop)
+{
     /*
      * 127/8 is routable like any other subnet: the loopback device claims it
      * via its interface prefix, so local IPC (Python IDLE, X11, dbus) works.
@@ -161,7 +167,7 @@ int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
      */
     if (!device || !next_hop || !destination || ipv4_is_multicast(destination)) return -EINVAL;
     ipv4_route_search_t search = {.destination = destination};
-    netdev_iterate(ipv4_route_visit, &search);
+    netdev_iterate_ns(ns, ipv4_route_visit, &search);
     if (search.direct) {
         if (ipv4_is_loopback(destination) != !!(search.direct->flags & NETDEV_F_LOOPBACK)) {
             netdev_put(search.direct);
@@ -287,6 +293,7 @@ static void ipv4_reassembly_clear(ipv4_reassembly_t *entry)
 {
     free(entry->data);
     free(entry->bitmap);
+    if (entry->device) netdev_put(entry->device);
     memset(entry, 0, sizeof(*entry));
 }
 
@@ -319,6 +326,7 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
         return NULL;
     }
     memset(entry->bitmap, 0, IPV4_BITMAP_SIZE);
+    netdev_get(device);
     entry->device         = device;
     entry->source         = ip->source;
     entry->destination    = ip->destination;
@@ -478,7 +486,7 @@ int ipv4_set_error_hook(ipv4_error_hook_t hook)
 }
 
 /* Translate an ICMP error into the hook's errno and deliver it upward. */
-void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length)
+void ipv4_control_error(net_namespace_t *ns, uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length)
 {
     if (!quoted || quoted_length < IPV4_HEADER_MIN) return;
     const uint8_t *bytes         = quoted;
@@ -510,9 +518,9 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
     const void *payload        = bytes + header_length;
     size_t      payload_length = quoted_length - header_length;
     if (protocol == IPV4_PROTO_UDP) {
-        udp_control_error(source, destination, payload, payload_length, error, mtu);
+        udp_control_error(ns, source, destination, payload, payload_length, error, mtu);
     } else if (protocol == IPV4_PROTO_TCP) {
-        tcp_control_error(source, destination, payload, payload_length, error, mtu);
+        tcp_control_error(ns, source, destination, payload, payload_length, error, mtu);
     }
     spin_lock(&ipv4_hook_lock);
     ipv4_error_hook_t hook = ipv4_error_hook;
@@ -536,12 +544,16 @@ void ipv4_timer(uint64_t now_ticks)
                 memcpy(quote, entry->first_header, entry->first_header_length);
                 memcpy(quote + entry->first_header_length, entry->data, quote_length - entry->first_header_length);
                 device      = entry->device;
+                netdev_get(device);
                 destination = entry->source;
             }
             ipv4_reassembly_clear(entry);
         }
         spin_unlock(&ipv4_reassembly_lock);
-        if (device) icmp_error(device, destination, ICMP_TIME_EXCEEDED, ICMP_REASSEMBLY_TIMEOUT, quote, quote_length);
+        if (device) {
+            icmp_error(device, destination, ICMP_TIME_EXCEEDED, ICMP_REASSEMBLY_TIMEOUT, quote, quote_length);
+            netdev_put(device);
+        }
     }
 }
 

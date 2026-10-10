@@ -27,7 +27,7 @@ static void rtc_read_cmos_time(rtc_time_t *t)
     t->tm_hour  = (int)BCD_HEX(read_cmos(CMOS_CUR_HOUR));
     t->tm_mday  = (int)BCD_HEX(read_cmos(CMOS_MON_DAY));
     t->tm_mon   = (int)BCD_HEX(read_cmos(CMOS_CUR_MON)) - 1;
-    t->tm_year  = (int)BCD_HEX(read_cmos(CMOS_CUR_YEAR)) + (int)BCD_HEX(read_cmos(CMOS_CUR_CEN)) * 100 - 1900;
+    t->tm_year  = (int)BCD_HEX(read_cmos(CMOS_CUR_YEAR)) + ((int)BCD_HEX(read_cmos(CMOS_CUR_CEN)) * 100) - 1900;
     t->tm_wday  = (int)BCD_HEX(read_cmos(CMOS_WEEK_DAY));
     t->tm_yday  = 0;
     t->tm_isdst = 0;
@@ -57,9 +57,9 @@ static uint64_t rtc_civil_to_epoch(const rtc_time_t *t)
 
     if (m <= 2) y -= 1;
     era  = (y >= 0 ? y : y - 399) / 400;
-    yoe  = y - era * 400;
-    doy  = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    doe  = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    yoe  = y - (era * 400);
+    doy  = ((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+    doe  = (yoe * 365) + (yoe / 4) - (yoe / 100) + doy;
     days = (uint64_t)((era * 146097) + doe - 719468);
     return (days * 86400ULL) + ((uint64_t)t->tm_hour * 3600ULL) + ((uint64_t)t->tm_min * 60ULL) + (uint64_t)t->tm_sec;
 }
