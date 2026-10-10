@@ -306,9 +306,10 @@ static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, 
     int              status;
     (void)private_data;
     (void)flags;
+    /* Each write is a control command, including consecutive writes on one fd. */
+    (void)offset;
     if (!node) return -ENOENT;
     if (!cgroup_namespace_visible(node->cgroup)) return -EACCES;
-    if (offset) return -EINVAL;
 
     switch (node->type) {
         case CGROUPFS_SUBTREE_CONTROL :
@@ -363,6 +364,16 @@ static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, 
     }
 
     return status == EOK ? (int64_t)size : status;
+}
+
+/* Like kernfs, control attributes accept O_TRUNC without changing their state. */
+static int resize_control(void *handle, uint64_t size)
+{
+    cgroupfs_node_t *node = handle;
+    (void)size;
+    if (!node || !node->cgroup) return -ENOENT;
+    if (!cgroup_namespace_visible(node->cgroup)) return -EACCES;
+    return node->type == CGROUPFS_DIR ? -EISDIR : EOK;
 }
 
 /* Legacy read callback for the VFS adapter. */
@@ -516,6 +527,7 @@ static struct vfs_callback callbacks = {
     .unmount      = unmount_cgroup2,
     .read         = legacy_read,
     .write        = legacy_write,
+    .resize       = resize_control,
     .mkdir        = mkdir_node,
     .mkfile       = vfs_stub_mk_readonly,
     .stat         = stat_node,
