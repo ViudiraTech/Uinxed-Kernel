@@ -89,10 +89,6 @@ typedef void (*sig_handler_t)(int);
  * handler, 128-byte sigset_t, flags, restorer) and translates it to this compact
  * kernel form before issuing the syscall.  The kernel sigset_t is a single
  * 64-bit word, which is why libc passes sigsetsize == 8.
- *
- * Using the user-visible layout here made copy_to_user() write 152 bytes into
- * libc's 32-byte stack buffer, clobbering the saved return address and turning
- * the following `ret` into a #GP.
  */
 typedef struct {
         sig_handler_t sa_handler;

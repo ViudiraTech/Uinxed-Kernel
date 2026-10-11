@@ -186,7 +186,3 @@ AGENTS.md
 *.zip
 *.7z
 *.rar
-
-# Initramfs build scripts
-build*.sh
-*initramfs.sh
