@@ -65,4 +65,15 @@ void fbcon_release_logo(void);
  */
 void fbcon_cursor_tick(uint64_t now_ticks);
 
+/*
+ * Show or hide the text cursor.  The change is applied immediately: hiding
+ * erases a painted block, showing repaints it at the current position and
+ * restarts the blink cycle.  Also driven by the ANSI \e[?25h / \e[?25l
+ * private mode sequences.
+ */
+void fbcon_cursor_set_visible(bool visible);
+
+/* True while the text cursor is enabled (may still be in its blink-off phase). */
+bool fbcon_cursor_get_visible(void);
+
 #endif // INCLUDE_FBCON_H_
