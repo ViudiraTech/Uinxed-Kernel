@@ -380,7 +380,7 @@ void signal_state_init(signal_state_t *state)
     for (int i = 0; i < SIG_ACTION_NUM; i++) {
         state->sighand[i].sa_handler = SIG_DFL;
         state->sighand[i].sa_flags   = 0;
-        sigemptyset(&state->sighand[i].sa_mask[0]);
+        sigemptyset(&state->sighand[i].sa_mask);
     }
 
     sigemptyset(&state->pending);
@@ -484,7 +484,7 @@ void signal_exec_reset(process_t *proc)
             state->sighand[i].sa_handler  = SIG_DFL;
             state->sighand[i].sa_flags    = 0;
             state->sighand[i].sa_restorer = 0;
-            sigemptyset(&state->sighand[i].sa_mask[0]);
+            sigemptyset(&state->sighand[i].sa_mask);
         }
     }
 
@@ -886,7 +886,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     if (!(action.sa_flags & SA_NODEFER)) sigaddset(&task->signal_blocked, sig);
 
     /* Block additional signals in sa_mask */
-    sigorset(&task->signal_blocked, &task->signal_blocked, &action.sa_mask[0]);
+    sigorset(&task->signal_blocked, &task->signal_blocked, &action.sa_mask);
 
     /*
      * SA_RESETHAND affects future deliveries.  Keep using the snapshot above
@@ -896,7 +896,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
         sa->sa_handler  = SIG_DFL;
         sa->sa_flags    = 0;
         sa->sa_restorer = 0;
-        sigemptyset(&sa->sa_mask[0]);
+        sigemptyset(&sa->sa_mask);
     }
 
     /* Set up the signal frame on the user stack (including old_mask). */

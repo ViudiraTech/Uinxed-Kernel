@@ -83,21 +83,28 @@ typedef uint64_t sigset_t;
 typedef void (*sig_handler_t)(int);
 
 /*
- * Linux x86-64 struct sigaction. sa_mask is the full 128-byte user-visible
- * sigset_t the syscall ABI requires; only its low 64 bits carry signals here,
- * which is exactly the window rt_sigaction's sigsetsize argument addresses.
+ * Linux x86-64 rt_sigaction syscall ABI layout (32 bytes on the wire).
+ *
+ * libc keeps its own user-visible struct sigaction (152 bytes for musl/glibc:
+ * handler, 128-byte sigset_t, flags, restorer) and translates it to this compact
+ * kernel form before issuing the syscall.  The kernel sigset_t is a single
+ * 64-bit word, which is why libc passes sigsetsize == 8.
+ *
+ * Using the user-visible layout here made copy_to_user() write 152 bytes into
+ * libc's 32-byte stack buffer, clobbering the saved return address and turning
+ * the following `ret` into a #GP.
  */
 typedef struct {
         sig_handler_t sa_handler;
-        uint64_t      sa_mask[16];
-        int32_t       sa_flags;
+        uint64_t      sa_flags;
         uint64_t      sa_restorer;
+        uint64_t      sa_mask;
 } sigaction_t;
 
-_Static_assert(sizeof(sigaction_t) == 152, "x86-64 struct sigaction ABI size");
-_Static_assert(offsetof(sigaction_t, sa_mask) == 8, "x86-64 sigaction sa_mask offset");
-_Static_assert(offsetof(sigaction_t, sa_flags) == 136, "x86-64 sigaction sa_flags offset");
-_Static_assert(offsetof(sigaction_t, sa_restorer) == 144, "x86-64 sigaction sa_restorer offset");
+_Static_assert(sizeof(sigaction_t) == 32, "x86-64 kernel sigaction ABI size");
+_Static_assert(offsetof(sigaction_t, sa_flags) == 8, "x86-64 sigaction sa_flags offset");
+_Static_assert(offsetof(sigaction_t, sa_restorer) == 16, "x86-64 sigaction sa_restorer offset");
+_Static_assert(offsetof(sigaction_t, sa_mask) == 24, "x86-64 sigaction sa_mask offset");
 
 /* siginfo_t */
 
