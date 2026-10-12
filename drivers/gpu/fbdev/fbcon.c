@@ -17,10 +17,11 @@
 #include <libs/gfx/gfx_proc.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <process/sched.h>
 #include <sync/spin_lock.h>
 
 /* Blink state.  cursor_drawn records where the block cursor currently sits so the next phase flip can restore that cell from the text grid. */
-#define CURSOR_BLINK_INTERVAL ((CONFIG_TIMER_HZ * 2) / 5) // 400 ms per phase
+#define CURSOR_BLINK_INTERVAL (CONFIG_TIMER_HZ / 5) // 200 ms per phase
 
 vt_ansi_state_t vt_ansi_state;
 
@@ -46,6 +47,35 @@ static bool       cursor_phase;
 static bool       cursor_drawn;
 static uint32_t   cursor_drawn_row;
 static uint32_t   cursor_drawn_col;
+
+/*
+ * Cursor repaint damage, recorded under fbcon_lock (the ANSI visibility
+ * callback runs there too) and published once the lock is dropped, because
+ * video_flush_rect() takes video_state_lock.
+ */
+typedef struct {
+        bool     erase;
+        uint32_t erase_x;
+        uint32_t erase_y;
+        bool     paint;
+        uint32_t paint_x;
+        uint32_t paint_y;
+} cursor_damage_t;
+
+/* Pending repaint rectangles, guarded by fbcon_lock. */
+static cursor_damage_t cursor_pending;
+
+/* Screen repaint damage from fbcon_flush_screen_updates(), recorded and published like cursor damage. */
+typedef struct {
+        bool     pending;
+        uint32_t x1;
+        uint32_t y1;
+        uint32_t x2;
+        uint32_t y2;
+} screen_damage_t;
+
+/* Pending screen region, guarded by fbcon_lock. */
+static screen_damage_t screen_pending;
 
 #if CONFIG_BOOT_LOGO
 static uint32_t logo_rows;       // grid rows covered by the boot logo
@@ -167,6 +197,9 @@ static void fbcon_redraw_row_range(uint32_t row, uint32_t first_col, uint32_t la
     if (fbcon_row_logo_protected(row)) return;
     if (first_col >= c_width || last_col >= c_width || first_col > last_col) return;
 
+    /* Repainting the cell under the block cursor discards the painted block. */
+    if (cursor_drawn && cursor_drawn_row == row && cursor_drawn_col >= first_col && cursor_drawn_col <= last_col) cursor_drawn = false;
+
     for (uint32_t col = first_col; col <= last_col; col++) {
         size_t   index = ((size_t)row * c_width) + col;
         uint32_t bg    = bg_grid ? bg_grid[index] : back_color;
@@ -174,7 +207,38 @@ static void fbcon_redraw_row_range(uint32_t row, uint32_t first_col, uint32_t la
     }
 }
 
-/* Redraw all dirty rows and merge their damage into one screen refresh. */
+/* Record a damaged screen region; call with fbcon_lock held. */
+static void fbcon_screen_damage_locked(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2)
+{
+    if (!screen_pending.pending) {
+        screen_pending.pending = true;
+        screen_pending.x1      = x1;
+        screen_pending.y1      = y1;
+        screen_pending.x2      = x2;
+        screen_pending.y2      = y2;
+        return;
+    }
+    if (x1 < screen_pending.x1) screen_pending.x1 = x1;
+    if (y1 < screen_pending.y1) screen_pending.y1 = y1;
+    if (x2 > screen_pending.x2) screen_pending.x2 = x2;
+    if (y2 > screen_pending.y2) screen_pending.y2 = y2;
+}
+
+/* Drain the recorded screen damage; call with fbcon_lock held. */
+static screen_damage_t fbcon_screen_take_locked(void)
+{
+    screen_damage_t dmg = screen_pending;
+    screen_pending      = (screen_damage_t) {0};
+    return dmg;
+}
+
+/* Publish recorded screen damage; call without fbcon_lock. */
+static void fbcon_screen_publish(const screen_damage_t *dmg)
+{
+    if (dmg->pending) video_flush_rect(dmg->x1, dmg->y1, dmg->x2 - dmg->x1, dmg->y2 - dmg->y1);
+}
+
+/* Redraw all dirty rows, merging their damage into one pending screen region. */
 static void fbcon_flush_dirty_rows(void)
 {
     uint32_t damage_x1 = (uint32_t)width;
@@ -208,7 +272,7 @@ static void fbcon_flush_dirty_rows(void)
         dirty_last_col[row]  = 0;
     }
 
-    if (damaged) video_flush_rect(damage_x1, damage_y1, damage_x2 - damage_x1, damage_y2 - damage_y1);
+    if (damaged) fbcon_screen_damage_locked(damage_x1, damage_y1, damage_x2, damage_y2);
 }
 
 /* Force a full redraw of every row from the grid into the framebuffer. */
@@ -488,7 +552,7 @@ void fbcon_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
     for (uint32_t col = x; col < cols; col++) fbcon_mark_cell_dirty(y, col);
 }
 
-/* Deferred screen update: full repaint or just the dirty rows. */
+/* Deferred screen update: full repaint or just the dirty rows, recording damage for the caller to publish. */
 static void fbcon_flush_screen_updates(void)
 {
     if (redraw_deferred) return;
@@ -497,7 +561,7 @@ static void fbcon_flush_screen_updates(void)
         fbcon_redraw_screen();
         fbcon_clear_uncovered_bottom();
         full_redraw_pending = 0;
-        video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
+        fbcon_screen_damage_locked(0, 0, (uint32_t)width, (uint32_t)height);
         return;
     }
 
@@ -677,9 +741,9 @@ void fbcon_resize(void)
         }
     }
 #endif
+    /* Restart the blink cycle; cursor_drawn stays valid across a seamless switch that copies the painted block. */
     cursor_last_tick = 0;
     cursor_phase     = false;
-    cursor_drawn     = false;
 
     if (rebuilt) full_redraw_pending = 1;
     uint16_t rows = (uint16_t)c_height;
@@ -708,13 +772,17 @@ void fbcon_handoff_begin(void)
 /* Resume drawing after a framebuffer switch. */
 void fbcon_handoff_end(void)
 {
+    screen_damage_t scr;
+
     spin_lock(&fbcon_lock);
     if (handoff_in_progress) {
         handoff_in_progress = false;
         if (redraw_deferred) redraw_deferred--;
     }
     fbcon_flush_screen_updates();
+    scr = fbcon_screen_take_locked();
     spin_unlock(&fbcon_lock);
+    fbcon_screen_publish(&scr);
 }
 
 /* True once the text grid is allocated. */
@@ -832,10 +900,136 @@ static void vt_ansicb_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t 
     fbcon_delete_chars(x, y, n, cols);
 }
 
-/* ANSI callback: set cursor visibility. */
+/* Publish recorded cursor damage; call without fbcon_lock. */
+static void fbcon_cursor_publish(const cursor_damage_t *dmg)
+{
+    if (dmg->erase) video_flush_rect(dmg->erase_x, dmg->erase_y, font_width, font_height);
+    if (dmg->paint) video_flush_rect(dmg->paint_x, dmg->paint_y, font_width, font_height);
+}
+
+/* Drain the recorded damage; call with fbcon_lock held. */
+static cursor_damage_t fbcon_cursor_take_locked(void)
+{
+    cursor_damage_t dmg = cursor_pending;
+    cursor_pending      = (cursor_damage_t) {0};
+    return dmg;
+}
+
+/* Erase the block cursor painted previously, if any. */
+static void fbcon_cursor_erase_locked(void)
+{
+    if (!cursor_drawn) return;
+    uint32_t row = cursor_drawn_row;
+    uint32_t col = cursor_drawn_col;
+    cursor_drawn = false;
+
+    if (row < c_height && col < c_width) fbcon_redraw_row_range(row, col, col);
+    cursor_pending.erase   = true;
+    cursor_pending.erase_x = col * font_width;
+    cursor_pending.erase_y = row * font_height;
+}
+
+/* Paint the block cursor at the current cursor cell (reverse video). */
+static void fbcon_cursor_paint_locked(void)
+{
+    if (!vt_ansi_state.cursor_visible || !text_grid || !color_grid) return;
+
+    uint32_t row = vt_ansi_state.y;
+    uint32_t col = vt_ansi_state.x;
+
+    if (row >= c_height || col >= c_width) return;
+    if (fbcon_row_logo_protected(row)) return;
+
+    size_t   idx = ((size_t)row * c_width) + col;
+    uint32_t fg  = color_grid[idx];
+    uint32_t bg  = bg_grid ? bg_grid[idx] : back_color;
+
+    fbcon_draw_char_bg(text_grid[idx], col * font_width, row * font_height, bg, fg);
+
+    cursor_drawn           = true;
+    cursor_drawn_row       = row;
+    cursor_drawn_col       = col;
+    cursor_pending.paint   = true;
+    cursor_pending.paint_x = col * font_width;
+    cursor_pending.paint_y = row * font_height;
+}
+
+/*
+ * Apply a cursor visibility change: hiding erases a painted block, showing
+ * repaints it at the current position and restarts the blink cycle.
+ */
+static void fbcon_cursor_apply_visible_locked(bool visible)
+{
+    vt_ansi_state.cursor_visible = visible;
+
+    /* A handoff is swapping the backing surface; leave the repaint to the next write or tick instead of drawing into a surface being rebuilt. */
+    if (handoff_in_progress) return;
+
+    if (visible) {
+        /* A show request (or fresh output) presents the cursor solid. */
+        cursor_phase     = true;
+        cursor_last_tick = sched_ticks();
+
+        /* Already painted at this cell: nothing to repaint. */
+        if (cursor_drawn && cursor_drawn_row == vt_ansi_state.y && cursor_drawn_col == vt_ansi_state.x) return;
+    }
+
+    fbcon_cursor_erase_locked();
+    fbcon_cursor_paint_locked();
+}
+
+/* ANSI callback: set cursor visibility (runs under fbcon_lock). */
 static void vt_ansicb_cursor_visible(bool visible)
 {
-    (void)visible;
+    fbcon_cursor_apply_visible_locked(visible);
+}
+
+/*
+ * Flip the block cursor phase and repaint directly into the framebuffer.
+ * The restored and the freshly painted cells are published separately so a
+ * cursor that moved between phases never leaves a stale block on screen.
+ */
+void fbcon_cursor_tick(uint64_t now_ticks)
+{
+    cursor_damage_t dmg;
+
+    spin_lock(&fbcon_lock);
+    if (handoff_in_progress) goto out;
+    if (now_ticks - cursor_last_tick < CURSOR_BLINK_INTERVAL) goto out;
+    cursor_last_tick = now_ticks;
+    cursor_phase     = !cursor_phase;
+
+    fbcon_cursor_erase_locked();
+
+    /* Never paint over the still-visible boot logo. */
+    if (cursor_phase) fbcon_cursor_paint_locked();
+out:
+    dmg = fbcon_cursor_take_locked();
+    spin_unlock(&fbcon_lock);
+    fbcon_cursor_publish(&dmg);
+}
+
+/* Show or hide the blinking text cursor, repainting it immediately. */
+void fbcon_cursor_set_visible(bool visible)
+{
+    cursor_damage_t dmg;
+
+    spin_lock(&fbcon_lock);
+    fbcon_cursor_apply_visible_locked(visible);
+    dmg = fbcon_cursor_take_locked();
+    spin_unlock(&fbcon_lock);
+    fbcon_cursor_publish(&dmg);
+}
+
+/* Report whether the text cursor is currently enabled. */
+bool fbcon_cursor_get_visible(void)
+{
+    bool visible;
+
+    spin_lock(&fbcon_lock);
+    visible = vt_ansi_state.cursor_visible;
+    spin_unlock(&fbcon_lock);
+    return visible;
 }
 
 static const vt_ansi_callbacks_t vt_ansi_cb = {
@@ -855,59 +1049,22 @@ static const vt_ansi_callbacks_t vt_ansi_cb = {
 /* Process a buffer of characters through the ANSI escape sequence parser */
 void fbcon_ansi_write(const uint8_t *buf, size_t len)
 {
+    cursor_damage_t dmg;
+    screen_damage_t scr;
+
     spin_lock(&fbcon_lock);
     if (!text_grid || !color_grid) goto out;
     redraw_deferred++;
     for (size_t i = 0; i < len; i++) vt_ansi_process(&vt_ansi_state, buf[i], &vt_ansi_cb, NULL);
     redraw_deferred--;
     fbcon_flush_screen_updates();
+
+    /* Park the cursor solid at its new cell and restart the blink timer. */
+    fbcon_cursor_apply_visible_locked(vt_ansi_state.cursor_visible);
 out:
+    dmg = fbcon_cursor_take_locked();
+    scr = fbcon_screen_take_locked();
     spin_unlock(&fbcon_lock);
-}
-
-/* Flip the block cursor phase and repaint directly into the framebuffer. */
-void fbcon_cursor_tick(uint64_t now_ticks)
-{
-    bool     damaged  = false;
-    uint32_t damage_x = 0;
-    uint32_t damage_y = 0;
-
-    spin_lock(&fbcon_lock);
-    if (handoff_in_progress) goto out;
-    if (now_ticks - cursor_last_tick < CURSOR_BLINK_INTERVAL) goto out;
-    cursor_last_tick = now_ticks;
-    cursor_phase     = !cursor_phase;
-
-    /* Restore the cell where the cursor was drawn last phase. */
-    if (cursor_drawn) {
-        if (cursor_drawn_row < c_height && cursor_drawn_col < c_width) fbcon_redraw_row_range(cursor_drawn_row, cursor_drawn_col, cursor_drawn_col);
-        damage_x     = cursor_drawn_col * font_width;
-        damage_y     = cursor_drawn_row * font_height;
-        damaged      = true;
-        cursor_drawn = false;
-    }
-
-    /*
-     * Paint the block cursor at the current cursor position (reverse video).
-     * Never paint over the still-visible boot logo.
-     */
-    if (cursor_phase && vt_ansi_state.cursor_visible && text_grid && color_grid) {
-        uint32_t row = vt_ansi_state.y;
-        uint32_t col = vt_ansi_state.x;
-        if (row < c_height && col < c_width && !fbcon_row_logo_protected(row)) {
-            size_t   idx = ((size_t)row * c_width) + col;
-            uint32_t fg  = color_grid[idx];
-            uint32_t bg  = bg_grid ? bg_grid[idx] : back_color;
-            fbcon_draw_char_bg(text_grid[idx], col * font_width, row * font_height, bg, fg);
-            cursor_drawn     = true;
-            cursor_drawn_row = row;
-            cursor_drawn_col = col;
-            damage_x         = col * font_width;
-            damage_y         = row * font_height;
-            damaged          = true;
-        }
-    }
-out:
-    spin_unlock(&fbcon_lock);
-    if (damaged) video_flush_rect(damage_x, damage_y, font_width, font_height);
+    fbcon_cursor_publish(&dmg);
+    fbcon_screen_publish(&scr);
 }
