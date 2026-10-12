@@ -216,6 +216,10 @@ static int console_emit(void *context, const uint8_t *data, size_t size, uint64_
     tty_vga_flush_locked();
     spin_unlock(&tty_flush_spinlock);
     spin_unlock(&console_emit_lock);
+
+    /* Drain queued terminal query responses. */
+    tty_console_pump_responses();
+
     return (int)size;
 }
 
@@ -259,6 +263,17 @@ void tty_console_resize(uint16_t rows, uint16_t cols)
 {
     vt_input_init();
     tty_core_set_winsize(&console_tty, rows, cols);
+}
+
+/* Deliver queued terminal query responses (DSR/DA) as if typed on the console. */
+void tty_console_pump_responses(void)
+{
+    char   buf[FBCON_RESPONSE_MAX];
+    size_t len;
+
+    vt_input_init();
+    while ((len = fbcon_take_response(buf, sizeof(buf))) != 0)
+        if (tty_core_receive(&console_tty, (const uint8_t *)buf, len, O_NONBLOCK) < 0) break;
 }
 
 /* Legacy device write: output to the console tty core. */

@@ -57,6 +57,9 @@ bool tty_deferred_pending(void);
 /* Publish framebuffer character geometry through the console TTY. */
 void tty_console_resize(uint16_t rows, uint16_t cols);
 
+/* Deliver queued terminal query responses (DSR/DA) to the console TTY input queue. */
+void tty_console_pump_responses(void);
+
 /* Write a byte buffer to the TTY device. */
 size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size);
 

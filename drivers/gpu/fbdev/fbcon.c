@@ -77,6 +77,10 @@ typedef struct {
 /* Pending screen region, guarded by fbcon_lock. */
 static screen_damage_t screen_pending;
 
+/* Terminal query responses (DSR/DA) awaiting delivery into the tty input queue. */
+static char     response_buf[FBCON_RESPONSE_MAX];
+static uint32_t response_len;
+
 #if CONFIG_BOOT_LOGO
 static uint32_t logo_rows;       // grid rows covered by the boot logo
 static uint32_t logo_cover_rows; // top rows still showing the logo (redraw-protected)
@@ -796,6 +800,14 @@ bool fbcon_is_ready(void)
     return ready;
 }
 
+/* Request a full repaint of the text grid on the next flush. */
+void fbcon_request_full_redraw(void)
+{
+    spin_lock(&fbcon_lock);
+    full_redraw_pending = 1;
+    spin_unlock(&fbcon_lock);
+}
+
 /*
  * Draw a character with per-cell foreground and background color.  The
  * grid uses ceil(height / font_height) rows so the console fills the whole
@@ -822,82 +834,6 @@ void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint3
         uint8_t   font_row = char_font[row];
         for (uint32_t col = 0; col < draw_cols; col++) row_buf[col] = (font_row & (0x80 >> col)) ? fg : bg;
     }
-}
-
-/* ANSI escape sequence parser instance and callbacks */
-static uint32_t fbcon_rgb24_to_fb(uint32_t rgb24)
-{
-    color_t c = {(rgb24 >> 16) & 0xFF, (rgb24 >> 8) & 0xFF, rgb24 & 0xFF};
-    return color_to_fb_color(c);
-}
-
-/* ANSI callback: draw a character cell. */
-static void vt_ansicb_draw_char(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
-{
-    if (!text_grid || !color_grid || y >= c_height || x >= c_width) return;
-    size_t idx      = ((size_t)y * c_width) + x;
-    text_grid[idx]  = c;
-    color_grid[idx] = fbcon_rgb24_to_fb(fg);
-    if (bg_grid) bg_grid[idx] = fbcon_rgb24_to_fb(bg);
-    fbcon_mark_cell_dirty(y, x);
-}
-
-/* ANSI callback: scroll a region up. */
-static void vt_ansicb_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
-{
-    fbcon_scroll_up(top, bottom, lines);
-}
-
-/* ANSI callback: scroll a region down. */
-static void vt_ansicb_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
-{
-    fbcon_scroll_down(top, bottom, lines);
-}
-
-/* ANSI callback: erase the display. */
-static void vt_ansicb_erase_display(uint32_t mode, uint32_t x, uint32_t y)
-{
-    cx = x;
-    cy = y;
-    fbcon_erase_display(mode);
-}
-
-/* ANSI callback: erase a line. */
-static void vt_ansicb_erase_line(uint32_t mode, uint32_t x, uint32_t y)
-{
-    cx = x;
-    cy = y;
-    fbcon_erase_line(mode, y);
-}
-
-/* ANSI callback: erase characters. */
-static void vt_ansicb_erase_chars(uint32_t x, uint32_t y, uint32_t count)
-{
-    fbcon_erase_chars(x, y, count);
-}
-
-/* ANSI callback: insert lines. */
-static void vt_ansicb_insert_lines(uint32_t y, uint32_t bottom, uint32_t n)
-{
-    fbcon_scroll_down(y, bottom, n);
-}
-
-/* ANSI callback: delete lines. */
-static void vt_ansicb_delete_lines(uint32_t y, uint32_t bottom, uint32_t n)
-{
-    fbcon_scroll_up(y, bottom, n);
-}
-
-/* ANSI callback: insert characters. */
-static void vt_ansicb_insert_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
-{
-    fbcon_insert_chars(x, y, n, cols);
-}
-
-/* ANSI callback: delete characters. */
-static void vt_ansicb_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
-{
-    fbcon_delete_chars(x, y, n, cols);
 }
 
 /* Publish recorded cursor damage; call without fbcon_lock. */
@@ -978,12 +914,6 @@ static void fbcon_cursor_apply_visible_locked(bool visible)
     fbcon_cursor_paint_locked();
 }
 
-/* ANSI callback: set cursor visibility (runs under fbcon_lock). */
-static void vt_ansicb_cursor_visible(bool visible)
-{
-    fbcon_cursor_apply_visible_locked(visible);
-}
-
 /*
  * Flip the block cursor phase and repaint directly into the framebuffer.
  * The restored and the freshly painted cells are published separately so a
@@ -1032,6 +962,98 @@ bool fbcon_cursor_get_visible(void)
     return visible;
 }
 
+/* ANSI escape sequence parser instance and callbacks */
+static uint32_t fbcon_rgb24_to_fb(uint32_t rgb24)
+{
+    color_t c = {(rgb24 >> 16) & 0xFF, (rgb24 >> 8) & 0xFF, rgb24 & 0xFF};
+    return color_to_fb_color(c);
+}
+
+/* ANSI callback: draw a character cell. */
+static void vt_ansicb_draw_char(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
+{
+    if (!text_grid || !color_grid || y >= c_height || x >= c_width) return;
+    size_t idx      = ((size_t)y * c_width) + x;
+    text_grid[idx]  = c;
+    color_grid[idx] = fbcon_rgb24_to_fb(fg);
+    if (bg_grid) bg_grid[idx] = fbcon_rgb24_to_fb(bg);
+    fbcon_mark_cell_dirty(y, x);
+}
+
+/* ANSI callback: scroll a region up. */
+static void vt_ansicb_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
+{
+    fbcon_scroll_up(top, bottom, lines);
+}
+
+/* ANSI callback: scroll a region down. */
+static void vt_ansicb_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
+{
+    fbcon_scroll_down(top, bottom, lines);
+}
+
+/* ANSI callback: erase the display. */
+static void vt_ansicb_erase_display(uint32_t mode, uint32_t x, uint32_t y)
+{
+    cx = x;
+    cy = y;
+    fbcon_erase_display(mode);
+}
+
+/* ANSI callback: erase a line. */
+static void vt_ansicb_erase_line(uint32_t mode, uint32_t x, uint32_t y)
+{
+    cx = x;
+    cy = y;
+    fbcon_erase_line(mode, y);
+}
+
+/* ANSI callback: erase characters. */
+static void vt_ansicb_erase_chars(uint32_t x, uint32_t y, uint32_t count)
+{
+    fbcon_erase_chars(x, y, count);
+}
+
+/* ANSI callback: insert lines. */
+static void vt_ansicb_insert_lines(uint32_t y, uint32_t bottom, uint32_t n)
+{
+    fbcon_scroll_down(y, bottom, n);
+}
+
+/* ANSI callback: delete lines. */
+static void vt_ansicb_delete_lines(uint32_t y, uint32_t bottom, uint32_t n)
+{
+    fbcon_scroll_up(y, bottom, n);
+}
+
+/* ANSI callback: insert characters. */
+static void vt_ansicb_insert_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
+{
+    fbcon_insert_chars(x, y, n, cols);
+}
+
+/* ANSI callback: delete characters. */
+static void vt_ansicb_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
+{
+    fbcon_delete_chars(x, y, n, cols);
+}
+
+/* ANSI callback: set cursor visibility (runs under fbcon_lock). */
+static void vt_ansicb_cursor_visible(bool visible)
+{
+    fbcon_cursor_apply_visible_locked(visible);
+}
+
+/* ANSI callback: queue a terminal query response (runs under fbcon_lock). */
+static void vt_ansicb_write_response(const char *buf, size_t len)
+{
+    size_t space = sizeof(response_buf) - response_len;
+
+    if (len > space) len = space;
+    memcpy(response_buf + response_len, buf, len);
+    response_len += (uint32_t)len;
+}
+
 static const vt_ansi_callbacks_t vt_ansi_cb = {
     .draw_char      = vt_ansicb_draw_char,
     .scroll_up      = vt_ansicb_scroll_up,
@@ -1044,6 +1066,7 @@ static const vt_ansi_callbacks_t vt_ansi_cb = {
     .insert_chars   = vt_ansicb_insert_chars,
     .delete_chars   = vt_ansicb_delete_chars,
     .cursor_visible = vt_ansicb_cursor_visible,
+    .write_response = vt_ansicb_write_response,
 };
 
 /* Process a buffer of characters through the ANSI escape sequence parser */
@@ -1067,4 +1090,18 @@ out:
     spin_unlock(&fbcon_lock);
     fbcon_cursor_publish(&dmg);
     fbcon_screen_publish(&scr);
+}
+
+/* Drain the queued terminal responses into @buf, returning the byte count. */
+size_t fbcon_take_response(char *buf, size_t size)
+{
+    size_t len;
+
+    spin_lock(&fbcon_lock);
+    len = response_len < size ? (size_t)response_len : size;
+    if (len) memcpy(buf, response_buf, len);
+    response_len -= (uint32_t)len;
+    if (response_len) memmove(response_buf, response_buf + len, response_len);
+    spin_unlock(&fbcon_lock);
+    return len;
 }
