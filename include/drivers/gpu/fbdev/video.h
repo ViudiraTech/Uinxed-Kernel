@@ -67,14 +67,14 @@ extern uint32_t back_color; // Background color
 extern uint32_t font_width;  // Font width
 extern uint32_t font_height; // Font height
 
+/* Get the frame buffer */
+struct limine_framebuffer *get_framebuffer(void);
+
 /* Get video information */
 video_info_t video_get_info(void);
 
 /* Build the fbdev identifier: "<active DRM driver>drmfb", or "simple" when no DRM driver owns the display. */
 void video_fix_id(char *buf, size_t len);
-
-/* Get the frame buffer */
-struct limine_framebuffer *get_framebuffer(void);
 
 /*
  * Read raw bytes from the primary framebuffer backing /dev/fb0.
@@ -98,9 +98,6 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg);
 /* Map the live framebuffer into a userspace VMA. */
 void *video_fb_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
 
-/* Start periodic framebuffer refreshes after PID 1 has been allocated. */
-void video_start_refresh_worker(void);
-
 /* Initialize Video */
 void video_init(void);
 
@@ -114,14 +111,17 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
 /* Suspend/resume the kernel console while a DRM master owns the display. */
 void video_console_blank(bool blank);
 
+/* Start periodic framebuffer refreshes after PID 1 has been allocated. */
+void video_start_refresh_worker(void);
+
 /* Publish a damaged rectangle after a batch of framebuffer draws. */
 void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 
-/* Synchronously push any pending frame damage to the host (boot/panic paths). */
-void video_flush_now(void);
-
 /* Install the panic-safety guard consulted by video_flush_now(). */
 void video_set_flush_guard(bool (*guard)(void));
+
+/* Synchronously push any pending frame damage to the host (boot/panic paths). */
+void video_flush_now(void);
 
 /* Clear screen */
 void video_clear(void);

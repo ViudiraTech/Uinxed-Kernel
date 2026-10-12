@@ -51,22 +51,11 @@ uint32_t back_color; // Background color
 uint32_t font_width;  // Font width
 uint32_t font_height; // Font height
 
-/*
- * Build the fbdev identifier into @buf.  With an active DRM
- * driver the id is "<driver>drmfb" (like "simpledrmdrmfb", "virtio_gpudrmfb").
- * Without any DRM device the console is a bootloader simple framebuffer, so
- * use "simple" (the fix.id of the legacy simplefb driver).
- */
-void video_fix_id(char *buf, size_t len)
+/* Get the frame buffer */
+struct limine_framebuffer *get_framebuffer(void)
 {
-    const char *name = drm_active_driver_name();
-
-    if (!buf || len == 0) return;
-    if (name && name[0]) {
-        (void)snprintf(buf, len, "%sdrmfb", name);
-    } else {
-        (void)snprintf(buf, len, "%s", "simple");
-    }
+    if (!framebuffer_request.response || !framebuffer_request.response->framebuffer_count) return NULL;
+    return framebuffer_request.response->framebuffers[0];
 }
 
 /* Get video information */
@@ -87,75 +76,22 @@ video_info_t video_get_info(void)
     return info;
 }
 
-/* Get the frame buffer */
-struct limine_framebuffer *get_framebuffer(void)
+/*
+ * Build the fbdev identifier into @buf.  With an active DRM
+ * driver the id is "<driver>drmfb" (like "simpledrmdrmfb", "virtio_gpudrmfb").
+ * Without any DRM device the console is a bootloader simple framebuffer, so
+ * use "simple" (the fix.id of the legacy simplefb driver).
+ */
+void video_fix_id(char *buf, size_t len)
 {
-    if (!framebuffer_request.response || !framebuffer_request.response->framebuffer_count) return NULL;
-    return framebuffer_request.response->framebuffers[0];
-}
+    const char *name = drm_active_driver_name();
 
-/* Read raw bytes from the primary framebuffer */
-size_t video_fb_read(void *ctx, void *addr, size_t offset, size_t size)
-{
-    uint8_t *src;
-    size_t   fb_size;
-    size_t   bytes_per_pixel;
-
-    (void)ctx;
-    if (!addr || !buffer) return 0;
-
-    video_info_t info = video_get_info();
-    bytes_per_pixel   = (info.bpp + 7U) / 8U;
-    if (!bytes_per_pixel || info.stride > SIZE_MAX / info.height || info.stride * info.height > SIZE_MAX / bytes_per_pixel) return 0;
-    fb_size = (size_t)(info.stride * info.height * bytes_per_pixel);
-    if (offset >= fb_size) return 0;
-
-    if (size > fb_size - offset) size = fb_size - offset;
-    src = (uint8_t *)buffer + offset;
-    memcpy(addr, src, size);
-    return size;
-}
-
-/* Write raw bytes to the primary framebuffer */
-size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
-{
-    uint8_t *dst;
-    size_t   fb_size;
-    size_t   row_bytes;
-    size_t   start_row;
-    size_t   end_row;
-
-    (void)ctx;
-    if (!addr || !buffer) return 0;
-
-    video_info_t info            = video_get_info();
-    size_t       bytes_per_pixel = (info.bpp + 7U) / 8U;
-    if (!bytes_per_pixel || info.stride > SIZE_MAX / info.height || info.stride * info.height > SIZE_MAX / bytes_per_pixel) return 0;
-    fb_size = (size_t)(info.stride * info.height * bytes_per_pixel);
-    if (offset >= fb_size) return 0;
-
-    if (size > fb_size - offset) size = fb_size - offset;
-    dst = (uint8_t *)buffer + offset;
-    memcpy(dst, addr, size);
-
-    /*
-     * /dev/fb0 writes are byte ranges.  Convert them to one conservative
-     * rectangle so DRM-backed consoles do not retransmit the whole frame.
-     */
-    if (size) {
-        row_bytes = (size_t)info.stride * bytes_per_pixel;
-        if (row_bytes == 0) return size;
-        start_row = offset / row_bytes;
-        end_row   = (offset + size - 1) / row_bytes;
-        if (start_row == end_row) {
-            size_t x0 = (offset % row_bytes) / bytes_per_pixel;
-            size_t x1 = ((offset % row_bytes) + size + bytes_per_pixel - 1) / bytes_per_pixel;
-            video_flush_rect((uint32_t)x0, (uint32_t)start_row, (uint32_t)(x1 - x0), 1);
-        } else {
-            video_flush_rect(0, (uint32_t)start_row, (uint32_t)width, (uint32_t)(end_row - start_row + 1));
-        }
+    if (!buf || len == 0) return;
+    if (name && name[0]) {
+        (void)snprintf(buf, len, "%sdrmfb", name);
+    } else {
+        (void)snprintf(buf, len, "%s", "simple");
     }
-    return size;
 }
 
 /* Return the framebuffer byte size, validating the geometry. */
@@ -221,6 +157,70 @@ static int video_fb_validate_mode(const video_info_t *info, const fbdev_var_scre
         return -EINVAL;
     }
     return EOK;
+}
+
+/* Read raw bytes from the primary framebuffer */
+size_t video_fb_read(void *ctx, void *addr, size_t offset, size_t size)
+{
+    uint8_t *src;
+    size_t   fb_size;
+    size_t   bytes_per_pixel;
+
+    (void)ctx;
+    if (!addr || !buffer) return 0;
+
+    video_info_t info = video_get_info();
+    bytes_per_pixel   = (info.bpp + 7U) / 8U;
+    if (!bytes_per_pixel || info.stride > SIZE_MAX / info.height || info.stride * info.height > SIZE_MAX / bytes_per_pixel) return 0;
+    fb_size = (size_t)(info.stride * info.height * bytes_per_pixel);
+    if (offset >= fb_size) return 0;
+
+    if (size > fb_size - offset) size = fb_size - offset;
+    src = (uint8_t *)buffer + offset;
+    memcpy(addr, src, size);
+    return size;
+}
+
+/* Write raw bytes to the primary framebuffer */
+size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
+{
+    uint8_t *dst;
+    size_t   fb_size;
+    size_t   row_bytes;
+    size_t   start_row;
+    size_t   end_row;
+
+    (void)ctx;
+    if (!addr || !buffer) return 0;
+
+    video_info_t info            = video_get_info();
+    size_t       bytes_per_pixel = (info.bpp + 7U) / 8U;
+    if (!bytes_per_pixel || info.stride > SIZE_MAX / info.height || info.stride * info.height > SIZE_MAX / bytes_per_pixel) return 0;
+    fb_size = (size_t)(info.stride * info.height * bytes_per_pixel);
+    if (offset >= fb_size) return 0;
+
+    if (size > fb_size - offset) size = fb_size - offset;
+    dst = (uint8_t *)buffer + offset;
+    memcpy(dst, addr, size);
+
+    /*
+     * /dev/fb0 writes are byte ranges.  Convert them to one conservative
+     * rectangle so DRM-backed consoles do not retransmit the whole frame.
+     */
+    if (size) {
+        row_bytes = (size_t)info.stride * bytes_per_pixel;
+        if (row_bytes == 0) return size;
+        start_row = offset / row_bytes;
+        end_row   = (offset + size - 1) / row_bytes;
+        if (start_row == end_row) {
+            size_t x0 = (offset % row_bytes) / bytes_per_pixel;
+            size_t x1 = ((offset % row_bytes) + size + bytes_per_pixel - 1) / bytes_per_pixel;
+            video_flush_rect((uint32_t)x0, (uint32_t)start_row, (uint32_t)(x1 - x0), 1);
+        } else {
+            video_flush_rect(0, (uint32_t)start_row, (uint32_t)width, (uint32_t)(end_row - start_row + 1));
+        }
+    }
+    return size;
 }
 
 /* Query framebuffer device metadata */
@@ -331,77 +331,6 @@ void *video_fb_mmap(void *ctx, void *private_data, size_t offset, size_t size, i
     return (uint8_t *)buffer + offset;
 }
 
-/* Refresh worker: blinks the cursor and flushes pending frame damage. */
-static int video_refresh_worker(void *arg)
-{
-    (void)arg;
-    while (!kthread_should_stop()) {
-        task_sleep_ticks((CONFIG_TIMER_HZ + 59) / 60);
-
-        /*
-         * While a DRM master owns the display (compositor running), the
-         * console must not repaint a framebuffer shared with the scanout.
-         */
-        spin_lock(&video_state_lock);
-        bool suspended = video_console_suspended;
-        spin_unlock(&video_state_lock);
-        if (suspended) continue;
-
-        /* Cursor and console output both publish damage into the same box. */
-        fbcon_cursor_tick(sched_ticks());
-
-        spin_lock(&video_state_lock);
-        video_flush_fn_t flush    = video_flush_cb;
-        bool             dirty    = video_dirty;
-        uint32_t         x1       = video_dirty_x1;
-        uint32_t         y1       = video_dirty_y1;
-        uint32_t         x2       = video_dirty_x2;
-        uint32_t         y2       = video_dirty_y2;
-        uint32_t         active_w = (uint32_t)width;
-        uint32_t         active_h = (uint32_t)height;
-        video_dirty               = false;
-        spin_unlock(&video_state_lock);
-        if (!dirty || !flush || !active_w || !active_h || x1 >= x2 || y1 >= y2) continue;
-        if (x2 > active_w) x2 = active_w;
-        if (y2 > active_h) y2 = active_h;
-        if (x1 < x2 && y1 < y2) flush(x1, y1, x2 - x1, y2 - y1);
-    }
-    return 0;
-}
-
-/* Register the background video refresh worker for unified creation. */
-void video_start_refresh_worker(void)
-{
-    spin_lock(&video_state_lock);
-    bool should_start = video_flush_cb && !video_refresh_worker_started;
-    if (should_start) video_refresh_worker_started = true;
-    spin_unlock(&video_state_lock);
-    if (should_start && kernel_worker_register("video-refresh", video_refresh_worker, NULL, NULL)) {
-        plogk("video: Failed to register video-refresh kernel worker.\n");
-        spin_lock(&video_state_lock);
-        video_refresh_worker_started = false;
-        spin_unlock(&video_state_lock);
-    }
-}
-
-/*
- * Suspend or resume the kernel console while a DRM master owns the display.
- * A compositor and the console must not repaint the same framebuffer at
- * once.  Refcounted so that several concurrent masters keep it blanked
- * until the last one drops.
- */
-void video_console_blank(bool blank)
-{
-    spin_lock(&video_state_lock);
-    if (blank) {
-        video_console_suspend_refs++;
-    } else if (video_console_suspend_refs > 0) {
-        video_console_suspend_refs--;
-    }
-    video_console_suspended = (video_console_suspend_refs > 0);
-    spin_unlock(&video_state_lock);
-}
-
 /* Initialize Video */
 void video_init(void)
 {
@@ -450,136 +379,6 @@ void video_init(void)
     video_active_info.edid             = framebuffer->edid;
     fbcon_init();
     video_clear();
-}
-
-/* Clear screen */
-void video_clear(void)
-{
-    back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
-    if (buffer) {
-        size_t    count = (size_t)stride * height;
-        uint32_t *dest  = buffer;
-        __asm__ volatile("rep stosl" : "+D"(dest), "+c"(count) : "a"(back_color) : "memory");
-    }
-    cx = cy = 0;
-    video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
-}
-
-/* Clear screen with color */
-void video_clear_color(uint32_t color)
-{
-    back_color = color;
-    if (buffer) {
-        size_t    count = (size_t)stride * height;
-        uint32_t *dest  = buffer;
-        __asm__ volatile("rep stosl" : "+D"(dest), "+c"(count) : "a"(back_color) : "memory");
-    }
-    cx = cy = 0;
-    video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
-}
-
-/* Draw a pixel at the specified coordinates on the screen */
-void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
-{
-    if (!buffer || x >= stride || y >= height) return;
-    (buffer)[(y * stride) + x] = color;
-}
-
-/* Get a pixel at the specified coordinates on the screen */
-uint32_t video_get_pixel(uint32_t x, uint32_t y)
-{
-    if (!buffer || x >= stride || y >= height) return 0;
-    return (buffer)[(y * stride) + x];
-}
-
-/* Iterate over an area on the screen and run a callback in each iteration */
-void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))
-{
-    position_t p;
-    for (p.y = p0.y; p.y <= p1.y; p.y++)
-        for (p.x = p0.x; p.x <= p1.x; p.x++) callback(p);
-}
-
-/* Draw a matrix at the specified coordinates on the screen */
-void video_draw_rect(position_t p0, position_t p1, uint32_t color)
-{
-    uint32_t x0 = p0.x;
-    uint32_t y0 = p0.y;
-    uint32_t x1 = p1.x;
-    uint32_t y1 = p1.y;
-    if (!buffer || x0 >= stride || y0 >= height) return;
-    if (x1 >= stride) x1 = (uint32_t)stride - 1;
-    if (y1 >= height) y1 = (uint32_t)height - 1;
-    if (x1 < x0 || y1 < y0) return;
-    for (uint32_t y = y0; y <= y1; y++) {
-        /* Draw horizontal line */
-        uint32_t *line  = buffer + (y * stride) + x0;
-        size_t    count = x1 - x0 + 1;
-        __asm__ volatile("rep stosl" : "+D"(line), "+c"(count) : "a"(color) : "memory");
-    }
-    video_flush_rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
-}
-
-/* Merge a damage rectangle into the box pending on the next flush. */
-void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
-{
-    spin_lock(&video_state_lock);
-    uint32_t active_w = (uint32_t)width;
-    uint32_t active_h = (uint32_t)height;
-    if (!video_flush_cb || !w || !h || x >= active_w || y >= active_h) {
-        spin_unlock(&video_state_lock);
-        return;
-    }
-    if (w > active_w - x) w = active_w - x;
-    if (h > active_h - y) h = active_h - y;
-    uint32_t x2 = x + w;
-    uint32_t y2 = y + h;
-    if (!video_dirty) {
-        video_dirty_x1 = x;
-        video_dirty_y1 = y;
-        video_dirty_x2 = x2;
-        video_dirty_y2 = y2;
-        video_dirty    = true;
-    } else {
-        if (x < video_dirty_x1) video_dirty_x1 = x;
-        if (y < video_dirty_y1) video_dirty_y1 = y;
-        if (x2 > video_dirty_x2) video_dirty_x2 = x2;
-        if (y2 > video_dirty_y2) video_dirty_y2 = y2;
-    }
-    spin_unlock(&video_state_lock);
-}
-
-/* Optional panic-safety guard; NULL means "always safe". */
-static bool (*video_flush_guard)(void);
-
-/* Install the flush-safety guard used by video_flush_now(). */
-void video_set_flush_guard(bool (*guard)(void))
-{
-    video_flush_guard = guard;
-}
-
-/* Synchronously push pending frame damage to the host (boot/panic paths). */
-void video_flush_now(void)
-{
-    video_flush_fn_t flush;
-    uint32_t         x1, y1, x2, y2;
-
-    if (video_flush_guard && !video_flush_guard()) return;
-
-    spin_lock(&video_state_lock);
-    flush = video_flush_cb;
-    if (!video_dirty) {
-        spin_unlock(&video_state_lock);
-        return;
-    }
-    x1          = video_dirty_x1;
-    y1          = video_dirty_y1;
-    x2          = video_dirty_x2;
-    y2          = video_dirty_y2;
-    video_dirty = false;
-    spin_unlock(&video_state_lock);
-
-    if (flush && x1 < x2 && y1 < y2) flush(x1, y1, x2 - x1, y2 - y1);
 }
 
 /*
@@ -666,6 +465,7 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
 #if CONFIG_BOOT_LOGO
         video_redraw_logo();
 #endif
+        fbcon_request_full_redraw();
     }
 
     fbcon_handoff_end();
@@ -675,4 +475,211 @@ void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pi
     video_flush_now();
 
     plogk("video: Switched to framebuffer %ux%u stride=%u\n", w, h, (uint32_t)stride);
+}
+
+/*
+ * Suspend or resume the kernel console while a DRM master owns the display.
+ * A compositor and the console must not repaint the same framebuffer at
+ * once.  Refcounted so that several concurrent masters keep it blanked
+ * until the last one drops.
+ */
+void video_console_blank(bool blank)
+{
+    spin_lock(&video_state_lock);
+    if (blank) {
+        video_console_suspend_refs++;
+    } else if (video_console_suspend_refs > 0) {
+        video_console_suspend_refs--;
+    }
+    video_console_suspended = (video_console_suspend_refs > 0);
+    spin_unlock(&video_state_lock);
+}
+
+/* Refresh worker: blinks the cursor and flushes pending frame damage. */
+static int video_refresh_worker(void *arg)
+{
+    (void)arg;
+    while (!kthread_should_stop()) {
+        task_sleep_ticks((CONFIG_TIMER_HZ + 59) / 60);
+
+        /* Drain queued terminal query responses. */
+        tty_console_pump_responses();
+
+        /*
+         * While a DRM master owns the display (compositor running), the
+         * console must not repaint a framebuffer shared with the scanout.
+         */
+        spin_lock(&video_state_lock);
+        bool suspended = video_console_suspended;
+        spin_unlock(&video_state_lock);
+        if (suspended) continue;
+
+        /* Cursor and console output both publish damage into the same box. */
+        fbcon_cursor_tick(sched_ticks());
+
+        spin_lock(&video_state_lock);
+        video_flush_fn_t flush    = video_flush_cb;
+        bool             dirty    = video_dirty;
+        uint32_t         x1       = video_dirty_x1;
+        uint32_t         y1       = video_dirty_y1;
+        uint32_t         x2       = video_dirty_x2;
+        uint32_t         y2       = video_dirty_y2;
+        uint32_t         active_w = (uint32_t)width;
+        uint32_t         active_h = (uint32_t)height;
+        video_dirty               = false;
+        spin_unlock(&video_state_lock);
+        if (!dirty || !flush || !active_w || !active_h || x1 >= x2 || y1 >= y2) continue;
+        if (x2 > active_w) x2 = active_w;
+        if (y2 > active_h) y2 = active_h;
+        if (x1 < x2 && y1 < y2) flush(x1, y1, x2 - x1, y2 - y1);
+    }
+    return 0;
+}
+
+/* Register the background video refresh worker for unified creation. */
+void video_start_refresh_worker(void)
+{
+    bool console_ready = fbcon_is_ready();
+
+    spin_lock(&video_state_lock);
+    bool should_start = console_ready && !video_refresh_worker_started;
+    if (should_start) video_refresh_worker_started = true;
+    spin_unlock(&video_state_lock);
+
+    if (should_start && kernel_worker_register("video-refresh", video_refresh_worker, NULL, NULL)) {
+        plogk("video: Failed to register video-refresh kernel worker.\n");
+        spin_lock(&video_state_lock);
+        video_refresh_worker_started = false;
+        spin_unlock(&video_state_lock);
+    }
+}
+
+/* Merge a damage rectangle into the box pending on the next flush. */
+void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+    spin_lock(&video_state_lock);
+    uint32_t active_w = (uint32_t)width;
+    uint32_t active_h = (uint32_t)height;
+    if (!video_flush_cb || !w || !h || x >= active_w || y >= active_h) {
+        spin_unlock(&video_state_lock);
+        return;
+    }
+    if (w > active_w - x) w = active_w - x;
+    if (h > active_h - y) h = active_h - y;
+    uint32_t x2 = x + w;
+    uint32_t y2 = y + h;
+    if (!video_dirty) {
+        video_dirty_x1 = x;
+        video_dirty_y1 = y;
+        video_dirty_x2 = x2;
+        video_dirty_y2 = y2;
+        video_dirty    = true;
+    } else {
+        if (x < video_dirty_x1) video_dirty_x1 = x;
+        if (y < video_dirty_y1) video_dirty_y1 = y;
+        if (x2 > video_dirty_x2) video_dirty_x2 = x2;
+        if (y2 > video_dirty_y2) video_dirty_y2 = y2;
+    }
+    spin_unlock(&video_state_lock);
+}
+
+/* Optional panic-safety guard; NULL means "always safe". */
+static bool (*video_flush_guard)(void);
+
+/* Install the flush-safety guard used by video_flush_now(). */
+void video_set_flush_guard(bool (*guard)(void))
+{
+    video_flush_guard = guard;
+}
+
+/* Synchronously push pending frame damage to the host (boot/panic paths). */
+void video_flush_now(void)
+{
+    video_flush_fn_t flush;
+    uint32_t         x1, y1, x2, y2;
+
+    if (video_flush_guard && !video_flush_guard()) return;
+
+    spin_lock(&video_state_lock);
+    flush = video_flush_cb;
+    if (!video_dirty) {
+        spin_unlock(&video_state_lock);
+        return;
+    }
+    x1          = video_dirty_x1;
+    y1          = video_dirty_y1;
+    x2          = video_dirty_x2;
+    y2          = video_dirty_y2;
+    video_dirty = false;
+    spin_unlock(&video_state_lock);
+
+    if (flush && x1 < x2 && y1 < y2) flush(x1, y1, x2 - x1, y2 - y1);
+}
+
+/* Clear screen */
+void video_clear(void)
+{
+    back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
+    if (buffer) {
+        size_t    count = (size_t)stride * height;
+        uint32_t *dest  = buffer;
+        __asm__ volatile("rep stosl" : "+D"(dest), "+c"(count) : "a"(back_color) : "memory");
+    }
+    cx = cy = 0;
+    video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
+}
+
+/* Clear screen with color */
+void video_clear_color(uint32_t color)
+{
+    back_color = color;
+    if (buffer) {
+        size_t    count = (size_t)stride * height;
+        uint32_t *dest  = buffer;
+        __asm__ volatile("rep stosl" : "+D"(dest), "+c"(count) : "a"(back_color) : "memory");
+    }
+    cx = cy = 0;
+    video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
+}
+
+/* Draw a pixel at the specified coordinates on the screen */
+void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
+{
+    if (!buffer || x >= stride || y >= height) return;
+    (buffer)[(y * stride) + x] = color;
+}
+
+/* Get a pixel at the specified coordinates on the screen */
+uint32_t video_get_pixel(uint32_t x, uint32_t y)
+{
+    if (!buffer || x >= stride || y >= height) return 0;
+    return (buffer)[(y * stride) + x];
+}
+
+/* Iterate over an area on the screen and run a callback in each iteration */
+void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))
+{
+    position_t p;
+    for (p.y = p0.y; p.y <= p1.y; p.y++)
+        for (p.x = p0.x; p.x <= p1.x; p.x++) callback(p);
+}
+
+/* Draw a matrix at the specified coordinates on the screen */
+void video_draw_rect(position_t p0, position_t p1, uint32_t color)
+{
+    uint32_t x0 = p0.x;
+    uint32_t y0 = p0.y;
+    uint32_t x1 = p1.x;
+    uint32_t y1 = p1.y;
+    if (!buffer || x0 >= stride || y0 >= height) return;
+    if (x1 >= stride) x1 = (uint32_t)stride - 1;
+    if (y1 >= height) y1 = (uint32_t)height - 1;
+    if (x1 < x0 || y1 < y0) return;
+    for (uint32_t y = y0; y <= y1; y++) {
+        /* Draw horizontal line */
+        uint32_t *line  = buffer + (y * stride) + x0;
+        size_t    count = x1 - x0 + 1;
+        __asm__ volatile("rep stosl" : "+D"(line), "+c"(count) : "a"(color) : "memory");
+    }
+    video_flush_rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
 }

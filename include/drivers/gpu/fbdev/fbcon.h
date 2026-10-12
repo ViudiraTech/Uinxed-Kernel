@@ -15,6 +15,8 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
+#define FBCON_RESPONSE_MAX 32
+
 /* Initialize framebuffer console */
 void fbcon_init(void);
 
@@ -27,6 +29,9 @@ void fbcon_handoff_end(void);
 
 /* True once the fbcon text grid is allocated and safe to render into. */
 bool fbcon_is_ready(void);
+
+/* Request a full repaint of the text grid on the next flush */
+void fbcon_request_full_redraw(void);
 
 /* Draw a character with per-cell foreground and background color */
 void fbcon_draw_char_bg(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg);
@@ -42,6 +47,9 @@ void fbcon_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols);
 
 /* Process a buffer of characters through the ANSI escape sequence parser */
 void fbcon_ansi_write(const uint8_t *buf, size_t len);
+
+/* Drain queued terminal query responses (DSR/DA) into @buf; returns the byte count */
+size_t fbcon_take_response(char *buf, size_t size);
 
 /*
  * Boot-logo area control.
