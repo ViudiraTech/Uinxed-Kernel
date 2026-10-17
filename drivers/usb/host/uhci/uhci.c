@@ -725,8 +725,13 @@ static int uhci_worker(void *argument)
 {
     uhci_controller_t *ctrl = argument;
     while (ctrl->running && !kthread_should_stop()) {
+        /* UHCI has no port-change interrupt (RD only fires in global suspend), so poll the root ports like Linux's POLL_RH. */
+        uint64_t polled = 0;
+        for (uint8_t p = 0; p < UHCI_MAX_PORTS; p++)
+            if (uhci_readw(ctrl, UHCI_PORTSC1 + p * 2) & (UHCI_PORTSC_CSC | UHCI_PORTSC_PEC)) polled |= 1ULL << p;
+
         uint64_t flags      = spin_lock_irqsave(&ctrl->lock);
-        uint64_t ports      = ctrl->pending_ports;
+        uint64_t ports      = ctrl->pending_ports | polled;
         ctrl->pending_ports = 0;
         if (!ports && ctrl->running && !kthread_should_stop()) wait_queue_prepare(&ctrl->worker_wait);
         spin_unlock_irqrestore(&ctrl->lock, flags);
