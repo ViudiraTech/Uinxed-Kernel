@@ -875,8 +875,10 @@ static int uhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 
     pci_irq_state_t   irq_state;
     pci_irq_request_t request = {
-        .modes       = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
-        .idt_handler = (void *)uhci_interrupt_handler,
+        .modes         = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
+        .idt_handler   = (void *)uhci_interrupt_handler,
+        .legacy_base   = IRQ_0,
+        .legacy_ioapic = 1,
     };
     if (pci_request_irq(pci, &request, &irq_state) < 0) return -ENODEV;
 
