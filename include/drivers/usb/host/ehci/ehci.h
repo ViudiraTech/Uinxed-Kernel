@@ -38,8 +38,8 @@
 /* USBCMD bits */
 #define EHCI_CMD_RUN     (1U << 0)
 #define EHCI_CMD_HCRESET (1U << 1)
-#define EHCI_CMD_ASENE   (1U << 2)
-#define EHCI_CMD_PSEN    (1U << 3)
+#define EHCI_CMD_PSEN    (1U << 4)
+#define EHCI_CMD_ASENE   (1U << 5)
 #define EHCI_CMD_IAAD    (1U << 6)
 #define EHCI_CMD_LRESET  (1U << 7)
 #define EHCI_CMD_ASYNC   (1U << 8)
@@ -63,7 +63,9 @@
 
 /* PORTSC bits */
 #define EHCI_PORT_CCS       (1U << 0)
-#define EHCI_PORT_PED       (1U << 1)
+#define EHCI_PORT_CSC       (1U << 1)
+#define EHCI_PORT_PED       (1U << 2)
+#define EHCI_PORT_PEC       (1U << 3)
 #define EHCI_PORT_PR        (1U << 8)
 #define EHCI_PORT_PP        (1U << 12)
 #define EHCI_PORT_PO        (1U << 13)
@@ -74,8 +76,6 @@
 #define EHCI_PORT_PTC_MASK  (0x0fU << 3)
 
 /* Bits 26-27 are controller-specific on some implementations; do not use them to infer speed on a standards-compliant EHCI controller. */
-#define EHCI_PORT_CSC         (1U << 17)
-#define EHCI_PORT_PEC         (1U << 18)
 #define EHCI_PORT_CHANGE_BITS (EHCI_PORT_CSC | EHCI_PORT_PEC)
 
 /* HCSPARAMS bits */
