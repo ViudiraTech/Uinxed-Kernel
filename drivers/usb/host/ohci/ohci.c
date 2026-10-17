@@ -554,6 +554,7 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
     device->speed       = speed;
     device->bus_number  = ctrl->bus_number;
     device->port_number = port + 1;
+    device->depth       = 1; // Root-port device: depth 1 (root hub depth 0)
     device->hcd_ops     = &ohci_hcd_ops;
     device->hc_private  = ctrl;
     device->dev.release = ohci_usb_device_release;

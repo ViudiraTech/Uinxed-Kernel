@@ -624,6 +624,7 @@ static int uhci_enumerate_port(uhci_controller_t *ctrl, uint8_t port)
     device->speed       = speed;
     device->bus_number  = ctrl->bus_number;
     device->port_number = port + 1;
+    device->depth       = 1; // Root-port device: depth 1 (root hub depth 0)
     device->hcd_ops     = &uhci_hcd_ops;
     device->hc_private  = ctrl;
     device->dev.release = uhci_usb_device_release;
