@@ -70,6 +70,7 @@ typedef struct ehci_controller {
         usb_device_t             *devices[EHCI_MAX_PORTS];
         ehci_periodic_transfer_t *periodic[EHCI_MAX_PERIODIC];
         uint64_t                  pending_ports;
+        uint64_t                  failed_ports;
         spinlock_t                lock;
         raw_spinlock_t            io_lock;
         wait_queue_t              worker_wait;
@@ -546,6 +547,7 @@ static int ehci_enumerate_port(ehci_controller_t *ctrl, uint8_t port)
     device->speed       = speed;
     device->bus_number  = ctrl->bus_number;
     device->port_number = port + 1;
+    device->depth       = 1; // Root-port device: depth 1 (root hub depth 0)
     device->hcd_ops     = &ehci_hcd_ops;
     device->hc_private  = ctrl;
     device->dev.release = ehci_usb_device_release;
@@ -660,13 +662,22 @@ static int ehci_worker(void *argument)
             uint32_t portsc = ehci_read32(ctrl->operational, offset);
             uint32_t change = portsc & EHCI_PORT_CHANGE_BITS;
             if (change) ehci_write32(ctrl->operational, offset, portsc);
+            uint64_t port_mask = 1ULL << port;
             if (!(portsc & EHCI_PORT_CCS)) {
+                ctrl->failed_ports &= ~port_mask;
                 if (ctrl->devices[port]) ehci_disconnect_port(ctrl, port);
-            } else if (!ctrl->devices[port] || (portsc & EHCI_PORT_CSC)) {
+            } else {
+                if (portsc & EHCI_PORT_CSC) ctrl->failed_ports &= ~port_mask;
+                if (ctrl->failed_ports & port_mask) continue;
+                if (!(portsc & EHCI_PORT_CSC) && ctrl->devices[port]) continue;
                 if (ctrl->devices[port]) ehci_disconnect_port(ctrl, port);
                 msleep(100);
                 int ret = ehci_enumerate_port(ctrl, port);
-                if (ret != EOK) plogk("usb-ehci: Port %u enumeration failed: %d\n", port, ret);
+                if (ret != EOK) {
+                    /* The port reset of this attempt raises PCD again; retry only after a new connection. */
+                    ctrl->failed_ports |= port_mask;
+                    plogk("usb-ehci: Port %u enumeration failed: %d; waiting for reconnect\n", port, ret);
+                }
             }
         }
         ehci_service_periodic(ctrl);
@@ -810,8 +821,10 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 
     pci_irq_state_t   irq_state;
     pci_irq_request_t request = {
-        .modes       = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
-        .idt_handler = (void *)ehci_interrupt_handler,
+        .modes         = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
+        .idt_handler   = (void *)ehci_interrupt_handler,
+        .legacy_base   = IRQ_0,
+        .legacy_ioapic = 1,
     };
     if (pci_request_irq(pci, &request, &irq_state) < 0) return -ENODEV;
 

@@ -624,6 +624,7 @@ static int uhci_enumerate_port(uhci_controller_t *ctrl, uint8_t port)
     device->speed       = speed;
     device->bus_number  = ctrl->bus_number;
     device->port_number = port + 1;
+    device->depth       = 1; // Root-port device: depth 1 (root hub depth 0)
     device->hcd_ops     = &uhci_hcd_ops;
     device->hc_private  = ctrl;
     device->dev.release = uhci_usb_device_release;
@@ -725,8 +726,13 @@ static int uhci_worker(void *argument)
 {
     uhci_controller_t *ctrl = argument;
     while (ctrl->running && !kthread_should_stop()) {
+        /* UHCI has no port-change interrupt (RD only fires in global suspend), so poll the root ports like Linux's POLL_RH. */
+        uint64_t polled = 0;
+        for (uint8_t p = 0; p < UHCI_MAX_PORTS; p++)
+            if (uhci_readw(ctrl, UHCI_PORTSC1 + p * 2) & (UHCI_PORTSC_CSC | UHCI_PORTSC_PEC)) polled |= 1ULL << p;
+
         uint64_t flags      = spin_lock_irqsave(&ctrl->lock);
-        uint64_t ports      = ctrl->pending_ports;
+        uint64_t ports      = ctrl->pending_ports | polled;
         ctrl->pending_ports = 0;
         if (!ports && ctrl->running && !kthread_should_stop()) wait_queue_prepare(&ctrl->worker_wait);
         spin_unlock_irqrestore(&ctrl->lock, flags);
@@ -875,8 +881,10 @@ static int uhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 
     pci_irq_state_t   irq_state;
     pci_irq_request_t request = {
-        .modes       = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
-        .idt_handler = (void *)uhci_interrupt_handler,
+        .modes         = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
+        .idt_handler   = (void *)uhci_interrupt_handler,
+        .legacy_base   = IRQ_0,
+        .legacy_ioapic = 1,
     };
     if (pci_request_irq(pci, &request, &irq_state) < 0) return -ENODEV;
 

@@ -554,6 +554,7 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
     device->speed       = speed;
     device->bus_number  = ctrl->bus_number;
     device->port_number = port + 1;
+    device->depth       = 1; // Root-port device: depth 1 (root hub depth 0)
     device->hcd_ops     = &ohci_hcd_ops;
     device->hc_private  = ctrl;
     device->dev.release = ohci_usb_device_release;
@@ -826,8 +827,10 @@ static int ohci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 
     pci_irq_state_t   irq_state;
     pci_irq_request_t request = {
-        .modes       = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
-        .idt_handler = (void *)ohci_interrupt_handler,
+        .modes         = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
+        .idt_handler   = (void *)ohci_interrupt_handler,
+        .legacy_base   = IRQ_0,
+        .legacy_ioapic = 1,
     };
     if (pci_request_irq(pci, &request, &irq_state) < 0) return -ENODEV;
 
