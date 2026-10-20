@@ -676,9 +676,12 @@ static int ohci_worker(void *argument)
             uint32_t change = portsc & OHCI_PORT_CHANGE_BITS;
             if (!change) continue;
             ohci_write32(ctrl, OHCI_HcRhPortStatus + port * 4, change);
+
+            /* A port the HC disabled while still connected needs re-enumeration. */
+            bool disabled = (change & OHCI_PORT_PESC) && !(portsc & OHCI_PORT_PES);
             if (!(portsc & OHCI_PORT_CCS)) {
                 if (ctrl->devices[port]) ohci_disconnect_port(ctrl, port);
-            } else if (!ctrl->devices[port] || (portsc & OHCI_PORT_CSC)) {
+            } else if (!ctrl->devices[port] || (portsc & OHCI_PORT_CSC) || disabled) {
                 if (ctrl->devices[port]) ohci_disconnect_port(ctrl, port);
                 msleep(100);
                 int ret = ohci_enumerate_port(ctrl, port);
@@ -822,6 +825,35 @@ static int ohci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     control &= ~OHCI_CTRL_HCFS_MASK;
     control |= OHCI_CTRL_HCFS_OPER | OHCI_CTRL_PLE | OHCI_CTRL_CLE | OHCI_CTRL_BLE | OHCI_CTRL_IE;
     ohci_write32(ctrl, OHCI_HcControl, control);
+
+    if (!(rh_descriptor_a & OHCI_RHA_NPS)) {
+        uint32_t rh_descriptor_b = ohci_read32(ctrl, OHCI_HcRhDescriptorB);
+        uint32_t potpgt          = (rh_descriptor_a & OHCI_RHA_POTPGT_MASK) >> OHCI_RHA_POTPGT_SHIFT;
+        bool     powered         = false;
+        if (!(rh_descriptor_a & OHCI_RHA_PSM)) {
+            ohci_write32(ctrl, OHCI_HcRhStatus, OHCI_RHS_LPSC);
+            powered = true;
+        } else {
+            bool global = false;
+            for (uint8_t port = 1; port <= ctrl->num_ports; port++) {
+                uint8_t  offset = (uint8_t)(OHCI_HcRhPortStatus + ((port - 1) * 4));
+                uint32_t portsc = ohci_read32(ctrl, offset);
+                if (rh_descriptor_b & OHCI_RHB_PPCM(port)) {
+                    if (!(portsc & OHCI_PORT_PPS)) {
+                        ohci_write32(ctrl, offset, OHCI_PORT_PPS);
+                        powered = true;
+                    }
+                } else if (!(portsc & OHCI_PORT_PPS)) {
+                    global = true;
+                }
+            }
+            if (global) {
+                ohci_write32(ctrl, OHCI_HcRhStatus, OHCI_RHS_LPSC);
+                powered = true;
+            }
+        }
+        if (powered) msleep((potpgt * 2) + 20);
+    }
 
     ohci_write32(ctrl, OHCI_HcInterruptEnable, OHCI_INTR_MIE | OHCI_INTR_RHSC | OHCI_INTR_WDH | OHCI_INTR_SO | OHCI_INTR_UE);
 

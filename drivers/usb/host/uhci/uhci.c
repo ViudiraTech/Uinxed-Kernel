@@ -741,9 +741,12 @@ static int uhci_worker(void *argument)
                 uint16_t portsc = uhci_readw(ctrl, UHCI_PORTSC1 + p * 2);
                 uint16_t clear  = portsc & (UHCI_PORTSC_CSC | UHCI_PORTSC_PEC);
                 if (clear) uhci_writew(ctrl, UHCI_PORTSC1 + p * 2, portsc);
+
+                /* A port the HC disabled while still connected needs re-enumeration. */
+                bool disabled = (clear & UHCI_PORTSC_PEC) && !(portsc & UHCI_PORTSC_PED);
                 if (!(portsc & UHCI_PORTSC_CCS)) {
                     if (ctrl->devices[p]) uhci_disconnect_port(ctrl, p);
-                } else if (!ctrl->devices[p] || (portsc & UHCI_PORTSC_CSC)) {
+                } else if (!ctrl->devices[p] || (portsc & UHCI_PORTSC_CSC) || disabled) {
                     if (ctrl->devices[p]) uhci_disconnect_port(ctrl, p);
                     msleep(100);
                     int ret = uhci_enumerate_port(ctrl, p);
