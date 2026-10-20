@@ -36,13 +36,15 @@
 #define EHCI_PORT_STRIDE 4
 
 /* USBCMD bits */
-#define EHCI_CMD_RUN     (1U << 0)
-#define EHCI_CMD_HCRESET (1U << 1)
-#define EHCI_CMD_ASENE   (1U << 2)
-#define EHCI_CMD_PSEN    (1U << 3)
-#define EHCI_CMD_IAAD    (1U << 6)
-#define EHCI_CMD_LRESET  (1U << 7)
-#define EHCI_CMD_ASYNC   (1U << 8)
+#define EHCI_CMD_RUN            (1U << 0)
+#define EHCI_CMD_HCRESET        (1U << 1)
+#define EHCI_CMD_PSEN           (1U << 4)
+#define EHCI_CMD_ASENE          (1U << 5)
+#define EHCI_CMD_IAAD           (1U << 6)
+#define EHCI_CMD_LRESET         (1U << 7)
+#define EHCI_CMD_PARK_CNT_SHIFT 8
+#define EHCI_CMD_PARK_CNT_MASK  (3U << 8)
+#define EHCI_CMD_PARK           (1U << 11)
 
 /* USBSTS bits */
 #define EHCI_STS_INT (1U << 0)
@@ -63,29 +65,29 @@
 
 /* PORTSC bits */
 #define EHCI_PORT_CCS       (1U << 0)
-#define EHCI_PORT_PED       (1U << 1)
+#define EHCI_PORT_CSC       (1U << 1)
+#define EHCI_PORT_PED       (1U << 2)
+#define EHCI_PORT_PEC       (1U << 3)
 #define EHCI_PORT_PR        (1U << 8)
 #define EHCI_PORT_PP        (1U << 12)
 #define EHCI_PORT_PO        (1U << 13)
 #define EHCI_PORT_LS_SHIFT  10
 #define EHCI_PORT_LS_MASK   (3U << 10)
 #define EHCI_PORT_LS_KSTATE (1U << 10)
-#define EHCI_PORT_PTC_SHIFT 3
-#define EHCI_PORT_PTC_MASK  (0x0fU << 3)
+#define EHCI_PORT_PTC_SHIFT 16
+#define EHCI_PORT_PTC_MASK  (0x0fU << 16)
 
 /* Bits 26-27 are controller-specific on some implementations; do not use them to infer speed on a standards-compliant EHCI controller. */
-#define EHCI_PORT_CSC         (1U << 17)
-#define EHCI_PORT_PEC         (1U << 18)
 #define EHCI_PORT_CHANGE_BITS (EHCI_PORT_CSC | EHCI_PORT_PEC)
 
 /* HCSPARAMS bits */
 #define EHCI_HCS_PORTS_SHIFT 0
 #define EHCI_HCS_PORTS_MASK  (0x0fU << 0)
 #define EHCI_HCS_PPC         (1U << 4)
-#define EHCI_HCS_NCC_SHIFT   8
-#define EHCI_HCS_NCC_MASK    (0x0fU << 8)
-#define EHCI_HCS_NPCC_SHIFT  12
-#define EHCI_HCS_NPCC_MASK   (0x0fU << 12)
+#define EHCI_HCS_NPCC_SHIFT  8
+#define EHCI_HCS_NPCC_MASK   (0x0fU << 8)
+#define EHCI_HCS_NCC_SHIFT   12
+#define EHCI_HCS_NCC_MASK    (0x0fU << 12)
 
 /* HCCPARAMS bits */
 #define EHCI_HCC_PFL        (1U << 0)
@@ -108,13 +110,10 @@
 #define EHCI_QH_MPL_SHIFT 16
 #define EHCI_QH_MPL_MASK  (0x07ffU << 16)
 #define EHCI_QH_CONTROL   (1U << 27)
-#define EHCI_QH_NRTL      (1U << 28)
+#define EHCI_QH_RL_SHIFT  28
+#define EHCI_QH_RL_MASK   (0x0fU << 28)
 
 /* QH endpoint capability bits */
-#define EHCI_QH_C_SHIFT   0
-#define EHCI_QH_C_MASK    (3U << 0)
-#define EHCI_QH_RL_SHIFT  4
-#define EHCI_QH_RL_MASK   (0x0fU << 4)
 #define EHCI_QH_MUL_SHIFT 30
 #define EHCI_QH_MUL_MASK  (3U << 30)
 
