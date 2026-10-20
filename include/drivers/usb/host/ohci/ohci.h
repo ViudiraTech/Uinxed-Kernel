@@ -39,6 +39,18 @@
 #define OHCI_HcRhStatus         0x50
 #define OHCI_HcRhPortStatus     0x54
 
+/* HcRhDescriptorA bits */
+#define OHCI_RHA_PSM          (1U << 8)
+#define OHCI_RHA_NPS          (1U << 9)
+#define OHCI_RHA_POTPGT_SHIFT 24
+#define OHCI_RHA_POTPGT_MASK  (0xffU << 24)
+
+/* HcRhDescriptorB bits */
+#define OHCI_RHB_PPCM(port) (1U << (16 + (port)))
+
+/* HcRhStatus bits */
+#define OHCI_RHS_LPSC (1U << 16) // SetGlobalPower
+
 /* HcControl bits */
 #define OHCI_CTRL_CBSR_SHIFT 0
 #define OHCI_CTRL_CBSR_MASK  (3U << 0)

@@ -71,14 +71,16 @@
 #define EHCI_PORT_PR        (1U << 8)
 #define EHCI_PORT_PP        (1U << 12)
 #define EHCI_PORT_PO        (1U << 13)
+
+/* Some implementations encode speed in bits 26-27; standards-compliant EHCI does not. */
 #define EHCI_PORT_LS_SHIFT  10
 #define EHCI_PORT_LS_MASK   (3U << 10)
 #define EHCI_PORT_LS_KSTATE (1U << 10)
 #define EHCI_PORT_PTC_SHIFT 16
 #define EHCI_PORT_PTC_MASK  (0x0fU << 16)
 
-/* Bits 26-27 are controller-specific on some implementations; do not use them to infer speed on a standards-compliant EHCI controller. */
-#define EHCI_PORT_CHANGE_BITS (EHCI_PORT_CSC | EHCI_PORT_PEC)
+#define EHCI_PORT_OCC         (1U << 5)
+#define EHCI_PORT_CHANGE_BITS (EHCI_PORT_CSC | EHCI_PORT_PEC | EHCI_PORT_OCC)
 
 /* HCSPARAMS bits */
 #define EHCI_HCS_PORTS_SHIFT 0

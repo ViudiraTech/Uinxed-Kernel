@@ -1328,7 +1328,10 @@ static void xhci_service_port(xhci_controller_t *controller, uint8_t port_id)
     } else {
         if (status & XHCI_PORT_CSC) controller->failed_ports &= ~port_mask;
         if (controller->failed_ports & port_mask) return;
-        if (!(status & XHCI_PORT_CSC) && slot) return;
+
+        /* A port the HC disabled while still connected needs re-enumeration. */
+        bool disabled = (status & XHCI_PORT_PEC) && !(status & XHCI_PORT_PED);
+        if (!(status & XHCI_PORT_CSC) && slot && !disabled) return;
         if (slot) xhci_disconnect_port(controller, port_id);
         msleep(100);
         int result = xhci_enumerate_port(controller, port_id);
@@ -1607,6 +1610,18 @@ void xhci_start_workers(void)
         xhci_controller_t *controller = xhci_controllers[i];
         if (!controller || controller->worker_started) continue;
         controller->worker_started = true;
+
+        /* PP=0 ports never report connects; power them before the first scan. */
+        bool powered = false;
+        for (uint8_t port = 1; port <= controller->max_ports; port++) {
+            size_t   offset = XHCI_OP_PORTS + ((size_t)(port - 1) * XHCI_PORT_STRIDE);
+            uint32_t status = xhci_read32(controller->operational, offset);
+            if (!(status & XHCI_PORT_PP)) {
+                xhci_write32(controller->operational, offset, xhci_port_neutral(status) | XHCI_PORT_PP);
+                powered = true;
+            }
+        }
+        if (powered) msleep(100);
 
         /* Enumerate already-connected root ports on the first worker pass. */
         for (uint8_t port = 1; port <= controller->max_ports; port++) {

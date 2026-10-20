@@ -478,13 +478,15 @@ static int ehci_port_reset(ehci_controller_t *ctrl, uint8_t port)
     uint32_t portsc = ehci_read32(ctrl->operational, offset);
     if (!(portsc & EHCI_PORT_CCS)) return -ENODEV;
     if ((portsc & EHCI_PORT_LS_MASK) == EHCI_PORT_LS_KSTATE) {
-        ehci_write32(ctrl->operational, offset, portsc | EHCI_PORT_PO);
+        ehci_write32(ctrl->operational, offset, (portsc & ~EHCI_PORT_CHANGE_BITS) | EHCI_PORT_PO);
         return -ENODEV;
     }
-    ehci_write32(ctrl->operational, offset, portsc | EHCI_PORT_PR);
+
+    /* Asserting Reset requires PED=0; RW1C bits must not be cleared by this write. */
+    ehci_write32(ctrl->operational, offset, (portsc & ~(EHCI_PORT_PED | EHCI_PORT_CHANGE_BITS)) | EHCI_PORT_PR);
     msleep(50);
     portsc = ehci_read32(ctrl->operational, offset);
-    ehci_write32(ctrl->operational, offset, portsc & ~EHCI_PORT_PR);
+    ehci_write32(ctrl->operational, offset, portsc & ~(EHCI_PORT_PR | EHCI_PORT_CHANGE_BITS));
     int status = ehci_wait_register(ctrl->operational, offset, EHCI_PORT_PR, 0, 100);
     if (status != EOK) return status;
     msleep(10);
@@ -492,7 +494,7 @@ static int ehci_port_reset(ehci_controller_t *ctrl, uint8_t port)
     ehci_write32(ctrl->operational, offset, portsc | EHCI_PORT_CHANGE_BITS);
     if (!(portsc & EHCI_PORT_CCS)) return -ENODEV;
     if (!(portsc & EHCI_PORT_PED)) {
-        ehci_write32(ctrl->operational, offset, portsc | EHCI_PORT_PO);
+        ehci_write32(ctrl->operational, offset, (portsc & ~EHCI_PORT_CHANGE_BITS) | EHCI_PORT_PO);
         return -ENODEV;
     }
     return EOK;
@@ -663,20 +665,23 @@ static int ehci_worker(void *argument)
             uint32_t change = portsc & EHCI_PORT_CHANGE_BITS;
             if (change) ehci_write32(ctrl->operational, offset, portsc);
             uint64_t port_mask = 1ULL << port;
+
+            /* A port the HC disabled while still connected needs re-enumeration. */
+            bool disabled = (change & EHCI_PORT_PEC) && !(portsc & EHCI_PORT_PED);
             if (!(portsc & EHCI_PORT_CCS)) {
                 ctrl->failed_ports &= ~port_mask;
                 if (ctrl->devices[port]) ehci_disconnect_port(ctrl, port);
             } else {
                 if (portsc & EHCI_PORT_CSC) ctrl->failed_ports &= ~port_mask;
                 if (ctrl->failed_ports & port_mask) continue;
-                if (!(portsc & EHCI_PORT_CSC) && ctrl->devices[port]) continue;
+                if (!(portsc & EHCI_PORT_CSC) && ctrl->devices[port] && !disabled) continue;
                 if (ctrl->devices[port]) ehci_disconnect_port(ctrl, port);
                 msleep(100);
                 int ret = ehci_enumerate_port(ctrl, port);
                 if (ret != EOK) {
                     /* The port reset of this attempt raises PCD again; retry only after a new connection. */
                     ctrl->failed_ports |= port_mask;
-                    plogk("usb-ehci: Port %u enumeration failed: %d; waiting for reconnect\n", port, ret);
+                    plogk("usb-ehci: Port %u enumeration failed: %d; waiting for reconnect.\n", port, ret);
                 }
             }
         }
@@ -818,6 +823,21 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 
     ehci_write32(ctrl->operational, EHCI_OP_USBINTR, EHCI_INTR_PCD | EHCI_INTR_TX | EHCI_INTR_ERR | EHCI_INTR_IAA);
     ehci_write32(ctrl->operational, EHCI_OP_CONFIGFLAG, 1);
+
+    /* CONFIGFLAG must precede port power so switched ports belong to EHCI. */
+    if (hcsparams & EHCI_HCS_PPC) {
+        bool powered = false;
+        msleep(5);
+        for (uint8_t port = 0; port < ctrl->num_ports; port++) {
+            size_t   offset = EHCI_OP_PORTSC + (port * EHCI_PORT_STRIDE);
+            uint32_t portsc = ehci_read32(ctrl->operational, offset);
+            if (!(portsc & EHCI_PORT_PP)) {
+                ehci_write32(ctrl->operational, offset, EHCI_PORT_PP);
+                powered = true;
+            }
+        }
+        if (powered) msleep(20);
+    }
 
     pci_irq_state_t   irq_state;
     pci_irq_request_t request = {
