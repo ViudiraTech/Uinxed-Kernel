@@ -36,15 +36,15 @@
 #define EHCI_PORT_STRIDE 4
 
 /* USBCMD bits */
-#define EHCI_CMD_RUN     (1U << 0)
-#define EHCI_CMD_HCRESET (1U << 1)
-#define EHCI_CMD_PSEN    (1U << 4)
-#define EHCI_CMD_ASENE   (1U << 5)
-#define EHCI_CMD_IAAD    (1U << 6)
-#define EHCI_CMD_LRESET  (1U << 7)
+#define EHCI_CMD_RUN            (1U << 0)
+#define EHCI_CMD_HCRESET        (1U << 1)
+#define EHCI_CMD_PSEN           (1U << 4)
+#define EHCI_CMD_ASENE          (1U << 5)
+#define EHCI_CMD_IAAD           (1U << 6)
+#define EHCI_CMD_LRESET         (1U << 7)
 #define EHCI_CMD_PARK_CNT_SHIFT 8
 #define EHCI_CMD_PARK_CNT_MASK  (3U << 8)
-#define EHCI_CMD_PARK    (1U << 11)
+#define EHCI_CMD_PARK           (1U << 11)
 
 /* USBSTS bits */
 #define EHCI_STS_INT (1U << 0)
