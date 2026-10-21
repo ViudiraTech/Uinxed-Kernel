@@ -864,6 +864,9 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
     uint32_t prev_cpu = task && task->cpu_id < cpu_scheduler_count ? task->cpu_id : this_cpu;
     if (!cpu_rqs[prev_cpu].online) prev_cpu = this_cpu;
 
+    /* A pinned task always wakes on its own CPU. */
+    if (task && task->cpu_pinned && prev_cpu == task->cpu_id) return prev_cpu;
+
     /*
      * WF_SYNC means the waker expects to schedule away shortly.  Keep
      * the wakee on its previous CPU instead of load-balancing it here: pipe
@@ -984,7 +987,7 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     while (node && scanned++ < 8) {
         task_t *task = rb_entry(node, task_t, run_node);
         bool    hot  = scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN;
-        if (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2) return task;
+        if (!task->cpu_pinned && (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2)) return task;
         node = rb_prev_local(node);
     }
     return NULL;

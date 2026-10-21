@@ -214,7 +214,8 @@ static void create_kthread(kthread_create_info_t *info)
 
     if (info->pinned) {
         if (info->cpu_id >= cpu_scheduler_count) info->cpu_id = 0;
-        task->cpu_id = info->cpu_id;
+        task->cpu_id     = info->cpu_id;
+        task->cpu_pinned = true;
     } else {
         spin_lock(&scheduler.lock);
         task->cpu_id = choose_task_cpu_locked();
