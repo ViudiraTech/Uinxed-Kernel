@@ -97,8 +97,12 @@ size_t strlen(const char *str)
     return len;
 }
 
-/* Copies the string pointed to by src to dest */
-char *strcpy(char *dest, const char *src)
+/*
+ * Copies the string pointed to by src to dest.  GCC can lower strcat() into
+ * strcpy() inside an LTO partition after WPA dropped the unreferenced
+ * definition, so keep it visible to the link.
+ */
+__attribute__((used)) char *strcpy(char *dest, const char *src)
 {
     char *_dest = dest;
     while ((*dest++ = *src++) != '\0');
