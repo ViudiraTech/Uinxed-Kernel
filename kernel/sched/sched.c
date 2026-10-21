@@ -435,10 +435,15 @@ static eevdf_rq_t *local_rq(void)
     return &cpu_rqs[percpu_gs_cpu_id()];
 }
 
-/* Return the task currently running on this CPU */
+/*
+ * Return the task currently running on this CPU.  This must be a single
+ * GS-relative load: reading the CPU number and then cpu_rqs[cpu].curr is not
+ * atomic against preemption, so a task migrated between the two loads would
+ * get whatever now runs on its old CPU (often that CPU's idle task).
+ */
 static task_t *local_current(void)
 {
-    return __atomic_load_n(&local_rq()->curr, __ATOMIC_RELAXED);
+    return percpu_gs_current();
 }
 
 /* Point the TSS stack at the given task's kernel stack */
@@ -1381,8 +1386,17 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 /* Switch to the next runnable task on the current CPU */
 static void sched_switch(bool voluntary)
 {
-    eevdf_rq_t *rq           = local_rq();
-    uint64_t    entry_rflags = spin_lock_irqsave(&rq->lock);
+    /*
+     * Disable interrupts before resolving the local runqueue.  sched_yield()
+     * is entered with interrupts enabled, and a preemption plus migration
+     * between local_rq() and the lock would make this task operate on its old
+     * CPU's runqueue: it would treat that CPU's running task as prev and save
+     * its own registers into that task's context.
+     */
+    uint64_t entry_rflags = get_rflags();
+    disable_intr();
+    eevdf_rq_t *rq = local_rq();
+    (void)spin_lock_irqsave(&rq->lock);
 
     __atomic_store_n(&rq->need_resched, 0, __ATOMIC_RELAXED);
 
@@ -2096,18 +2110,24 @@ void sched_tick(bool user_mode)
 void sched_maybe_preempt(void)
 {
     if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) || !cpu_rqs) return;
-    eevdf_rq_t *rq = local_rq();
-    if (!__atomic_load_n(&rq->need_resched, __ATOMIC_ACQUIRE)) return;
 
-    bool preempt = false;
-    spin_lock(&rq->lock);
-    if (__atomic_exchange_n(&rq->need_resched, 0, __ATOMIC_ACQ_REL)) {
-        task_t *curr = rq->curr;
-        if (curr && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0) preempt = curr == rq->idle || (curr->state == TASK_RUNNING && pick_eevdf(rq) != curr);
+    /* Resolve the runqueue with interrupts off so a migration cannot consume another CPU's request. */
+    uint64_t rflags = get_rflags();
+    disable_intr();
+
+    eevdf_rq_t *rq      = local_rq();
+    bool        preempt = false;
+    if (__atomic_load_n(&rq->need_resched, __ATOMIC_ACQUIRE)) {
+        spin_lock(&rq->lock);
+        if (__atomic_exchange_n(&rq->need_resched, 0, __ATOMIC_ACQ_REL)) {
+            task_t *curr = rq->curr;
+            if (curr && __atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED) > 0) preempt = curr == rq->idle || (curr->state == TASK_RUNNING && pick_eevdf(rq) != curr);
+        }
+        spin_unlock(&rq->lock);
     }
-    spin_unlock(&rq->lock);
 
     if (preempt) sched_switch(false);
+    if (rflags & (1ULL << 9)) enable_intr();
 }
 
 /* sched_ticks - return the global tick count */
