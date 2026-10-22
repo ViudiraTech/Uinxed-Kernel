@@ -45,6 +45,9 @@ void init_frame(void);
 /* Allocate memory frames */
 uint64_t alloc_frames(size_t count);
 
+/* Allocate memory frames reachable by 32-bit DMA (entirely below 4 GiB) */
+uint64_t alloc_frames_dma32(size_t count);
+
 /* Reclaim pages under the frame allocator's recursion guard. */
 int frame_reclaim_pages(size_t target);
 

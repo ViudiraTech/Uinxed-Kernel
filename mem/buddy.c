@@ -132,16 +132,9 @@ int buddy_add_range(buddy_allocator_t *allocator, size_t start, size_t count)
     return 0;
 }
 
-/* Allocate a block of the given order, splitting a larger one if needed. */
-size_t buddy_alloc(buddy_allocator_t *allocator, unsigned order)
+/* Carve an allocated block of the given order out of the free block at index. */
+static size_t take_block(buddy_allocator_t *allocator, size_t index, unsigned found, unsigned order)
 {
-    if (!allocator || order > allocator->max_order) return SIZE_MAX;
-
-    unsigned found = order;
-    while (found <= allocator->max_order && allocator->free_head[found] == BUDDY_INDEX_NONE) found++;
-    if (found > allocator->max_order) return SIZE_MAX;
-
-    size_t index = (size_t)allocator->free_head[found];
     list_remove(allocator, index, found);
 
     while (found > order) {
@@ -157,6 +150,33 @@ size_t buddy_alloc(buddy_allocator_t *allocator, unsigned order)
         allocator->pages[index + i].order = 0;
     }
     return index;
+}
+
+/* Allocate a block of the given order, splitting a larger one if needed. */
+size_t buddy_alloc(buddy_allocator_t *allocator, unsigned order)
+{
+    if (!allocator || order > allocator->max_order) return SIZE_MAX;
+
+    unsigned found = order;
+    while (found <= allocator->max_order && allocator->free_head[found] == BUDDY_INDEX_NONE) found++;
+    if (found > allocator->max_order) return SIZE_MAX;
+
+    return take_block(allocator, (size_t)allocator->free_head[found], found, order);
+}
+
+/* Like buddy_alloc(), but the block must end at or below page limit. */
+size_t buddy_alloc_below(buddy_allocator_t *allocator, unsigned order, size_t limit)
+{
+    if (!allocator || order > allocator->max_order) return SIZE_MAX;
+
+    size_t units = order_units(order);
+    for (unsigned found = order; found <= allocator->max_order; found++) {
+        for (int32_t i = allocator->free_head[found]; i != BUDDY_INDEX_NONE; i = allocator->pages[(size_t)i].next) {
+            size_t index = (size_t)i;
+            if (index < limit && limit - index >= units) return take_block(allocator, index, found, order);
+        }
+    }
+    return SIZE_MAX;
 }
 
 /* Return a block of the given order to the allocator. */
