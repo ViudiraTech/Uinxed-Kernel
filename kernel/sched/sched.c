@@ -865,7 +865,9 @@ static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev
     /* WF_SYNC-like hint: the waker may block/yield soon, so stacking is a bit cheaper. */
     uint32_t this_cpu = get_current_cpu_id();
     if (sync && cpu == this_cpu && score >= SCHED_SYNC_WAKE_BONUS) score -= SCHED_SYNC_WAKE_BONUS;
-    if (task && cpu != prev_cpu && scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN) score += SCHED_NICE_0_LOAD / 2ULL;
+
+    uint64_t cooldown = CONFIG_SCHED_MIGRATION_COOLDOWN;
+    if (task && cpu != prev_cpu && cooldown && scheduler.ticks - task->last_migrate_tick < cooldown) score += SCHED_NICE_0_LOAD / 2ULL;
 
     return score;
 }
@@ -1011,18 +1013,24 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     if (!node) return NULL;
     while (node->right) node = node->right;
 
-    /* Pinned entities are skipped without spending the movable-candidate budget. */
-    unsigned int movable = 0;
-    unsigned int visited = 0;
-    while (node && movable < 8 && visited++ < 32) {
+    /* Pinned entities are skipped without spending the hot-candidate budget. */
+    unsigned int hot_skipped = 0;
+    unsigned int hot_budget  = CONFIG_SCHED_STEAL_HOT_BUDGET;
+    unsigned int visited     = 0;
+    uint64_t     cooldown    = CONFIG_SCHED_MIGRATION_COOLDOWN;
+    while (node && visited++ < CONFIG_SCHED_STEAL_SCAN_LIMIT) {
         task_t *task = rb_entry(node, task_t, run_node);
+
         if (task->cpu_pinned) {
             node = rb_prev_local(node);
             continue;
         }
-        bool hot = scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN;
+        bool hot = cooldown && scheduler.ticks - task->last_migrate_tick < cooldown;
+
         if (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2) return task;
-        movable++;
+        hot_skipped++;
+
+        if (hot_skipped >= hot_budget) break;
         node = rb_prev_local(node);
     }
     return NULL;

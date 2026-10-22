@@ -15,6 +15,8 @@
 #include <libs/util/rbtree.h>
 #include <process/kthread.h>
 
+_Static_assert(CONFIG_SCHED_STEAL_HOT_BUDGET <= CONFIG_SCHED_STEAL_SCAN_LIMIT, "steal hot budget exceeds scan limit");
+
 #define SCHED_NICE_0_LOAD 1024ULL // Weight of a nice-0 task (EEVDF)
 
 typedef enum {

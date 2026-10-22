@@ -188,6 +188,26 @@ menu "Scheduler"
       Hysteresis against repeatedly bouncing a hot task between CPUs. Idle-CPU
       stealing may override this when leaving a CPU idle would be worse.
 
+  config SCHED_STEAL_HOT_BUDGET
+    int "Recently migrated candidates skipped per steal attempt"
+    default 8
+    range 0 64
+    help
+      When a steal scan is not running for a newly idle CPU and the source
+      runqueue has at most two runnable tasks, candidates migrated within
+      SCHED_MIGRATION_COOLDOWN are skipped to avoid bouncing hot tasks. This
+      bounds how many such candidates one attempt passes over before
+      abandoning the source runqueue. Zero stops at the first hot candidate.
+
+  config SCHED_STEAL_SCAN_LIMIT
+    int "Maximum runqueue nodes visited per steal attempt"
+    default 32
+    range 1 256
+    help
+      Hard bound on rb-tree nodes examined by one steal attempt, including
+      CPU-pinned entities. Keeps load-balancing cost bounded on large
+      runqueues. Must be at least SCHED_STEAL_HOT_BUDGET.
+
   config TASK_DEFAULT_SLICE
     int "Default initial task time slice (ticks)"
     default 5
