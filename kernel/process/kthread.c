@@ -155,9 +155,14 @@ void kthreadd_init(void)
     plogk("kthread: kthreadd started (pid=2)\n");
 }
 
-/* Enqueue a creation request for kthreadd and block until it has allocated the task. Returns the (not-yet-runnable) task, or NULL with no errno on OOM. */
+/* Enqueue a creation request for kthreadd and block until it has allocated the task. Returns the (not-yet-runnable) task, or NULL with no errno on failure. */
 static task_t *__kthread_create(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id, bool pinned)
 {
+    if (pinned && cpu_id >= cpu_scheduler_count) {
+        plogk("kthread: %s: CPU %u out of range (%u CPUs)\n", name ? name : "kthread", cpu_id, cpu_scheduler_count);
+        return NULL;
+    }
+
     kthread_create_info_t *info = malloc(sizeof(kthread_create_info_t));
     if (!info) {
         plogk("kthread: %s: create request allocation failed.\n", name ? name : "unnamed");
@@ -213,7 +218,6 @@ static void create_kthread(kthread_create_info_t *info)
     }
 
     if (info->pinned) {
-        if (info->cpu_id >= cpu_scheduler_count) info->cpu_id = 0;
         task->cpu_id     = info->cpu_id;
         task->cpu_pinned = true;
     } else {

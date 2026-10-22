@@ -57,13 +57,13 @@ void kthreadd_init(void);
 /* Create a kernel thread (returns a not-yet-runnable task). */
 task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg);
 
-/* Create a kernel thread pinned to a specific CPU (not-yet-runnable). */
+/* Create a kernel thread pinned to a specific CPU (not-yet-runnable; NULL if cpu_id is invalid). */
 task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id);
 
 /* Create a kernel thread and immediately make it runnable. */
 task_t *kthread_run(const char *name, kthread_entry_t entry, void *arg);
 
-/* Create a CPU-pinned kernel thread and immediately make it runnable. */
+/* Create a CPU-pinned kernel thread and immediately make it runnable (NULL if cpu_id is invalid). */
 task_t *kthread_run_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id);
 
 /* Make a created (or blocked) task runnable. */
