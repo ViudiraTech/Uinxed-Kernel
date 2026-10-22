@@ -11,7 +11,7 @@
 #ifndef INCLUDE_PRINTK_H_
 #define INCLUDE_PRINTK_H_
 
-#include <kernel/vsprintf.h>
+#include <kernel/debug/vsprintf.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>

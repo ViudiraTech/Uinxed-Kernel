@@ -14,8 +14,8 @@
 #include <arch/misc/common.h>
 #include <arch/tables/idt.h>
 #include <kernel/debug/debug.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/sched.h>

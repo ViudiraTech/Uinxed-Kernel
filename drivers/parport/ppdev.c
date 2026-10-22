@@ -11,11 +11,11 @@
 #include <drivers/base/device.h>
 #include <drivers/char/chrdev.h>
 #include <drivers/parport/parport.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/termios.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <mem/heap.h>
 #include <process/uaccess.h>
+#include <syscall/ioctl.h>
 
 #define PP_MAJOR 99
 #define PP_IOCTL 'p'

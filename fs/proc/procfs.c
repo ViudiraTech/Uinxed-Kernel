@@ -19,9 +19,9 @@
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/proc/procfs.h>
 #include <kernel/cmdline/cmdline.h>
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <libs/util/byteorder.h>

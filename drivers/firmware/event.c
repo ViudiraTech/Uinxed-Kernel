@@ -11,9 +11,9 @@
 #include <arch/misc/common.h>
 #include <arch/tables/idt.h>
 #include <drivers/firmware/apic.h>
-#include <kernel/errno.h>
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
+#include <libs/std/errno.h>
 
 /* Fixed event dispatch table */
 #define ACPI_NUM_FIXED_EVENTS 3

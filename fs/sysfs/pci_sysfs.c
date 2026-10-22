@@ -10,7 +10,7 @@
 
 #include <drivers/base/device.h>
 #include <drivers/bus/pci.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/stdlib.h>
 #include <libs/util/byteorder.h>
 #include <mem/heap.h>

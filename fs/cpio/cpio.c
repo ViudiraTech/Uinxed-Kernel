@@ -11,8 +11,8 @@
 #include <boot/limine_module.h>
 #include <fs/cpio/cpio.h>
 #include <fs/tmpfs/tmpfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <libs/util/gzip.h>
 #include <mem/heap.h>

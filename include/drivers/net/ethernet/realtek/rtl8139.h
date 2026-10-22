@@ -12,7 +12,7 @@
 #define INCLUDE_RTL8139_H_
 
 #include <drivers/bus/pci.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 
 #define RTL8139_VENDOR_REALTEK 0x10ec // Realtek vendor ID
 #define RTL8139_MTU            1500   // Default MTU

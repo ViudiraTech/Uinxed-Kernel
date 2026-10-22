@@ -10,7 +10,7 @@
 
 #include <drivers/base/device.h>
 #include <drivers/gpu/drm/drm_device.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 
 #if CONFIG_DRM

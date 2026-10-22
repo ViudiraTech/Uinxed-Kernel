@@ -9,8 +9,8 @@
  */
 
 #include <drivers/usb/class/hid/usb_hid.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 
 #if CONFIG_USB_HID && CONFIG_USB

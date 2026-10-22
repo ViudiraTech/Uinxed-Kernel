@@ -10,7 +10,7 @@
 
 #include <arch/misc/common.h>
 #include <drivers/firmware/acpi.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/hhdm.h>

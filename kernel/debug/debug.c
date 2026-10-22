@@ -15,8 +15,8 @@
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/tty.h>
 #include <kernel/debug/debug.h>
+#include <kernel/debug/printk.h>
 #include <kernel/debug/symbols.h>
-#include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <process/process.h>
 #include <process/sched.h>

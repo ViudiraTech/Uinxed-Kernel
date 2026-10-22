@@ -11,8 +11,8 @@
 #ifndef INCLUDE_TERMIOS_H_
 #define INCLUDE_TERMIOS_H_
 
-#include <kernel/ioctl.h>
 #include <libs/std/stdint.h>
+#include <syscall/ioctls.h>
 
 /* NCCS - number of control characters in c_cc array */
 #define NCCS 19 // c_cc array size (current termios)
@@ -227,9 +227,8 @@
 #define TIOCGSOFTCAR 0x5419
 #define TIOCSSOFTCAR 0x541A
 
-/* Bytes available to read (TIOCINQ = synonym for FIONREAD) */
-#define FIONREAD 0x541B
-#define TIOCINQ  FIONREAD
+/* Bytes available to read (TTY alias for the generic FIONREAD) */
+#define TIOCINQ FIONREAD
 
 /* Linux-only: console selection and redirect. */
 #define TIOCLINUX 0x541C
@@ -241,9 +240,6 @@
 
 /* Packet mode (PTY) */
 #define TIOCPKT 0x5420
-
-/* Non-blocking I/O */
-#define FIONBIO 0x5421
 
 /* Detach controlling terminal */
 #define TIOCNOTTY 0x5422

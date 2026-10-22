@@ -16,7 +16,7 @@
 #include <drivers/tty/tty.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/sysfs/drm_sysfs.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 

@@ -9,8 +9,8 @@
  */
 
 #include <drivers/tty/tty_core.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <process/process.h>
 #include <process/sched.h>

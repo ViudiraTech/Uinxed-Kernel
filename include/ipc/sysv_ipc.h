@@ -11,7 +11,7 @@
 #ifndef INCLUDE_SYSV_IPC_H_
 #define INCLUDE_SYSV_IPC_H_
 
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

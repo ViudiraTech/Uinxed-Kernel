@@ -10,8 +10,8 @@
 
 #include <drivers/block/core/blockdev.h>
 #include <fs/core/superblock.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 
 /* Validate the on-disk superblock fields. */
 int superblock_valid(const superblock_disk_t *sb)

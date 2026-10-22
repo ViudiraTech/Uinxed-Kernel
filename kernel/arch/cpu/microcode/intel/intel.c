@@ -11,9 +11,9 @@
 #include <arch/cpu/cpuid.h>
 #include <arch/cpu/microcode/intel/intel.h>
 #include <arch/misc/common.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/vsprintf.h>
+#include <kernel/debug/printk.h>
+#include <kernel/debug/vsprintf.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 

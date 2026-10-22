@@ -10,8 +10,8 @@
 
 #include <arch/cpu/eflags.h>
 #include <kernel/debug/debug.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <mem/heap.h>
 #include <process/kthread.h>
 #include <process/process.h>

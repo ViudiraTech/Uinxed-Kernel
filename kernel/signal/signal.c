@@ -10,9 +10,9 @@
 
 #include <arch/cpu/eflags.h>
 #include <arch/cpu/fpu.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>

@@ -17,7 +17,7 @@
 #include <ipc/futex.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/debug/debug.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
@@ -31,6 +31,7 @@
 #include <security/seccomp.h>
 #include <sync/mutex.h>
 #include <syscall/fcntl.h>
+#include <syscall/ioctls.h>
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
 

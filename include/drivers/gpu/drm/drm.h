@@ -11,8 +11,8 @@
 #ifndef INCLUDE_DRM_H_
 #define INCLUDE_DRM_H_
 
-#include <kernel/ioctl.h>
 #include <libs/std/stdint.h>
+#include <syscall/ioctl.h>
 
 /* Generic DRM event ABI. */
 #define DRM_EVENT_VBLANK        0x01

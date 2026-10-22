@@ -13,10 +13,10 @@
 #include <drivers/block/ata/pata/ide.h>
 #include <drivers/bus/pci.h>
 #include <drivers/firmware/apic.h>
-#include <kernel/errno.h>
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 
 #if CONFIG_ATA

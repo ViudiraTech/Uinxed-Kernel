@@ -11,9 +11,9 @@
 #include <arch/cpu/cpuid.h>
 #include <arch/cpu/eflags.h>
 #include <fs/core/vfs.h>
-#include <kernel/errno.h>
 #include <kernel/module/elf.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>

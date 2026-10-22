@@ -11,8 +11,8 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <kernel/errno.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>

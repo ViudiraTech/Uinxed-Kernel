@@ -8,8 +8,8 @@
  *
  */
 
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <mem/buddy.h>
 
 /* Number of pages covered by a block of the given order. */

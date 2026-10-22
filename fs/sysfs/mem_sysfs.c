@@ -9,7 +9,7 @@
  */
 
 #include <drivers/base/device.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 
 #if CONFIG_SYSFS
 

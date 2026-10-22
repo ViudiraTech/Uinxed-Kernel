@@ -9,8 +9,8 @@
  */
 
 #include <fs/fatfs/fatfs_disk.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 
 #if CONFIG_FAT_FS
 

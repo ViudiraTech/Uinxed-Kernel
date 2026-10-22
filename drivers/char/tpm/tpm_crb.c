@@ -10,8 +10,8 @@
 
 #include <arch/misc/common.h>
 #include <drivers/char/tpm/tpm.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/util/byteorder.h>
 #include <mem/hhdm.h>
 

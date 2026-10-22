@@ -8,7 +8,7 @@
  *
  */
 
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 #include <net/core/endian.h>
 #include <net/core/ethernet.h>

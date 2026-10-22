@@ -11,7 +11,7 @@
 #include <drivers/base/device.h>
 #include <drivers/tty/tty_core.h>
 #include <fs/devtmpfs/devtmpfs.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <mem/heap.h>
 #include <process/process.h>
 #include <process/uaccess.h>

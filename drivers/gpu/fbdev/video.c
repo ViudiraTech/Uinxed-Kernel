@@ -15,10 +15,10 @@
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/tty.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/gfx/gfx_proc.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <process/process.h>
 #include <process/sched.h>

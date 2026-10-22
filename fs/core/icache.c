@@ -8,7 +8,7 @@
 
 #include <fs/core/icache.h>
 #include <fs/core/vfs.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 

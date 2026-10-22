@@ -11,12 +11,12 @@
 #include <drivers/base/device.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/sysfs/input_sysfs.h>
-#include <kernel/ioctl.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <libs/util/bitops.h>
 #include <mem/alloc.h>
 #include <process/uaccess.h>
+#include <syscall/ioctl.h>
 #include <syscall/poll.h>
 #include <syscall/syscall.h>
 

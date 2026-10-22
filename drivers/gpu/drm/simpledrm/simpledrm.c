@@ -13,7 +13,7 @@
 #include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/fbdev/video.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 
