@@ -9,6 +9,7 @@
  */
 
 #include <arch/cpu/cpuid.h>
+#include <arch/cpu/eflags.h>
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/module/elf.h>
@@ -720,7 +721,7 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     proc->task->context.r13    = 0;
     proc->task->context.r14    = 0;
     proc->task->context.r15    = 0;
-    proc->task->context.rflags = 0x202;
+    proc->task->context.rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
     proc->task->context.rdi    = 0;
 
     if (!entry_out && !rsp_out) {
@@ -729,7 +730,7 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
 
         *(--kstack) = 0x23;
         *(--kstack) = user_rsp;
-        *(--kstack) = 0x202;
+        *(--kstack) = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
         *(--kstack) = 0x1B;
         *(--kstack) = actual_entry;
         *(--kstack) = (uint64_t)user_process_enter;
@@ -875,7 +876,7 @@ int elf_loader_load_user_node(process_t *proc, vfs_node_t node, char *const argv
     proc->task->context.r13    = 0;
     proc->task->context.r14    = 0;
     proc->task->context.r15    = 0;
-    proc->task->context.rflags = 0x202;
+    proc->task->context.rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
     proc->task->context.rdi    = 0;
     if (entry_out) *entry_out = actual_entry;
     if (rsp_out) *rsp_out = user_rsp;

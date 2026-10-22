@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/eflags.h>
 #include <arch/cpu/fpu.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -1891,8 +1892,8 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
      * Clear IOPL, NT and VM so IRETQ cannot enter an invalid privilege state.
      */
     const uint64_t user_rflags
-        = (1ULL << 0) | (1ULL << 2) | (1ULL << 4) | (1ULL << 6) | (1ULL << 7) | (1ULL << 8) | (1ULL << 9) | (1ULL << 10) | (1ULL << 11) | (1ULL << 16) | (1ULL << 18) | (1ULL << 21);
-    frame->rflags = (gregs[17] & user_rflags) | (1ULL << 1) | (1ULL << 9);
+        = X86_EFLAGS_CF | X86_EFLAGS_PF | X86_EFLAGS_AF | X86_EFLAGS_ZF | X86_EFLAGS_SF | X86_EFLAGS_TF | X86_EFLAGS_IF | X86_EFLAGS_DF | X86_EFLAGS_OF | X86_EFLAGS_RF | X86_EFLAGS_AC | X86_EFLAGS_ID;
+    frame->rflags = (gregs[17] & user_rflags) | X86_EFLAGS_FIXED | X86_EFLAGS_IF;
     frame->rsp    = gregs[15];
     frame->cs     = 0x33;
     frame->ss     = 0x2b;

@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/eflags.h>
 #include <arch/cpu/fpu.h>
 #include <arch/cpu/smp.h>
 #include <arch/misc/common.h>
@@ -449,7 +450,7 @@ static task_t *local_current(void)
 /* Restore the interrupt flag saved by get_rflags(). */
 static void restore_intr(uint64_t rflags)
 {
-    if (rflags & (1ULL << 9))
+    if (rflags & X86_EFLAGS_IF)
         enable_intr();
     else
         disable_intr();
@@ -465,7 +466,7 @@ static void local_rq_set_curr(eevdf_rq_t *rq, task_t *task)
 /* Unlock keeping interrupts off; the caller restores them later. */
 static void rq_unlock_irqs_off(eevdf_rq_t *rq, uint64_t rflags)
 {
-    spin_unlock_irqrestore(&rq->lock, rflags & ~(1ULL << 9));
+    spin_unlock_irqrestore(&rq->lock, rflags & ~X86_EFLAGS_IF);
 }
 
 /* Point the TSS stack at the given task's kernel stack */
@@ -864,7 +865,9 @@ static uint64_t placement_score_locked(task_t *task, uint32_t cpu, uint32_t prev
     /* WF_SYNC-like hint: the waker may block/yield soon, so stacking is a bit cheaper. */
     uint32_t this_cpu = get_current_cpu_id();
     if (sync && cpu == this_cpu && score >= SCHED_SYNC_WAKE_BONUS) score -= SCHED_SYNC_WAKE_BONUS;
-    if (task && cpu != prev_cpu && scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN) score += SCHED_NICE_0_LOAD / 2ULL;
+
+    uint64_t cooldown = CONFIG_SCHED_MIGRATION_COOLDOWN;
+    if (task && cpu != prev_cpu && cooldown && scheduler.ticks - task->last_migrate_tick < cooldown) score += SCHED_NICE_0_LOAD / 2ULL;
 
     return score;
 }
@@ -1010,18 +1013,24 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     if (!node) return NULL;
     while (node->right) node = node->right;
 
-    /* Pinned entities are skipped without spending the movable-candidate budget. */
-    unsigned int movable = 0;
-    unsigned int visited = 0;
-    while (node && movable < 8 && visited++ < 32) {
+    /* Pinned entities are skipped without spending the hot-candidate budget. */
+    unsigned int hot_skipped = 0;
+    unsigned int hot_budget  = CONFIG_SCHED_STEAL_HOT_BUDGET;
+    unsigned int visited     = 0;
+    uint64_t     cooldown    = CONFIG_SCHED_MIGRATION_COOLDOWN;
+    while (node && visited++ < CONFIG_SCHED_STEAL_SCAN_LIMIT) {
         task_t *task = rb_entry(node, task_t, run_node);
+
         if (task->cpu_pinned) {
             node = rb_prev_local(node);
             continue;
         }
-        bool hot = scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN;
+        bool hot = cooldown && scheduler.ticks - task->last_migrate_tick < cooldown;
+
         if (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2) return task;
-        movable++;
+        hot_skipped++;
+
+        if (hot_skipped >= hot_budget) break;
         node = rb_prev_local(node);
     }
     return NULL;
@@ -1226,7 +1235,7 @@ static task_t *idle_task_alloc(uint32_t cpu_id)
     *(--stack)           = (uint64_t)idle_thread;
     idle->context.rsp    = (uint64_t)stack;
     idle->context.rdi    = 0;
-    idle->context.rflags = 0x202;
+    idle->context.rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
     return idle;
 }
 

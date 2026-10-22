@@ -9,6 +9,7 @@
  */
 
 #include <arch/cpu/cpuid.h>
+#include <arch/cpu/eflags.h>
 #include <arch/misc/common.h>
 #include <arch/tables/idt.h>
 #include <boot/limine.h>
@@ -313,7 +314,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
             break;
         }
     }
-    if (rflags & (1ULL << 9)) enable_intr();
+    if (rflags & X86_EFLAGS_IF) enable_intr();
 }
 
 /* Initialize APIC */

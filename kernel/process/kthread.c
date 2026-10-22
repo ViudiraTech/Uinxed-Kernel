@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/eflags.h>
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -64,7 +65,7 @@ static int setup_kthread_stack(task_t *task, kthread_bootstrap_t *bootstrap)
     task->context.r13    = 0;
     task->context.r14    = 0;
     task->context.r15    = 0;
-    task->context.rflags = 0x202;
+    task->context.rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
     task->context.rdi    = (uint64_t)bootstrap;
     return 0;
 }
@@ -139,7 +140,7 @@ void kthreadd_init(void)
     *(--stack)           = 0;
     *(--stack)           = (uint64_t)kthreadd_main;
     task->context.rsp    = (uint64_t)stack;
-    task->context.rflags = 0x202;
+    task->context.rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
     task->context.rdi    = 0;
 
     process_t *proc = process_create_kthread(task, "kthreadd");
