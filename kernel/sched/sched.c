@@ -446,6 +446,28 @@ static task_t *local_current(void)
     return percpu_gs_current();
 }
 
+/* Restore the interrupt flag saved by get_rflags(). */
+static void restore_intr(uint64_t rflags)
+{
+    if (rflags & (1ULL << 9))
+        enable_intr();
+    else
+        disable_intr();
+}
+
+/* Keep rq->curr and this CPU's GS current in lockstep; rq must be local. */
+static void local_rq_set_curr(eevdf_rq_t *rq, task_t *task)
+{
+    __atomic_store_n(&rq->curr, task, __ATOMIC_RELAXED);
+    percpu_gs_set_current(task);
+}
+
+/* Unlock keeping interrupts off; the caller restores them later. */
+static void rq_unlock_irqs_off(eevdf_rq_t *rq, uint64_t rflags)
+{
+    spin_unlock_irqrestore(&rq->lock, rflags & ~(1ULL << 9));
+}
+
 /* Point the TSS stack at the given task's kernel stack */
 static void update_tss_stack(task_t *task)
 {
@@ -1225,8 +1247,7 @@ void sched_init(void)
     for (uint32_t i = 0; i < cpu_scheduler_count; i++) cpu_rqs[i].online = 1;
     sched_domain_build();
 
-    next_task_cpu = 0;
-    __atomic_store_n(&cpu_rqs[0].curr, &boot_task, __ATOMIC_RELAXED);
+    next_task_cpu         = 0;
     cpu_rqs[0].nr_running = 0;
 
     memset(&boot_task, 0, sizeof(boot_task));
@@ -1243,7 +1264,7 @@ void sched_init(void)
 
     /* boot_task is the swapper/0 idle task for CPU 0 */
     cpu_rqs[0].idle = &boot_task;
-    percpu_gs_set_current(&boot_task);
+    local_rq_set_curr(&cpu_rqs[0], &boot_task);
 
     for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
         cpu_rqs[i].idle = idle_task_alloc(i);
@@ -1264,6 +1285,8 @@ void sched_init(void)
         ap_boot_tasks[i].weight         = SCHED_NICE_0_LOAD;
         ilist_init(&ap_boot_tasks[i].sched_node);
         ilist_init(&ap_boot_tasks[i].timer_node);
+
+        /* CPU i's GS is not reachable here; sched_ap_start() commits both sides. */
         __atomic_store_n(&cpu_rqs[i].curr, &ap_boot_tasks[i], __ATOMIC_RELAXED);
     }
 }
@@ -1283,8 +1306,8 @@ __attribute__((noreturn)) void sched_ap_start(uint32_t cpu_id)
     if (cpu_id == 0 || cpu_id >= cpu_scheduler_count) krn_halt();
 
     while (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) cpu_relax();
-    __atomic_store_n(&cpu_rqs[cpu_id].curr, &ap_boot_tasks[cpu_id], __ATOMIC_RELAXED);
-    percpu_gs_set_current(&ap_boot_tasks[cpu_id]);
+    local_rq_set_curr(&cpu_rqs[cpu_id], &ap_boot_tasks[cpu_id]);
+
     sched_yield();
     panic("sched: AP scheduler exited.");
 }
@@ -1396,6 +1419,8 @@ static void sched_switch(bool voluntary)
     uint64_t entry_rflags = get_rflags();
     disable_intr();
     eevdf_rq_t *rq = local_rq();
+
+    /* Interrupts are already off; entry_rflags owns the restore. */
     (void)spin_lock_irqsave(&rq->lock);
 
     __atomic_store_n(&rq->need_resched, 0, __ATOMIC_RELAXED);
@@ -1432,7 +1457,7 @@ static void sched_switch(bool voluntary)
      */
     if (next == rq->idle && rq->nr_running == 0) {
         /* Keep IRQs disabled while rq->curr is between scheduling states. */
-        spin_unlock_irqrestore(&rq->lock, entry_rflags & ~(1ULL << 9));
+        rq_unlock_irqs_off(rq, entry_rflags);
         spin_lock(&scheduler.lock);
         task_t *stolen = newidle_balance_locked(get_current_cpu_id());
         (void)spin_lock_irqsave(&rq->lock);
@@ -1448,7 +1473,8 @@ static void sched_switch(bool voluntary)
             next->time_slice = 0;
             advance_min_vruntime(rq);
         }
-        spin_unlock_irqrestore(&rq->lock, entry_rflags);
+        rq_unlock_irqs_off(rq, entry_rflags);
+        restore_intr(entry_rflags);
         return;
     }
 
@@ -1482,10 +1508,7 @@ static void sched_switch(bool voluntary)
     if (!next->context.rsp) panic("sched: selected task %llu (%s) has no kernel stack (runqueue corruption?)", next->pid, next->name);
 
     __atomic_store_n(&next->on_cpu, 1, __ATOMIC_RELEASE);
-    __atomic_store_n(&rq->curr, next, __ATOMIC_RELAXED);
-
-    /* Keep the GS-relative current pointer in lockstep with rq->curr. */
-    percpu_gs_set_current(next);
+    local_rq_set_curr(rq, next);
     advance_min_vruntime(rq);
     update_tss_stack(next);
 
@@ -1505,7 +1528,7 @@ static void sched_switch(bool voluntary)
      * IF here would let a tick enter sched_switch() after rq->curr had changed but
      * before the CPU had changed stacks.
      */
-    spin_unlock_irqrestore(&rq->lock, entry_rflags & ~(1ULL << 9));
+    rq_unlock_irqs_off(rq, entry_rflags);
 
     /*
      * arch_prctl keeps the software values authoritative, so avoid two
@@ -1522,11 +1545,7 @@ static void sched_switch(bool voluntary)
     context_switch(&prev->context, &next->context, &prev->on_cpu);
 
     /* Restore the IRQ state of the call site when this task is scheduled in. */
-    if (entry_rflags & (1ULL << 9)) {
-        enable_intr();
-    } else {
-        disable_intr();
-    }
+    restore_intr(entry_rflags);
 }
 
 /* Yield the current task to the scheduler */
@@ -2111,6 +2130,10 @@ void sched_maybe_preempt(void)
 {
     if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) || !cpu_rqs) return;
 
+    /* Fast path: a racy hint, re-resolved below with interrupts off. */
+    uint32_t cpu_id = percpu_gs_cpu_id();
+    if (cpu_id >= cpu_scheduler_count || !__atomic_load_n(&cpu_rqs[cpu_id].need_resched, __ATOMIC_ACQUIRE)) return;
+
     /* Resolve the runqueue with interrupts off so a migration cannot consume another CPU's request. */
     uint64_t rflags = get_rflags();
     disable_intr();
@@ -2127,7 +2150,7 @@ void sched_maybe_preempt(void)
     }
 
     if (preempt) sched_switch(false);
-    if (rflags & (1ULL << 9)) enable_intr();
+    restore_intr(rflags);
 }
 
 /* sched_ticks - return the global tick count */
