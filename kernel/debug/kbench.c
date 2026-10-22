@@ -330,9 +330,10 @@ static uint32_t kb_pair_cpus(uint32_t *cpus, uint32_t pairs, bool same_cpu)
     uint32_t ncpu = sched_cpu_count();
     uint32_t base = ncpu > 2 ? 1 : 0;
     for (uint32_t p = 0; p < pairs; p++) {
-        uint32_t a      = same_cpu ? base + p : base + (2 * p);
-        cpus[2 * p]     = a % ncpu;
-        cpus[2 * p + 1] = (same_cpu ? a : a + 1) % ncpu;
+        uint32_t a = base + p;
+        if (!same_cpu) a += p;
+        *cpus++ = a % ncpu;
+        *cpus++ = (same_cpu ? a : a + 1) % ncpu;
     }
     return pairs * 2;
 }
