@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/eflags.h>
 #include <arch/cpu/fpu.h>
 #include <arch/cpu/smp.h>
 #include <arch/misc/common.h>
@@ -449,7 +450,7 @@ static task_t *local_current(void)
 /* Restore the interrupt flag saved by get_rflags(). */
 static void restore_intr(uint64_t rflags)
 {
-    if (rflags & (1ULL << 9))
+    if (rflags & X86_EFLAGS_IF)
         enable_intr();
     else
         disable_intr();
@@ -465,7 +466,7 @@ static void local_rq_set_curr(eevdf_rq_t *rq, task_t *task)
 /* Unlock keeping interrupts off; the caller restores them later. */
 static void rq_unlock_irqs_off(eevdf_rq_t *rq, uint64_t rflags)
 {
-    spin_unlock_irqrestore(&rq->lock, rflags & ~(1ULL << 9));
+    spin_unlock_irqrestore(&rq->lock, rflags & ~X86_EFLAGS_IF);
 }
 
 /* Point the TSS stack at the given task's kernel stack */
@@ -1226,7 +1227,7 @@ static task_t *idle_task_alloc(uint32_t cpu_id)
     *(--stack)           = (uint64_t)idle_thread;
     idle->context.rsp    = (uint64_t)stack;
     idle->context.rdi    = 0;
-    idle->context.rflags = 0x202;
+    idle->context.rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
     return idle;
 }
 
