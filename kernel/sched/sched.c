@@ -878,6 +878,9 @@ static uint32_t select_wakeup_cpu_locked(task_t *task, bool sync)
 {
     if (!cpu_rqs || !cpu_scheduler_count) return 0;
 
+    /* Pinned tasks stay on their CPU even before sched_start(); kthread_run_on_cpu() already queues there. */
+    if (task && task->cpu_pinned && task->cpu_id < cpu_scheduler_count) return task->cpu_id;
+
     /*
      * Before sched_start(), only the BSP can execute scheduler work.  APs are
      * deliberately parked waiting for scheduler.started, so placing
@@ -1007,11 +1010,18 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     if (!node) return NULL;
     while (node->right) node = node->right;
 
-    unsigned int scanned = 0;
-    while (node && scanned++ < 8) {
+    /* Pinned entities are skipped without spending the movable-candidate budget. */
+    unsigned int movable = 0;
+    unsigned int visited = 0;
+    while (node && movable < 8 && visited++ < 32) {
         task_t *task = rb_entry(node, task_t, run_node);
-        bool    hot  = scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN;
+        if (task->cpu_pinned) {
+            node = rb_prev_local(node);
+            continue;
+        }
+        bool hot = scheduler.ticks - task->last_migrate_tick < CONFIG_SCHED_MIGRATION_COOLDOWN;
         if (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2) return task;
+        movable++;
         node = rb_prev_local(node);
     }
     return NULL;
@@ -1360,6 +1370,9 @@ uint32_t sched_cpu_count(void)
 int task_set_cpu(task_t *task, uint32_t cpu_id)
 {
     if (!task || cpu_id >= cpu_scheduler_count) return -EINVAL;
+
+    /* Pinned kernel threads refuse explicit migration, like PF_NO_SETAFFINITY. */
+    if (task->cpu_pinned) return -EINVAL;
 
     spin_lock(&scheduler.lock);
     uint32_t old_cpu = task->cpu_id;
