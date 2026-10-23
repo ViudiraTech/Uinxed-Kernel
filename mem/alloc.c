@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/smp.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
@@ -15,6 +16,7 @@
 #include <mem/buddy.h>
 #include <mem/page.h>
 #include <mem/slab.h>
+#include <process/sched.h>
 
 #define SLAB_NAME_LENGTH  32U
 #define SLAB_MAGIC        0x534c414255494e58ULL
@@ -22,6 +24,7 @@
 #define LARGE_MAGIC       0x4c41524755494e58ULL
 #define OBJECT_FREE       0U
 #define OBJECT_ALLOCATED  1U
+#define OBJECT_CACHED     2U // free, but parked in a per-CPU magazine (still counted in slab->inuse)
 #define LARGE_ALLOCATED   1U
 #define SLAB_LIST_NONE    0U
 #define SLAB_LIST_PARTIAL 1U
@@ -29,6 +32,9 @@
 #define SLAB_LIST_EMPTY   3U
 #define FREE_POISON       0x6b
 #define SIZE_CACHE_COUNT  (sizeof(size_classes) / sizeof(size_classes[0]))
+#define PCP_MAX_CPUS      CONFIG_FRAME_PCP_MAX_CPUS
+#define PCP_MAGAZINE_MAX  32U    // objects per size class per CPU
+#define PCP_MAGAZINE_SIZE 16384U // bytes per size class per CPU
 
 typedef struct slab_header slab_header_t;
 
@@ -113,9 +119,58 @@ typedef struct {
         size_t            failed_allocations;
 } heap_state_t;
 
-static heap_state_t heap;
-static const size_t size_classes[] = {16, 32, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 6144, 8192};
-static slab_cache_t size_caches[SIZE_CACHE_COUNT];
+/*
+ * Per-CPU cache of free page blocks, in front of the heap buddy.  Large
+ * allocations and slab growth otherwise all serialize on heap.page_lock; as in
+ * Linux's per-CPU pagesets, a block of a modest order is parked on the CPU that
+ * freed it and handed back without touching the global lock.  Cached blocks stay
+ * allocated as far as the buddy is concerned (so they never coalesce) but have
+ * their tags cleared, which keeps pointer_owner() and double-free detection
+ * rejecting them exactly like free blocks.
+ */
+#define PAGE_CACHE_ORDERS 6U // orders 0..5, up to a 128 KiB block
+#define PAGE_CACHE_SLOTS  8U
+
+typedef struct {
+        spinlock_t lock;
+        uint32_t   count[PAGE_CACHE_ORDERS];
+        size_t     blocks[PAGE_CACHE_ORDERS][PAGE_CACHE_SLOTS];
+} __attribute__((aligned(64))) heap_page_cache_t;
+
+/* Blocks kept per order; higher orders pin more memory per entry, so keep fewer. */
+static const uint32_t page_cache_limit[PAGE_CACHE_ORDERS] = {8, 8, 6, 4, 3, 2};
+
+static heap_state_t      heap;
+static heap_page_cache_t heap_page_caches[PCP_MAX_CPUS];
+static const size_t      size_classes[] = {16, 32, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 6144, 8192};
+static slab_cache_t      size_caches[SIZE_CACHE_COUNT];
+
+/* A per-CPU stack of free objects of one size class. */
+typedef struct {
+        uint32_t count;
+        uint32_t limit;
+        void    *objects[PCP_MAGAZINE_MAX];
+} heap_magazine_t;
+
+/*
+ * Per-CPU front end for the size-class caches (a Bonwick magazine layer, as
+ * SLUB's per-CPU freelists).  The lock is only ever contended when a task
+ * migrates between reading its CPU number and taking it, so correctness never
+ * depends on staying on one CPU.  The usage counters live here as well so the
+ * fast paths do not bounce one shared cacheline between every CPU.
+ */
+typedef struct {
+        spinlock_t      lock;
+        int64_t         live_allocations;
+        int64_t         allocated_bytes;
+        size_t          allocation_calls;
+        size_t          free_calls;
+        size_t          page_index;
+        unsigned        order;
+        heap_magazine_t magazines[SIZE_CACHE_COUNT];
+} heap_cpu_cache_t;
+
+static heap_cpu_cache_t *heap_cpu_caches[PCP_MAX_CPUS];
 
 /* Round value up to the next multiple of alignment. */
 static size_t align_up_size(size_t value, size_t alignment)
@@ -181,22 +236,143 @@ static void *page_address(size_t index)
     return heap.base + (index * PAGE_4K_SIZE);
 }
 
-/* Tag allocated pages so pointer_owner() can locate the owning block. */
-static size_t page_alloc(unsigned order)
+/* Per-CPU page cache of the running CPU, or NULL before the scheduler owns CPU topology. */
+static heap_page_cache_t *page_cache_local(void)
 {
+    if (!__atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) return NULL;
+    uint32_t cpu = get_current_cpu_id();
+    return cpu < PCP_MAX_CPUS ? &heap_page_caches[cpu] : NULL;
+}
+
+/* Tag every page of an allocated block so pointer_owner() can locate it. */
+static void page_tag(size_t index, unsigned order)
+{
+    size_t pages = (size_t)1 << order;
+    for (size_t i = 0; i < pages; i++) __atomic_store_n(&heap.pages.pages[index + i].tag, (uint32_t)(index + 1), __ATOMIC_RELAXED);
+}
+
+/* Return blocks, whose tags are already clear, to the buddy. */
+static void page_release_blocks(const size_t *blocks, unsigned order, uint32_t count)
+{
+    if (!count) return;
     uint64_t rflags = spin_lock_irqsave(&heap.page_lock);
-    size_t   index  = buddy_alloc(&heap.pages, order);
-    if (index != SIZE_MAX) {
-        size_t pages = (size_t)1 << order;
-        for (size_t i = 0; i < pages; i++) heap.pages.pages[index + i].tag = (uint32_t)(index + 1);
-    }
+    for (uint32_t i = 0; i < count; i++) (void)buddy_free(&heap.pages, blocks[i], order);
     spin_unlock_irqrestore(&heap.page_lock, rflags);
+}
+
+/* Give every CPU's cached blocks back to the buddy so a failing allocation sees all free memory. */
+static void page_cache_drain_all(void)
+{
+    for (uint32_t cpu = 0; cpu < PCP_MAX_CPUS; cpu++) {
+        heap_page_cache_t *pc = &heap_page_caches[cpu];
+        for (unsigned order = 0; order < PAGE_CACHE_ORDERS; order++) {
+            size_t   blocks[PAGE_CACHE_SLOTS];
+            uint64_t rflags = spin_lock_irqsave(&pc->lock);
+            uint32_t count  = pc->count[order];
+            for (uint32_t i = 0; i < count; i++) blocks[i] = pc->blocks[order][i];
+            pc->count[order] = 0;
+            spin_unlock_irqrestore(&pc->lock, rflags);
+            page_release_blocks(blocks, order, count);
+        }
+    }
+}
+
+/* Pages parked in per-CPU caches; they are free as far as callers are concerned. */
+static size_t page_cache_pages(void)
+{
+    size_t pages = 0;
+    for (uint32_t cpu = 0; cpu < PCP_MAX_CPUS; cpu++)
+        for (unsigned order = 0; order < PAGE_CACHE_ORDERS; order++) pages += (size_t)__atomic_load_n(&heap_page_caches[cpu].count[order], __ATOMIC_RELAXED) << order;
+    return pages;
+}
+
+/* Allocate a block from the buddy; extra blocks of the same order refill the local cache. */
+static size_t page_alloc_slow(unsigned order, heap_page_cache_t *pc)
+{
+    size_t   extra[PAGE_CACHE_SLOTS];
+    uint32_t extras = 0;
+    uint32_t want   = pc ? page_cache_limit[order] / 2 : 0;
+    size_t   index;
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        uint64_t rflags = spin_lock_irqsave(&heap.page_lock);
+        index           = buddy_alloc(&heap.pages, order);
+        while (index != SIZE_MAX && extras < want) {
+            size_t more = buddy_alloc(&heap.pages, order);
+            if (more == SIZE_MAX) break;
+            extra[extras++] = more;
+        }
+        spin_unlock_irqrestore(&heap.page_lock, rflags);
+        if (index != SIZE_MAX) break;
+        if (attempt == 0) page_cache_drain_all();
+    }
+    if (index == SIZE_MAX) return SIZE_MAX;
+
+    if (extras) {
+        size_t   spill[PAGE_CACHE_SLOTS];
+        uint32_t spilled = 0;
+        uint64_t rflags  = spin_lock_irqsave(&pc->lock);
+        for (uint32_t i = 0; i < extras; i++) {
+            if (pc->count[order] < page_cache_limit[order]) {
+                pc->blocks[order][pc->count[order]++] = extra[i];
+            } else {
+                spill[spilled++] = extra[i];
+            }
+        }
+        spin_unlock_irqrestore(&pc->lock, rflags);
+        page_release_blocks(spill, order, spilled);
+    }
+    page_tag(index, order);
     return index;
 }
 
-/* Page free. */
+/* Allocate a tagged block of 2^order pages. */
+static size_t page_alloc(unsigned order)
+{
+    heap_page_cache_t *pc = order < PAGE_CACHE_ORDERS ? page_cache_local() : NULL;
+    if (pc) {
+        uint64_t rflags = spin_lock_irqsave(&pc->lock);
+        if (pc->count[order]) {
+            size_t index = pc->blocks[order][--pc->count[order]];
+            spin_unlock_irqrestore(&pc->lock, rflags);
+            page_tag(index, order);
+            return index;
+        }
+        spin_unlock_irqrestore(&pc->lock, rflags);
+    }
+    return page_alloc_slow(order, pc);
+}
+
+/* Free a tagged block, parking it on the local CPU when the order is cacheable. */
 static int page_free(size_t index, unsigned order)
 {
+    heap_page_cache_t *pc    = order < PAGE_CACHE_ORDERS ? page_cache_local() : NULL;
+    size_t             units = (size_t)1 << order;
+
+    if (pc && index < heap.page_count && !(index & (units - 1)) && units <= heap.page_count - index) {
+        /* Same checks buddy_free() makes; the caller owns the block so these are stable. */
+        const buddy_page_t *head = &heap.pages.pages[index];
+        if (head->state != BUDDY_PAGE_ALLOC_HEAD || head->order != order) return -EINVAL;
+
+        /* Claiming the head tag makes a racing or repeated free of the same block fail. */
+        uint32_t expected = (uint32_t)(index + 1);
+        if (!__atomic_compare_exchange_n(&heap.pages.pages[index].tag, &expected, 0, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return -EINVAL;
+        for (size_t i = 1; i < units; i++) __atomic_store_n(&heap.pages.pages[index + i].tag, 0, __ATOMIC_RELAXED);
+
+        size_t   out[PAGE_CACHE_SLOTS];
+        uint32_t outs   = 0;
+        uint64_t rflags = spin_lock_irqsave(&pc->lock);
+        if (pc->count[order] >= page_cache_limit[order]) {
+            /* Full: send half of the cache back to the buddy, keeping the hottest entries. */
+            uint32_t keep = page_cache_limit[order] / 2;
+            while (pc->count[order] > keep) out[outs++] = pc->blocks[order][--pc->count[order]];
+        }
+        pc->blocks[order][pc->count[order]++] = index;
+        spin_unlock_irqrestore(&pc->lock, rflags);
+        page_release_blocks(out, order, outs);
+        return 0;
+    }
+
     uint64_t rflags = spin_lock_irqsave(&heap.page_lock);
     int      result = buddy_free(&heap.pages, index, order);
     spin_unlock_irqrestore(&heap.page_lock, rflags);
@@ -442,6 +618,149 @@ static int cache_free_object(slab_cache_t *expected, slab_header_t *slab, void *
     return 0;
 }
 
+/* Move up to count free objects of a size cache into out[], parking them as cached. */
+static uint32_t cache_take_batch(slab_cache_t *cache, void **out, uint32_t count)
+{
+    uint32_t taken  = 0;
+    uint64_t rflags = spin_lock_irqsave(&cache->lock);
+    while (taken < count) {
+        slab_header_t *slab = cache->partial ? cache->partial : cache->empty;
+        if (!slab) slab = slab_create_locked(cache);
+        if (!slab || !slab->free_list) break;
+
+        list_remove(cache, slab);
+        while (taken < count && slab->free_list) {
+            slab_object_header_t *object = slab->free_list;
+            slab->free_list              = object->next_free;
+            object->next_free            = NULL;
+            object->requested            = 0;
+            object->state                = OBJECT_CACHED;
+            slab->inuse++;
+            cache->objects++;
+            cache->allocations++;
+            out[taken++] = (uint8_t *)object + cache->payload_offset;
+        }
+        list_insert(cache, slab, slab->inuse == slab->object_count ? SLAB_LIST_FULL : SLAB_LIST_PARTIAL);
+    }
+    spin_unlock_irqrestore(&cache->lock, rflags);
+    return taken;
+}
+
+/* Hand cached (already validated and poisoned) objects back to their slabs. */
+static void cache_return_batch(slab_cache_t *cache, void *const *objects, uint32_t count)
+{
+    uint64_t rflags = spin_lock_irqsave(&cache->lock);
+    for (uint32_t i = 0; i < count; i++) {
+        slab_object_header_t *object = (void *)((uintptr_t)objects[i] - cache->payload_offset);
+        slab_header_t        *slab   = object->slab;
+        list_remove(cache, slab);
+        object->state     = OBJECT_FREE;
+        object->next_free = slab->free_list;
+        slab->free_list   = object;
+        slab->inuse--;
+        cache->objects--;
+        cache->frees++;
+        list_insert(cache, slab, slab->inuse ? SLAB_LIST_PARTIAL : SLAB_LIST_EMPTY);
+        if (!slab->inuse && cache->empty_count > 1) slab_release_locked(cache, slab);
+    }
+    spin_unlock_irqrestore(&cache->lock, rflags);
+}
+
+/* Return this CPU's magazine set, creating it straight from the buddy on first use. */
+static heap_cpu_cache_t *heap_cpu_cache(void)
+{
+    uint32_t cpu = get_current_cpu_id();
+    if (cpu >= PCP_MAX_CPUS) return NULL;
+    heap_cpu_cache_t *pc = __atomic_load_n(&heap_cpu_caches[cpu], __ATOMIC_ACQUIRE);
+    if (pc) return pc;
+
+    unsigned order = buddy_order_for_units((sizeof(*pc) + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE);
+    size_t   index = page_alloc(order);
+    if (index == SIZE_MAX) return NULL;
+    pc = page_address(index);
+    memset(pc, 0, sizeof(*pc));
+    for (size_t i = 0; i < SIZE_CACHE_COUNT; i++) {
+        size_t limit = PCP_MAGAZINE_SIZE / size_classes[i];
+        if (limit > PCP_MAGAZINE_MAX) limit = PCP_MAGAZINE_MAX;
+        if (limit < 2) limit = 2;
+        pc->magazines[i].limit = (uint32_t)limit;
+    }
+
+    heap_cpu_cache_t *expected = NULL;
+    if (!__atomic_compare_exchange_n(&heap_cpu_caches[cpu], &expected, pc, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        (void)page_free(index, order);
+        return expected;
+    }
+    return pc;
+}
+
+/* Allocate from this CPU's magazine, refilling half of it from the size cache when empty. */
+static void *pcp_alloc(heap_cpu_cache_t *pc, size_t class_index, size_t requested)
+{
+    slab_cache_t    *cache    = &size_caches[class_index];
+    heap_magazine_t *magazine = &pc->magazines[class_index];
+    uint64_t         rflags   = spin_lock_irqsave(&pc->lock);
+
+    if (!magazine->count) magazine->count = cache_take_batch(cache, magazine->objects, (magazine->limit + 1) / 2);
+    if (!magazine->count) {
+        spin_unlock_irqrestore(&pc->lock, rflags);
+        return NULL;
+    }
+
+    void                 *result = magazine->objects[--magazine->count];
+    slab_object_header_t *object = (void *)((uintptr_t)result - cache->payload_offset);
+    object->requested            = requested;
+    __atomic_store_n(&object->state, OBJECT_ALLOCATED, __ATOMIC_RELAXED);
+    pc->allocation_calls++;
+    pc->live_allocations++;
+    pc->allocated_bytes += (int64_t)requested;
+    spin_unlock_irqrestore(&pc->lock, rflags);
+    return result;
+}
+
+/* Free into this CPU's magazine, spilling its colder half to the size cache when full. */
+static int pcp_free(heap_cpu_cache_t *pc, slab_header_t *slab, void *pointer)
+{
+    slab_cache_t *cache = slab->cache;
+    if (slab->cookie != slab_cookie(slab)) return -EFAULT;
+
+    uintptr_t payload_start = slab->object_start + cache->payload_offset;
+    uintptr_t address       = (uintptr_t)pointer;
+    if (address < payload_start || (address - payload_start) % cache->stride || (address - payload_start) / cache->stride >= slab->object_count) return -EINVAL;
+
+    slab_object_header_t *object = (void *)(address - cache->payload_offset);
+    if (object->magic != SLAB_OBJECT_MAGIC || object->slab != slab || object->cookie != object_cookie(object)) return -EFAULT;
+    if (__atomic_load_n(&object->state, __ATOMIC_RELAXED) != OBJECT_ALLOCATED) return -EINVAL;
+    size_t requested = object->requested;
+    if (!requested || requested > cache->object_size) return -EFAULT;
+
+    /* Without the cache lock, this transition is what still rejects a concurrent double free. */
+    uint32_t expected = OBJECT_ALLOCATED;
+    if (!__atomic_compare_exchange_n(&object->state, &expected, OBJECT_CACHED, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return -EINVAL;
+    object->requested = 0;
+    memset(pointer, FREE_POISON, cache->object_size);
+
+    heap_magazine_t *magazine = &pc->magazines[cache - size_caches];
+    void            *spill[PCP_MAGAZINE_MAX];
+    uint32_t         spilled = 0;
+    uint64_t         rflags  = spin_lock_irqsave(&pc->lock);
+
+    if (magazine->count == magazine->limit) {
+        spilled = magazine->limit / 2;
+        memcpy(spill, magazine->objects, spilled * sizeof(void *));
+        magazine->count -= spilled;
+        memmove(magazine->objects, magazine->objects + spilled, magazine->count * sizeof(void *));
+    }
+    magazine->objects[magazine->count++] = pointer;
+    pc->free_calls++;
+    pc->live_allocations--;
+    pc->allocated_bytes -= (int64_t)requested;
+    spin_unlock_irqrestore(&pc->lock, rflags);
+
+    if (spilled) cache_return_batch(cache, spill, spilled);
+    return 0;
+}
+
 /* Find the smallest size class that fits size. */
 static slab_cache_t *cache_for_size(size_t size)
 {
@@ -458,15 +777,16 @@ static int pointer_owner(void *pointer, size_t *owner_index, void **owner)
     if (!heap.online || address < base || address >= base + heap.size) return -EFAULT;
     size_t page = (address - base) / PAGE_4K_SIZE;
 
-    uint64_t rflags = spin_lock_irqsave(&heap.page_lock);
-    uint32_t tag    = heap.pages.pages[page].tag;
-    if (!tag || tag > heap.page_count) {
-        spin_unlock_irqrestore(&heap.page_lock, rflags);
-        return -EFAULT;
-    }
+    /*
+     * No page_lock: a block's tag is written before the block is handed out and
+     * stays fixed while it is allocated, so it is stable for every valid pointer.
+     * An invalid pointer may read a stale tag, but the owner's magic and cookie
+     * checks reject it exactly as before, and heap metadata is always mapped.
+     */
+    uint32_t tag = __atomic_load_n(&heap.pages.pages[page].tag, __ATOMIC_RELAXED);
+    if (!tag || tag > heap.page_count) return -EFAULT;
     *owner_index = (size_t)tag - 1;
     *owner       = page_address(*owner_index);
-    spin_unlock_irqrestore(&heap.page_lock, rflags);
     return 0;
 }
 
@@ -534,10 +854,18 @@ void heap_onerror(error_handler handler)
 void *malloc(size_t size)
 {
     if (!size || !__atomic_load_n(&heap.online, __ATOMIC_ACQUIRE)) return NULL;
-    stat_add(&heap.allocation_calls, 1);
 
-    slab_cache_t *cache  = cache_for_size(size);
-    void         *result = cache ? cache_alloc_requested(cache, size) : large_alloc(CONFIG_HEAP_MIN_ALIGNMENT, size);
+    slab_cache_t *cache = cache_for_size(size);
+    if (cache) {
+        heap_cpu_cache_t *pc = heap_cpu_cache();
+        if (pc) {
+            void *result = pcp_alloc(pc, (size_t)(cache - size_caches), size);
+            if (result) return result;
+        }
+    }
+
+    stat_add(&heap.allocation_calls, 1);
+    void *result = cache ? cache_alloc_requested(cache, size) : large_alloc(CONFIG_HEAP_MIN_ALIGNMENT, size);
     if (!result) {
         stat_add(&heap.failed_allocations, 1);
         if (size > size_classes[SIZE_CACHE_COUNT - 1]) plogk("alloc: Failed to allocate %llu bytes (heap limit reached)\n", ((uint64_t)size));
@@ -630,12 +958,15 @@ void free(void *pointer)
     size_t         released = 0;
     slab_header_t *slab     = owner;
     if (slab->magic == SLAB_MAGIC) {
-        int result = cache_free_object(NULL, slab, pointer, &released);
+        slab_cache_t     *cache  = slab->cache;
+        heap_cpu_cache_t *pc     = cache >= size_caches && cache < size_caches + SIZE_CACHE_COUNT ? heap_cpu_cache() : NULL;
+        int               result = pc ? pcp_free(pc, slab, pointer) : cache_free_object(NULL, slab, pointer, &released);
         if (result) {
             plogk_once("alloc: Free of 0x%lx rejected (slab integrity check failed, err=%d)\n", (uintptr_t)pointer, result);
             report_error(result == -EFAULT ? layout_error : invalid_free, pointer);
             return;
         }
+        if (pc) return;
     } else {
         large_header_t *large = owner;
         if (large->magic != LARGE_MAGIC || large->cookie != large_cookie(large) || large->state != LARGE_ALLOCATED || large->user != pointer || large->page_index != owner_index) {
@@ -789,10 +1120,25 @@ void heap_get_stats(heap_stats_t *stats)
     stats->metadata_bytes  = heap.metadata_pages * PAGE_4K_SIZE;
     stats->free_page_bytes = heap.pages.free_pages * PAGE_4K_SIZE;
     spin_unlock_irqrestore(&heap.page_lock, rflags);
-    stats->live_allocations   = __atomic_load_n(&heap.live_allocations, __ATOMIC_RELAXED);
-    stats->allocated_bytes    = __atomic_load_n(&heap.allocated_bytes, __ATOMIC_RELAXED);
-    stats->allocation_calls   = __atomic_load_n(&heap.allocation_calls, __ATOMIC_RELAXED);
-    stats->free_calls         = __atomic_load_n(&heap.free_calls, __ATOMIC_RELAXED);
+    stats->free_page_bytes += page_cache_pages() * PAGE_4K_SIZE; // parked in per-CPU caches
+    int64_t live  = (int64_t)__atomic_load_n(&heap.live_allocations, __ATOMIC_RELAXED);
+    int64_t bytes = (int64_t)__atomic_load_n(&heap.allocated_bytes, __ATOMIC_RELAXED);
+    size_t  calls = __atomic_load_n(&heap.allocation_calls, __ATOMIC_RELAXED);
+    size_t  frees = __atomic_load_n(&heap.free_calls, __ATOMIC_RELAXED);
+
+    /* The magazine fast paths count per CPU; a racy sum is fine for a snapshot. */
+    for (uint32_t cpu = 0; cpu < PCP_MAX_CPUS; cpu++) {
+        heap_cpu_cache_t *pc = __atomic_load_n(&heap_cpu_caches[cpu], __ATOMIC_ACQUIRE);
+        if (!pc) continue;
+        live += __atomic_load_n(&pc->live_allocations, __ATOMIC_RELAXED);
+        bytes += __atomic_load_n(&pc->allocated_bytes, __ATOMIC_RELAXED);
+        calls += __atomic_load_n(&pc->allocation_calls, __ATOMIC_RELAXED);
+        frees += __atomic_load_n(&pc->free_calls, __ATOMIC_RELAXED);
+    }
+    stats->live_allocations   = live > 0 ? (size_t)live : 0;
+    stats->allocated_bytes    = bytes > 0 ? (size_t)bytes : 0;
+    stats->allocation_calls   = calls;
+    stats->free_calls         = frees;
     stats->failed_allocations = __atomic_load_n(&heap.failed_allocations, __ATOMIC_RELAXED);
 }
 
