@@ -12,7 +12,7 @@
 #define INCLUDE_E1000_H_
 
 #include <drivers/bus/pci.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 
 #define E1000_VENDOR_INTEL 0x8086
 #define E1000_MTU          1500

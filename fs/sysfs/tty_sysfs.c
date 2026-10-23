@@ -10,7 +10,7 @@
 
 #include <drivers/base/device.h>
 #include <drivers/tty/tty_driver.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 
 #if CONFIG_SYSFS

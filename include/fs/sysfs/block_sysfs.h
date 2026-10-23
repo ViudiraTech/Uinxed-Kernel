@@ -12,8 +12,8 @@
 #define INCLUDE_BLOCK_SYSFS_H_
 
 #include <drivers/block/core/blockdev.h>
-#include <kernel/errno.h>
 #include <libs/kobject/kobject.h>
+#include <libs/std/errno.h>
 
 /* Per-block-device wrapper */
 typedef struct block_sysfs_dev {

@@ -10,8 +10,8 @@
 
 #include <drivers/tty/console.h>
 #include <kernel/cmdline/cmdline.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 
 console_cmdline_t console_cmdline[NR_CONSOLES];

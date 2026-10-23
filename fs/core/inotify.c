@@ -9,14 +9,14 @@
  */
 
 #include <fs/core/inotify.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/termios.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
 #include <process/uaccess.h>
 #include <syscall/fcntl.h>
+#include <syscall/ioctls.h>
 
 #define INOTIFY_EVENT_MASK  (IN_ALL_EVENTS | IN_UNMOUNT | IN_Q_OVERFLOW | IN_IGNORED)
 #define INOTIFY_WATCH_FLAGS (IN_ONLYDIR | IN_DONT_FOLLOW | IN_EXCL_UNLINK | IN_MASK_CREATE | IN_MASK_ADD | IN_ISDIR | IN_ONESHOT)

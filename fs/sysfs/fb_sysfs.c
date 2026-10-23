@@ -11,7 +11,7 @@
 #include <drivers/base/device.h>
 #include <drivers/gpu/fbdev/fbdev.h>
 #include <drivers/gpu/fbdev/video.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 
 #if CONFIG_SYSFS

@@ -14,8 +14,8 @@
 #include <drivers/block/core/blockdev.h>
 #include <drivers/block/core/partition.h>
 #include <drivers/block/nvme/nvme.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <libs/util/overflow.h>
 #include <mem/heap.h>

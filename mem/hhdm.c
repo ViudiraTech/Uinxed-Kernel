@@ -11,7 +11,7 @@
 #include <arch/cpu/cpuid.h>
 #include <arch/misc/common.h>
 #include <boot/limine.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/uinxed.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>

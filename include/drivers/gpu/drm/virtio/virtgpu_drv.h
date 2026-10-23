@@ -19,7 +19,7 @@
 #include <drivers/gpu/drm/virtio/virtgpu_gem.h>
 #include <drivers/gpu/drm/virtio/virtgpu_kms.h>
 #include <drivers/gpu/drm/virtio/virtgpu_vq.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>

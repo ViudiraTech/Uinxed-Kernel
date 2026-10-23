@@ -11,7 +11,7 @@
 #include <boot/limine.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/uinxed.h>
 #include <mem/hhdm.h>
 

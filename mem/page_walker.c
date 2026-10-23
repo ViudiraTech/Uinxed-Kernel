@@ -8,7 +8,7 @@
  *
  */
 
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>

@@ -8,10 +8,10 @@
  *
  */
 
-#include <kernel/errno.h>
+#include <kernel/debug/printk.h>
 #include <kernel/module/elf.h>
 #include <kernel/module/module_elf.h>
-#include <kernel/printk.h>
+#include <libs/std/errno.h>
 
 #if CONFIG_MODULES
 

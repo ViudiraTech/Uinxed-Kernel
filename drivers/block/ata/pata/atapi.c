@@ -11,7 +11,7 @@
 #include <arch/misc/common.h>
 #include <drivers/block/ata/pata/atapi.h>
 #include <drivers/block/ata/pata/ide.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/util/byteorder.h>
 

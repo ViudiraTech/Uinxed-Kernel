@@ -15,7 +15,7 @@
 #include <cgroup/cgroup.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/debug/debug.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>

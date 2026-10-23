@@ -13,8 +13,8 @@
 #include <drivers/audio/intel/hda.h>
 #include <drivers/bus/pci.h>
 #include <drivers/firmware/apic.h>
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>

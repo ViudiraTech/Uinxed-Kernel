@@ -10,9 +10,9 @@
 
 #include <drivers/bus/i2c.h>
 #include <fs/sysfs/i2c_sysfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/list/circular_list.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <process/sched.h>
 

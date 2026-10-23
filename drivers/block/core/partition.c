@@ -9,8 +9,8 @@
  */
 
 #include <drivers/block/core/partition.h>
-#include <kernel/errno.h>
-#include <kernel/vsprintf.h>
+#include <kernel/debug/vsprintf.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <libs/util/bitops.h>
 #include <libs/util/byteorder.h>

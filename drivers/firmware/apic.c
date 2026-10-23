@@ -16,7 +16,7 @@
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/time/tsc.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/uinxed.h>
 #include <mem/hhdm.h>
 

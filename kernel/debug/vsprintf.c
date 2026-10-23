@@ -8,7 +8,7 @@
  *
  */
 
-#include <kernel/vsprintf.h>
+#include <kernel/debug/vsprintf.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 

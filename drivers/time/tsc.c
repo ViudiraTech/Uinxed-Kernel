@@ -11,7 +11,7 @@
 #include <arch/cpu/cpuid.h>
 #include <arch/misc/common.h>
 #include <drivers/time/tsc.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 
 static uint64_t tsc_frequency      = 0;
 static uint64_t tsc_epoch_value    = 0;

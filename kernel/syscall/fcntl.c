@@ -9,7 +9,7 @@
  */
 
 #include <fs/core/vfs.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <process/file_status.h>
 #include <process/process.h>
 #include <process/uaccess.h>

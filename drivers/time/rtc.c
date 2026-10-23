@@ -10,11 +10,11 @@
 
 #include <arch/firmware/cmos.h>
 #include <drivers/time/rtc.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/termios.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <process/uaccess.h>
+#include <syscall/ioctl.h>
 
 #define RTC_RD_TIME  _IOR('p', 0x09, rtc_time_t)
 #define RTC_SET_TIME _IOW('p', 0x0a, rtc_time_t)

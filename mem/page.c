@@ -14,7 +14,7 @@
 #include <arch/misc/common.h>
 #include <arch/tables/idt.h>
 #include <kernel/debug/debug.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>

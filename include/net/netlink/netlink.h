@@ -11,8 +11,8 @@
 #ifndef INCLUDE_NETLINK_H_
 #define INCLUDE_NETLINK_H_
 
-#include <kernel/errno.h>
 #include <libs/list/circular_list.h>
+#include <libs/std/errno.h>
 #include <libs/std/stdint.h>
 #include <process/task.h>
 

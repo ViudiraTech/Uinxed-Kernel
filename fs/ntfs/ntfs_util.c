@@ -9,8 +9,8 @@
  */
 
 #include <fs/ntfs/ntfs.h>
-#include <kernel/errno.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <libs/util/byteorder.h>
 #include <mem/heap.h>

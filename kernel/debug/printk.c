@@ -11,7 +11,7 @@
 #include <arch/cpu/smp.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/tty/tty.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 #include <process/sched.h>
 #include <sync/spin_lock.h>

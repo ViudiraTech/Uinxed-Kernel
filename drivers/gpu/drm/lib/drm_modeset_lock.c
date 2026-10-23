@@ -11,7 +11,7 @@
 #include <arch/misc/common.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 
 #if CONFIG_DRM
 

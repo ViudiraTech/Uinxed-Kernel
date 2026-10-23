@@ -14,7 +14,7 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/tty.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/math.h>
 #include <net/core/netdev.h>

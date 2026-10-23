@@ -11,8 +11,8 @@
 #ifndef INCLUDE_TTY_CORE_H_
 #define INCLUDE_TTY_CORE_H_
 
+#include <drivers/tty/termios.h>
 #include <fs/core/vfs.h>
-#include <kernel/termios.h>
 #include <process/task.h>
 
 typedef struct tty_core tty_core_t;

@@ -11,8 +11,8 @@
 #include <arch/misc/common.h>
 #include <drivers/block/core/blockdev.h>
 #include <drivers/block/nvme/nvme.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>

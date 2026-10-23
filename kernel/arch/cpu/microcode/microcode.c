@@ -15,7 +15,7 @@
 #include <arch/cpu/smp.h>
 #include <boot/limine_module.h>
 #include <kernel/cmdline/cmdline.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 
 /* Every backend the core can drive; append a new vendor's table here. */
