@@ -298,15 +298,15 @@ void init_frame(void)
     log_buffer_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08zx (%zu KiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
 }
 
-/* Allocate count frames aligned to 2^alignment_order pages. */
-static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
+/* Allocate count frames aligned to 2^alignment_order pages, ending below page limit. */
+static uint64_t alloc_frames_limited(size_t count, unsigned alignment_order, size_t limit)
 {
     if (!count) return 0;
     unsigned order = buddy_order_for_units(count);
     if (order > CONFIG_BUDDY_MAX_ORDER) return 0;
     if (alignment_order > order) order = alignment_order;
 
-    if (count == 1 && alignment_order == 0) {
+    if (count == 1 && alignment_order == 0 && limit == SIZE_MAX) {
         size_t frame = frame_pcp_pop();
         if (frame == SIZE_MAX) frame = frame_pcp_refill();
         if (frame == SIZE_MAX) {
@@ -317,12 +317,12 @@ static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
     }
 
     spin_lock(&frame_allocator.lock);
-    size_t frame_index = buddy_alloc(&frame_allocator.buddy, order);
+    size_t frame_index = limit == SIZE_MAX ? buddy_alloc(&frame_allocator.buddy, order) : buddy_alloc_below(&frame_allocator.buddy, order, limit);
     if (frame_index == SIZE_MAX) {
         spin_unlock(&frame_allocator.lock);
         frame_pcp_drain_all();
         spin_lock(&frame_allocator.lock);
-        frame_index = buddy_alloc(&frame_allocator.buddy, order);
+        frame_index = limit == SIZE_MAX ? buddy_alloc(&frame_allocator.buddy, order) : buddy_alloc_below(&frame_allocator.buddy, order, limit);
         if (frame_index == SIZE_MAX) {
             spin_unlock(&frame_allocator.lock);
             return 0;
@@ -340,10 +340,22 @@ static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
     return frame_index * PAGE_4K_SIZE;
 }
 
+/* Allocate count frames aligned to 2^alignment_order pages. */
+static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
+{
+    return alloc_frames_limited(count, alignment_order, SIZE_MAX);
+}
+
 /* Allocate memory frames; reclaim I/O is initiated only at explicit safe points. */
 uint64_t alloc_frames(size_t count)
 {
     return alloc_frames_aligned(count, 0);
+}
+
+/* Allocate memory frames whose physical range lies entirely below 4 GiB. */
+uint64_t alloc_frames_dma32(size_t count)
+{
+    return alloc_frames_limited(count, 0, (size_t)(0x100000000ULL / PAGE_4K_SIZE));
 }
 
 /* Allocate 2M memory frames */

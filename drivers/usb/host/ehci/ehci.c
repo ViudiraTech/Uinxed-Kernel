@@ -94,11 +94,11 @@ static void ehci_write32(volatile uint8_t *base, size_t offset, uint32_t value)
     mmio_write32((base + offset), value);
 }
 
-/* Allocate zeroed DMA memory and return its physical address. */
+/* Allocate zeroed DMA memory below 4 GiB (32-bit pointers) and return its physical address. */
 static void *ehci_dma_alloc(size_t size, uint64_t *physical)
 {
     size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
-    uint64_t address = alloc_frames(count);
+    uint64_t address = alloc_frames_dma32(count);
     if (!address) return NULL;
     void *memory = phys_to_virt(address);
     memset(memory, 0, count * PAGE_4K_SIZE);
@@ -245,7 +245,8 @@ static void ehci_unschedule_async(ehci_controller_t *ctrl, int qh_index)
 static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
 {
     ehci_controller_t *ctrl = device ? device->hc_private : NULL;
-    if (!ctrl || !setup || device->speed != USB_SPEED_HIGH || (length && !buffer) || length > PAGE_4K_SIZE || length != load_le16(&setup->length)) return -EINVAL;
+    if (ctrl && device->speed != USB_SPEED_HIGH) return -EOPNOTSUPP;
+    if (!ctrl || !setup || (length && !buffer) || length > PAGE_4K_SIZE || length != load_le16(&setup->length)) return -EINVAL;
     uint16_t max_packet = device->descriptor.max_packet_size0 ? device->descriptor.max_packet_size0 : 64;
     if (max_packet != 64) return -EPROTO;
     bool input = (setup->request_type & USB_DIR_IN) != 0;
@@ -329,7 +330,8 @@ static int ehci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     usb_device_t      *device     = endpoint->interface->device;
     ehci_controller_t *ctrl       = device->hc_private;
     uint16_t           max_packet = load_le16(&endpoint->descriptor.max_packet_size) & 0x07ff;
-    if (!ctrl || device->speed != USB_SPEED_HIGH || !max_packet || max_packet > 1024) return -EINVAL;
+    if (ctrl && device->speed != USB_SPEED_HIGH) return -EOPNOTSUPP;
+    if (!ctrl || !max_packet || max_packet > 1024) return -EINVAL;
     bool    input           = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     uint8_t endpoint_number = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
 

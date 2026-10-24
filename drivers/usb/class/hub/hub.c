@@ -179,8 +179,8 @@ static int hub_enumerate_device(usb_hub_t *hub, uint8_t port)
     if (ret != EOK || !child) {
         plogk("usb-hub: %s port %u enumerate failed: %d\n", hub->device->path, port, ret);
 
-        /* De-power the port to avoid babble on failure. */
-        if (hub->has_individual_power) hub_clear_port_feature(hub->device, port, USB_PORT_FEAT_POWER);
+        /* De-power the port to avoid babble on failure, but not for a device the HCD cannot drive: it is fine, merely unsupported. */
+        if (hub->has_individual_power && ret != -EOPNOTSUPP) hub_clear_port_feature(hub->device, port, USB_PORT_FEAT_POWER);
         return ret ? ret : -EIO;
     }
 
@@ -386,10 +386,16 @@ int usb_hub_probe(usb_interface_t *interface)
           hub->power_good_ms * 2);
     if (!hub->has_individual_power) {
         /* Ganged: one PORT_POWER on port 1 powers all, but QEMU requires per-port. */
-        for (uint8_t port = 1; port <= hub->port_count; port++) hub_set_port_feature(device, port, USB_PORT_FEAT_POWER);
+        for (uint8_t port = 1; port <= hub->port_count; port++) {
+            int power = hub_set_port_feature(device, port, USB_PORT_FEAT_POWER);
+            if (power != EOK) plogk("usb-hub: %s port %u power-on failed: %d\n", device->path, port, power);
+        }
         msleep(((uint32_t)hub->power_good_ms * 2) + USB_HUB_POWER_GOOD_MARGIN_MS);
     } else {
-        for (uint8_t port = 1; port <= hub->port_count; port++) hub_power_on_port(hub, port);
+        for (uint8_t port = 1; port <= hub->port_count; port++) {
+            int power = hub_power_on_port(hub, port);
+            if (power != EOK) plogk("usb-hub: %s port %u power-on failed: %d\n", device->path, port, power);
+        }
     }
 
     /* Status-change interrupt: 1 hub bit + port bits, rounded up. */

@@ -92,11 +92,11 @@ static void ohci_write32(ohci_controller_t *ctrl, uint8_t reg, uint32_t value)
     mmio_write32((uint32_t *)(ctrl->mmio_base + reg), value);
 }
 
-/* Allocate zeroed DMA memory and return its physical address. */
+/* Allocate zeroed DMA memory below 4 GiB (32-bit pointers) and return its physical address. */
 static void *ohci_dma_alloc(size_t size, uint64_t *physical)
 {
     size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
-    uint64_t address = alloc_frames(count);
+    uint64_t address = alloc_frames_dma32(count);
     if (!address) return NULL;
     void *memory = phys_to_virt(address);
     memset(memory, 0, count * PAGE_4K_SIZE);
