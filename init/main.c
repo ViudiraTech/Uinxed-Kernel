@@ -75,6 +75,7 @@
 #include <ipc/sysv_ipc.h>
 #include <kernel/cmdline/cmdline.h>
 #include <kernel/debug/debug.h>
+#include <kernel/debug/kbench.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
 #include <kernel/timer/timer.h>
@@ -422,6 +423,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     usb_host_start_workers();     // Register USB host workers
     video_start_refresh_worker(); // Register display refresh worker
     timer_deferred_init();        // Register timer bottom-half processing
+    kbench_init();                // Register the kbench worker when requested
     kernel_workers_start();       // Create every registered kernel worker
     swapper_enqueue_init();       // Finally make init runnable
                                   //
