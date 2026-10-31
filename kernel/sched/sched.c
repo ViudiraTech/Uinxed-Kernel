@@ -1023,21 +1023,23 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     if (!node) return NULL;
     while (node->right) node = node->right;
 
-    /* Pinned entities are skipped without spending the hot-candidate budget. */
+    /* Pinned entities and entities still executing on their own CPU cannot be moved. */
     unsigned int hot_skipped = 0;
     unsigned int hot_budget  = CONFIG_SCHED_STEAL_HOT_BUDGET;
     unsigned int visited     = 0;
     uint64_t     cooldown    = CONFIG_SCHED_MIGRATION_COOLDOWN;
+
     while (node && visited++ < CONFIG_SCHED_STEAL_SCAN_LIMIT) {
         task_t *task = rb_entry(node, task_t, run_node);
 
-        if (task->cpu_pinned) {
+        if (task->cpu_pinned || task->state != TASK_READY || __atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) {
             node = rb_prev_local(node);
             continue;
         }
         bool hot = cooldown && scheduler.ticks - task->last_migrate_tick < cooldown;
 
-        if (!hot || newly_idle || __atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) > 2) return task;
+        /* More than two movable entities is enough to spare a just-migrated one. */
+        if (!hot || newly_idle || __atomic_load_n(&src->nr_migratable, __ATOMIC_RELAXED) > 2) return task;
         hot_skipped++;
 
         if (hot_skipped >= hot_budget) break;
@@ -1046,31 +1048,35 @@ static task_t *pick_steal_candidate_locked(eevdf_rq_t *src, bool newly_idle)
     return NULL;
 }
 
-/* Find the most overloaded source runqueue relative to dst. */
-static uint32_t find_busiest_cpu_locked(uint32_t dst, const sched_domain_t *domain)
+/* Collect up to @max_sources runqueues in @domain that can donate a task, highest pressure first. */
+static unsigned int collect_balance_sources_locked(uint32_t dst, const sched_domain_t *domain, sched_source_t *sources, unsigned int max_sources)
 {
-    uint32_t busiest  = UINT32_MAX;
-    uint64_t max_load = 0;
+    unsigned int count = 0;
 
     for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
-        /*
-         * A runqueue whose queued entities are all CPU-pinned cannot donate:
-         * pick_steal_candidate_locked() skips every one of them, so selecting
-         * it would end the pass without pulling from the other runqueues in
-         * this domain.  nr_running alone cannot tell the two apart because it
-         * counts pinned entities; nr_migratable excludes them on enqueue and
-         * dequeue.
-         */
         if (cpu == dst || !cpu_rqs[cpu].online || !sched_domain_contains(dst, domain, cpu) || sched_domain_same_group(domain, dst, cpu)
             || __atomic_load_n(&cpu_rqs[cpu].nr_migratable, __ATOMIC_RELAXED) == 0)
             continue;
-        uint64_t load = rq_pressure(cpu);
-        if (load > max_load) {
-            max_load = load;
-            busiest  = cpu;
+
+        sched_source_t source = {.pressure = rq_pressure(cpu), .cpu = cpu};
+        unsigned int   slot;
+
+        if (count < max_sources) {
+            slot = count++;
+        } else if (source.pressure > sources[count - 1].pressure) {
+            /* Full: drop the lowest-pressure entry to keep the list bounded. */
+            slot = count - 1;
+        } else {
+            continue;
         }
+
+        while (slot && sources[slot - 1].pressure < source.pressure) {
+            sources[slot] = sources[slot - 1];
+            slot--;
+        }
+        sources[slot] = source;
     }
-    return busiest;
+    return count;
 }
 
 /*
@@ -1122,12 +1128,16 @@ static task_t *newidle_balance_locked(uint32_t dst_cpu)
         sched_domain_t *domain = &topology->domains[index];
         if (!(domain->flags & SCHED_DOMAIN_BALANCE_NEWIDLE)) continue;
 
-        uint32_t src_cpu = find_busiest_cpu_locked(dst_cpu, domain);
-        if (src_cpu == UINT32_MAX) continue;
-        if (rq_pressure(src_cpu) <= rq_pressure(dst_cpu) + SCHED_NICE_0_LOAD / 2ULL) continue;
+        sched_source_t sources[CONFIG_SCHED_BALANCE_SOURCES];
+        unsigned int   count        = collect_balance_sources_locked(dst_cpu, domain, sources, CONFIG_SCHED_BALANCE_SOURCES);
+        uint64_t       dst_pressure = rq_pressure(dst_cpu);
 
-        task_t *moved = migrate_one_locked(src_cpu, dst_cpu, true);
-        if (moved) return moved;
+        for (unsigned int slot = 0; slot < count; slot++) {
+            /* Pressure-ordered: the remaining sources cannot beat dst either. */
+            if (sources[slot].pressure <= dst_pressure + SCHED_NICE_0_LOAD / 2ULL) break;
+            task_t *moved = migrate_one_locked(sources[slot].cpu, dst_cpu, true);
+            if (moved) return moved;
+        }
     }
     return NULL;
 }
@@ -1153,20 +1163,24 @@ static task_t *rebalance_domains_locked(uint32_t dst_cpu)
     unsigned int        budget   = CONFIG_SCHED_BALANCE_BATCH;
     for (uint8_t index = 0; index < topology->nr_domains && budget; index++) {
         sched_domain_t *domain = &topology->domains[index];
+
         if (!(domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC) || scheduler.ticks - cpu_rqs[dst_cpu].last_domain_balance[index] < domain->balance_interval) continue;
-
         cpu_rqs[dst_cpu].last_domain_balance[index] = scheduler.ticks;
-        uint32_t src_cpu                            = find_busiest_cpu_locked(dst_cpu, domain);
-        if (src_cpu == UINT32_MAX) continue;
 
-        uint64_t imbalance = domain->level == SCHED_DOMAIN_SMT ? SCHED_NICE_0_LOAD / 2ULL : SCHED_NICE_0_LOAD;
-        while (budget && __atomic_load_n(&cpu_rqs[src_cpu].nr_migratable, __ATOMIC_RELAXED)) {
-            if (rq_pressure(src_cpu) <= rq_pressure(dst_cpu) + imbalance) break;
-            task_t *moved = migrate_one_locked(src_cpu, dst_cpu, false);
-            if (!moved) break;
-            if (!first) first = moved;
-            budget--;
-            if (rq_task_count(&cpu_rqs[src_cpu]) <= rq_task_count(&cpu_rqs[dst_cpu]) + 1) break;
+        sched_source_t sources[CONFIG_SCHED_BALANCE_SOURCES];
+        unsigned int   count     = collect_balance_sources_locked(dst_cpu, domain, sources, CONFIG_SCHED_BALANCE_SOURCES);
+        uint64_t       imbalance = domain->level == SCHED_DOMAIN_SMT ? SCHED_NICE_0_LOAD / 2ULL : SCHED_NICE_0_LOAD;
+
+        for (unsigned int slot = 0; slot < count && budget; slot++) {
+            uint32_t src_cpu = sources[slot].cpu;
+            while (budget && __atomic_load_n(&cpu_rqs[src_cpu].nr_migratable, __ATOMIC_RELAXED)) {
+                if (rq_pressure(src_cpu) <= rq_pressure(dst_cpu) + imbalance) break;
+                task_t *moved = migrate_one_locked(src_cpu, dst_cpu, false);
+                if (!moved) break;
+                if (!first) first = moved;
+                budget--;
+                if (rq_task_count(&cpu_rqs[src_cpu]) <= rq_task_count(&cpu_rqs[dst_cpu]) + 1) break;
+            }
         }
     }
     return first;

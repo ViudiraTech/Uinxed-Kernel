@@ -18,6 +18,7 @@
 #define SCHED_NICE_0_LOAD 1024ULL // Weight of a nice-0 task (EEVDF)
 
 _Static_assert(CONFIG_SCHED_STEAL_HOT_BUDGET <= CONFIG_SCHED_STEAL_SCAN_LIMIT, "steal hot budget exceeds scan limit");
+_Static_assert(CONFIG_SCHED_BALANCE_SOURCES > 0, "balance source cap must be positive");
 
 typedef enum {
     SCHED_DOMAIN_SMT = 0,
@@ -48,6 +49,11 @@ typedef struct {
         uint8_t        reserved[7];
         sched_domain_t domains[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
 } sched_domain_cpu_t;
+
+typedef struct {
+        uint64_t pressure;
+        uint32_t cpu;
+} sched_source_t;
 
 /* Per-CPU EEVDF runqueue */
 
