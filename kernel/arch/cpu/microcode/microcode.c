@@ -48,6 +48,19 @@ static const microcode_ops_t *microcode_find_backend(void)
     return NULL;
 }
 
+/* A microcode module the bootloader supplied under a name the backends know. */
+static const char *microcode_find_module(void)
+{
+    for (size_t i = 0; i < sizeof(microcode_backends) / sizeof(microcode_backends[0]); i++) {
+        const microcode_ops_t *ops = microcode_backends[i];
+        for (size_t j = 0; j < ops->module_name_count; j++) {
+            lmodule_t *module = get_lmodule(ops->module_names[j]);
+            if (module && module->data && module->size) return module->name;
+        }
+    }
+    return NULL;
+}
+
 /* The module called @name, if its content really is a blob for this vendor. */
 static const microcode_blob_t *microcode_blob_by_name(const char *name, const microcode_ops_t *ops, microcode_blob_t *blob)
 {
@@ -113,7 +126,8 @@ void init_microcode(void)
     /* Detected before the gates below, so microcode_revision() still works. */
     microcode_backend = microcode_find_backend();
     if (!microcode_backend) {
-        plogk("microcode: no support for this CPU vendor.\n");
+        const char *module = microcode_find_module();
+        if (module) plogk("microcode: no loader for CPU vendor %s; \"%s\" was not applied.\n", get_vendor_name(), module);
         return;
     }
 
