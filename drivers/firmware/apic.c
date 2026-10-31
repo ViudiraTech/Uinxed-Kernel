@@ -215,10 +215,8 @@ void lapic_timer_try_upgrade(void)
     uint32_t eax, ebx, ecx, edx;
     cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
 
-    if (!((ecx >> 24) & 1U)) {
-        plogk("apic: TSC-deadline mode not supported by this CPU; staying periodic.\n");
-        return;
-    }
+    /* A CPU without TSC-deadline keeps the calibrated periodic timer already in use. */
+    if (!((ecx >> 24) & 1U)) return;
 
     /*
      * Publish the new mode BEFORE reprogramming: the timer IRQ handler reads

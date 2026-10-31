@@ -95,9 +95,9 @@ uint64_t tsc_resolution_ns(void)
 }
 
 /*
- * Return TSC time on the same boot-relative epoch as HPET.  The epoch is
- * captured after calibration instead of treating tsc_init() as time zero;
- * this keeps TSC, HPET and DRM presentation timestamps interchangeable.
+ * Return TSC time on the same boot-relative epoch as HPET, so TSC, HPET and
+ * DRM presentation timestamps are interchangeable.  The epoch is captured
+ * once the TSC frequency is known.
  */
 uint64_t tsc_nano_time(void)
 {
@@ -112,27 +112,26 @@ uint64_t tsc_nano_time(void)
     return tsc_epoch_ns + elapsed_ns;
 }
 
-/* Initialize and, when safe, select TSC as the high-resolution clocksource. */
+/*
+ * Initialize the TSC and, when it is stable, use it for CLOCK_MONOTONIC.
+ * rdtsc and an invariant TSC are optional CPU features.
+ */
 void tsc_init(void)
 {
-    if (!cpu_support_rdtsc()) {
-        plogk("tsc: TSC not supported by CPU; keeping the existing clocksource.\n");
-        return;
-    }
-
+    if (!cpu_support_rdtsc()) return;
     tsc_invariant = tsc_check_invariant();
-    plogk("tsc: rdtscp is %s.\n", cpu_support_rdtscp() ? "supported" : "not supported");
-    plogk("tsc: invariant TSC is %s.\n", tsc_invariant ? "supported" : "not supported");
 
+    /* HPET is the calibration reference; without it the TSC frequency is unknown. */
+    if (!hpet_available()) return;
     if (!tsc_calibrate_with_hpet(get_acpi_hpet())) {
-        plogk("tsc: calibration failed; keeping the existing clocksource.\n");
+        plogk("tsc: HPET calibration failed; keeping the existing clocksource.\n");
         return;
     }
 
     /*
-     * Bracket the serialized TSC read with HPET reads and use their midpoint.
-     * This aligns the TSC epoch to HPET's boot-relative epoch while bounding
-     * MMIO-read latency error instead of silently introducing a new epoch.
+     * Bracket the serialized TSC read with HPET reads and use their midpoint:
+     * this aligns the TSC epoch to HPET's boot-relative epoch while keeping
+     * the MMIO-read latency error bounded.
      */
     uint64_t hpet_before = nano_time();
     uint64_t tsc_epoch   = rdtsc_serialized();
@@ -141,10 +140,8 @@ void tsc_init(void)
     tsc_epoch_value = tsc_epoch;
     tsc_epoch_ns    = hpet_before + (hpet_after - hpet_before) / 2ULL;
 
-    if (!tsc_invariant) {
-        plogk("tsc: calibrated but not invariant; keeping HPET as CLOCK_MONOTONIC source.\n");
-        return;
-    }
+    /* A non-invariant TSC follows the core clock and cannot back CLOCK_MONOTONIC. */
+    if (!tsc_invariant) return;
 
     __atomic_store_n(&tsc_clocksource_ok, 1, __ATOMIC_RELEASE);
     plogk("tsc: selected as CLOCK_MONOTONIC clocksource (epoch=%llu ns, resolution=%llu ns)\n", tsc_epoch_ns, tsc_resolution_ns());
