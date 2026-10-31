@@ -55,6 +55,7 @@ typedef struct {
         spinlock_t       lock;            // protects this runqueue's state below
         rb_root_t        timeline;        // RB-tree sorted by deadline
         uint64_t         nr_running;      // runnable task count
+        uint64_t         nr_migratable;   // queued tasks a balance pull may take (excludes cpu_pinned)
         uint64_t         min_vruntime;    // minimum vruntime (numerical stability)
         int64_t          avg_vruntime;    // weighted sum of (v - min_vr) * weight
         uint64_t         avg_load;        // sum of weights of runnable tasks

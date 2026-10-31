@@ -346,6 +346,15 @@ static bool enqueue_entity(eevdf_rq_t *rq, task_t *task)
     task->on_rq  = true;
     task->rq_cpu = rq_cpu;
     __atomic_add_fetch(&rq->nr_running, 1, __ATOMIC_RELAXED);
+
+    /*
+     * Track the queued entities the balancer can actually pull.  cpu_pinned is
+     * latched before a task is first queued and never changes afterwards, so
+     * this test always matches the one in dequeue_entity().  The value is
+     * updated under this rq lock but sampled locklessly by remote balancers,
+     * hence a relaxed RMW rather than a plain increment.
+     */
+    if (!task->cpu_pinned) __atomic_add_fetch(&rq->nr_migratable, 1, __ATOMIC_RELAXED);
     return true;
 }
 
@@ -363,6 +372,7 @@ static bool dequeue_entity(eevdf_rq_t *rq, task_t *task)
     task->rq_cpu = UINT32_MAX;
     avg_vruntime_sub(rq, task);
     if (__atomic_load_n(&rq->nr_running, __ATOMIC_RELAXED)) __atomic_sub_fetch(&rq->nr_running, 1, __ATOMIC_RELAXED);
+    if (!task->cpu_pinned && __atomic_load_n(&rq->nr_migratable, __ATOMIC_RELAXED)) __atomic_sub_fetch(&rq->nr_migratable, 1, __ATOMIC_RELAXED);
     return true;
 }
 
@@ -1043,8 +1053,16 @@ static uint32_t find_busiest_cpu_locked(uint32_t dst, const sched_domain_t *doma
     uint64_t max_load = 0;
 
     for (uint32_t cpu = 0; cpu < cpu_scheduler_count; cpu++) {
+        /*
+         * A runqueue whose queued entities are all CPU-pinned cannot donate:
+         * pick_steal_candidate_locked() skips every one of them, so selecting
+         * it would end the pass without pulling from the other runqueues in
+         * this domain.  nr_running alone cannot tell the two apart because it
+         * counts pinned entities; nr_migratable excludes them on enqueue and
+         * dequeue.
+         */
         if (cpu == dst || !cpu_rqs[cpu].online || !sched_domain_contains(dst, domain, cpu) || sched_domain_same_group(domain, dst, cpu)
-            || __atomic_load_n(&cpu_rqs[cpu].nr_running, __ATOMIC_RELAXED) == 0)
+            || __atomic_load_n(&cpu_rqs[cpu].nr_migratable, __ATOMIC_RELAXED) == 0)
             continue;
         uint64_t load = rq_pressure(cpu);
         if (load > max_load) {
@@ -1065,7 +1083,7 @@ static task_t *migrate_one_locked(uint32_t src_cpu, uint32_t dst_cpu, bool newly
     if (src_cpu >= cpu_scheduler_count || dst_cpu >= cpu_scheduler_count || src_cpu == dst_cpu) return NULL;
     eevdf_rq_t *src = &cpu_rqs[src_cpu];
     eevdf_rq_t *dst = &cpu_rqs[dst_cpu];
-    if (!__atomic_load_n(&src->nr_running, __ATOMIC_RELAXED) || !dst->online) return NULL;
+    if (!__atomic_load_n(&src->nr_migratable, __ATOMIC_RELAXED) || !dst->online) return NULL;
 
     spin_lock(&src->lock);
     task_t *task = pick_steal_candidate_locked(src, newly_idle);
@@ -1142,7 +1160,7 @@ static task_t *rebalance_domains_locked(uint32_t dst_cpu)
         if (src_cpu == UINT32_MAX) continue;
 
         uint64_t imbalance = domain->level == SCHED_DOMAIN_SMT ? SCHED_NICE_0_LOAD / 2ULL : SCHED_NICE_0_LOAD;
-        while (budget && __atomic_load_n(&cpu_rqs[src_cpu].nr_running, __ATOMIC_RELAXED)) {
+        while (budget && __atomic_load_n(&cpu_rqs[src_cpu].nr_migratable, __ATOMIC_RELAXED)) {
             if (rq_pressure(src_cpu) <= rq_pressure(dst_cpu) + imbalance) break;
             task_t *moved = migrate_one_locked(src_cpu, dst_cpu, false);
             if (!moved) break;
