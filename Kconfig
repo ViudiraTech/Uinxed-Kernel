@@ -180,6 +180,18 @@ menu "Scheduler"
       unbounded time migrating tasks. Newly-idle stealing always pulls at most
       one task.
 
+  config SCHED_BALANCE_SOURCES
+    int "Maximum source runqueues considered per balance pass"
+    default 4
+    range 1 32
+    help
+      One balance pass walks a scheduling domain's source runqueues from the
+      highest to the lowest pressure. A source that cannot donate a task right
+      now - every movable entity is inside SCHED_MIGRATION_COOLDOWN, or the
+      candidate is still executing on its CPU - no longer ends the pass; the
+      next source in the list is tried instead. This bounds how many source
+      runqueues one pass examines per domain.
+
   config SCHED_MIGRATION_COOLDOWN
     int "Task migration cooldown (ticks)"
     default 4

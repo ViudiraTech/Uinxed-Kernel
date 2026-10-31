@@ -18,6 +18,7 @@
 #define SCHED_NICE_0_LOAD 1024ULL // Weight of a nice-0 task (EEVDF)
 
 _Static_assert(CONFIG_SCHED_STEAL_HOT_BUDGET <= CONFIG_SCHED_STEAL_SCAN_LIMIT, "steal hot budget exceeds scan limit");
+_Static_assert(CONFIG_SCHED_BALANCE_SOURCES > 0, "balance source cap must be positive");
 
 typedef enum {
     SCHED_DOMAIN_SMT = 0,
@@ -49,12 +50,18 @@ typedef struct {
         sched_domain_t domains[CONFIG_SCHED_DOMAIN_MAX_LEVELS];
 } sched_domain_cpu_t;
 
+typedef struct {
+        uint64_t pressure;
+        uint32_t cpu;
+} sched_source_t;
+
 /* Per-CPU EEVDF runqueue */
 
 typedef struct {
         spinlock_t       lock;            // protects this runqueue's state below
         rb_root_t        timeline;        // RB-tree sorted by deadline
         uint64_t         nr_running;      // runnable task count
+        uint64_t         nr_migratable;   // queued tasks a balance pull may take (excludes cpu_pinned)
         uint64_t         min_vruntime;    // minimum vruntime (numerical stability)
         int64_t          avg_vruntime;    // weighted sum of (v - min_vr) * weight
         uint64_t         avg_load;        // sum of weights of runnable tasks
