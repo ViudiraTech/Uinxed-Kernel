@@ -126,7 +126,8 @@ static int blk_ide_read_sectors(const blockdev_device_t *dev, uint64_t lba, uint
 
     while (count) {
         uint8_t chunk = (count > 255) ? 255 : (uint8_t)count;
-        ide_read_sectors(dev->drive, chunk, dev->base_lba + lba, (uint16_t *)ptr);
+        int     ret   = ide_read_sectors(dev->drive, chunk, dev->base_lba + lba, (uint16_t *)ptr);
+        if (ret != EOK) return ret;
         ptr += (size_t)chunk * dev->sector_size;
         lba += chunk;
         count -= chunk;
@@ -141,7 +142,8 @@ static int blk_ide_write_sectors(const blockdev_device_t *dev, uint64_t lba, uin
 
     while (count) {
         uint8_t chunk = (count > 255) ? 255 : (uint8_t)count;
-        ide_write_sectors(dev->drive, chunk, dev->base_lba + lba, (uint16_t *)ptr);
+        int     ret   = ide_write_sectors(dev->drive, chunk, dev->base_lba + lba, (uint16_t *)ptr);
+        if (ret != EOK) return ret;
         ptr += (size_t)chunk * dev->sector_size;
         lba += chunk;
         count -= chunk;

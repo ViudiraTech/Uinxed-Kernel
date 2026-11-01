@@ -36,8 +36,7 @@ ide_channel_registers_t channels[2];
 ide_device_t            ide_devices[4];
 
 /* Data Array */
-uint8_t    ide_buf[2048] = {0};
-static int package[2];
+uint8_t ide_buf[2048] = {0};
 
 /* IDE interrupt handling for the primary channel (IRQ14). */
 INTERRUPT_BEGIN static void ide_irq_primary(interrupt_frame_t *frame)
@@ -552,42 +551,37 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
 }
 
 /* Read multiple sectors from an IDE device */
-void ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi)
+int ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi)
 {
-    if (drive > 3 || !ide_devices[drive].reserved) {
-        package[0] = 0x1;
-    } else if ((lba >= ide_devices[drive].size || numsects > ide_devices[drive].size - lba) && (ide_devices[drive].type == IDE_ATA)) {
-        package[0] = 0x2;
-    } else {
-        uint8_t err = 0;
-        if (ide_devices[drive].type == IDE_ATA) {
-            err = ide_ata_access(ATA_READ, drive, lba, numsects, edi);
-        } else if (ide_devices[drive].type == IDE_ATAPI) {
-            err = atapi_read(drive, lba, numsects, edi);
-        }
-        package[0] = ide_print_error(drive, err);
+    if (drive > 3 || !ide_devices[drive].reserved) return -ENODEV;
+    if ((lba >= ide_devices[drive].size || numsects > ide_devices[drive].size - lba) && (ide_devices[drive].type == IDE_ATA)) return -EINVAL;
+
+    /* Reading in PIO mode via polling and IRQ */
+    uint8_t err = 0;
+    if (ide_devices[drive].type == IDE_ATA) {
+        err = ide_ata_access(ATA_READ, drive, lba, numsects, edi);
+    } else if (ide_devices[drive].type == IDE_ATAPI) {
+        err = atapi_read(drive, lba, numsects, edi);
     }
+    (void)ide_print_error(drive, err);
+    return err ? -EIO : EOK;
 }
 
 /* Write multiple sectors to an IDE device */
-void ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi)
+int ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi)
 {
-    /* Check if the drive exists */
-    if (drive > 3 || !ide_devices[drive].reserved) {
-        package[0] = 0x1;
-    } else if ((lba >= ide_devices[drive].size || numsects > ide_devices[drive].size - lba) && (ide_devices[drive].type == IDE_ATA)) {
-        /* Check if the input is valid */
-        package[0] = 0x2;
-    } else {
-        /* Writing in PIO mode via polling and IRQ */
-        uint8_t err = 0;
-        if (ide_devices[drive].type == IDE_ATA) {
-            err = ide_ata_access(ATA_WRITE, drive, lba, numsects, edi);
-        } else if (ide_devices[drive].type == IDE_ATAPI) {
-            err = 4;
-        }
-        package[0] = ide_print_error(drive, err);
+    if (drive > 3 || !ide_devices[drive].reserved) return -ENODEV;
+    if ((lba >= ide_devices[drive].size || numsects > ide_devices[drive].size - lba) && (ide_devices[drive].type == IDE_ATA)) return -EINVAL;
+
+    /* Writing in PIO mode via polling and IRQ */
+    uint8_t err = 0;
+    if (ide_devices[drive].type == IDE_ATA) {
+        err = ide_ata_access(ATA_WRITE, drive, lba, numsects, edi);
+    } else if (ide_devices[drive].type == IDE_ATAPI) {
+        err = 4;
     }
+    (void)ide_print_error(drive, err);
+    return err ? -EIO : EOK;
 }
 
 #endif
