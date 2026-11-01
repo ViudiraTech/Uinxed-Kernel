@@ -294,6 +294,12 @@ else
   C_CONFIG += -DCONFIG_ATA=0
 endif
 
+ifeq ($(CONFIG_FLOPPY), y)
+  C_CONFIG += -DCONFIG_FLOPPY=1
+else
+  C_CONFIG += -DCONFIG_FLOPPY=0
+endif
+
 ifeq ($(CONFIG_NVME), y)
   C_CONFIG += -DCONFIG_NVME=1
 else
