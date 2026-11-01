@@ -13,6 +13,7 @@
 #include <drivers/block/ata/sata/satapi.h>
 #include <drivers/block/core/blockdev.h>
 #include <drivers/block/core/partition.h>
+#include <drivers/block/floppy/floppy.h>
 #include <drivers/block/nvme/nvme.h>
 #include <kernel/debug/printk.h>
 #include <libs/std/errno.h>
@@ -27,10 +28,8 @@ static int            blk_next_id   = 0;
 
 /*
  * Overview
- * blockdev.c is the block-device abstraction shared by IDE, AHCI,
- * SATA-ATAPI and NVMe. It registers per-driver ops, publishes block
- * devices, and implements the generic read/write/ioctl entry points
- * on top of them.
+ * blockdev.c holds the per-driver ops tables and the generic I/O helpers
+ * built on them; gendisk.c publishes the devices.
  */
 
 /* Default (empty) ops - returns -EOPNOTSUPP for everything */
@@ -422,6 +421,11 @@ int blockdev_open_drive(uint8_t drive, blockdev_device_t *device)
         return blockdev_open_ahci(idx, device);
     }
     if (drive & BLKDEV_ATAPI_FLAG) return blockdev_open_atapi(drive & BLKDEV_DRIVE_MASK, device);
+#endif
+#if CONFIG_FLOPPY
+    if (drive & BLKDEV_FLOPPY_FLAG) return blockdev_open_floppy(drive & 0x0F, device);
+#endif
+#if CONFIG_ATA
     return blockdev_open_ide(drive & BLKDEV_DRIVE_MASK, device);
 #else
     return -ENODEV;
@@ -448,7 +452,7 @@ static int parse_uint(const char **cursor, uint32_t *value)
     return EOK;
 }
 
-/* Parse /dev/sdX, hdX, srX, nvme or ide names into drive/partition ids. */
+/* Parse /dev/sdX, hdX, srX, nvme or fdX names into drive/partition ids. */
 static int parse_device_name(const char *name, uint8_t *drive, uint32_t *partition, uint32_t *nvme_nsid)
 {
     const char *cursor;
@@ -500,6 +504,21 @@ static int parse_device_name(const char *name, uint8_t *drive, uint32_t *partiti
 
         return EOK;
     }
+    if (!strncmp(name, "fd", 2)) {
+        cursor = name + 2;
+        status = parse_uint(&cursor, &value);
+
+        if (status != EOK || value >= FLOPPY_MAX_DRIVES) return -EINVAL;
+        *drive = BLKDEV_FLOPPY_FLAG | (uint8_t)value;
+
+        if (!*cursor) return EOK;
+        status = parse_uint(&cursor, &value);
+
+        if (status != EOK || *cursor || !value) return -EINVAL;
+        *partition = value;
+
+        return EOK;
+    }
     if (!strncmp(name, "sr", 2)) {
         cursor = name + 2;
         status = parse_uint(&cursor, &value);
@@ -536,15 +555,6 @@ static int parse_device_name(const char *name, uint8_t *drive, uint32_t *partiti
         *drive = BLKDEV_NVME_FLAG | (uint8_t)controller;
 
         if (nvme_nsid) *nvme_nsid = namespace_id;
-        return EOK;
-    }
-    if (!strncmp(name, "ide", 3)) {
-        cursor = name + 3;
-        status = parse_uint(&cursor, &value);
-
-        if (status != EOK || *cursor || value > 3) return -EINVAL;
-        *drive = (uint8_t)value;
-
         return EOK;
     }
 

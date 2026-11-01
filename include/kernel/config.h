@@ -29,6 +29,10 @@
 #    define CONFIG_ATA 1
 #endif
 
+#ifndef CONFIG_FLOPPY
+#    define CONFIG_FLOPPY 0
+#endif
+
 #ifndef CONFIG_CGROUP
 #    define CONFIG_CGROUP 1
 #endif
