@@ -926,6 +926,12 @@ menu "Device Drivers"
       help
         Namespaces tracked per NVMe controller.
 
+    config FLOPPY
+      bool "PC floppy disk controller support"
+      default n
+      help
+        Enable the legacy PC/AT floppy disk controller and ISA DMA driver.
+
     config BLOCKDEV_MAX_TYPES
       int "Block device operation types"
       default 16
