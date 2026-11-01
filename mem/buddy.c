@@ -132,16 +132,9 @@ int buddy_add_range(buddy_allocator_t *allocator, size_t start, size_t count)
     return 0;
 }
 
-/* Allocate a block of the given order, splitting a larger one if needed. */
-size_t buddy_alloc(buddy_allocator_t *allocator, unsigned order)
+/* Unlink a free block from its order and split it down to the wanted order. */
+static size_t buddy_take_block(buddy_allocator_t *allocator, size_t index, unsigned found, unsigned order)
 {
-    if (!allocator || order > allocator->max_order) return SIZE_MAX;
-
-    unsigned found = order;
-    while (found <= allocator->max_order && allocator->free_head[found] == BUDDY_INDEX_NONE) found++;
-    if (found > allocator->max_order) return SIZE_MAX;
-
-    size_t index = (size_t)allocator->free_head[found];
     list_remove(allocator, index, found);
 
     while (found > order) {
@@ -157,6 +150,32 @@ size_t buddy_alloc(buddy_allocator_t *allocator, unsigned order)
         allocator->pages[index + i].order = 0;
     }
     return index;
+}
+
+/* Allocate a block of the given order, splitting a larger one if needed. */
+size_t buddy_alloc(buddy_allocator_t *allocator, unsigned order)
+{
+    if (!allocator || order > allocator->max_order) return SIZE_MAX;
+    for (unsigned found = order; found <= allocator->max_order; found++) {
+        if (allocator->free_head[found] == BUDDY_INDEX_NONE) continue;
+        return buddy_take_block(allocator, (size_t)allocator->free_head[found], found, order);
+    }
+    return SIZE_MAX;
+}
+
+/* Allocate a block of the given order that ends at or below limit_units. */
+size_t buddy_alloc_below(buddy_allocator_t *allocator, unsigned order, size_t limit_units)
+{
+    if (!allocator || order > allocator->max_order) return SIZE_MAX;
+    if (order_units(order) > limit_units) return SIZE_MAX;
+    for (unsigned found = order; found <= allocator->max_order; found++) {
+        size_t units = order_units(found);
+        for (int32_t node = allocator->free_head[found]; node != BUDDY_INDEX_NONE; node = allocator->pages[node].next) {
+            if ((size_t)node + units > limit_units) continue;
+            return buddy_take_block(allocator, (size_t)node, found, order);
+        }
+    }
+    return SIZE_MAX;
 }
 
 /* Return a block of the given order to the allocator. */

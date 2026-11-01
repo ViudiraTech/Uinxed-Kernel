@@ -136,6 +136,7 @@ static size_t frame_pcp_refill(void)
     if (first != SIZE_MAX) {
         units = (size_t)1 << order;
         if (buddy_trim_allocation(&frame_allocator.buddy, first, order, units)) {
+            plogk("frame: PCP refill trim failed for order %u block at 0x%016llx\n", order, (unsigned long long)(first * PAGE_4K_SIZE));
             (void)buddy_free(&frame_allocator.buddy, first, order);
             first = SIZE_MAX;
             units = 0;
@@ -209,6 +210,12 @@ void frame_reclaim_if_needed(size_t requested)
     }
 }
 
+/* Add one usable region to the buddy, reporting a region it rejects. */
+static void frame_add_buddy_range(size_t start, size_t count)
+{
+    if (buddy_add_range(&frame_allocator.buddy, start, count)) log_buffer_write(&frame_log, "frame: Failed to add 0x%08zx frames from %p to buddy.\n", count, (void *)(start * PAGE_4K_SIZE));
+}
+
 /* Initialize memory frame */
 void init_frame(void)
 {
@@ -277,11 +284,11 @@ void init_frame(void)
             size_t metadata_count = metadata_size / PAGE_4K_SIZE;
             size_t range_end      = start_frame + count;
             if (metadata_start >= range_end || metadata_start + metadata_count <= start_frame) {
-                (void)buddy_add_range(&frame_allocator.buddy, start_frame, count);
+                frame_add_buddy_range(start_frame, count);
             } else {
-                if (metadata_start > start_frame) (void)buddy_add_range(&frame_allocator.buddy, start_frame, metadata_start - start_frame);
+                if (metadata_start > start_frame) frame_add_buddy_range(start_frame, metadata_start - start_frame);
                 size_t after_metadata = metadata_start + metadata_count;
-                if (after_metadata < range_end) (void)buddy_add_range(&frame_allocator.buddy, after_metadata, range_end - after_metadata);
+                if (after_metadata < range_end) frame_add_buddy_range(after_metadata, range_end - after_metadata);
             }
             log_buffer_write(&frame_log, "frame: Added    0x%08zx frames from %p to buddy.\n", count, (void *)start);
         }
@@ -344,6 +351,44 @@ static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
 uint64_t alloc_frames(size_t count)
 {
     return alloc_frames_aligned(count, 0);
+}
+
+/* Allocate count contiguous frames whose whole range ends at or below max_phys. */
+uint64_t alloc_frames_below(size_t count, uint64_t max_phys)
+{
+    if (!count) return 0;
+
+    unsigned order = buddy_order_for_units(count);
+    if (order > CONFIG_BUDDY_MAX_ORDER) return 0;
+
+    size_t limit_units = (size_t)(max_phys / PAGE_4K_SIZE);
+    if (limit_units > frame_allocator.buddy.page_count) limit_units = frame_allocator.buddy.page_count;
+    if (!limit_units) return 0;
+
+    spin_lock(&frame_allocator.lock);
+    size_t frame_index = buddy_alloc_below(&frame_allocator.buddy, order, limit_units);
+    if (frame_index == SIZE_MAX) {
+        /* Low pages may be parked in the per-CPU caches; drain and retry. */
+        spin_unlock(&frame_allocator.lock);
+        frame_pcp_drain_all();
+        spin_lock(&frame_allocator.lock);
+        frame_index = buddy_alloc_below(&frame_allocator.buddy, order, limit_units);
+    }
+    if (frame_index == SIZE_MAX) {
+        spin_unlock(&frame_allocator.lock);
+        return 0;
+    }
+    if (buddy_trim_allocation(&frame_allocator.buddy, frame_index, order, count)) {
+        plogk("frame: Trim failed for order %u block at 0x%016llx (keep %llu frames)\n", order, (unsigned long long)(frame_index * PAGE_4K_SIZE), (unsigned long long)count);
+        (void)buddy_free(&frame_allocator.buddy, frame_index, order);
+        spin_unlock(&frame_allocator.lock);
+        return 0;
+    }
+    for (size_t i = 0; i < count; i++) frame_allocator.buddy.pages[frame_index + i].tag = 1;
+
+    __atomic_sub_fetch(&frame_allocator.usable_frames, count, __ATOMIC_RELAXED);
+    spin_unlock(&frame_allocator.lock);
+    return frame_index * PAGE_4K_SIZE;
 }
 
 /* Allocate 2M memory frames */
