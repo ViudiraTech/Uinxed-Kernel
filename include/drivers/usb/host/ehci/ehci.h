@@ -64,13 +64,13 @@
 #define EHCI_INTR_IAA (1U << 5)
 
 /* PORTSC bits */
-#define EHCI_PORT_CCS       (1U << 0)
-#define EHCI_PORT_CSC       (1U << 1)
-#define EHCI_PORT_PED       (1U << 2)
-#define EHCI_PORT_PEC       (1U << 3)
-#define EHCI_PORT_PR        (1U << 8)
-#define EHCI_PORT_PP        (1U << 12)
-#define EHCI_PORT_PO        (1U << 13)
+#define EHCI_PORT_CCS (1U << 0)
+#define EHCI_PORT_CSC (1U << 1)
+#define EHCI_PORT_PED (1U << 2)
+#define EHCI_PORT_PEC (1U << 3)
+#define EHCI_PORT_PR  (1U << 8)
+#define EHCI_PORT_PP  (1U << 12)
+#define EHCI_PORT_PO  (1U << 13)
 
 /* Some implementations encode speed in bits 26-27; standards-compliant EHCI does not. */
 #define EHCI_PORT_LS_SHIFT  10
