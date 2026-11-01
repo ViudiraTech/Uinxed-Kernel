@@ -330,7 +330,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
             uint16_t words = bc / 2;
             for (uint16_t h = 0; h < words; h++) {
                 uint16_t val = inw(bus);
-                if (transferred < *xfer_len) word_buf[(transferred / 2) + h] = val;
+                if (transferred + (size_t)h * 2 < *xfer_len) word_buf[(transferred / 2) + h] = val;
             }
 
             size_t remaining = *xfer_len - transferred;
@@ -384,8 +384,8 @@ uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_siz
     err = atapi_send_packet(drive, cdb, 8, ATAPI_PROT_PIO, cap_buf, &len);
     if (err) return err;
 
-    /* Parse big-endian values from response */
-    *lba_size = load_be32(cap_buf);
+    /* READ CAPACITY returns the last addressable LBA; the sector count is one more. */
+    *lba_size = load_be32(cap_buf) + 1;
     *blk_size = load_be32(cap_buf + 4);
 
     return 0;
@@ -430,10 +430,9 @@ uint8_t atapi_read(uint8_t drive, uint32_t lba, uint8_t num_sectors, uint16_t *b
     uint16_t byte_limit  = (uint16_t)(total_bytes > 0xfffe ? 0xfffe : total_bytes);
     size_t   xfer_len    = (size_t)total_bytes;
 
-    /* Build READ(12) CDB */
+    /* Build READ(12) CDB: opcode, LBA[2..5], transfer length[6..9], flags, control */
     uint8_t cdb[ATAPI_CDB_LEN] = {
-        GPCMD_READ_12,      0, (lba >> 24) & 0xff, (lba >> 16) & 0xff, (lba >> 8) & 0xff, lba & 0xff, 0, 0, (num_sectors >> 24) & 0xff, (num_sectors >> 16) & 0xff, (num_sectors >> 8) & 0xff,
-        num_sectors & 0xff,
+        GPCMD_READ_12, 0, (lba >> 24) & 0xff, (lba >> 16) & 0xff, (lba >> 8) & 0xff, lba & 0xff, 0, 0, (num_sectors >> 8) & 0xff, num_sectors & 0xff, 0, 0,
     };
 
     return atapi_send_packet(drive, cdb, byte_limit, ATAPI_PROT_PIO, buf, &xfer_len);
