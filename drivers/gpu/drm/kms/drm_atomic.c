@@ -389,6 +389,15 @@ int drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct dr
     return 0;
 }
 
+/* True when @state scans out all of @fb at the origin, without cropping or scaling. */
+bool drm_plane_state_full_frame(const struct drm_framebuffer *fb, const struct drm_plane_state *state)
+{
+    if (!fb || !state) return false;
+
+    return state->src.x1 == 0 && state->src.y1 == 0 && (int64_t)state->src.x2 == ((int64_t)fb->width << 16) && (int64_t)state->src.y2 == ((int64_t)fb->height << 16) && state->dst.x1 == 0
+           && state->dst.y1 == 0 && (uint32_t)state->dst.x2 == fb->width && (uint32_t)state->dst.y2 == fb->height;
+}
+
 /* drm_atomic_check_only: validate the atomic state */
 int drm_atomic_check_only(struct drm_atomic_state *state)
 {
@@ -409,6 +418,16 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
         if (crtc_state->active) {
             if (crtc_state->mode.clock == 0 && crtc_state->mode.hdisplay == 0) return -EINVAL;
         }
+    }
+
+    /* A mode or active change must validate the planes it will program. */
+    for (i = 0; i < config->num_crtc; i++) {
+        struct __drm_crtcs_state *crtc_entry = &state->crtcs[i];
+        struct drm_crtc_state    *crtc_state = crtc_entry->state;
+
+        if (!crtc_entry->ptr || !crtc_state) continue;
+        if (!crtc_state->mode_changed && !crtc_state->active_changed) continue;
+        if (drm_atomic_add_affected_planes(state, crtc_entry->ptr)) return -ENOMEM;
     }
 
     /* Validate plane states */
@@ -442,6 +461,21 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
             /* If plane has a CRTC, it must be valid */
             if (plane_state->crtc) {
                 if (plane_state->crtc->index >= config->num_crtc) return -EINVAL;
+            }
+
+            /* Let the driver reject layouts the core cannot validate. */
+            if (plane_state->plane->helper_private) {
+                const struct drm_plane_helper_funcs *helpers = plane_state->plane->helper_private;
+                if (helpers->atomic_check) {
+                    /* The hook sees the mode this transaction commits, not the live one. */
+                    plane_state->crtc_state = NULL;
+                    if (plane_state->crtc) {
+                        struct drm_crtc_state *pending = state->crtcs[plane_state->crtc->index].state;
+                        plane_state->crtc_state        = pending ? pending : plane_state->crtc->state;
+                    }
+                    int ret = helpers->atomic_check(plane_state->plane, plane_state);
+                    if (ret) return ret;
+                }
             }
         }
     }
@@ -520,7 +554,11 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
                 return -EOPNOTSUPP;
             }
             if (h->mode_set) {
-                h->mode_set(crtc, primary_state->fb);
+                ret = h->mode_set(crtc, primary_state->fb);
+                if (ret) {
+                    DRM_ERROR("Crtc %d mode_set failed (ret=%d)\n", i, ret);
+                    return ret;
+                }
             } else {
                 ret = h->page_flip(crtc, primary_state->fb, NULL, 0);
                 if (ret) {
@@ -528,8 +566,10 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
                     return ret;
                 }
             }
-        } else if (crtc_state->active && primary_state && (!crtc->primary->state || primary_state->fb != crtc->primary->state->fb)) {
+        } else if (crtc_state->active && primary_state && (crtc_state->planes_changed || !crtc->primary->state || primary_state->fb != crtc->primary->state->fb)) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
+
+            /* The console may have taken the scanout; a plane commit must be able to take it back. */
             if (!h || !h->page_flip) {
                 DRM_ERROR("Crtc %d missing page_flip helper.\n", i);
                 return -EOPNOTSUPP;
@@ -542,7 +582,13 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
         }
         if (!crtc_state->active && crtc->enabled && crtc->helper_private) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
-            if (h->atomic_disable) h->atomic_disable(crtc, crtc->state);
+            if (h->atomic_disable) {
+                ret = h->atomic_disable(crtc, crtc->state);
+                if (ret) {
+                    DRM_ERROR("Crtc %d disable failed (ret=%d)\n", i, ret);
+                    return ret;
+                }
+            }
         }
     }
 
@@ -778,7 +824,6 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
     if (file_priv) {
         spin_lock(&file_priv->event_lock);
         if (file_priv->event_closing) {
-            DRM_INFO("File closing during nonblocking commit.\n");
             spin_unlock(&file_priv->event_lock);
             return -ENOENT;
         }

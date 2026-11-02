@@ -13,6 +13,7 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
+#include <drivers/gpu/gpu_drivers.h>
 #include <mem/frame.h>
 
 #if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
@@ -264,13 +265,20 @@ static void virtgpu_postclose(struct drm_device *dev, struct drm_file *file)
     }
 }
 
-/* Disable the scanout when the last client closes. */
+/* Keep the console scanout alive after the last client closes. */
 static void virtgpu_lastclose(struct drm_device *dev)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
-    /* Disable scanout on last close */
-    virtgpu_cmd_set_scanout(vgdev, 0, NULL);
+    if (!vgdev) return;
+    if (vgdev->kms_crtc && vgdev->kms_crtc->cursor_obj) {
+        /* The host composites the cursor over the scanout; it leaves with the client that set it. */
+        int ret = virtgpu_cmd_update_cursor(vgdev, (uint32_t)vgdev->kms_crtc->index, NULL, 0, 0, 0, 0);
+        if (ret) plogk("virtgpu: failed to clear the client cursor: %d\n", ret);
+    }
+
+    /* Take the scanout back before the core removes the client's framebuffers. */
+    if (vgdev->console_fb && vgdev->current_fb != vgdev->console_fb) (void)virtgpu_page_flip(vgdev, vgdev->console_fb, NULL);
 }
 
 /* Tear down the device and release all driver resources. */
@@ -332,11 +340,26 @@ static struct drm_driver virtgpu_drm_driver = {
     .dumb_destroy    = drm_gem_dumb_destroy,
 };
 
+/* True when @fb is the committed primary framebuffer of an active CRTC. */
+static bool virtgpu_fb_is_scanout(struct virtio_gpu_device *vgdev, struct drm_framebuffer *fb)
+{
+    struct drm_device *dev = vgdev->drm_dev;
+    ilist_node_t      *node;
+
+    if (!dev) return false;
+    for (node = dev->mode_config.crtc_list.next; node != &dev->mode_config.crtc_list; node = node->next) {
+        struct drm_crtc *crtc = container_of(node, struct drm_crtc, head);
+        if (crtc->primary && crtc->primary->state && crtc->primary->state->fb == fb && crtc->state && crtc->state->active) return true;
+    }
+    return false;
+}
+
 /* KMS framebuffer damage */
 static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips)
 {
     struct virtio_gpu_device *vgdev;
     struct virtio_gpu_object *obj;
+    int                       ret;
     struct virtio_gpu_rect    rects[VIRTGPU_DIRTY_MAX_RECTS];
     uint64_t                  offsets[VIRTGPU_DIRTY_MAX_RECTS];
     struct virtio_gpu_rect    flush_rect = {0};
@@ -355,7 +378,7 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
      * Off-screen buffers will be uploaded in full when they are flipped
      * onto the scanout, so avoid wasting host bandwidth here.
      */
-    if (obj != vgdev->current_scanout_obj) return 0;
+    if (obj != vgdev->current_scanout_obj && !virtgpu_fb_is_scanout(vgdev, fb)) return 0;
     if (!virtgpu_2d_formats_compatible(obj->format, fb->format)) return -EINVAL;
     if (!num_clips) {
         rects[0]   = (struct virtio_gpu_rect) {0, 0, fb->width, fb->height};
@@ -396,6 +419,12 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
             rects[0]   = flush_rect;
             rect_count = 1;
         }
+    }
+
+    /* A committed primary may have lost the scanout to the console; valid damage takes it back. */
+    if (obj != vgdev->current_scanout_obj) {
+        ret = virtgpu_page_flip(vgdev, fb, NULL);
+        if (ret) return ret;
     }
 
     /*
@@ -605,20 +634,20 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     ret = vgdev->has_virgl ? virtgpu_cmd_create_resource_3d(vgdev, obj, args) : virtgpu_cmd_create_resource_2d(vgdev, obj);
     if (ret) {
         obj->hw_res_handle = 0;
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
     obj->backing_attached = true;
 
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
@@ -884,13 +913,13 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
     ret = virtgpu_cmd_create_blob(vgdev, obj, args);
     if (ret) {
         obj->hw_res_handle = 0;
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
@@ -1028,7 +1057,10 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
             obj->format = fb->format;
             obj->stride = fb->pitches[0];
             ret         = virtgpu_cmd_set_scanout_blob(vgdev, scanout_id, obj);
-            if (ret) return ret;
+            if (ret) {
+                plogk("virtgpu: flip: blob update failed: %d\n", ret);
+                return ret;
+            }
             vgdev->current_scanout_obj    = obj;
             vgdev->current_fb             = fb;
             vgdev->current_scanout_width  = fb->width;
@@ -1050,7 +1082,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
                               || vgdev->current_scanout_offset != fb->offsets[0];
         ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, fb->width, fb->height, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
         if (ret) {
-            DRM_ERROR("Flip: batched update failed: %d\n", ret);
+            plogk("virtgpu: flip: batched update failed: %d\n", ret);
             return ret;
         }
 
@@ -1062,7 +1094,10 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
     } else {
         /* Disable scanout */
         ret = virtgpu_cmd_set_scanout(vgdev, scanout_id, NULL);
-        if (ret) return ret;
+        if (ret) {
+            plogk("virtgpu: flip: scanout disable failed: %d\n", ret);
+            return ret;
+        }
         vgdev->current_scanout_obj   = NULL;
         vgdev->current_scanout_width = vgdev->current_scanout_height = 0;
         vgdev->current_scanout_stride = vgdev->current_scanout_offset = 0;
@@ -1080,7 +1115,7 @@ static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
 }
 
 /* Module init / probe */
-int virtio_gpu_driver_init(void)
+int virtio_gpu_driver_init(bool *display_owned)
 {
     struct virtio_gpu_device *vgdev;
     struct vp_device         *vp;
@@ -1216,9 +1251,15 @@ int virtio_gpu_driver_init(void)
      */
     ret = virtgpu_kms_init(vgdev);
     if (ret) {
-        DRM_ERROR("KMS init failed: %d (continuing with render only)\n", ret);
+        /*
+         * Teardown resets the device, which destroys every host resource
+         * and scanout; a restored boot framebuffer would not survive.
+         */
+        DRM_ERROR("KMS init failed: %d\n", ret);
 
-        /* Non-fatal - render node still works */
+        /* Stay unregistered so simpledrm can take the display. */
+        drm_dev_unregister(vgdev->drm_dev);
+        return ret;
     }
 
     /* Debug info */
@@ -1234,16 +1275,16 @@ int virtio_gpu_driver_init(void)
 
     /* drm_dev_register() already published the device to the DRM core. */
     virtio_gpu_probed_device = vgdev;
-
     plogk("virtgpu: VirtIO GPU driver registered (card/render node, 3D=%d, blob=%d)\n", vgdev->has_virgl, vgdev->has_resource_blob);
 
+    if (display_owned) *display_owned = true;
     return 0;
 }
 
-/* GPU probe callback, registered as "virtio_gpu" with the GPU driver bus and driven by gpu_drivers_probe().  Returns 0 if a device was attached. */
-int virtio_gpu_probe(void)
+/* GPU probe callback; reports whether KMS took the display. */
+int virtio_gpu_probe(bool *display_owned)
 {
-    return virtio_gpu_driver_init();
+    return virtio_gpu_driver_init(display_owned);
 }
 
 /* Return the probed virtio-gpu device, or NULL if no device was found. This is driver-private state; the DRM core itself never needs it. */

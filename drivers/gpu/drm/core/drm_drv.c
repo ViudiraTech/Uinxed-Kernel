@@ -306,7 +306,10 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     return 0;
 }
 
-/* drm_kms_console_handoff - publish a committed scanout framebuffer to the console */
+/*
+ * drm_kms_console_handoff - publish a committed scanout framebuffer to the console.
+ * TODO: the console reclaims the scanout on every flush; revisit once DRM master or VT switching exists.
+ */
 void drm_kms_console_handoff(struct drm_device *dev, struct drm_framebuffer *fb)
 {
     struct drm_gem_object *obj;
@@ -511,10 +514,7 @@ void drm_release(struct drm_file *file)
     while (file->fbs_head.next && file->fbs_head.next != &file->fbs_head) {
         struct drm_framebuffer *fb    = container_of(file->fbs_head.next, struct drm_framebuffer, filp_head);
         uint32_t                fb_id = fb->base.id;
-        if (drm_mode_rmfb(dev, &fb_id, file)) {
-            drm_framebuffer_cleanup(fb);
-            drm_framebuffer_put(fb);
-        }
+        if (drm_mode_rmfb(dev, &fb_id, file) && drm_framebuffer_cleanup(fb)) drm_framebuffer_put(fb);
     }
 
     /*
