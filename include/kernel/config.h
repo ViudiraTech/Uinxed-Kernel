@@ -249,6 +249,10 @@
 #    define CONFIG_VIRTIO_GPU 0
 #endif
 
+#ifndef CONFIG_BOCHS
+#    define CONFIG_BOCHS 0
+#endif
+
 #ifndef CONFIG_SIMPLEDRM
 #    define CONFIG_SIMPLEDRM 1
 #endif
