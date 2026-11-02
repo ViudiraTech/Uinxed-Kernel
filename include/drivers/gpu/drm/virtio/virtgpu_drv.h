@@ -687,7 +687,7 @@ struct virtio_gpu_device {
 extern const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
 /* virtgpu.c - driver init / ioctls */
-int virtio_gpu_driver_init(void);
+int virtio_gpu_driver_init(bool *display_owned);
 
 /* virtgpu_vq.c - virtqueue helpers */
 int  virtgpu_vq_init(struct virtio_gpu_device *vgdev);
@@ -768,7 +768,7 @@ int                       virtgpu_gem_prime_export(struct drm_device *dev, struc
 struct drm_gem_object    *virtgpu_gem_prime_import(struct drm_device *dev, void *dma_buf);
 
 /* GPU probe callback - registered by drivers/gpu/gpu_drivers.c */
-int   virtio_gpu_probe(void);
+int   virtio_gpu_probe(bool *display_owned);
 void  virtio_gpu_module_exit(void);
 void *virtio_gpu_get_device(void);
 

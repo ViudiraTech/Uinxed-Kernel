@@ -25,9 +25,9 @@ static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *
 static int                       virtgpu_connector_get_modes(struct drm_connector *connector);
 static int                       virtgpu_connector_mode_valid(struct drm_connector *connector, struct drm_display_mode *mode);
 static void                      virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state);
-static void                      virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb);
+static int                       virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb);
 static void                      virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
-static void                      virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+static int                       virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
 static int                       virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags);
 static int                       virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height, int32_t hot_x, int32_t hot_y);
 static int                       virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y);
@@ -234,12 +234,13 @@ static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm
 }
 
 /* On modeset, push the new framebuffer to the scanout. */
-static void virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb)
+static int virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb)
 {
     struct drm_device        *dev   = crtc->dev;
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
-    if (fb) virtgpu_page_flip(vgdev, fb, NULL);
+    if (!fb) return 0;
+    return virtgpu_page_flip(vgdev, fb, NULL);
 }
 
 /* Enable the CRTC output and deliver any pending vblank event. */
@@ -259,16 +260,15 @@ static void virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_st
 }
 
 /* Disable the CRTC scanout and drop the current framebuffer. */
-static void virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state)
+static int virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state)
 {
     struct drm_device        *dev   = crtc->dev;
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
     (void)old_state;
 
-    (void)virtgpu_page_flip(vgdev, NULL, vgdev->current_fb);
-    vgdev->current_fb          = NULL;
-    vgdev->current_scanout_obj = NULL;
+    /* Keep the recorded scanout on failure so a later commit can retry the disable. */
+    return virtgpu_page_flip(vgdev, NULL, vgdev->current_fb);
 }
 
 /* Page flip helper for legacy ioctl */
