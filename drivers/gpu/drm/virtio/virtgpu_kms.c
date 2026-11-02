@@ -326,14 +326,14 @@ static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm
     (void)conn_state;
 }
 
-/* On modeset, push the new framebuffer to the scanout. */
+/* On modeset, push the new framebuffer to the scanout; a NULL fb drops it. */
 static int virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb)
 {
     struct drm_device        *dev   = crtc->dev;
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
-    if (!fb) return 0;
-    return virtgpu_page_flip(vgdev, fb, NULL);
+    /* Pass the live framebuffer so an unchanged layout skips the redundant SET_SCANOUT. */
+    return virtgpu_page_flip(vgdev, fb, vgdev->current_fb);
 }
 
 /* Enable the CRTC output and deliver any pending vblank event. */
@@ -378,8 +378,11 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
     /* A flip must not silently change the mode the CRTC reports. */
     if (fb && crtc->mode.hdisplay && ((uint32_t)crtc->mode.hdisplay != fb->width || (uint32_t)crtc->mode.vdisplay != fb->height)) return -EINVAL;
 
-    ret = virtgpu_page_flip(vgdev, fb, old_fb);
-    if (ret) return ret;
+    /* The console or another client may own the scanout; only the framebuffer actually on it may disable the output. */
+    if (fb || !old_fb || vgdev->current_fb == old_fb) {
+        ret = virtgpu_page_flip(vgdev, fb, old_fb);
+        if (ret) return ret;
+    }
 
     /* The committed plane state, not the ioctl lookup, owns scanout. */
     if (old_fb != fb) {
@@ -392,28 +395,27 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
     return 0;
 }
 
-/*
- * Flush callback invoked by the video subsystem after fbcon draws.
- * Transfers the guest-side framebuffer to the host GPU resource and
- * flushes the scanout so the new pixels become visible.
- */
+/* fbcon flush: send the damaged rect to the host and flush the scanout. */
 static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
 {
-    struct virtio_gpu_rect damage;
-    uint64_t               offset;
+    struct virtio_gpu_device *vgdev = vgdev_flush_ctx;
+    struct virtio_gpu_rect    damage;
+    uint64_t                  offset;
 
-    if (!vgdev_flush_ctx || !vgdev_flush_obj) return;
+    if (!vgdev || !vgdev_flush_obj) return;
     if (x >= vgdev_flush_obj->width || y >= vgdev_flush_obj->height || !width || !height) return;
     if (width > vgdev_flush_obj->width - x) width = vgdev_flush_obj->width - x;
     if (height > vgdev_flush_obj->height - y) height = vgdev_flush_obj->height - y;
 
-    /*
-     * printk is backed by this same scanout.  A GPU error emitted while a
-     * flush is unwinding therefore re-enters this callback.  Damage is
-     * best-effort (the refresh worker retries changed rows), so drop only the
-     * recursive/concurrent flush instead of deadlocking controlq.
-     */
+    /* printk shares this scanout: drop recursive flushes instead of deadlocking. */
     if (!raw_spin_trylock(&vgdev_flush_lock)) return;
+
+    /* A client may own the scanout; the next console flush puts it back. */
+    if (vgdev->console_fb && vgdev->current_scanout_obj != vgdev_flush_obj) {
+        (void)virtgpu_page_flip(vgdev, vgdev->console_fb, NULL);
+        raw_spin_unlock(&vgdev_flush_lock);
+        return;
+    }
 
     damage = (struct virtio_gpu_rect) {x, y, width, height};
     offset = (uint64_t)y * vgdev_flush_obj->stride + (uint64_t)x * sizeof(uint32_t);
@@ -425,7 +427,7 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
 
             if (!flush_fail_logged) {
                 flush_fail_logged = true;
-                DRM_ERROR("Console flush failed: %d (rect %ux%u+%u+%u)\n", flush_ret, width, height, x, y);
+                plogk("virtgpu: console flush failed: %d (rect %ux%u+%u+%u)\n", flush_ret, width, height, x, y);
             }
         }
     }
@@ -440,12 +442,7 @@ static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object 
     int                       ret;
 
     if (obj) {
-        /*
-         * The VirtIO cursor command requires a 64x64 resource but does not
-         * impose a DRM fourcc.  Xorg allocates cursor storage through the
-         * dumb-buffer API, which creates XRGB8888 objects.  Accept both
-         * advertised 32-bit KMS formats here.
-         */
+        /* The host wants a 64x64 cursor; Xorg hands us XRGB8888 dumb buffers, accept both. */
         if (width != 64 || height != 64 || gem->size < 64 * 64 * 4 || obj->width != 64 || obj->height != 64 || (obj->format != DRM_FORMAT_XRGB8888 && obj->format != DRM_FORMAT_ARGB8888)
             || obj->created_3d || obj->created_blob)
             return -EINVAL;
@@ -586,13 +583,13 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
         primary->crtc_id = crtc ? crtc->base.id : 0;
     }
 
-    /*
-     * Attach the scanout flush hooks to the DRM device, then let the DRM
-     * core hand the kernel console over to this framebuffer. The driver
-     * only reports its scanout to DRM; all console/TTY work is core-owned.
-     */
-    vgdev_flush_ctx             = vgdev;
-    vgdev_flush_obj             = obj;
+    /* Attach the console flush hooks and hand the console to the DRM core. */
+    vgdev_flush_ctx = vgdev;
+    vgdev_flush_obj = obj;
+
+    /* RMFB on the console framebuffer would free the buffer the console draws into. */
+    drm_framebuffer_get(fb);
+    vgdev->console_fb           = fb;
     dev->fb_console_flush       = virtgpu_kms_flush_fb;
     dev->fb_console_flush_guard = virtgpu_display_flush_guard;
     drm_kms_console_handoff(dev, fb);
@@ -908,10 +905,22 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     return 0;
 }
 
-/* Disable the scanout when the KMS pipeline is torn down. */
+/* Detach the console and disable our scanout when the KMS pipeline is torn down. */
 void virtgpu_kms_fini(struct virtio_gpu_device *vgdev)
 {
     if (!vgdev) return;
+    if (vgdev->drm_dev) {
+        vgdev->drm_dev->fb_console_flush       = NULL;
+        vgdev->drm_dev->fb_console_flush_guard = NULL;
+    }
+
+    vgdev_flush_ctx = NULL;
+    vgdev_flush_obj = NULL;
+
+    if (vgdev->console_fb) {
+        drm_framebuffer_put(vgdev->console_fb);
+        vgdev->console_fb = NULL;
+    }
 
     /* Disable only the scanout we set; a failed probe leaves the boot one alone. */
     if (vgdev->current_fb) (void)virtgpu_cmd_set_scanout(vgdev, 0, NULL);

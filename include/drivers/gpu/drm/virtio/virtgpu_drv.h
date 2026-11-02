@@ -677,6 +677,7 @@ struct virtio_gpu_device {
 
         /* Current framebuffer for scanout */
         struct drm_framebuffer   *current_fb;
+        struct drm_framebuffer   *console_fb; // console scanout, pinned until teardown
         struct virtio_gpu_object *current_scanout_obj;
         uint32_t                  current_scanout_width;
         uint32_t                  current_scanout_height;
