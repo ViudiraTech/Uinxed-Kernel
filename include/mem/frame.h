@@ -45,6 +45,9 @@ void init_frame(void);
 /* Allocate memory frames */
 uint64_t alloc_frames(size_t count);
 
+/* Allocate count contiguous frames whose every frame lies below max_phys. */
+uint64_t alloc_frames_below(size_t count, uint64_t max_phys);
+
 /* Reclaim pages under the frame allocator's recursion guard. */
 int frame_reclaim_pages(size_t target);
 

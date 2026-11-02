@@ -139,10 +139,10 @@ uint8_t ide_flush_cache(uint8_t drive);
 /* Perform a PIO read or write on an ATA drive */
 uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t numsects, uint16_t *edi);
 
-/* Read multiple sectors from an IDE device (ATA or ATAPI) */
-void ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
+/* Read multiple sectors from an IDE device (ATA or ATAPI); returns 0 or -errno */
+int ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
 
-/* Write multiple sectors to an IDE device */
-void ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
+/* Write multiple sectors to an IDE device; returns 0 or -errno */
+int ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
 
 #endif // INCLUDE_IDE_H_
