@@ -131,6 +131,7 @@
 #define VIRTGPU_RESOURCE_ID_INVALID 0
 
 #define VIRTGPU_MAX_CONTEXT_RINGS 64
+#define VIRTGPU_MAX_EDID_MODES    64 // EDID modes kept for the boot fallback chain
 #define VIRTGPU_DEBUG_NAME_MAX    64
 
 /* Largest command batch submitted to the control queue in one kick. */
@@ -658,6 +659,10 @@ struct virtio_gpu_device {
         int                            num_scanouts;
         struct virtio_gpu_display_mode scanouts[16];
         bool                           modes_probed; // EDID/scanout probed once
+
+        /* EDID modes of the last connector probe, for the boot fallback chain. */
+        struct drm_display_mode *edid_modes[VIRTGPU_MAX_EDID_MODES];
+        int                      edid_mode_count;
 
         /* Resource ID allocator (monotonic) */
         spinlock_t resource_idr_lock;
