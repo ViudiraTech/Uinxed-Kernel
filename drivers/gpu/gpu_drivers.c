@@ -8,6 +8,7 @@
  *
  */
 
+#include <drivers/gpu/drm/bochs/bochs_drv.h>
 #include <drivers/gpu/drm/simpledrm/simpledrm.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 
@@ -97,6 +98,9 @@ void gpu_drivers_init(void)
 {
 #if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
     gpu_driver_register("virtio_gpu", virtio_gpu_probe, false);
+#endif
+#if CONFIG_BOCHS && CONFIG_DRM
+    gpu_driver_register("bochs", bochs_probe, false);
 #endif
 #if CONFIG_SIMPLEDRM && CONFIG_DRM
     gpu_driver_register("simpledrm", simpledrm_probe, true);
