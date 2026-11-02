@@ -29,11 +29,12 @@
 /* Ops dispatch macro - mirrors VFS callbackof() */
 #define blk_ops(dev, _name_) (blk_ops_table[(dev)->ops_id]->_name_)
 
-/* Drive encoding for blockdev_open_drive / blockdev_parse_drive */
-#define BLKDEV_AHCI_FLAG  0x80
-#define BLKDEV_ATAPI_FLAG 0x20
-#define BLKDEV_NVME_FLAG  0x40
-#define BLKDEV_DRIVE_MASK 0x1F
+/* Drive encoding; bit 4 is also a drive-index bit, so the floppy flag is tested last. */
+#define BLKDEV_AHCI_FLAG   0x80
+#define BLKDEV_ATAPI_FLAG  0x20
+#define BLKDEV_NVME_FLAG   0x40
+#define BLKDEV_FLOPPY_FLAG 0x10
+#define BLKDEV_DRIVE_MASK  0x1F
 
 /* Forward declaration */
 struct blockdev_device;

@@ -23,6 +23,7 @@
 #include <drivers/block/ata/pata/ide.h>
 #include <drivers/block/ata/sata/ahci.h>
 #include <drivers/block/core/gendisk.h>
+#include <drivers/block/floppy/floppy.h>
 #include <drivers/block/nvme/nvme.h>
 #include <drivers/char/chrdev.h>
 #include <drivers/char/tpm/tpm.h>
@@ -371,6 +372,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     init_ide();                    // ATA / ATAPI
     init_ahci();                   // Advanced Host Controller Interface
     nvme_init();                   // Non-Volatile Memory Express
+    floppy_init();                 // Legacy PC floppy disk controller
     block_register_all_disks();    // Publish discovered disks into the gendisk registry
     e1000_init();                  // Intel 8254x Gigabit Ethernet
     rtl8169_init();                // Realtek RTL8169 Gigabit Ethernet
@@ -421,6 +423,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     rtl8139_start_workers();      // Register rtl8139 workers
     usb_host_start_workers();     // Register USB host workers
     video_start_refresh_worker(); // Register display refresh worker
+    floppy_start_workers();       // Register floppy motor idle worker
     timer_deferred_init();        // Register timer bottom-half processing
     kernel_workers_start();       // Create every registered kernel worker
     swapper_enqueue_init();       // Finally make init runnable
