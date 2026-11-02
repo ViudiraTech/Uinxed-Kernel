@@ -1314,6 +1314,15 @@ menu "Device Drivers"
           VirtIO-GPU DRM driver for paravirtualised GPU devices.
           Provides KMS display pipeline, render node, and optional
           3D acceleration via virgl context protocol.
+
+      config BOCHS
+        bool "Bochs dispi VGA DRM driver"
+        depends on DRM
+        default n
+        help
+          DRM driver for the Bochs dispi VGA adapter, used by QEMU
+          stdvga, Bochs and Simics.  Provides a KMS display pipeline
+          on the adapter's linear framebuffer with EDID mode detection.
     endmenu
   endmenu
 

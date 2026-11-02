@@ -265,13 +265,20 @@ static void virtgpu_postclose(struct drm_device *dev, struct drm_file *file)
     }
 }
 
-/* Disable the scanout when the last client closes. */
+/* Keep the console scanout alive after the last client closes. */
 static void virtgpu_lastclose(struct drm_device *dev)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
-    /* Disable scanout on last close */
-    virtgpu_cmd_set_scanout(vgdev, 0, NULL);
+    if (!vgdev) return;
+    if (vgdev->kms_crtc && vgdev->kms_crtc->cursor_obj) {
+        /* The host composites the cursor over the scanout; it leaves with the client that set it. */
+        int ret = virtgpu_cmd_update_cursor(vgdev, (uint32_t)vgdev->kms_crtc->index, NULL, 0, 0, 0, 0);
+        if (ret) plogk("virtgpu: failed to clear the client cursor: %d\n", ret);
+    }
+
+    /* Take the scanout back before the core removes the client's framebuffers. */
+    if (vgdev->console_fb && vgdev->current_fb != vgdev->console_fb) (void)virtgpu_page_flip(vgdev, vgdev->console_fb, NULL);
 }
 
 /* Tear down the device and release all driver resources. */
@@ -333,11 +340,26 @@ static struct drm_driver virtgpu_drm_driver = {
     .dumb_destroy    = drm_gem_dumb_destroy,
 };
 
+/* True when @fb is the committed primary framebuffer of an active CRTC. */
+static bool virtgpu_fb_is_scanout(struct virtio_gpu_device *vgdev, struct drm_framebuffer *fb)
+{
+    struct drm_device *dev = vgdev->drm_dev;
+    ilist_node_t      *node;
+
+    if (!dev) return false;
+    for (node = dev->mode_config.crtc_list.next; node != &dev->mode_config.crtc_list; node = node->next) {
+        struct drm_crtc *crtc = container_of(node, struct drm_crtc, head);
+        if (crtc->primary && crtc->primary->state && crtc->primary->state->fb == fb && crtc->state && crtc->state->active) return true;
+    }
+    return false;
+}
+
 /* KMS framebuffer damage */
 static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color, struct drm_clip_rect *clips, unsigned int num_clips)
 {
     struct virtio_gpu_device *vgdev;
     struct virtio_gpu_object *obj;
+    int                       ret;
     struct virtio_gpu_rect    rects[VIRTGPU_DIRTY_MAX_RECTS];
     uint64_t                  offsets[VIRTGPU_DIRTY_MAX_RECTS];
     struct virtio_gpu_rect    flush_rect = {0};
@@ -356,7 +378,7 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
      * Off-screen buffers will be uploaded in full when they are flipped
      * onto the scanout, so avoid wasting host bandwidth here.
      */
-    if (obj != vgdev->current_scanout_obj) return 0;
+    if (obj != vgdev->current_scanout_obj && !virtgpu_fb_is_scanout(vgdev, fb)) return 0;
     if (!virtgpu_2d_formats_compatible(obj->format, fb->format)) return -EINVAL;
     if (!num_clips) {
         rects[0]   = (struct virtio_gpu_rect) {0, 0, fb->width, fb->height};
@@ -397,6 +419,12 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
             rects[0]   = flush_rect;
             rect_count = 1;
         }
+    }
+
+    /* A committed primary may have lost the scanout to the console; valid damage takes it back. */
+    if (obj != vgdev->current_scanout_obj) {
+        ret = virtgpu_page_flip(vgdev, fb, NULL);
+        if (ret) return ret;
     }
 
     /*
@@ -1029,7 +1057,10 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
             obj->format = fb->format;
             obj->stride = fb->pitches[0];
             ret         = virtgpu_cmd_set_scanout_blob(vgdev, scanout_id, obj);
-            if (ret) return ret;
+            if (ret) {
+                plogk("virtgpu: flip: blob update failed: %d\n", ret);
+                return ret;
+            }
             vgdev->current_scanout_obj    = obj;
             vgdev->current_fb             = fb;
             vgdev->current_scanout_width  = fb->width;
@@ -1051,7 +1082,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
                               || vgdev->current_scanout_offset != fb->offsets[0];
         ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, fb->width, fb->height, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
         if (ret) {
-            DRM_ERROR("Flip: batched update failed: %d\n", ret);
+            plogk("virtgpu: flip: batched update failed: %d\n", ret);
             return ret;
         }
 
@@ -1063,7 +1094,10 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
     } else {
         /* Disable scanout */
         ret = virtgpu_cmd_set_scanout(vgdev, scanout_id, NULL);
-        if (ret) return ret;
+        if (ret) {
+            plogk("virtgpu: flip: scanout disable failed: %d\n", ret);
+            return ret;
+        }
         vgdev->current_scanout_obj   = NULL;
         vgdev->current_scanout_width = vgdev->current_scanout_height = 0;
         vgdev->current_scanout_stride = vgdev->current_scanout_offset = 0;

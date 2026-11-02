@@ -306,7 +306,10 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     return 0;
 }
 
-/* drm_kms_console_handoff - publish a committed scanout framebuffer to the console */
+/*
+ * drm_kms_console_handoff - publish a committed scanout framebuffer to the console.
+ * TODO: the console reclaims the scanout on every flush; revisit once DRM master or VT switching exists.
+ */
 void drm_kms_console_handoff(struct drm_device *dev, struct drm_framebuffer *fb)
 {
     struct drm_gem_object *obj;
