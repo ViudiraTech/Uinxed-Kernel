@@ -281,6 +281,7 @@ CONFIG_GPU_MAX_GPU_DRIVERS=16
 # GPU drivers
 #
 CONFIG_SIMPLEDRM=y
+# CONFIG_BOCHS is not set
 
 #
 # VirtIO drivers
