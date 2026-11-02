@@ -605,20 +605,20 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     ret = vgdev->has_virgl ? virtgpu_cmd_create_resource_3d(vgdev, obj, args) : virtgpu_cmd_create_resource_2d(vgdev, obj);
     if (ret) {
         obj->hw_res_handle = 0;
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
     obj->backing_attached = true;
 
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
@@ -884,13 +884,13 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
     ret = virtgpu_cmd_create_blob(vgdev, obj, args);
     if (ret) {
         obj->hw_res_handle = 0;
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
