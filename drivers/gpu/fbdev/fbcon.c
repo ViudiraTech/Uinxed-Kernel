@@ -585,9 +585,14 @@ void fbcon_init(void)
      * The console always owns the full framebuffer grid.  The boot logo is
      * an overlay on top of the first rows, not a reduction of the console
      * area; it is reserved (and later reclaimed by scrolling) dynamically.
+     * Rows are rounded down so every row fits completely (rounding up would
+     * clip the last row); fbcon_clear_uncovered_bottom() paints the leftover strip.
      */
     c_width  = width ? (uint32_t)(width / font_width) : 80;
-    c_height = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
+    c_height = height ? (uint32_t)(height / font_height) : 25;
+
+    if (!c_width) c_width = 1;
+    if (!c_height) c_height = 1;
 
     fore_color = color_to_fb_color((color_t) {0xaa, 0xaa, 0xaa});
     back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
@@ -642,8 +647,9 @@ void fbcon_init(void)
  */
 void fbcon_resize(void)
 {
+    /* Same floor rounding as fbcon_init(): only fully visible rows are used. */
     uint32_t  new_cw      = width ? (uint32_t)(width / font_width) : 80;
-    uint32_t  new_ch      = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
+    uint32_t  new_ch      = height ? (uint32_t)(height / font_height) : 25;
     bool      dim_changed = false;
     bool      rebuilt     = false;
     char     *new_text = NULL, *old_text = NULL;
@@ -809,10 +815,8 @@ void fbcon_request_full_redraw(void)
 }
 
 /*
- * Draw a character with per-cell foreground and background color.  The
- * grid uses ceil(height / font_height) rows so the console fills the whole
- * screen; the last row may extend past the physical height and is clipped
- * here.
+ * Draw a character with per-cell foreground and background color.  The cell
+ * is clipped to the framebuffer bounds; grid callers always pass a whole cell.
  */
 void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
 {
