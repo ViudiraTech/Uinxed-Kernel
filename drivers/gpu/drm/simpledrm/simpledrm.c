@@ -37,10 +37,10 @@ static enum drm_connector_status simpledrm_connector_detect(struct drm_connector
 static int                       simpledrm_connector_get_modes(struct drm_connector *connector);
 static int                       simpledrm_connector_mode_valid(struct drm_connector *connector, struct drm_display_mode *mode);
 static void                      simpledrm_encoder_atomic_check(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state);
-static void                      simpledrm_crtc_mode_set(struct drm_crtc *crtc, struct drm_framebuffer *fb);
+static int                       simpledrm_crtc_mode_set(struct drm_crtc *crtc, struct drm_framebuffer *fb);
 static int                       simpledrm_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags);
 static void                      simpledrm_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
-static void                      simpledrm_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+static int                       simpledrm_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
 
 static const struct drm_crtc_helper_funcs simpledrm_crtc_helpers = {
     .mode_set       = simpledrm_crtc_mode_set,
@@ -205,10 +205,10 @@ static const struct drm_framebuffer_funcs simpledrm_fb_funcs = {
 };
 
 /* On a modeset, push the new framebuffer to the physical display. */
-static void simpledrm_crtc_mode_set(struct drm_crtc *crtc, struct drm_framebuffer *fb)
+static int simpledrm_crtc_mode_set(struct drm_crtc *crtc, struct drm_framebuffer *fb)
 {
     simpledrm_device_t *sdev = (simpledrm_device_t *)crtc->dev->dev_private;
-    (void)simpledrm_scanout_fb(sdev, fb);
+    return simpledrm_scanout_fb(sdev, fb);
 }
 
 /* Page flip helper for the legacy ioctl and atomic fb-only commits. */
@@ -258,12 +258,13 @@ static void simpledrm_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_
 }
 
 /* Disable the CRTC scanout. */
-static void simpledrm_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state)
+static int simpledrm_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state)
 {
     simpledrm_device_t *sdev = (simpledrm_device_t *)crtc->dev->dev_private;
-
     (void)old_state;
+
     sdev->current_fb = NULL;
+    return 0;
 }
 
 /* Plane formats */
