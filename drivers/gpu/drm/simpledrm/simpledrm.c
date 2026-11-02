@@ -502,7 +502,7 @@ static int simpledrm_kms_setup(simpledrm_device_t *sdev)
  * device.  This is a framebuffer fallback: the GPU driver bus probes it
  * only when no real GPU driver attached, so it never steals the console.
  */
-int simpledrm_probe(void)
+int simpledrm_probe(bool *display_owned)
 {
     struct limine_framebuffer *framebuffer;
     simpledrm_device_t        *sdev;
@@ -570,6 +570,7 @@ int simpledrm_probe(void)
         return ret;
     }
 
+    if (display_owned) *display_owned = true;
     return 0;
 }
 
