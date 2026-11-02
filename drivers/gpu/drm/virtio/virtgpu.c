@@ -13,6 +13,7 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
+#include <drivers/gpu/gpu_drivers.h>
 #include <mem/frame.h>
 
 #if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
@@ -605,20 +606,20 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     ret = vgdev->has_virgl ? virtgpu_cmd_create_resource_3d(vgdev, obj, args) : virtgpu_cmd_create_resource_2d(vgdev, obj);
     if (ret) {
         obj->hw_res_handle = 0;
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
     obj->backing_attached = true;
 
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
@@ -884,13 +885,13 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
     ret = virtgpu_cmd_create_blob(vgdev, obj, args);
     if (ret) {
         obj->hw_res_handle = 0;
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
@@ -1080,7 +1081,7 @@ static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
 }
 
 /* Module init / probe */
-int virtio_gpu_driver_init(void)
+int virtio_gpu_driver_init(bool *display_owned)
 {
     struct virtio_gpu_device *vgdev;
     struct vp_device         *vp;
@@ -1216,9 +1217,15 @@ int virtio_gpu_driver_init(void)
      */
     ret = virtgpu_kms_init(vgdev);
     if (ret) {
-        DRM_ERROR("KMS init failed: %d (continuing with render only)\n", ret);
+        /*
+         * Teardown resets the device, which destroys every host resource
+         * and scanout; a restored boot framebuffer would not survive.
+         */
+        DRM_ERROR("KMS init failed: %d\n", ret);
 
-        /* Non-fatal - render node still works */
+        /* Stay unregistered so simpledrm can take the display. */
+        drm_dev_unregister(vgdev->drm_dev);
+        return ret;
     }
 
     /* Debug info */
@@ -1234,16 +1241,16 @@ int virtio_gpu_driver_init(void)
 
     /* drm_dev_register() already published the device to the DRM core. */
     virtio_gpu_probed_device = vgdev;
-
     plogk("virtgpu: VirtIO GPU driver registered (card/render node, 3D=%d, blob=%d)\n", vgdev->has_virgl, vgdev->has_resource_blob);
 
+    if (display_owned) *display_owned = true;
     return 0;
 }
 
-/* GPU probe callback, registered as "virtio_gpu" with the GPU driver bus and driven by gpu_drivers_probe().  Returns 0 if a device was attached. */
-int virtio_gpu_probe(void)
+/* GPU probe callback; reports whether KMS took the display. */
+int virtio_gpu_probe(bool *display_owned)
 {
-    return virtio_gpu_driver_init();
+    return virtio_gpu_driver_init(display_owned);
 }
 
 /* Return the probed virtio-gpu device, or NULL if no device was found. This is driver-private state; the DRM core itself never needs it. */

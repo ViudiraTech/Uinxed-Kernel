@@ -511,10 +511,7 @@ void drm_release(struct drm_file *file)
     while (file->fbs_head.next && file->fbs_head.next != &file->fbs_head) {
         struct drm_framebuffer *fb    = container_of(file->fbs_head.next, struct drm_framebuffer, filp_head);
         uint32_t                fb_id = fb->base.id;
-        if (drm_mode_rmfb(dev, &fb_id, file)) {
-            drm_framebuffer_cleanup(fb);
-            drm_framebuffer_put(fb);
-        }
+        if (drm_mode_rmfb(dev, &fb_id, file) && drm_framebuffer_cleanup(fb)) drm_framebuffer_put(fb);
     }
 
     /*

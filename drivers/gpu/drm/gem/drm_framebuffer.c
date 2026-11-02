@@ -325,13 +325,12 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
     uint32_t                fb_id = *(uint32_t *)data;
     struct drm_framebuffer *fb;
 
-    (void)file_priv;
-
     if (!dev || !data) return -EINVAL;
-
     spin_lock(&dev->mode_config.fb_lock);
     fb = drm_idr_find(&dev->mode_config.fb_idr, fb_id);
-    if (!fb) {
+
+    /* Only the creating file may remove a framebuffer; kernel fbs have no owner. */
+    if (!fb || (file_priv && fb->file != file_priv)) {
         spin_unlock(&dev->mode_config.fb_lock);
         return -ENOENT;
     }
@@ -373,9 +372,9 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
     }
 
     /* Unregister, then drop the registered reference and the pin taken above. */
-    drm_framebuffer_cleanup(fb);
+    bool removed = drm_framebuffer_cleanup(fb);
     drm_framebuffer_put(fb);
-    drm_framebuffer_put(fb);
+    if (removed) drm_framebuffer_put(fb);
 
     return 0;
 }
@@ -548,20 +547,22 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *f
  * the fb_idr and the global object IDR, and decrements num_fb.
  * Does NOT release GEM backing or free the struct.  Existing lookup pins may
  * still be executing a dirty/getfb operation; backing is released by the
- * final drm_framebuffer_put().
+ * final drm_framebuffer_put().  Returns true when this call actually
+ * unregistered the framebuffer, so the caller may drop the registered
+ * reference exactly once.
  */
-void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
+bool drm_framebuffer_cleanup(struct drm_framebuffer *fb)
 {
     struct drm_device *dev;
-    if (!fb) return;
+    if (!fb) return false;
 
     dev = fb->base.dev;
-    if (!dev) return;
+    if (!dev) return false;
 
     spin_lock(&dev->mode_config.fb_lock);
     if (!fb->registered) {
         spin_unlock(&dev->mode_config.fb_lock);
-        return;
+        return false;
     }
     fb->registered = false;
     ilist_remove(&fb->head);
@@ -576,6 +577,8 @@ void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
     spin_lock(&dev->mode_config.idr_mutex);
     drm_idr_remove(&dev->mode_config.object_idr, fb->base.id);
     spin_unlock(&dev->mode_config.idr_mutex);
+
+    return true;
 }
 
 /* Take a reference on a framebuffer known to be alive. */
