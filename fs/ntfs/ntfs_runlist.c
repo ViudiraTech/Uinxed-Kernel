@@ -183,7 +183,7 @@ int ntfs_read_by_runlist(ntfs_mount_t *mnt, uint8_t *rl, int rl_len, uint64_t of
             int64_t byte_off = (found_lcn << mnt->cluster_bits) + cl_off;
             if (ntfs_dev_read(mnt, (uint64_t)byte_off, buf + done, (size_t)to_read) < 0) {
                 static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-                if (ratelimit_allow(&ratelimit)) plogk("ntfs: Drive %u: block read failed at byte %llu (%zu bytes)\n", mnt->dev.drive, byte_off, (size - done));
+                if (ratelimit_allow(&ratelimit)) plogk("ntfs: Drive %u: block read failed at byte %llu (%zu bytes)\n", mnt->dev.drive, (unsigned long long)byte_off, (size - done));
                 return done > 0 ? (int)done : -EIO;
             }
             done += (size_t)to_read;
@@ -224,7 +224,7 @@ int64_t ntfs_write_by_runlist(ntfs_mount_t *mnt, uint8_t *rl, int rl_len, uint64
         }
         if (run_lcn < 0 || run_lcn >= mnt->nr_clusters) {
             static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("ntfs: Drive %u: write target LCN %lld out of range (nr_clusters=%llu)\n", mnt->dev.drive, run_lcn, mnt->nr_clusters);
+            if (ratelimit_allow(&ratelimit)) plogk("ntfs: Drive %u: write target LCN %lld out of range (nr_clusters=%llu)\n", mnt->dev.drive, run_lcn, (unsigned long long)mnt->nr_clusters);
             return done ? (int64_t)done : -EIO;
         }
 

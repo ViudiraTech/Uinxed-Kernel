@@ -33,7 +33,7 @@ extern process_t *init_process;
 #define PROCESS_MMAP_BASE      0x00007f0000000000ULL
 #define PROCESS_USER_CODE_MIN  0x0000000000400000
 #define PROCESS_USER_CODE_MAX  0x00007fffffe00000
-#define PROCESS_USER_STACK_TOP 0x7ffffffff000
+#define PROCESS_USER_STACK_TOP 0x7ffffffff000ULL
 
 /* resource-limit ABI indices.  Keep the table process-owned so limits are shared by threads, inherited by fork, and preserved across exec. */
 #define PROCESS_RLIMIT_CPU        0
