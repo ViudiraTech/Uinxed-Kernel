@@ -13,12 +13,33 @@
 #include <drivers/block/ata/pata/ide.h>
 #include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
+#include <libs/std/string.h>
 #include <libs/util/byteorder.h>
 
 #if CONFIG_ATA
 
 /* ATAPI device instances */
 atapi_device_t atapi_devices[4];
+
+/* Boot-time DMA/PIO comparison buffers, one block each */
+static uint16_t atapi_validate_pio_buf[2048];
+static uint16_t atapi_validate_dma_buf[2048];
+
+/* Serialises use of the shared comparison buffers across channels */
+static spinlock_t atapi_validate_lock;
+
+static void atapi_validate_dma(uint8_t dev_index);
+static int  atapi_probe_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size);
+
+/* Highest ATA/ATAPI major version advertised by the device (word 80 bit index) */
+static uint8_t atapi_major_version(const uint16_t *id_words)
+{
+    if (id_words[80] == 0xffff) return 0;
+    for (int v = 14; v >= 1; v--)
+        if (id_words[80] & (1 << v)) return (uint8_t)v;
+    return 0;
+}
 
 /* ATAPI status polling */
 static uint8_t atapi_wait_busy(uint8_t channel)
@@ -38,8 +59,8 @@ static uint8_t atapi_wait_busy(uint8_t channel)
     return status;
 }
 
-/* Poll until DRQ is set, or report an error state */
-static uint8_t atapi_wait_drq(uint8_t channel)
+/* Poll until DRQ is set; log_error marks the command-phase call */
+static uint8_t atapi_wait_drq(uint8_t channel, uint8_t log_error)
 {
     uint8_t status;
     int     timeout = 400000;
@@ -47,8 +68,10 @@ static uint8_t atapi_wait_drq(uint8_t channel)
     while (timeout--) {
         status = ide_read(channel, ATA_REG_STATUS);
         if (status & ATA_SR_ERR) {
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("atapi: ERR on channel %u\n", channel);
+            if (log_error) {
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("atapi: ERR on channel %u\n", channel);
+            }
             return 2;
         }
         if (status & ATA_SR_DF) {
@@ -133,35 +156,45 @@ uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index)
         atapi_devices[dev_index].capabilities = id_words[0] & 0xff;
         atapi_devices[dev_index].lba_size     = 0;
         atapi_devices[dev_index].blk_size     = 2048;
+        atapi_devices[dev_index].dma_enabled  = 0;
+        atapi_devices[dev_index].dma_capable  = 0;
+        atapi_devices[dev_index].dma_dir      = 0;
 
         /* Extract model string */
         for (k = 0; k < 40; k += 2) {
             atapi_devices[dev_index].model[k]     = id_buf[ATA_IDENT_MODEL + k + 1];
             atapi_devices[dev_index].model[k + 1] = id_buf[ATA_IDENT_MODEL + k];
         }
+
         atapi_devices[dev_index].model[40] = 0;
+
+        for (k = 39; k > 0; k--) {
+            if (atapi_devices[dev_index].model[k] == ' ') {
+                atapi_devices[dev_index].model[k] = '\0';
+            } else {
+                break;
+            }
+        }
+
+        if ((id_words[49] & 0x100) && channels[channel].dma_ok) atapi_devices[dev_index].dma_capable = 1;
+        if ((id_words[62] & 0x8000) && atapi_major_version(id_words) >= 7) atapi_devices[dev_index].dma_dir = 1;
     }
 
-    /* Get real capacity via READ CAPACITY */
+    /* Get real capacity via READ CAPACITY; slow drives report becoming ready */
     {
         uint32_t lba     = 0;
         uint32_t bsz     = 0;
-        uint8_t  cap_ret = atapi_read_capacity(dev_index, &lba, &bsz);
+        int      cap_ret = atapi_probe_capacity(dev_index, &lba, &bsz);
 
         if (cap_ret == 0) {
             atapi_devices[dev_index].lba_size = lba;
             atapi_devices[dev_index].blk_size = bsz;
-        } else {
-            /* Fallback: some devices may need retry after TEST UNIT READY */
-            atapi_test_unit_ready(dev_index);
-            nsleep(100000);
-
-            cap_ret = atapi_read_capacity(dev_index, &lba, &bsz);
-            if (cap_ret == 0) {
-                atapi_devices[dev_index].lba_size = lba;
-                atapi_devices[dev_index].blk_size = bsz;
-            }
         }
+    }
+
+    if (atapi_devices[dev_index].dma_capable && atapi_devices[dev_index].lba_size != 0 && atapi_devices[dev_index].blk_size != 0
+        && atapi_devices[dev_index].blk_size <= sizeof(atapi_validate_pio_buf)) {
+        atapi_validate_dma(dev_index);
     }
 
     return 0;
@@ -186,12 +219,13 @@ void atapi_soft_reset(uint8_t drive)
     atapi_wait_busy(channel);
 }
 
-/* Core ATAPI packet send function */
-uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit, uint8_t direction, void *buf, size_t *xfer_len)
+/* Core ATAPI packet send; the caller holds the channel lock */
+static uint8_t atapi_send_packet_locked(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit, uint8_t direction, void *buf, size_t *xfer_len, uint8_t log_error)
 {
     uint32_t channel  = atapi_devices[drive].channel;
     uint32_t slavebit = atapi_devices[drive].drive;
     uint32_t bus      = channels[channel].base;
+    uint8_t  use_dma  = (direction == ATAPI_PROT_DMA) && atapi_devices[drive].dma_enabled && channels[channel].dma_ok;
     uint8_t  err;
 
     /*
@@ -228,7 +262,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
     channels[channel].irq_pending = 0;
     channels[channel].nIEN        = 0x02;
     ide_write(channel, ATA_REG_CONTROL, 0x02);
-    ide_write(channel, ATA_REG_HDDEVSEL, slavebit << 4);
+    ide_write(channel, ATA_REG_HDDEVSEL, 0xa0 | (slavebit << 4));
 
     /* Delay for device selection to settle, then wait for BSY clear */
     for (int i = 0; i < 10; i++) ide_read(channel, ATA_REG_ALTSTATUS);
@@ -240,10 +274,11 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
             nsleep(100);
         }
     }
+    if (use_dma && (byte_limit == 0 || byte_limit > ATA_DMA_MAX_BYTES || !buf || !xfer_len || *xfer_len < byte_limit)) return 2;
 
     /* Set features and byte count limit */
-    if (direction == ATAPI_PROT_DMA) {
-        ide_write(channel, ATA_REG_FEATURES, ATAPI_PKT_DMA);
+    if (use_dma) {
+        ide_write(channel, ATA_REG_FEATURES, ATAPI_PKT_DMA | (atapi_devices[drive].dma_dir ? ATAPI_DMADIR : 0));
     } else {
         ide_write(channel, ATA_REG_FEATURES, 0);
     }
@@ -254,7 +289,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
     ide_write(channel, ATA_REG_COMMAND, ATA_CMD_PACKET);
 
     /* Wait for device to accept CDB */
-    err = atapi_wait_drq(channel);
+    err = atapi_wait_drq(channel, log_error);
     if (err) return err;
 
     /* Check interrupt reason before sending CDB */
@@ -290,14 +325,32 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         return 0;
     }
 
-    /* PIO data transfer */
-    if (direction == ATAPI_PROT_PIO && buf && xfer_len) {
+    /* DMA data phase (device to host only); the engine waits for the device's DMARQ */
+    if (use_dma) {
+        uint16_t bytes = byte_limit;
+
+        ide_bm_clear_status(channel);
+        ide_bm_set_prd(channel, bytes);
+        ide_bm_start(channel, 0);
+
+        err = ide_bm_wait(channel);
+        if (err != 0) {
+            ide_bm_stop(channel);
+            ide_bm_clear_status(channel);
+            return err;
+        }
+
+        dma_read_barrier();
+        memcpy(buf, channels[channel].dma_buf, bytes);
+        *xfer_len = bytes;
+    } else if (direction != ATAPI_PROT_NODATA && buf && xfer_len) {
+        /* PIO data transfer */
         size_t    transferred = 0;
         uint16_t *word_buf    = (uint16_t *)buf;
 
         while (transferred < *xfer_len) {
             /* Poll for data ready instead of IRQ - interrupts may not be enabled yet when init_ide() runs. */
-            err = atapi_wait_drq(channel);
+            err = atapi_wait_drq(channel, 0);
             if (err) return err;
 
             uint8_t status = ide_read(channel, ATA_REG_STATUS);
@@ -354,7 +407,71 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         }
     }
 
+    /* The final packet may report CHECK CONDITION after DRQ has dropped */
+    if (ide_read(channel, ATA_REG_STATUS) & ATA_SR_ERR) return 2;
     return 0;
+}
+
+/*
+ * The firmware paired host timing with the drive's DMA mode; reuse it instead of
+ * per-vendor chipset programming (Intel/VIA/SiS/AMD/NVIDIA/ATI/...).  A boot-time
+ * DMA/PIO comparison validates it; full speed still needs those chipset drivers.
+ */
+static void atapi_validate_dma(uint8_t dev_index)
+{
+    uint8_t  channel            = atapi_devices[dev_index].channel;
+    uint32_t blk_size           = atapi_devices[dev_index].blk_size;
+    uint8_t  cdb[ATAPI_CDB_LEN] = {GPCMD_READ_12, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    size_t   pio_len            = blk_size;
+    size_t   dma_len            = blk_size;
+    uint8_t  dma_tried          = 0;
+    uint8_t  err;
+
+    if (!channels[channel].dma_ok) {
+        atapi_devices[dev_index].dma_enabled = 0;
+        return;
+    }
+
+    spin_lock(&atapi_validate_lock);
+    spin_lock(&channels[channel].lock);
+
+    /* Start from PIO until the DMA comparison proves the firmware pairing */
+    atapi_devices[dev_index].dma_enabled = 0;
+
+    err = atapi_send_packet_locked(dev_index, cdb, (uint16_t)blk_size, ATAPI_PROT_PIO, atapi_validate_pio_buf, &pio_len, 1);
+    if (err == 0 && pio_len != blk_size) err = 4;
+    if (err == 0) {
+        dma_tried                            = 1;
+        atapi_devices[dev_index].dma_enabled = 1;
+        err                                  = atapi_send_packet_locked(dev_index, cdb, (uint16_t)blk_size, ATAPI_PROT_DMA, atapi_validate_dma_buf, &dma_len, 1);
+        if (err == 0 && (dma_len != blk_size || memcmp(atapi_validate_pio_buf, atapi_validate_dma_buf, blk_size) != 0)) err = 4;
+    }
+
+    if (err != 0) {
+        if (!dma_tried) {
+            atapi_devices[dev_index].dma_enabled = 0;
+            plogk("atapi: DMA validation skipped on drive %u (PIO read error %u), using PIO.\n", dev_index, err);
+        } else {
+            ide_dma_fallback(dev_index);
+            plogk("atapi: DMA validation failed on drive %u, using PIO.\n", dev_index);
+        }
+    }
+
+    spin_unlock(&channels[channel].lock);
+    spin_unlock(&atapi_validate_lock);
+}
+
+/* Core ATAPI packet send function */
+uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit, uint8_t direction, void *buf, size_t *xfer_len)
+{
+    uint8_t channel = atapi_devices[drive].channel;
+    uint8_t err;
+
+    spin_lock(&channels[channel].lock);
+    err = atapi_send_packet_locked(drive, cdb, byte_limit, direction, buf, xfer_len, 1);
+
+    spin_unlock(&channels[channel].lock);
+    return err;
 }
 
 /* TEST UNIT READY */
@@ -372,16 +489,15 @@ uint8_t atapi_inquiry(uint8_t drive, void *buf)
     return atapi_send_packet(drive, cdb, 36, ATAPI_PROT_PIO, buf, &len);
 }
 
-/* READ CAPACITY */
-uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size)
+/* READ CAPACITY with the channel lock held */
+static uint8_t atapi_read_capacity_locked(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size, uint8_t log_error)
 {
     uint8_t cdb[ATAPI_CDB_LEN] = {GPCMD_READ_CAPACITY, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     uint8_t cap_buf[8]         = {0};
     size_t  len                = 8;
     uint8_t err;
 
-    if (!lba_size || !blk_size) return 0xff;
-    err = atapi_send_packet(drive, cdb, 8, ATAPI_PROT_PIO, cap_buf, &len);
+    err = atapi_send_packet_locked(drive, cdb, 8, ATAPI_PROT_PIO, cap_buf, &len, log_error);
     if (err) return err;
 
     /* READ CAPACITY returns the last addressable LBA; the sector count is one more. */
@@ -391,8 +507,26 @@ uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_siz
     return 0;
 }
 
-/* REQUEST SENSE */
-uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uint8_t *ascq)
+/* READ CAPACITY */
+uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size)
+{
+    uint8_t channel;
+    uint8_t err;
+
+    if (!lba_size || !blk_size) return 0xff;
+    if (drive > 3 || !atapi_devices[drive].reserved) return 0xff;
+
+    channel = atapi_devices[drive].channel;
+    spin_lock(&channels[channel].lock);
+
+    err = atapi_read_capacity_locked(drive, lba_size, blk_size, 1);
+    spin_unlock(&channels[channel].lock);
+
+    return err;
+}
+
+/* REQUEST SENSE with the channel lock held */
+static uint8_t atapi_request_sense_locked(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uint8_t *ascq, uint8_t log_error)
 {
     uint8_t cdb[ATAPI_CDB_LEN] = {GPCMD_REQUEST_SENSE, 0, 0, 0, SCSI_SENSE_BUFFER_SIZE, 0};
     uint8_t sense_buf[SCSI_SENSE_BUFFER_SIZE];
@@ -400,7 +534,7 @@ uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uin
     uint8_t err;
 
     for (int i = 0; i < SCSI_SENSE_BUFFER_SIZE; i++) sense_buf[i] = 0;
-    err = atapi_send_packet(drive, cdb, SCSI_SENSE_BUFFER_SIZE, ATAPI_PROT_PIO, sense_buf, &len);
+    err = atapi_send_packet_locked(drive, cdb, SCSI_SENSE_BUFFER_SIZE, ATAPI_PROT_PIO, sense_buf, &len, log_error);
     if (err) return err;
 
     /* Sense data format: byte 0 = error code, byte 2 = sense key, byte 12 = ASC, byte 13 = ASCQ */
@@ -409,6 +543,106 @@ uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uin
     if (ascq) *ascq = sense_buf[13];
 
     return 0;
+}
+
+/* Clear the unit attention raised by a channel reset; the caller holds the lock */
+void atapi_reset_recover(uint8_t drive)
+{
+    uint8_t cdb[ATAPI_CDB_LEN] = {GPCMD_TEST_UNIT_READY, 0, 0, 0, 0, 0};
+    uint8_t key                = 0;
+    uint8_t asc                = 0;
+    uint8_t ascq               = 0;
+
+    (void)atapi_send_packet_locked(drive, cdb, 0, ATAPI_PROT_NODATA, NULL, NULL, 0);
+    (void)atapi_request_sense_locked(drive, &key, &asc, &ascq, 0);
+}
+
+/* Probe capacity with sense-driven retries; the caller does not hold the lock */
+static int atapi_probe_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size)
+{
+    uint32_t channel = atapi_devices[drive].channel;
+    uint32_t lba     = 0;
+    uint32_t blk     = 0;
+
+    for (int attempt = 0; attempt < 20; attempt++) {
+        uint8_t key       = 0;
+        uint8_t asc       = 0;
+        uint8_t ascq      = 0;
+        uint8_t retryable = 0;
+
+        spin_lock(&channels[channel].lock);
+        if (atapi_read_capacity_locked(drive, &lba, &blk, 0) == 0) {
+            spin_unlock(&channels[channel].lock);
+            if (lba == 0 || blk == 0 || blk > 4096) return -ENOMEDIUM;
+            *lba_size = lba;
+            *blk_size = blk;
+            return 0;
+        }
+
+        /*
+         * A new disc reports unit attention or becoming ready; 0x3A also means empty,
+         * so it gets only two quick retries; the next command after a change clears it.
+         */
+        if (atapi_request_sense_locked(drive, &key, &asc, &ascq, 0) == 0) {
+            if ((key == 6 && asc == 0x28) || (key == 2 && (asc == 0x04 || asc == 0x11))) {
+                retryable = 2;
+            } else if (key == 2 && asc == 0x3A && attempt < 2) {
+                retryable = 1;
+            }
+        }
+        spin_unlock(&channels[channel].lock);
+
+        if (!retryable) break;
+        if (retryable == 2) msleep(50);
+    }
+
+    return -ENOMEDIUM;
+}
+
+/* REQUEST SENSE */
+uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uint8_t *ascq)
+{
+    uint8_t channel;
+    uint8_t err;
+
+    if (drive > 3 || !atapi_devices[drive].reserved) return 0xff;
+
+    channel = atapi_devices[drive].channel;
+    spin_lock(&channels[channel].lock);
+
+    err = atapi_request_sense_locked(drive, sense_key, asc, ascq, 1);
+    spin_unlock(&channels[channel].lock);
+
+    return err;
+}
+
+/* Refresh capacity after a possible disc change. */
+int atapi_revalidate(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size)
+{
+    int     ret;
+    uint8_t was_empty;
+
+    if (drive > 3 || !atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) return -ENODEV;
+    if (!lba_size || !blk_size) return -EINVAL;
+
+    was_empty = atapi_devices[drive].lba_size == 0;
+    ret       = atapi_probe_capacity(drive, lba_size, blk_size);
+
+    if (ret != 0) {
+        atapi_devices[drive].lba_size = 0;
+        ide_devices[drive].size       = 0;
+        return ret;
+    }
+
+    atapi_devices[drive].lba_size = *lba_size;
+    atapi_devices[drive].blk_size = *blk_size;
+    ide_devices[drive].size       = *lba_size;
+
+    /* An empty drive was never validated against the firmware's DMA pairing */
+    if (was_empty && atapi_devices[drive].dma_capable && !atapi_devices[drive].dma_enabled && *blk_size <= sizeof(atapi_validate_pio_buf)) atapi_validate_dma(drive);
+    ide_devices[drive].dma_enabled = atapi_devices[drive].dma_enabled;
+
+    return EOK;
 }
 
 /* START STOP UNIT (eject/load) */
@@ -420,22 +654,89 @@ uint8_t atapi_start_stop(uint8_t drive, uint8_t start, uint8_t loej)
     return atapi_send_packet(drive, cdb, 0, ATAPI_PROT_NODATA, NULL, NULL);
 }
 
+/* Build a READ(12) CDB for count blocks starting at lba */
+static void atapi_read12_cdb(uint8_t *cdb, uint32_t lba, uint8_t count)
+{
+    memset(cdb, 0, ATAPI_CDB_LEN);
+    cdb[0] = GPCMD_READ_12;
+    cdb[2] = (lba >> 24) & 0xff;
+    cdb[3] = (lba >> 16) & 0xff;
+    cdb[4] = (lba >> 8) & 0xff;
+    cdb[5] = lba & 0xff;
+    cdb[8] = (count >> 8) & 0xff;
+    cdb[9] = count & 0xff;
+}
+
 /* Read sectors from ATAPI device (READ 12) */
 uint8_t atapi_read(uint8_t drive, uint32_t lba, uint8_t num_sectors, uint16_t *buf)
 {
+    uint8_t  channel  = atapi_devices[drive].channel;
     uint32_t blk_size = atapi_devices[drive].blk_size;
+    uint32_t done     = 0;
+    uint8_t  err      = 0;
+
     if (blk_size == 0) blk_size = 2048;
+    if (blk_size > 0xfffe) return 2;
 
-    uint32_t total_bytes = (uint32_t)num_sectors * blk_size;
-    uint16_t byte_limit  = (uint16_t)(total_bytes > 0xfffe ? 0xfffe : total_bytes);
-    size_t   xfer_len    = (size_t)total_bytes;
+    spin_lock(&channels[channel].lock);
 
-    /* Build READ(12) CDB: opcode, LBA[2..5], transfer length[6..9], flags, control */
-    uint8_t cdb[ATAPI_CDB_LEN] = {
-        GPCMD_READ_12, 0, (lba >> 24) & 0xff, (lba >> 16) & 0xff, (lba >> 8) & 0xff, lba & 0xff, 0, 0, (num_sectors >> 8) & 0xff, num_sectors & 0xff, 0, 0,
-    };
+    if (atapi_devices[drive].dma_enabled && channels[channel].dma_ok && blk_size <= ATA_DMA_MAX_BYTES) {
+        uint32_t per_packet = ATA_DMA_MAX_BYTES / blk_size;
 
-    return atapi_send_packet(drive, cdb, byte_limit, ATAPI_PROT_PIO, buf, &xfer_len);
+        while (done < num_sectors) {
+            uint8_t  chunk     = num_sectors - done;
+            uint32_t chunk_lba = lba + done;
+            uint16_t byte_limit;
+            size_t   xfer_len;
+            uint8_t  cdb[ATAPI_CDB_LEN];
+
+            if (chunk > per_packet) chunk = (uint8_t)per_packet;
+            byte_limit = (uint16_t)(chunk * blk_size);
+            xfer_len   = (size_t)chunk * blk_size;
+            atapi_read12_cdb(cdb, chunk_lba, chunk);
+
+            err = atapi_send_packet_locked(drive, cdb, byte_limit, ATAPI_PROT_DMA, (uint8_t *)buf + ((size_t)done * blk_size), &xfer_len, 1);
+            if (err != 0) break;
+            done += chunk;
+        }
+
+        if (err != 0) {
+            ide_dma_fallback(drive);
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("atapi: DMA error %u on drive %u, falling back to PIO.\n", err, drive);
+            err = 0;
+        }
+    }
+
+    if (done < num_sectors) {
+        uint32_t per_packet = 0xfffe / blk_size;
+
+        /* The 16-bit byte count limit caps each PACKET, so long reads are split */
+        while (done < num_sectors) {
+            uint8_t  chunk     = num_sectors - done;
+            uint32_t chunk_lba = lba + done;
+            uint16_t byte_limit;
+            size_t   xfer_len;
+            uint8_t  cdb[ATAPI_CDB_LEN];
+
+            if (chunk > per_packet) chunk = (uint8_t)per_packet;
+            byte_limit = (uint16_t)(chunk * blk_size);
+            xfer_len   = (size_t)chunk * blk_size;
+            atapi_read12_cdb(cdb, chunk_lba, chunk);
+
+            err = atapi_send_packet_locked(drive, cdb, byte_limit, ATAPI_PROT_PIO, (uint8_t *)buf + ((size_t)done * blk_size), &xfer_len, 1);
+            if (err == 0 && xfer_len != (size_t)chunk * blk_size) err = 5;
+            if (err != 0) {
+                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+                if (ratelimit_allow(&ratelimit)) plogk("atapi: Read error %u on drive %u at block %u\n", err, drive, chunk_lba);
+                break;
+            }
+            done += chunk;
+        }
+    }
+
+    spin_unlock(&channels[channel].lock);
+    return err;
 }
 
 #endif

@@ -18,6 +18,8 @@
 #include <kernel/timer/timer.h>
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
+#include <mem/frame.h>
+#include <mem/hhdm.h>
 
 #if CONFIG_ATA
 
@@ -37,6 +39,12 @@ ide_device_t            ide_devices[4];
 
 /* Data Array */
 uint8_t ide_buf[2048] = {0};
+
+/* Boot-time DMA/PIO comparison buffers, 8 sectors each */
+static uint16_t ide_validate_pio[2048];
+static uint16_t ide_validate_dma[2048];
+
+static uint8_t ide_validate_ata(uint8_t drive);
 
 /* IDE interrupt handling for the primary channel (IRQ14). */
 INTERRUPT_BEGIN static void ide_irq_primary(interrupt_frame_t *frame)
@@ -77,16 +85,106 @@ int ide_wait_irq(uint8_t channel)
     return 0;
 }
 
+/* Clear the bus-master status bits */
+void ide_bm_clear_status(uint8_t channel)
+{
+    outb(channels[channel].bmide + ATA_BM_STATUS, ATA_BM_STATUS_CLEAR);
+}
+
+/* One page per PRD keeps each region inside the bus-master 64 KiB boundary */
+void ide_bm_set_prd(uint8_t channel, uint16_t bytes)
+{
+    uint64_t   phys = channels[channel].dma_buf_phys;
+    uint32_t   left = bytes;
+    ata_prd_t *prd  = channels[channel].prd;
+    ata_prd_t *last = prd;
+
+    /* The table is only safe to rewrite with the engine stopped */
+    ide_bm_stop(channel);
+
+    while (left != 0) {
+        uint32_t chunk = left > 4096 ? 4096 : left;
+        prd->base      = (uint32_t)phys;
+        prd->count     = (uint16_t)chunk;
+        prd->flags     = 0;
+        last           = prd;
+        phys += chunk;
+        left -= chunk;
+        prd++;
+    }
+
+    last->flags = ATA_PRD_EOT;
+    dma_write_barrier();
+    outl(channels[channel].bmide + ATA_BM_PRDT, (uint32_t)channels[channel].prd_phys);
+}
+
+/* Start the bus-master engine; write = host to device */
+void ide_bm_start(uint8_t channel, uint8_t write)
+{
+    /* Deassert START first so every transfer sees a 0 -> 1 edge */
+    outb(channels[channel].bmide + ATA_BM_CMD, 0);
+    outb(channels[channel].bmide + ATA_BM_CMD, (uint8_t)((write ? 0 : ATA_BM_CMD_DIR) | ATA_BM_CMD_START));
+}
+
+/* Stop the bus-master engine */
+void ide_bm_stop(uint8_t channel)
+{
+    outb(channels[channel].bmide + ATA_BM_CMD, 0);
+}
+
+/* Poll a bus-master transfer to completion */
+uint8_t ide_bm_wait(uint8_t channel)
+{
+    int     timeout = IDE_POLL_RETRY;
+    uint8_t status  = 0;
+
+    for (;;) {
+        status = inb(channels[channel].bmide + ATA_BM_STATUS);
+        if (!(status & ATA_BM_STATUS_ACTIVE)) break;
+        if ((status & ATA_BM_STATUS_ERR) || (ide_read(channel, ATA_REG_STATUS) & ATA_SR_ERR)) {
+            ide_bm_stop(channel);
+            ide_bm_clear_status(channel);
+            return 2;
+        }
+        if (--timeout <= 0) {
+            ide_bm_stop(channel);
+            ide_bm_clear_status(channel);
+            return 3;
+        }
+        nsleep(10);
+    }
+    if (status & ATA_BM_STATUS_ERR) {
+        ide_bm_stop(channel);
+        ide_bm_clear_status(channel);
+        return 2;
+    }
+
+    ide_bm_stop(channel);
+    ide_bm_clear_status(channel);
+    if (ide_polling(channel, 0) != 0) return 3;
+
+    status = ide_read(channel, ATA_REG_STATUS);
+    if (status & ATA_SR_ERR) return 2;
+    if (status & ATA_SR_DF) return 1;
+
+    return 0;
+}
+
 /* Setting up the IDE */
-static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t BAR3, uint32_t BAR4)
+static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t BAR3, uint32_t BAR4, uint8_t bmide_valid)
 {
     int j, k, count = 0;
 
     for (int i = 0; i < 4; i++) ide_devices[i].reserved = 0;
     for (int i = 0; i < 2; i++) {
-        channels[i].lock.lock   = 0;
-        channels[i].lock.rflags = 0;
-        channels[i].irq_pending = 0;
+        channels[i].lock.lock    = 0;
+        channels[i].lock.rflags  = 0;
+        channels[i].irq_pending  = 0;
+        channels[i].dma_ok       = 0;
+        channels[i].dma_buf      = NULL;
+        channels[i].dma_buf_phys = 0;
+        channels[i].prd_phys     = 0;
+        channels[i].prd          = NULL;
     }
     plogk("ide: BAR0 = 0x%03x, BAR1 = 0x%03x, BAR2 = 0x%03x, BAR3 = 0x%03x, BAR4 = 0x%03x\n", BAR0, BAR1, BAR2, BAR3, BAR4);
 
@@ -95,8 +193,28 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
     channels[ATA_PRIMARY].ctrl    = (BAR1 & 0xfffffffc) + 0x3f4 * (!BAR1);
     channels[ATA_SECONDARY].base  = (BAR2 & 0xfffffffc) + 0x170 * (!BAR2);
     channels[ATA_SECONDARY].ctrl  = (BAR3 & 0xfffffffc) + 0x374 * (!BAR3);
-    channels[ATA_PRIMARY].bmide   = (BAR4 & 0xfffffffc) + 0;
-    channels[ATA_SECONDARY].bmide = (BAR4 & 0xfffffffc) + 8;
+    channels[ATA_PRIMARY].bmide   = bmide_valid ? (BAR4 & 0xfffffffc) + 0 : 0;
+    channels[ATA_SECONDARY].bmide = bmide_valid ? (BAR4 & 0xfffffffc) + 8 : 0;
+
+    /* Allocate a bounce buffer and PRD table per channel below 4 GiB */
+    if (bmide_valid) {
+        for (int i = 0; i < 2; i++) {
+            uint64_t buf_phys = alloc_frames_below(ATA_DMA_BUF_PAGES, 0x100000000ULL);
+            uint64_t prd_phys = alloc_frames_below(1, 0x100000000ULL);
+
+            if (!buf_phys || !prd_phys) {
+                if (buf_phys) free_frames(buf_phys, ATA_DMA_BUF_PAGES);
+                if (prd_phys) free_frames(prd_phys, 1);
+                plogk("ide: Channel %u DMA buffer allocation failed, using PIO.\n", i);
+                continue;
+            }
+            channels[i].dma_buf      = phys_to_virt(buf_phys);
+            channels[i].dma_buf_phys = buf_phys;
+            channels[i].prd_phys     = prd_phys;
+            channels[i].prd          = phys_to_virt(prd_phys);
+            channels[i].dma_ok       = 1;
+        }
+    }
 
     /* Disable IRQ */
     ide_write(ATA_PRIMARY, ATA_REG_CONTROL, 2);
@@ -149,6 +267,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
                     ide_devices[count].capabilities = 0;
                     ide_devices[count].command_sets = 0;
                     ide_devices[count].size         = atapi_devices[count].lba_size;
+                    ide_devices[count].dma_enabled  = atapi_devices[count].dma_enabled;
                     for (k = 0; k < 40; k++) ide_devices[count].model[k] = atapi_devices[count].model[k];
                     ide_devices[count].model[40] = 0;
                     count++;
@@ -194,8 +313,56 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
                 ide_devices[count].model[k]     = ide_buf[ATA_IDENT_MODEL + k + 1];
                 ide_devices[count].model[k + 1] = ide_buf[ATA_IDENT_MODEL + k];
             }
+
             ide_devices[count].model[40] = 0;
+
+            for (k = 39; k > 0; k--) {
+                if (ide_devices[count].model[k] == ' ') {
+                    ide_devices[count].model[k] = '\0';
+                } else {
+                    break;
+                }
+            }
+
+            ide_devices[count].dma_enabled = ide_validate_ata(count);
             count++;
+        }
+    }
+
+    /* Release DMA resources for channels without drives */
+    for (int i = 0; i < 2; i++) {
+        int used = 0;
+
+        for (int d = 0; d < 4; d++)
+            if (ide_devices[d].reserved && ide_devices[d].channel == i) used = 1;
+        if (!used && channels[i].dma_ok) {
+            free_frames(channels[i].dma_buf_phys, ATA_DMA_BUF_PAGES);
+            free_frames(channels[i].prd_phys, 1);
+            channels[i].dma_ok       = 0;
+            channels[i].dma_buf      = NULL;
+            channels[i].dma_buf_phys = 0;
+            channels[i].prd_phys     = 0;
+            channels[i].prd          = NULL;
+        }
+    }
+
+    {
+        uint8_t total = 0, dma = 0;
+
+        for (int i = 0; i < 4; i++) {
+            /* Drives without media have no transfer mode to report */
+            if (!ide_devices[i].reserved || ide_devices[i].size == 0) continue;
+            total++;
+            if (ide_devices[i].dma_enabled) dma++;
+        }
+        if (total != 0) {
+            if (dma == 0) {
+                plogk("ide: Transfer mode: PIO%s\n", bmide_valid ? "" : " (BAR4 unavailable)");
+            } else if (dma == total) {
+                plogk("ide: Transfer mode: DMA (BIOS-configured)\n");
+            } else {
+                plogk("ide: Transfer mode: DMA on %u/%u drives, PIO on the rest.\n", dma, total);
+            }
         }
     }
 
@@ -203,9 +370,10 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
     for (int i = 0; i < 4; i++)
         if (ide_devices[i].reserved == 1) {
             if (ide_devices[i].type == IDE_ATAPI) {
-                plogk("ide: Found ATAPI Drive %u blocks (%u bytes/block) - %s\n", atapi_devices[i].lba_size, atapi_devices[i].blk_size, ide_devices[i].model);
+                plogk("ide: Found ATAPI Drive %u blocks (%u bytes/block) - %s [%s]\n", atapi_devices[i].lba_size, atapi_devices[i].blk_size, ide_devices[i].model,
+                      ide_devices[i].dma_enabled ? "DMA" : "PIO");
             } else {
-                plogk("ide: Found ATA Drive %llu (KiB) - %s\n", (ide_devices[i].size / 2), ide_devices[i].model);
+                plogk("ide: Found ATA Drive %llu (KiB) - %s [%s]\n", (ide_devices[i].size / 2), ide_devices[i].model, ide_devices[i].dma_enabled ? "DMA" : "PIO");
             }
         }
 }
@@ -214,6 +382,28 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 static uint8_t ide_print_error(uint32_t drive, uint8_t err)
 {
     if (err == 0) return err;
+    if (err == 4) {
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("ide: Write protected.\n");
+        return 8;
+    }
+    if (ide_devices[drive].type == IDE_ATAPI) {
+        uint8_t key  = 0;
+        uint8_t asc  = 0;
+        uint8_t ascq = 0;
+        uint8_t serr;
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+
+        /* Sense decides the no-media mapping, so always consume it; only the logs are limited */
+        serr = atapi_request_sense(drive, &key, &asc, &ascq);
+        if (serr != 0) {
+            if (ratelimit_allow(&ratelimit)) plogk("atapi: REQUEST SENSE failed (%u), original error %u on drive %u\n", serr, err, drive);
+            return err;
+        }
+        if (ratelimit_allow(&ratelimit)) plogk("atapi: Sense key 0x%x, ASC 0x%02x, ASCQ 0x%02x on drive %u\n", key, asc, ascq, drive);
+        if (key == 2 && asc == 0x3A) return IDE_ERR_NO_MEDIUM;
+        return err;
+    }
     if (err == 1) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("ide: Device fault.\n");
@@ -264,10 +454,6 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err)
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("ide: Reads nothing.\n");
         err = 23;
-    } else if (err == 4) {
-        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-        if (ratelimit_allow(&ratelimit)) plogk("ide: Write protected.\n");
-        err = 8;
     }
     return err;
 }
@@ -291,7 +477,7 @@ void init_ide(void)
     plogk("ide: Controller found at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", bar_reg.parent->device->domain, bar_reg.parent->device->bus, bar_reg.parent->device->slot,
           bar_reg.parent->device->func, bar_reg.parent->vendor_id, bar_reg.parent->device_id);
 
-    pci_enable_device(bar_reg.parent, PCI_CMD_IO);
+    pci_enable_device(bar_reg.parent, PCI_CMD_IO | PCI_CMD_BUSMASTER);
     register_interrupt_handler(IRQ_14, (void *)ide_irq_primary, 0, 0x8e);
     register_interrupt_handler(IRQ_15, (void *)ide_irq_secondary, 0, 0x8e);
 
@@ -301,7 +487,9 @@ void init_ide(void)
         cast.ptr       = bars[idx].address;
         bar_addrs[idx] = cast.val;
     }
-    ide_initialize(bar_addrs[0], bar_addrs[1], bar_addrs[2], bar_addrs[3], bar_addrs[4]);
+
+    uint8_t bmide_valid = (bars[4].type == input_output) && bar_addrs[4] != 0;
+    ide_initialize(bar_addrs[0], bar_addrs[1], bar_addrs[2], bar_addrs[3], bar_addrs[4], bmide_valid);
 }
 
 /* Read a byte of data from the specified register of the IDE device */
@@ -404,8 +592,8 @@ void ide_soft_reset(uint8_t drive)
     ide_polling(channel, 0);
 }
 
-/* Flush write cache */
-uint8_t ide_flush_cache(uint8_t drive)
+/* Flush write cache; the caller holds the channel lock */
+static uint8_t ide_flush_cache_locked(uint8_t drive)
 {
     uint8_t channel  = ide_devices[drive].channel;
     uint8_t slavebit = ide_devices[drive].drive;
@@ -414,7 +602,11 @@ uint8_t ide_flush_cache(uint8_t drive)
     int tout = IDE_POLL_RETRY;
 
     while (ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY) {
-        if (--tout <= 0) break;
+        if (--tout <= 0) {
+            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+            if (ratelimit_allow(&ratelimit)) plogk("ide: Cache flush BSY timeout on drive %u\n", drive);
+            return 3;
+        }
         nsleep(10);
     }
     ide_write(channel, ATA_REG_HDDEVSEL, 0xe0 | (slavebit << 4));
@@ -447,74 +639,79 @@ uint8_t ide_flush_cache(uint8_t drive)
     return 0;
 }
 
-/* Read and write ATA devices */
-uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t numsects, uint16_t *edi)
+/* Flush write cache */
+uint8_t ide_flush_cache(uint8_t drive)
 {
-    uint8_t  lba_mode, cmd;
-    uint8_t  lba_io[6];
-    uint32_t channel  = ide_devices[drive].channel;
-    uint32_t slavebit = ide_devices[drive].drive;
-    uint32_t bus      = channels[channel].base;
-    uint32_t words    = 256;
-    uint16_t cyl, i;
-    uint8_t  head, sect, err;
+    uint8_t channel = ide_devices[drive].channel;
+    uint8_t err;
 
-    /* Serialise the channel's shared registers across concurrent I/O. The ATA path is polled, so no IRQ is needed while the lock is held. */
     spin_lock(&channels[channel].lock);
     channels[channel].irq_pending = 0;
     channels[channel].nIEN        = 0x02;
     ide_write(channel, ATA_REG_CONTROL, 0x02);
 
-    if (lba >= 0x10000000) {
-        lba_mode  = 2;
-        lba_io[0] = (lba & 0x000000ff) >> 0;
-        lba_io[1] = (lba & 0x0000ff00) >> 8;
-        lba_io[2] = (lba & 0x00ff0000) >> 16;
+    err = ide_flush_cache_locked(drive);
+    spin_unlock(&channels[channel].lock);
+
+    return err;
+}
+
+/* Program the task file for one transfer; the caller holds the channel lock */
+static uint8_t ide_ata_setup(uint8_t drive, uint64_t lba, uint8_t numsects, uint8_t *lba_mode)
+{
+    uint8_t  channel   = ide_devices[drive].channel;
+    uint8_t  head      = 0;
+    uint8_t  lba_io[6] = {0};
+    uint64_t cyl, sect;
+
+    if (ide_devices[drive].command_sets & (1 << 26)) {
+        *lba_mode = 2;
+        lba_io[0] = (lba >> 0) & 0xff;
+        lba_io[1] = (lba >> 8) & 0xff;
+        lba_io[2] = (lba >> 16) & 0xff;
         lba_io[3] = (lba >> 24) & 0xff;
         lba_io[4] = (lba >> 32) & 0xff;
         lba_io[5] = (lba >> 40) & 0xff;
-        head      = 0;
     } else if (ide_devices[drive].capabilities & 0x200) {
-        lba_mode  = 1;
-        lba_io[0] = (lba & 0x00000ff) >> 0;
-        lba_io[1] = (lba & 0x000ff00) >> 8;
-        lba_io[2] = (lba & 0x0ff0000) >> 16;
-        lba_io[3] = 0;
-        lba_io[4] = 0;
-        lba_io[5] = 0;
-        head      = (lba & 0xf000000) >> 24;
+        *lba_mode = 1;
+        lba_io[0] = (lba >> 0) & 0xff;
+        lba_io[1] = (lba >> 8) & 0xff;
+        lba_io[2] = (lba >> 16) & 0xff;
+        head      = (lba >> 24) & 0x0f;
     } else {
-        lba_mode  = 0;
+        *lba_mode = 0;
         sect      = (lba % 63) + 1;
         cyl       = (lba + 1 - sect) / ((uint64_t)16 * 63);
         lba_io[0] = sect;
         lba_io[1] = (cyl >> 0) & 0xff;
         lba_io[2] = (cyl >> 8) & 0xff;
-        lba_io[3] = 0;
-        lba_io[4] = 0;
-        lba_io[5] = 0;
         head      = (lba + 1 - sect) % ((uint64_t)16 * 63) / (63);
     }
-    if (ide_polling(channel, 0) != 0) {
-        spin_unlock(&channels[channel].lock);
-        return 3;
-    }
-    if (lba_mode == 0) {
-        ide_write(channel, ATA_REG_HDDEVSEL, 0xa0 | (slavebit << 4) | head);
-    } else {
-        ide_write(channel, ATA_REG_HDDEVSEL, 0xe0 | (slavebit << 4) | head);
-    }
-    if (lba_mode == 2) {
+    if (ide_polling(channel, 0) != 0) return 3;
+
+    ide_write(channel, ATA_REG_HDDEVSEL, (*lba_mode == 0 ? 0xa0 : 0xe0) | (ide_devices[drive].drive << 4) | head);
+    if (*lba_mode == 2) {
         ide_write(channel, ATA_REG_SECCOUNT1, 0);
         ide_write(channel, ATA_REG_LBA3, lba_io[3]);
         ide_write(channel, ATA_REG_LBA4, lba_io[4]);
         ide_write(channel, ATA_REG_LBA5, lba_io[5]);
     }
-
     ide_write(channel, ATA_REG_SECCOUNT0, numsects);
     ide_write(channel, ATA_REG_LBA0, lba_io[0]);
     ide_write(channel, ATA_REG_LBA1, lba_io[1]);
     ide_write(channel, ATA_REG_LBA2, lba_io[2]);
+
+    return 0;
+}
+
+/* Perform a PIO data transfer; the caller holds the channel lock and programmed the task file */
+static uint8_t ide_ata_pio_transfer(uint8_t direction, uint8_t drive, uint8_t lba_mode, uint8_t numsects, uint16_t *edi)
+{
+    uint8_t  channel = ide_devices[drive].channel;
+    uint32_t bus     = channels[channel].base;
+    uint16_t words   = 256;
+    uint16_t i;
+    uint8_t  cmd, err;
 
     if (direction == ATA_READ) {
         cmd = lba_mode == 2 ? ATA_CMD_READ_PIO_EXT : ATA_CMD_READ_PIO;
@@ -523,38 +720,215 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
     }
     ide_write(channel, ATA_REG_COMMAND, cmd);
 
-    if (direction == 0) {
-        /* PIO Read */
-        uint16_t *word_ = edi;
+    if (direction == ATA_READ) {
         for (i = 0; i < numsects; i++) {
             err = ide_polling(channel, 1);
-            if (err != 0) {
-                spin_unlock(&channels[channel].lock);
-                return err;
-            }
-            insl(bus, (uint32_t *)(word_ + ((size_t)i * words)), words / 2);
+            if (err != 0) return err;
+            insl(bus, (uint32_t *)(edi + ((size_t)i * words)), words / 2);
         }
     } else {
-        /* PIO Write */
-        uint16_t *word_ = edi;
         for (i = 0; i < numsects; i++) {
-            err = ide_polling(channel, 0);
-            if (err != 0) plogk("ide: PIO write poll error %u on drive %u LBA %llu\n", err, drive, lba);
-            for (uint32_t h = 0; h < words; h++) outw(bus, word_[(i * words) + h]);
+            err = ide_polling(channel, 1);
+            if (err != 0) return err;
+            for (uint32_t h = 0; h < words; h++) outw(bus, edi[((size_t)i * words) + h]);
         }
-        ide_write(channel, ATA_REG_COMMAND, (char[]) {ATA_CMD_CACHE_FLUSH, ATA_CMD_CACHE_FLUSH, ATA_CMD_CACHE_FLUSH_EXT}[lba_mode]);
-        err = ide_polling(channel, 0);
-        if (err != 0) plogk("ide: PIO write flush poll error %u on drive %u LBA %llu\n", err, drive, lba);
+        err = ide_flush_cache_locked(drive);
+        if (err != 0) return err;
     }
-    spin_unlock(&channels[channel].lock);
     return 0;
+}
+
+/* Run one bus-master chunk; the caller holds the channel lock and programmed the task file */
+static uint8_t ide_ata_dma_chunk(uint8_t direction, uint8_t drive, uint8_t lba_mode, uint8_t numsects, uint16_t *edi)
+{
+    uint8_t  channel = ide_devices[drive].channel;
+    uint16_t bytes   = (uint16_t)(numsects * 512);
+    uint8_t  cmd, err;
+
+    if (direction == ATA_WRITE) {
+        memcpy(channels[channel].dma_buf, edi, bytes);
+        dma_write_barrier();
+    }
+
+    ide_bm_clear_status(channel);
+    ide_bm_set_prd(channel, bytes);
+
+    if (direction == ATA_READ) {
+        cmd = lba_mode == 2 ? ATA_CMD_READ_DMA_EXT : ATA_CMD_READ_DMA;
+    } else {
+        cmd = lba_mode == 2 ? ATA_CMD_WRITE_DMA_EXT : ATA_CMD_WRITE_DMA;
+    }
+    ide_write(channel, ATA_REG_COMMAND, cmd);
+    ide_bm_start(channel, direction == ATA_WRITE);
+
+    err = ide_bm_wait(channel);
+    if (err != 0) {
+        ide_bm_stop(channel);
+        return err;
+    }
+    if (direction == ATA_READ) {
+        dma_read_barrier();
+        memcpy(edi, channels[channel].dma_buf, bytes);
+    }
+
+    return 0;
+}
+
+/* Perform a bus-master DMA transfer in bounce-buffer sized chunks */
+static uint8_t ide_ata_dma_transfer(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t numsects, uint16_t *edi)
+{
+    uint8_t done = 0;
+    uint8_t err;
+
+    while (done < numsects) {
+        uint8_t chunk    = numsects - done;
+        uint8_t lba_mode = 0;
+
+        if (chunk > ATA_DMA_MAX_SECTORS) chunk = ATA_DMA_MAX_SECTORS;
+        err = ide_ata_setup(drive, lba + done, chunk, &lba_mode);
+        if (err != 0) return err;
+
+        if (lba_mode == 0) return 3;
+        err = ide_ata_dma_chunk(direction, drive, lba_mode, chunk, edi + ((size_t)done * 256));
+        if (err != 0) return err;
+
+        done += chunk;
+    }
+    if (direction == ATA_WRITE) return ide_flush_cache_locked(drive);
+
+    return 0;
+}
+
+/* Drop a drive to PIO after a bus-master error; a stuck BSY resets the channel */
+void ide_dma_fallback(uint8_t drive)
+{
+    uint8_t is_atapi = drive < 4 && atapi_devices[drive].reserved;
+    uint8_t channel  = is_atapi ? atapi_devices[drive].channel : ide_devices[drive].channel;
+
+    if (!channels[channel].bmide) return;
+    ide_bm_stop(channel);
+    ide_bm_clear_status(channel);
+    ide_devices[drive].dma_enabled = 0;
+
+    if (is_atapi) atapi_devices[drive].dma_enabled = 0;
+    if (!(ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY)) return;
+
+    /* A channel reset also clears the firmware's DMA mode */
+    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    if (ratelimit_allow(&ratelimit)) plogk("ide: Channel %u DMA timeout, resetting to PIO.\n", channel);
+
+    if (is_atapi) {
+        atapi_soft_reset(drive);
+    } else {
+        ide_soft_reset(drive);
+    }
+
+    /* SRST resets both drives on the channel, so every ATAPI drive needs its unit attention cleared */
+    for (int d = 0; d < 4; d++) {
+        if (ide_devices[d].reserved && ide_devices[d].channel == channel) ide_devices[d].dma_enabled = 0;
+        if (atapi_devices[d].reserved && atapi_devices[d].channel == channel) {
+            atapi_devices[d].dma_enabled = 0;
+            atapi_reset_recover(d);
+        }
+    }
+    if (channels[channel].dma_ok) {
+        free_frames(channels[channel].dma_buf_phys, ATA_DMA_BUF_PAGES);
+        free_frames(channels[channel].prd_phys, 1);
+        channels[channel].dma_ok       = 0;
+        channels[channel].dma_buf      = NULL;
+        channels[channel].dma_buf_phys = 0;
+        channels[channel].prd_phys     = 0;
+        channels[channel].prd          = NULL;
+    }
+}
+
+/*
+ * The firmware paired host timing with the drive's DMA mode; reuse it instead of
+ * per-vendor chipset programming (Intel/VIA/SiS/AMD/NVIDIA/ATI/...).  A boot-time
+ * DMA/PIO comparison validates it; full speed still needs those chipset drivers.
+ */
+static uint8_t ide_validate_ata(uint8_t drive)
+{
+    uint8_t channel = ide_devices[drive].channel;
+    uint8_t lba_mode;
+    uint8_t dma_tried = 0;
+    uint8_t err;
+
+    if (!channels[channel].dma_ok) return 0;
+    if (!(ide_devices[drive].capabilities & 0x100)) return 0;
+    if (!(ide_devices[drive].command_sets & (1 << 26)) && !(ide_devices[drive].capabilities & 0x200)) return 0;
+    if (ide_devices[drive].size < 8) return 0;
+
+    spin_lock(&channels[channel].lock);
+    channels[channel].irq_pending = 0;
+    channels[channel].nIEN        = 0x02;
+    ide_write(channel, ATA_REG_CONTROL, 0x02);
+
+    err = ide_ata_setup(drive, 0, 8, &lba_mode);
+    if (err == 0) err = ide_ata_pio_transfer(ATA_READ, drive, lba_mode, 8, ide_validate_pio);
+    if (err == 0) {
+        dma_tried = 1;
+        err       = ide_ata_dma_transfer(ATA_READ, drive, 0, 8, ide_validate_dma);
+        if (err == 0 && memcmp(ide_validate_pio, ide_validate_dma, 4096) != 0) err = 4;
+    }
+
+    if (err != 0) {
+        if (!dma_tried) {
+            plogk("ide: DMA validation skipped on drive %u (PIO read error %u), using PIO.\n", drive, err);
+            spin_unlock(&channels[channel].lock);
+            return 0;
+        }
+        ide_dma_fallback(drive);
+        plogk("ide: DMA validation failed on drive %u, using PIO.\n", drive);
+        spin_unlock(&channels[channel].lock);
+        return 0;
+    }
+
+    spin_unlock(&channels[channel].lock);
+    return 1;
+}
+
+/* Read and write ATA devices */
+uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t numsects, uint16_t *edi)
+{
+    uint8_t channel  = ide_devices[drive].channel;
+    uint8_t lba_mode = 0;
+    uint8_t err;
+
+    /* A zero sector count means 256 sectors in the task file */
+    if (numsects == 0) return 0;
+
+    /* Serialise the channel's shared registers across concurrent I/O. Both paths are polled, so no IRQ is needed while the lock is held. */
+    spin_lock(&channels[channel].lock);
+    channels[channel].irq_pending = 0;
+    channels[channel].nIEN        = 0x02;
+    ide_write(channel, ATA_REG_CONTROL, 0x02);
+
+    if (ide_devices[drive].dma_enabled && channels[channel].dma_ok) {
+        err = ide_ata_dma_transfer(direction, drive, lba, numsects, edi);
+        if (err == 0) {
+            spin_unlock(&channels[channel].lock);
+            return 0;
+        }
+
+        ide_dma_fallback(drive);
+        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+        if (ratelimit_allow(&ratelimit)) plogk("ide: DMA error %u on drive %u, falling back to PIO.\n", err, drive);
+    }
+
+    err = ide_ata_setup(drive, lba, numsects, &lba_mode);
+    if (err == 0) err = ide_ata_pio_transfer(direction, drive, lba_mode, numsects, edi);
+
+    spin_unlock(&channels[channel].lock);
+    return err;
 }
 
 /* Read multiple sectors from an IDE device */
 int ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi)
 {
     if (drive > 3 || !ide_devices[drive].reserved) return -ENODEV;
-    if ((lba >= ide_devices[drive].size || numsects > ide_devices[drive].size - lba) && (ide_devices[drive].type == IDE_ATA)) return -EINVAL;
+    if (ide_devices[drive].type == IDE_ATAPI && ide_devices[drive].size == 0) return -ENOMEDIUM;
+    if (lba >= ide_devices[drive].size || numsects > ide_devices[drive].size - lba) return -EINVAL;
 
     /* Reading in PIO mode via polling and IRQ */
     uint8_t err = 0;
@@ -563,7 +937,9 @@ int ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *ed
     } else if (ide_devices[drive].type == IDE_ATAPI) {
         err = atapi_read(drive, lba, numsects, edi);
     }
-    (void)ide_print_error(drive, err);
+
+    err = ide_print_error(drive, err);
+    if (err == IDE_ERR_NO_MEDIUM) return -ENOMEDIUM;
     return err ? -EIO : EOK;
 }
 
