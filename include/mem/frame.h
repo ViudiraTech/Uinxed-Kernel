@@ -11,7 +11,7 @@
 #ifndef INCLUDE_FRAME_H_
 #define INCLUDE_FRAME_H_
 
-#include <kernel/debug/ringlog.h>
+#include <kernel/debug/deferlog.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/buddy.h>
@@ -36,7 +36,7 @@ typedef struct {
         unsigned max_order;
 } frame_stats_t;
 
-extern log_buffer_t      frame_log;
+extern deferlog_t        frame_log;
 extern frame_allocator_t frame_allocator;
 
 /* Initialize memory frame */

@@ -34,7 +34,7 @@ typedef struct {
         size_t     frames[CONFIG_FRAME_PCP_HIGH];
 } frame_pcp_t;
 
-log_buffer_t      frame_log;
+deferlog_t        frame_log;
 frame_allocator_t frame_allocator;
 uint64_t          memory_size = 0;
 
@@ -213,7 +213,7 @@ void frame_reclaim_if_needed(size_t requested)
 /* Add one usable region to the buddy, reporting a region it rejects. */
 static void frame_add_buddy_range(size_t start, size_t count)
 {
-    if (buddy_add_range(&frame_allocator.buddy, start, count)) log_buffer_write(&frame_log, "frame: Failed to add 0x%08zx frames from %p to buddy.\n", count, (void *)(start * PAGE_4K_SIZE));
+    if (buddy_add_range(&frame_allocator.buddy, start, count)) deferlog_write(&frame_log, "frame: Failed to add 0x%08zx frames from %p to buddy.\n", count, (void *)(start * PAGE_4K_SIZE));
 }
 
 /* Initialize memory frame */
@@ -232,7 +232,7 @@ void init_frame(void)
             if (region_end > memory_size) memory_size = region_end;
         }
     }
-    log_buffer_write(&frame_log, "frame: Highest usable address is %p\n", (void *)memory_size);
+    deferlog_write(&frame_log, "frame: Highest usable address is %p\n", (void *)memory_size);
     size_t   frame_count      = ALIGN_UP(memory_size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
     size_t   metadata_size    = ALIGN_UP(frame_count * sizeof(buddy_page_t), PAGE_4K_SIZE);
     uint64_t metadata_address = 0;
@@ -249,15 +249,15 @@ void init_frame(void)
         break;
     }
     if (metadata_address) {
-        log_buffer_write(&frame_log, "frame: Ownership metadata allocated at %p (size: %zu KiB)\n", (void *)metadata_address, metadata_size / 1024);
+        deferlog_write(&frame_log, "frame: Ownership metadata allocated at %p (size: %zu KiB)\n", (void *)metadata_address, metadata_size / 1024);
     } else {
-        log_buffer_write(&frame_log, "frame: Failed to allocate ownership metadata.\n");
+        deferlog_write(&frame_log, "frame: Failed to allocate ownership metadata.\n");
         return;
     }
     unsigned max_order = buddy_order_for_units(frame_count);
     if (max_order > CONFIG_BUDDY_MAX_ORDER || ((size_t)1 << max_order) > frame_count) max_order--;
     if (buddy_init(&frame_allocator.buddy, phys_to_virt(metadata_address), frame_count, max_order)) {
-        log_buffer_write(&frame_log, "frame: Failed to initialise buddy metadata.\n");
+        deferlog_write(&frame_log, "frame: Failed to initialise buddy metadata.\n");
         return;
     }
     frame_allocator.frame_count = frame_count;
@@ -290,19 +290,19 @@ void init_frame(void)
                 size_t after_metadata = metadata_start + metadata_count;
                 if (after_metadata < range_end) frame_add_buddy_range(after_metadata, range_end - after_metadata);
             }
-            log_buffer_write(&frame_log, "frame: Added    0x%08zx frames from %p to buddy.\n", count, (void *)start);
+            deferlog_write(&frame_log, "frame: Added    0x%08zx frames from %p to buddy.\n", count, (void *)start);
         }
     }
     size_t metadata_frame_count = metadata_size / PAGE_4K_SIZE;
 
-    log_buffer_write(&frame_log, "frame: Reserved 0x%08zx frames for ownership metadata at %p\n", metadata_frame_count, (void *)metadata_address);
+    deferlog_write(&frame_log, "frame: Reserved 0x%08zx frames for ownership metadata at %p\n", metadata_frame_count, (void *)metadata_address);
 
     frame_allocator.origin_frames   = origin_frames;
     frame_allocator.usable_frames   = frame_allocator.buddy.free_pages;
     frame_allocator.metadata_frames = metadata_frame_count;
 
-    log_buffer_write(&frame_log, "frame: Total physical frames = 0x%08zx (%zu KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
-    log_buffer_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08zx (%zu KiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
+    deferlog_write(&frame_log, "frame: Total physical frames = 0x%08zx (%zu KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
+    deferlog_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08zx (%zu KiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
 }
 
 /* Allocate count frames aligned to 2^alignment_order pages. */

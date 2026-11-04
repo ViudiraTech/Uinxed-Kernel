@@ -33,6 +33,15 @@ menu "Processor type and features"
     help
       Limits the maximum number of CPUs the kernel can use.
       Set to 0 for no limit (auto-detect all cores).
+
+  config PER_CPU_TABLE_MAX_CPUS
+    int "Maximum CPUs indexed by per-CPU tables"
+    default 256
+    range 1 1024
+    help
+      Static array bound for per-CPU printk recursion tracking, NMI
+      message parking, and AP microcode revision records. Must cover
+      every CPU id the kernel can observe.
 endmenu
 
 menu "Memory management"
@@ -1411,6 +1420,15 @@ menu "Device Drivers"
       help
         I2C adapters registered with the I2C core.
   endmenu
+
+  menu "ACPI support"
+    config ACPI_MAX_GPE_HANDLERS
+      int "ACPI GPE handler slots"
+      default 32
+      range 4 256
+      help
+        Handlers that can be registered for general purpose events.
+  endmenu
 endmenu
 
 menu "File systems"
@@ -1557,80 +1575,76 @@ menu "File systems"
 endmenu
 
 menu "Kernel interfaces"
-  config POLL_NFDS_MAX
-    int "Maximum poll descriptors"
-    default 65536
-    range 64 1048576
-    help
-      Upper bound on the number of descriptors in a single poll() call.
+  menu "System call limits"
+    config POLL_NFDS_MAX
+      int "Maximum poll descriptors"
+      default 65536
+      range 64 1048576
+      help
+        Upper bound on the number of descriptors in a single poll() call.
 
-  config SELECT_NFDS_MAX
-    int "Maximum select descriptors"
-    default 1024
-    range 64 65536
-    help
-      Upper bound on the file descriptor count accepted by select().
+    config SELECT_NFDS_MAX
+      int "Maximum select descriptors"
+      default 1024
+      range 64 65536
+      help
+        Upper bound on the file descriptor count accepted by select().
 
-  config SIGQUEUE_MAX
-    int "Maximum queued realtime signals per process"
-    default 32
-    range 1 1024
-    help
-      Maximum number of pending realtime signals queued per process.
+    config SIGQUEUE_MAX
+      int "Maximum queued realtime signals per process"
+      default 32
+      range 1 1024
+      help
+        Maximum number of pending realtime signals queued per process.
 
-  config SECCOMP_MAX_INSNS_PER_FILTER
-    int "Maximum seccomp BPF instructions per filter"
-    default 4096
-    range 32 65536
-    help
-      Upper bound on the number of BPF instructions in a single seccomp filter.
+    config SECCOMP_MAX_INSNS_PER_FILTER
+      int "Maximum seccomp BPF instructions per filter"
+      default 4096
+      range 32 65536
+      help
+        Upper bound on the number of BPF instructions in a single seccomp filter.
+  endmenu
 
-  config KERNEL_LOG
-    bool "Kernel runtime log output"
-    default y
-    help
-      Emit kernel log messages (plogk) to the console with a timestamp.
-      Turning this off silences them; printk() is unaffected.
+  menu "Kernel logging"
+    config KERNEL_LOG
+      bool "Kernel runtime log output"
+      default y
+      help
+        Emit kernel log messages (plogk) to the console with a timestamp.
+        Turning this off compiles plogk() out entirely: no formatting, no
+        console output, and no record kept.  printk() is unaffected.
 
-  config NMI_LOG_MAX_CPUS
-    int "NMI log per-CPU slots"
-    default 256
-    range 1 1024
-    help
-      Per-CPU buffers reserved for logging from NMI context.
+    config DEFERLOG_MAX_LENGTH
+      int "Deferred log entry length"
+      depends on KERNEL_LOG
+      default 1024
+      range 64 4096
+      help
+        Maximum length of one deferred log entry, terminator included.
+        Deferred entries are only ever flushed through plogk().
 
-  config LOG_MAX_LENGTH
-    int "Ring log entry length"
-    default 1024
-    range 64 4096
-    help
-      Maximum length of one ring log entry, terminator included.
+    config DEFERLOG_ENTRY_COUNT
+      int "Deferred log entry count"
+      depends on KERNEL_LOG
+      default 32
+      range 4 1024
+      help
+        Number of entries retained by each deferred log.
+  endmenu
 
-  config LOG_BUFFER_SIZE
-    int "Ring log entry count"
-    default 32
-    range 4 1024
-    help
-      Number of entries retained by each ring log.
+  menu "Uevent notifications"
+    config UEVENT_BUFFER_SIZE
+      int "uevent environment block size"
+      default 2048
+      range 256 16384
+      help
+        Bytes reserved for the environment block of one uevent.
 
-  config UEVENT_BUFFER_SIZE
-    int "uevent environment block size"
-    default 2048
-    range 256 16384
-    help
-      Bytes reserved for the environment block of one uevent.
-
-  config UEVENT_NUM_ENVP
-    int "uevent environment entries"
-    default 64
-    range 4 256
-    help
-      Maximum environment variables carried by one uevent.
-
-  config ACPI_MAX_GPE_HANDLERS
-    int "ACPI GPE handler slots"
-    default 32
-    range 4 256
-    help
-      Handlers that can be registered for general purpose events.
+    config UEVENT_NUM_ENVP
+      int "uevent environment entries"
+      default 64
+      range 4 256
+      help
+        Maximum environment variables carried by one uevent.
+  endmenu
 endmenu

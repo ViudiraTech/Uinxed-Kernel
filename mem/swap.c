@@ -231,7 +231,7 @@ void swap_init(void)
     memset(swap_areas, 0, sizeof(swap_areas));
     swap_lock.lock   = 0;
     swap_lock.rflags = 0;
-    log_buffer_write(&frame_log, "swap: Manager initialized (%d area(s) available)\n", CONFIG_SWAP_MAX_AREAS);
+    deferlog_write(&frame_log, "swap: Manager initialized (%d area(s) available)\n", CONFIG_SWAP_MAX_AREAS);
 }
 
 /* Reserve an unused swap area slot and its type index. */
