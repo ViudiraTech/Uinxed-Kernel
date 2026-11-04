@@ -541,7 +541,7 @@ void smp_init(void)
 
     /* aligned_alloc() does not clear memory; never expose stale per-CPU state. */
     memset(cpus, 0, sizeof(cpu_processor_t) * cpu_count);
-    plogk("smp: Found %zd CPUs.\n", cpu_count);
+    plogk("smp: Found %zu CPUs.\n", cpu_count);
 
     /*
      * The Limine MP response identifies the BSP by LAPIC ID but does not promise
