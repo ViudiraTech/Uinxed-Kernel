@@ -67,12 +67,20 @@ static void blk_empty_reference(const struct blockdev_device *dev)
     (void)dev;
 }
 
+/* Block I/O empty revalidate. */
+static int blk_empty_revalidate(struct blockdev_device *dev)
+{
+    (void)dev;
+    return EOK;
+}
+
 static struct blockdev_ops blk_empty_ops = {
     .read_sectors  = blk_empty_read,
     .write_sectors = blk_empty_write,
     .flush         = blk_empty_flush,
     .retain        = blk_empty_reference,
     .release       = blk_empty_reference,
+    .revalidate    = blk_empty_revalidate,
 };
 
 /* NVMe backend ops (forwarders to nvme.c) */
@@ -157,10 +165,30 @@ static int blk_ide_flush(const blockdev_device_t *dev)
     return ide_flush_cache(dev->drive) == 0 ? EOK : -EIO;
 }
 
+/* Refresh PATA optical geometry after a media change. */
+static int blk_ide_revalidate(blockdev_device_t *dev)
+{
+    uint32_t lba = 0, blk = 0;
+    int      status;
+
+    if (!dev) return -EINVAL;
+    if (!dev->optical) return EOK;
+
+    status = atapi_revalidate(dev->drive, &lba, &blk);
+    if (status == EOK) {
+        dev->sector_count = lba;
+        dev->sector_size  = blk;
+    } else {
+        dev->sector_count = 0;
+    }
+    return status;
+}
+
 static struct blockdev_ops blk_ide_ops = {
     .read_sectors  = blk_ide_read_sectors,
     .write_sectors = blk_ide_write_sectors,
     .flush         = blk_ide_flush,
+    .revalidate    = blk_ide_revalidate,
 };
 
 static int blk_ide_type_id = -1;
@@ -234,8 +262,28 @@ static int blk_ahci_atapi_read_sectors(const blockdev_device_t *dev, uint64_t lb
     return EOK;
 }
 
+/* Refresh SATA optical geometry after a media change. */
+static int blk_ahci_atapi_revalidate(blockdev_device_t *dev)
+{
+    uint32_t lba = 0, blk = 0;
+    int      status;
+
+    if (!dev) return -EINVAL;
+
+    status = ahci_satapi_revalidate(dev->drive, &lba, &blk);
+    if (status == EOK) {
+        dev->sector_count = lba;
+        dev->sector_size  = blk;
+    } else {
+        dev->sector_count = 0;
+    }
+
+    return status;
+}
+
 static struct blockdev_ops blk_ahci_atapi_ops = {
     .read_sectors = blk_ahci_atapi_read_sectors,
+    .revalidate   = blk_ahci_atapi_revalidate,
 };
 
 static int blk_ahci_atapi_type_id = -1;
@@ -333,9 +381,15 @@ int blockdev_open_nvme(void *ns, blockdev_device_t *device)
 int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device)
 {
 #if CONFIG_ATA
+    uint32_t lba = 0;
+    uint32_t blk = 0;
+
     if (!device) return -EINVAL;
     if (drive > 3 || !atapi_devices[drive].reserved) return -ENODEV;
     if (atapi_devices[drive].type != IDE_ATAPI) return -EINVAL;
+
+    /* Pick up a disc inserted after the boot probe. */
+    (void)atapi_revalidate(drive, &lba, &blk);
 
     device->ops_id       = (uint8_t)blk_ide_type();
     device->backend_data = NULL;
@@ -381,9 +435,15 @@ int blockdev_open_ahci(uint8_t drive, blockdev_device_t *device)
 int blockdev_open_ahci_atapi(uint8_t drive, blockdev_device_t *device)
 {
 #if CONFIG_ATA
+    uint32_t lba = 0;
+    uint32_t blk = 0;
+
     if (!device) return -EINVAL;
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
     if (ahci_devices[drive].type != AHCI_DEV_SATAPI) return -EINVAL;
+
+    /* Pick up a disc inserted after the boot probe. */
+    (void)ahci_satapi_revalidate(drive, &lba, &blk);
 
     device->ops_id       = (uint8_t)blk_ahci_atapi_type();
     device->backend_data = NULL;
@@ -706,6 +766,7 @@ int blockdev_read_sectors(const blockdev_device_t *device, uint64_t lba, uint32_
 {
     if (!device) return -EINVAL;
     if (!count) return EOK;
+    if (device->optical && device->sector_count == 0) return -ENOMEDIUM;
     if (!buffer) return -EINVAL;
     if (lba >= device->sector_count || count > device->sector_count - lba) return -EINVAL;
 
@@ -718,6 +779,7 @@ int blockdev_write_sectors(const blockdev_device_t *device, uint64_t lba, uint32
     if (!device) return -EINVAL;
     if (!count) return EOK;
     if (device->read_only) return -EROFS;
+    if (device->optical && device->sector_count == 0) return -ENOMEDIUM;
     if (!buffer) return -EINVAL;
     if (lba >= device->sector_count || count > device->sector_count - lba) return -EINVAL;
 
@@ -729,6 +791,13 @@ int blockdev_flush(const blockdev_device_t *device)
 {
     if (!device) return -EINVAL;
     return blk_ops(device, flush)(device);
+}
+
+/* Refresh removable-media geometry through the backend. */
+int blockdev_revalidate(blockdev_device_t *device)
+{
+    if (!device) return -EINVAL;
+    return blk_ops(device, revalidate)(device);
 }
 
 /* True when the descriptor's sector geometry can address storage. */
@@ -761,6 +830,7 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
     if (!device) return -EINVAL;
     if (!size) return EOK;
     if (!buffer || !blockdev_geometry_valid(device)) return -EINVAL;
+    if (device->optical && device->sector_count == 0) return -ENOMEDIUM;
     if (size > (size_t)128 * 1024 * 1024) return -EINVAL;
     device_bytes = device->sector_count * device->sector_size;
 
@@ -786,7 +856,7 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("blockdev: Read failed at LBA %llu count %u (offset %llu size %zu): %d\n", start_sector, sector_count, offset, size, status);
         free(scratch);
-        return -EIO;
+        return status == -ENOMEDIUM ? -ENOMEDIUM : -EIO;
     }
 
     memcpy(buffer, scratch + sector_offset, size);

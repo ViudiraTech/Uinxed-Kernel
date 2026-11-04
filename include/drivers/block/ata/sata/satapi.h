@@ -48,6 +48,9 @@ uint8_t ahci_satapi_test_unit_ready(uint8_t drive);
 /* Send READ CAPACITY, returning the LBA count and block size */
 uint8_t ahci_satapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size);
 
+/* Refresh capacity after a possible disc change */
+int ahci_satapi_revalidate(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size);
+
 /* Send INQUIRY, returning the vendor and product identification in model */
 uint8_t ahci_satapi_inquiry(uint8_t drive, char *model, size_t model_size);
 

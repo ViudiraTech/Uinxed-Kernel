@@ -13,6 +13,7 @@
 #include <drivers/block/ata/sata/ahci.h>
 #include <drivers/block/ata/sata/satapi.h>
 #include <kernel/debug/printk.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <libs/util/byteorder.h>
@@ -25,6 +26,25 @@
 
 ahci_satapi_device_t ahci_satapi_devices[AHCI_MAX_DEVICES];
 int                  ahci_satapi_device_count = 0;
+
+/* Restart the port engine to release a failed command's PxCI bit. */
+static void satapi_port_recover(ahci_port_state_t *port)
+{
+    volatile uint8_t *p = port->port_mmio;
+    int               tout;
+
+    ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) & ~PORT_CMD_ST);
+
+    tout = 500000;
+    while (ahci_read32(p, PORT_CMD) & PORT_CMD_CR)
+        if (--tout <= 0) return;
+
+    ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) | PORT_CMD_ST);
+
+    tout = 500000;
+    while (!(ahci_read32(p, PORT_CMD) & PORT_CMD_CR))
+        if (--tout <= 0) return;
+}
 
 /* Issue an ATAPI packet command via AHCI */
 static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t *cdb, uint16_t cdb_len, uint8_t direction, int is_dma, uint64_t buf_phys, uint32_t byte_count)
@@ -73,7 +93,7 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
     hdr->ctbau = (uint32_t)(port->ct_phys >> 32);
 
     tout = 1000000;
-    while (ahci_read32(p, PORT_TFDATA) & 0x88)
+    while (ahci_read32(p, PORT_TFDATA) & 0x80)
         if (--tout <= 0) return -ETIMEDOUT;
 
     ahci_write32(p, PORT_IRQ_STAT, 0xFFFFFFFF);
@@ -84,12 +104,19 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
         if (!(ahci_read32(p, PORT_CI) & (uint32_t)(1 << slot))) break;
         if (ahci_read32(p, PORT_IRQ_STAT) & PORT_IRQ_TF_ERR) {
             ahci_write32(p, PORT_IRQ_STAT, PORT_IRQ_TF_ERR);
+            satapi_port_recover(port);
             return -EIO;
         }
-        if (--tout <= 0) return -ETIMEDOUT;
+        if (--tout <= 0) {
+            satapi_port_recover(port);
+            return -ETIMEDOUT;
+        }
     }
 
-    if (ahci_read32(p, PORT_TFDATA) & 0x01) return -EIO;
+    if (ahci_read32(p, PORT_TFDATA) & 0x01) {
+        satapi_port_recover(port);
+        return -EIO;
+    }
     if (byte_count && hdr->prdbc != byte_count) return -EIO;
     return 0;
 }
@@ -239,6 +266,74 @@ uint8_t ahci_satapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *b
     *blk_size = load_be32(cap_buf + 4);
 
     return 0;
+}
+
+/* Fetch sense data after a failed packet command. */
+static int satapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc)
+{
+    uint8_t cdb[SATAPI_CDB_LEN] = {GPCMD_REQUEST_SENSE, 0, 0, 0, SCSI_SENSE_BUFFER_SIZE, 0};
+    uint8_t sense[SCSI_SENSE_BUFFER_SIZE];
+    size_t  len = sizeof(sense);
+
+    memset(sense, 0, sizeof(sense));
+    if (ahci_satapi_send_packet(drive, cdb, SCSI_SENSE_BUFFER_SIZE, SATAPI_PROT_PIO, sense, &len)) return -EIO;
+
+    *sense_key = sense[2] & 0x0F;
+    *asc       = sense[12];
+    return 0;
+}
+
+/* Refresh capacity after a possible disc change. */
+int ahci_satapi_revalidate(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size)
+{
+    uint32_t lba = 0;
+    uint32_t blk = 0;
+
+    if (drive >= AHCI_MAX_DEVICES || !ahci_satapi_devices[drive].reserved) return -ENODEV;
+    if (!lba_size || !blk_size) return -EINVAL;
+
+    for (int attempt = 0; attempt < 20; attempt++) {
+        uint8_t key = 0;
+        uint8_t asc = 0;
+        uint8_t retryable;
+
+        if (ahci_satapi_read_capacity(drive, &lba, &blk) == 0) {
+            if (lba == 0 || blk == 0 || blk > 4096) {
+                ahci_satapi_devices[drive].lba_size = 0;
+                ahci_devices[drive].size            = 0;
+                return -ENOMEDIUM;
+            }
+            ahci_satapi_devices[drive].lba_size = lba;
+            ahci_satapi_devices[drive].blk_size = blk;
+            ahci_devices[drive].size            = lba;
+            ahci_devices[drive].sector_size     = blk;
+            *lba_size                           = lba;
+            *blk_size                           = blk;
+            return EOK;
+        }
+        lba = 0;
+        blk = 0;
+
+        /*
+         * A new disc reports unit attention or becoming ready; 0x3A also means empty,
+         * so it gets only two quick retries; REQUEST SENSE clears the unit attention.
+         */
+        retryable = 0;
+        if (satapi_request_sense(drive, &key, &asc) == 0) {
+            if ((key == 6 && asc == 0x28) || (key == 2 && (asc == 0x04 || asc == 0x11))) {
+                retryable = 2;
+            } else if (key == 2 && asc == 0x3A && attempt < 2) {
+                retryable = 1;
+            }
+        }
+        if (!retryable) break;
+        if (retryable == 2) msleep(50);
+    }
+
+    ahci_satapi_devices[drive].lba_size = 0;
+    ahci_devices[drive].size            = 0;
+
+    return -ENOMEDIUM;
 }
 
 /* Send INQUIRY, writing the vendor and product identification into model */
