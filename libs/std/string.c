@@ -98,7 +98,7 @@ size_t strlen(const char *str)
 }
 
 /* Copies the string pointed to by src to dest */
-char *strcpy(char *dest, const char *src)
+__attribute__((used)) char *strcpy(char *dest, const char *src) // The `used` attribute is a workaround for a GCC LTO bug.
 {
     char *_dest = dest;
     while ((*dest++ = *src++) != '\0');
