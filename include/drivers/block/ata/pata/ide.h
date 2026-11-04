@@ -38,13 +38,38 @@
 #define ATA_CMD_WRITE_PIO     0x30
 #define ATA_CMD_WRITE_PIO_EXT 0x34
 #define ATA_CMD_WRITE_DMA     0xca
-#define ATA_CMD_SET_FEATURES  0xef
 
 #define IDE_ATA   0x00
 #define IDE_ATAPI 0x01
 
 #define IDE_POLL_RETRY  100000
 #define IDE_IRQ_TIMEOUT 500000
+
+/* ide_print_error() result for a medium-not-present sense */
+#define IDE_ERR_NO_MEDIUM 24
+
+/* Bus-master IDE register offsets within a channel's BAR4 window */
+#define ATA_BM_CMD    0x00
+#define ATA_BM_STATUS 0x02
+#define ATA_BM_PRDT   0x04
+
+/* ATA_BM_CMD bits */
+#define ATA_BM_CMD_START 0x01
+#define ATA_BM_CMD_DIR   0x08
+
+/* ATA_BM_STATUS bits */
+#define ATA_BM_STATUS_ACTIVE 0x01
+#define ATA_BM_STATUS_ERR    0x02
+#define ATA_BM_STATUS_INT    0x04
+#define ATA_BM_STATUS_CLEAR  0x06
+
+/* PRD flags */
+#define ATA_PRD_EOT 0x8000
+
+/* DMA bounce buffer geometry */
+#define ATA_DMA_BUF_PAGES   8
+#define ATA_DMA_MAX_BYTES   (ATA_DMA_BUF_PAGES * 4096)
+#define ATA_DMA_MAX_SECTORS 64
 
 #define ATA_MASTER         0x00
 #define ATA_SLAVE          0x01
@@ -73,16 +98,28 @@
 #define ATA_WRITE 0x01
 
 typedef struct {
+        uint32_t base;
+        uint16_t count;
+        uint16_t flags;
+} __attribute__((packed)) ata_prd_t;
+
+typedef struct {
         uint16_t base;
         uint16_t ctrl;
         uint16_t bmide;
         uint8_t  nIEN;
 
+        /* Per-channel bus-master bounce buffer and PRD table */
+        uint8_t    dma_ok;
+        uint8_t   *dma_buf;
+        uint64_t   dma_buf_phys;
+        uint64_t   prd_phys;
+        ata_prd_t *prd;
+
         /*
-         * Serialises the channel's shared registers across concurrent I/O on
-         * the same channel (two CPUs accessing drives on one cable).  The ATA
-         * path is polled, so the spinlock may be held across an access; the
-         * IRQ-driven ATAPI path releases it around the interrupt wait.
+         * Serialises the shared channel registers across concurrent I/O on one
+         * cable (two CPUs accessing two drives); both paths poll completion, so
+         * the lock is held for the whole transfer.
          */
         spinlock_t lock;
 
@@ -103,6 +140,7 @@ typedef struct {
         uint32_t command_sets;
         uint64_t size;
         uint8_t  model[41];
+        uint8_t  dma_enabled;
 } ide_device_t;
 
 extern ide_channel_registers_t channels[2];
@@ -133,10 +171,20 @@ uint8_t ide_polling(uint8_t channel, uint32_t advanced_check);
 /* Soft reset the ATA device */
 void ide_soft_reset(uint8_t drive);
 
+/* Drop a drive to PIO after a bus-master error; a stuck BSY resets the channel */
+void ide_dma_fallback(uint8_t drive);
+
 /* Flush the drive's write cache */
 uint8_t ide_flush_cache(uint8_t drive);
 
-/* Perform a PIO read or write on an ATA drive */
+/* Bus-master primitives; callers hold the channel lock */
+void    ide_bm_clear_status(uint8_t channel);
+void    ide_bm_set_prd(uint8_t channel, uint16_t bytes);
+void    ide_bm_start(uint8_t channel, uint8_t write);
+void    ide_bm_stop(uint8_t channel);
+uint8_t ide_bm_wait(uint8_t channel);
+
+/* Perform an ATA read or write (bus-master DMA when the BIOS mode validates, PIO otherwise) */
 uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t numsects, uint16_t *edi);
 
 /* Read multiple sectors from an IDE device (ATA or ATAPI); returns 0 or -errno */
