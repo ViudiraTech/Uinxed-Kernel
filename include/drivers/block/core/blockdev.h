@@ -46,6 +46,7 @@ typedef struct blockdev_ops {
         int (*flush)(const struct blockdev_device *dev);
         void (*retain)(const struct blockdev_device *dev);
         void (*release)(const struct blockdev_device *dev);
+        int (*revalidate)(struct blockdev_device *dev);
 } *blockdev_ops_t;
 
 typedef struct blockdev_device {
@@ -106,6 +107,9 @@ int blockdev_write_sectors(const blockdev_device_t *device, uint64_t lba, uint32
 
 /* Commit volatile device write caches, if the backend provides one. */
 int blockdev_flush(const blockdev_device_t *device);
+
+/* Refresh removable-media geometry; fixed disks pass through unchanged. */
+int blockdev_revalidate(blockdev_device_t *device);
 
 /* True when the descriptor's sector geometry can address storage. */
 bool blockdev_geometry_valid(const blockdev_device_t *device);

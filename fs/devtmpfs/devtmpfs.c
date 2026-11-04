@@ -207,6 +207,33 @@ static size_t devtmpfs_block_write(void *context, const void *buffer, size_t off
     return blockdev_write_bytes(device, offset, buffer, size) == EOK ? size : 0;
 }
 
+/* Re-probe removable media and refresh the node geometry. */
+static int devtmpfs_block_refresh(vfs_node_t node)
+{
+    tmpfs_file_t      *handle;
+    blockdev_device_t *device;
+    int                status = EOK;
+
+    if (!node || !(handle = node->handle) || !handle->device.ctx) return -ENODEV;
+    device = handle->device.ctx;
+    if (device->optical) status = blockdev_revalidate(device);
+
+    node->blksz = device->sector_size;
+    node->size  = device->sector_count * device->sector_size;
+
+    return status;
+}
+
+/* tmpfs device callback: refresh removable media on open. */
+static int devtmpfs_block_open(vfs_node_t node, uint64_t flags, void **private_data)
+{
+    (void)flags;
+    if (private_data) *private_data = NULL;
+
+    (void)devtmpfs_block_refresh(node);
+    return EOK;
+}
+
 /* Geometry queries for whole disks and partition nodes. */
 static int devtmpfs_block_ioctl(void *context, size_t request, void *argument)
 {
@@ -258,6 +285,7 @@ static int devtmpfs_block_ops_init(tmpfs_device_ops_t *ops, const blockdev_devic
     ops->read    = devtmpfs_block_read;
     ops->write   = devtmpfs_block_write;
     ops->ioctl   = devtmpfs_block_ioctl;
+    ops->open    = devtmpfs_block_open;
     ops->destroy = devtmpfs_block_destroy;
     ops->ctx     = context;
     return EOK;
@@ -289,6 +317,12 @@ int devtmpfs_open_block_device(const char *path, blockdev_device_t *device)
     if (!handle || !(handle->node_type & file_block) || handle->device.read != devtmpfs_block_read || !handle->device.ctx) {
         vfs_close(node);
         return -ENODEV;
+    }
+
+    int status = devtmpfs_block_refresh(node);
+    if (status != EOK) {
+        vfs_close(node);
+        return status;
     }
 
     *device = *(blockdev_device_t *)handle->device.ctx;
