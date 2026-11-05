@@ -11,7 +11,7 @@
 #ifndef INCLUDE_8250_H_
 #define INCLUDE_8250_H_
 
-#include <kernel/debug/ringlog.h>
+#include <kernel/debug/deferlog.h>
 
 #define UART8250_REG_DATA 0
 #define UART8250_REG_IER  1
@@ -27,7 +27,7 @@
 #define UART8250_BASE3 0x3e8
 #define UART8250_BASE4 0x2e8
 
-extern log_buffer_t serial_log;
+extern deferlog_t serial_log;
 
 #if CONFIG_SERIAL
 

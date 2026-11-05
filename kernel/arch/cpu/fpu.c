@@ -66,8 +66,8 @@ static uint8_t fpu_sse_enabled;
 /* Early-boot (pre-SMP) fallback for the BSP only */
 static fpu_percpu_t fpu_early_percpu;
 
-/* Ring-buffered FPU boot configuration dump (flushed by init/main.c once the console is up) */
-log_buffer_t fpu_log;
+/* Deferred FPU boot configuration dump (flushed by init/main.c once the console is up) */
+deferlog_t fpu_log;
 
 /* Check whether the kernel may execute SSE/AVX instructions */
 int kernel_sse_available(void)
@@ -260,7 +260,7 @@ void fpu_init(void)
 
                 /* The pre-heap template is deliberately bounded. */
                 if (fpu_save_size > sizeof(fpu_initial_state)) {
-                    log_buffer_write(&fpu_log, "fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state.\n", fpu_save_size, sizeof(fpu_initial_state));
+                    deferlog_write(&fpu_log, "fpu: XSAVE area (%zu B) exceeds the %zu B template; disabling extended state.\n", fpu_save_size, sizeof(fpu_initial_state));
                     xcr0_mask = XCR0_FPU_MASK;
                     __asm__ volatile("xsetbv" : : "a"((uint32_t)xcr0_mask), "d"((uint32_t)(xcr0_mask >> 32)), "c"(0) : "memory");
                     cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
@@ -284,14 +284,14 @@ void fpu_init(void)
         __atomic_store_n(&fpu_config_ready, 1, __ATOMIC_RELEASE);
 
         /* Buffer the boot FPU/SSE/AVX configuration; the console is not up yet, so flush it before init_gdt(). */
-        log_buffer_write(&fpu_log, "fpu: x87 FPU (MMX=%d, FCW=0x%04x)\n", cpu_support_mmx(), FPU_DEFAULT_FCW);
-        log_buffer_write(&fpu_log, "fpu: SSE (SSE2=%d, SSE3=%d, SSSE3=%d, SSE4.1=%d, SSE4.2=%d)\n", cpu_support_sse2(), cpu_support_sse3(), cpu_support_ssse3(), cpu_support_sse41(),
-                         cpu_support_sse42());
-        log_buffer_write(&fpu_log, "fpu: %s (xsaveopt=%d, XCR0=0x%llx, save size=%zu B)\n", fpu_use_xsave ? "XSAVE/XRSTOR" : "FXSAVE/FXRSTOR", __atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE),
-                         fpu_xstate_mask, fpu_save_size);
-        log_buffer_write(&fpu_log, "fpu: AVX (CPUID support=%d, XCR0 enabled=%d, AVX2 support=%d)\n", cpu_support_avx(), (fpu_xstate_mask & XCR0_AVX_BIT) ? 1 : 0, cpu_support_avx2());
-        log_buffer_write(&fpu_log, "fpu: AVX-512 (AVX512F support=%d, XCR0 enabled=%d, OPMASK=%d, ZMM_HI256=%d, HI16_ZMM=%d)\n", cpu_support_avx512f(), (fpu_xstate_mask & XCR0_AVX512_MASK) ? 1 : 0,
-                         (fpu_xstate_mask & XCR0_OPMASK_BIT) ? 1 : 0, (fpu_xstate_mask & XCR0_ZMM_HI256_BIT) ? 1 : 0, (fpu_xstate_mask & XCR0_HI16_ZMM_BIT) ? 1 : 0);
+        deferlog_write(&fpu_log, "fpu: x87 FPU (MMX=%d, FCW=0x%04x)\n", cpu_support_mmx(), FPU_DEFAULT_FCW);
+        deferlog_write(&fpu_log, "fpu: SSE (SSE2=%d, SSE3=%d, SSSE3=%d, SSE4.1=%d, SSE4.2=%d)\n", cpu_support_sse2(), cpu_support_sse3(), cpu_support_ssse3(), cpu_support_sse41(),
+                       cpu_support_sse42());
+        deferlog_write(&fpu_log, "fpu: %s (xsaveopt=%d, XCR0=0x%llx, save size=%zu B)\n", fpu_use_xsave ? "XSAVE/XRSTOR" : "FXSAVE/FXRSTOR", __atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE),
+                       fpu_xstate_mask, fpu_save_size);
+        deferlog_write(&fpu_log, "fpu: AVX (CPUID support=%d, XCR0 enabled=%d, AVX2 support=%d)\n", cpu_support_avx(), (fpu_xstate_mask & XCR0_AVX_BIT) ? 1 : 0, cpu_support_avx2());
+        deferlog_write(&fpu_log, "fpu: AVX-512 (AVX512F support=%d, XCR0 enabled=%d, OPMASK=%d, ZMM_HI256=%d, HI16_ZMM=%d)\n", cpu_support_avx512f(), (fpu_xstate_mask & XCR0_AVX512_MASK) ? 1 : 0,
+                       (fpu_xstate_mask & XCR0_OPMASK_BIT) ? 1 : 0, (fpu_xstate_mask & XCR0_ZMM_HI256_BIT) ? 1 : 0, (fpu_xstate_mask & XCR0_HI16_ZMM_BIT) ? 1 : 0);
     } else if (fpu_use_xsave) {
         /* Validate and install the boot CPU's immutable XCR0 contract. */
         if (!cpu_support_xsave() || !cpu_xcr0_supports(fpu_xstate_mask)) panic("fpu: AP cannot support boot CPU XCR0 mask 0x%llx", fpu_xstate_mask);

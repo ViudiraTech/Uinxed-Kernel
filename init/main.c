@@ -286,7 +286,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
     /* Architecture */
-    log_buffer_print(&fpu_log);                                    //
+    deferlog_print(&fpu_log);                                      //
                                                                    //
     init_microcode();                                              // Processor Microcode
     init_gdt();                                                    // Global Descriptor Table
@@ -302,16 +302,16 @@ __attribute__((noreturn)) void kernel_entry(void)
     smp_init();                                                    // Symmetric Multiprocessing
                                                                    //
     print_memory_map();                                            //
-    log_buffer_print(&frame_log);                                  //
+    deferlog_print(&frame_log);                                    //
                                                                    //
     /* Hardware Bus & Input */                                     //
     pci_init();                                                    // Peripheral Component Interconnect
     init_ps2();                                                    // PS/2 Controller
     parport_pc_init();                                             // PC Parallel Port (SPP)
                                                                    //
-    log_buffer_print(&serial_log);                                 //
-    log_buffer_print(&parallel_log);                               //
-    log_buffer_print(&lmodule_log);                                //
+    deferlog_print(&serial_log);                                   //
+    deferlog_print(&parallel_log);                                 //
+    deferlog_print(&lmodule_log);                                  //
                                                                    //
     /* Process Management */                                       //
     sched_init();                                                  // Preemptive Scheduler

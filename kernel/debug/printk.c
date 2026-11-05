@@ -31,15 +31,15 @@ static spinlock_t printk_lock = {
     .rflags = 0,
 };
 
-static struct nmi_log_slot nmi_log_slots[CONFIG_NMI_LOG_MAX_CPUS];
-static uint64_t            nmi_log_lost[CONFIG_NMI_LOG_MAX_CPUS]; // dropped per CPU
-static uint8_t             printk_depth[CONFIG_NMI_LOG_MAX_CPUS]; // log nesting, per CPU
+static struct nmi_log_slot nmi_log_slots[CONFIG_PER_CPU_TABLE_MAX_CPUS];
+static uint64_t            nmi_log_lost[CONFIG_PER_CPU_TABLE_MAX_CPUS]; // dropped per CPU
+static uint8_t             printk_depth[CONFIG_PER_CPU_TABLE_MAX_CPUS]; // log nesting, per CPU
 
 /* Per-CPU log recursion depth: the first entry takes printk_lock, a nested one writes unlocked, and an entry past PRINTK_MAX_RECURSION is dropped.  False means drop. */
 static bool printk_enter(uint32_t *cpu_out, uint64_t *rflags)
 {
     uint32_t cpu = get_current_cpu_id();
-    if (cpu >= CONFIG_NMI_LOG_MAX_CPUS) return false;
+    if (cpu >= CONFIG_PER_CPU_TABLE_MAX_CPUS) return false;
     *cpu_out = cpu;
     *rflags  = 0;
 
@@ -116,7 +116,7 @@ bool ratelimit_allow(ratelimit_state_t *state)
 void nmi_log_message(const char *msg, size_t len)
 {
     uint32_t cpu = get_current_cpu_id();
-    if (cpu >= CONFIG_NMI_LOG_MAX_CPUS) return;
+    if (cpu >= CONFIG_PER_CPU_TABLE_MAX_CPUS) return;
     struct nmi_log_slot *s = &nmi_log_slots[cpu];
     if (s->busy) {
         __atomic_add_fetch(&nmi_log_lost[cpu], 1, __ATOMIC_RELAXED);
@@ -132,7 +132,7 @@ void nmi_log_message(const char *msg, size_t len)
 void nmi_log_flush(void)
 {
     uint32_t cpu = get_current_cpu_id();
-    if (cpu >= CONFIG_NMI_LOG_MAX_CPUS) return;
+    if (cpu >= CONFIG_PER_CPU_TABLE_MAX_CPUS) return;
     struct nmi_log_slot *s = &nmi_log_slots[cpu];
 
     /* Report dropped messages (first-wins policy) before the pending one. */

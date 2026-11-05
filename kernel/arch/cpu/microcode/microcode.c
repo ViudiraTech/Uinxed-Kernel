@@ -32,7 +32,7 @@ static int microcode_loader_disabled;
 
 /* Revision the boot processor reported, and one slot per other processor, bounded like the kernel's other per-CPU state. */
 static uint32_t microcode_boot_revision;
-static uint32_t microcode_ap_revisions[CONFIG_NMI_LOG_MAX_CPUS];
+static uint32_t microcode_ap_revisions[CONFIG_PER_CPU_TABLE_MAX_CPUS];
 
 /* Remember what the boot processor reports, so readers stay off the MSRs. */
 static void microcode_cache_revision(void)
@@ -169,12 +169,12 @@ void init_microcode_ap(void)
 
     /* Record this CPU's own revision, whether or not an update was applied. */
     cpu = get_current_cpu_id();
-    if (microcode_backend->revision && cpu < CONFIG_NMI_LOG_MAX_CPUS) microcode_ap_revisions[cpu] = microcode_backend->revision();
+    if (microcode_backend->revision && cpu < CONFIG_PER_CPU_TABLE_MAX_CPUS) microcode_ap_revisions[cpu] = microcode_backend->revision();
 }
 
 /* Revision @cpu runs, for /proc/cpuinfo. */
 uint32_t microcode_revision(uint32_t cpu)
 {
-    if (cpu < CONFIG_NMI_LOG_MAX_CPUS && microcode_ap_revisions[cpu]) return microcode_ap_revisions[cpu];
+    if (cpu < CONFIG_PER_CPU_TABLE_MAX_CPUS && microcode_ap_revisions[cpu]) return microcode_ap_revisions[cpu];
     return microcode_boot_revision;
 }
