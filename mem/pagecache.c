@@ -833,7 +833,7 @@ int pagecache_writeback_all(uint32_t flags)
         return -ENOMEM;
     }
     size_t used = 0;
-    for (pagecache_mapping_t *mapping = pagecache.mappings; mapping; mapping = mapping->global_next) {
+    for (pagecache_mapping_t *mapping = pagecache.mappings; mapping && used < slots; mapping = mapping->global_next) {
         if (mapping->dying) continue;
         __atomic_add_fetch(&mapping->references, 1, __ATOMIC_ACQ_REL);
         mappings[used++] = mapping;
