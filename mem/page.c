@@ -116,6 +116,19 @@ __attribute__((used)) void page_fault_handle_frame(exception_frame_t *frame, uin
     carry_error_code = 1; // carry error code
 
     /*
+     * Resolving a demand or COW fault can wait for page-cache page locks,
+     * read the backing store and allocate memory.  Page-cache locks are raw
+     * spinlocks taken with interrupts enabled, so a holder can be preempted.
+     * Spinning for one with interrupts masked keeps that holder off this CPU
+     * forever (observed as every CPU spinning in pagecache_get_page() from
+     * page_fault_entry).  Like Linux, run the fault with interrupts enabled
+     * whenever the faulting context had them enabled; CR2 has already been
+     * captured, and a fault raised with interrupts masked (inside a spinlock
+     * section) keeps them masked.
+     */
+    if (frame->rflags & (1ULL << 9)) enable_intr();
+
+    /*
      * copy_{to,from}_user() deliberately accesses the user virtual address
      * through the current hardware page table.  Resolve ordinary demand/COW
      * faults just like a ring-3 access.  A nofault copy, or an invalid range,

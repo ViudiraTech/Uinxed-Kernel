@@ -765,6 +765,39 @@ vfs_node_t vfs_open_nofollow_checked(const char *str, int *error)
 }
 
 /* Retain a node reference, refusing nodes already finalizing. */
+/*
+ * Explicit namespace-lock bracket for callers that must take node references
+ * inside a spinlock section, where the sleeping lock can no longer be taken.
+ * The lock must be acquired before any spinlock and released after all of
+ * them; between the two only the *_locked helpers below may be used.
+ */
+void vfs_namespace_lock_acquire(void)
+{
+    mutex_lock(&vfs_namespace_lock);
+}
+
+void vfs_namespace_lock_release(void)
+{
+    mutex_unlock(&vfs_namespace_lock);
+}
+
+/* vfs_node_retain() for a caller that already holds the namespace lock. */
+vfs_node_t vfs_node_retain_locked(vfs_node_t node)
+{
+    if (!node || (node->flags & VFS_NODE_FINALIZING)) return NULL;
+    node->refcount++;
+    return node;
+}
+
+/*
+ * Drop a reference taken with vfs_node_retain_locked() while another owner
+ * still holds the node.  It never finalizes, so it cannot sleep.
+ */
+void vfs_node_unretain_locked(vfs_node_t node)
+{
+    if (node && node->refcount > 1) node->refcount--;
+}
+
 vfs_node_t vfs_node_retain(vfs_node_t node)
 {
     if (!node) return NULL;
