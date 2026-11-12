@@ -596,7 +596,14 @@ int64_t sys_set_robust_list_impl(uint64_t head, uint64_t len, uint64_t arg2, uin
     (void)arg5;
     if (len != 24) return -EINVAL; // sizeof(struct robust_list_head)
     task_t *task = current_task();
-    if (task) task->clear_child_tid = head;
+
+    /*
+     * The robust-list head is unrelated to the CLONE_CHILD_CLEARTID address.
+     * glibc registers the list right after a thread starts; storing it in
+     * clear_child_tid redirected the exit-time "store 0 and futex-wake" to
+     * the robust list, so pthread_join() waited on the real tid word forever.
+     */
+    if (task) task->robust_list = head;
     return 0;
 }
 
@@ -613,7 +620,7 @@ int64_t sys_get_robust_list_impl(uint64_t pid, uint64_t head_ptr, uint64_t len_p
         target = process_find_get((pid_t)pid);
         if (!target) return -ESRCH;
     }
-    uint64_t head = target->task->clear_child_tid;
+    uint64_t head = target->task->robust_list;
     if (head_ptr && copy_to_user((void *)head_ptr, &head, sizeof(head))) {
         if (target != proc) process_put(target);
         return -EFAULT;

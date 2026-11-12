@@ -1161,7 +1161,7 @@ static task_t *rebalance_domains_locked(uint32_t dst_cpu)
     sched_domain_cpu_t *topology = &cpu_sched_domains[dst_cpu];
     task_t             *first    = NULL;
     unsigned int        budget   = CONFIG_SCHED_BALANCE_BATCH;
-    for (uint8_t index = 0; index < topology->nr_domains && budget; index++) {
+    for (uint8_t index = 0; index < topology->nr_domains && index < CONFIG_SCHED_DOMAIN_MAX_LEVELS && budget; index++) {
         sched_domain_t *domain = &topology->domains[index];
 
         if (!(domain->flags & SCHED_DOMAIN_BALANCE_PERIODIC) || scheduler.ticks - cpu_rqs[dst_cpu].last_domain_balance[index] < domain->balance_interval) continue;
