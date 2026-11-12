@@ -1680,7 +1680,7 @@ static void gen_pid_fdinfo(procfs_file_t *pf)
                          "flags:\t0%llo\n"
                          "mnt_id:\t%llu\n"
                          "ino:\t%llu\n",
-                         file->offset, flags, file->node->mount_id, file->node->inode);
+                         file->offset, flags, vfs_node_mount_id(file->node), file->node->inode);
         if (n >= 0 && target_pid > 0 && n < 256) {
             int extra = snprintf(buf + n, 256 - n, "Pid:\t%lld\nNSpid:\t%lld\n", target_pid, target_pid);
             if (extra > 0) n += extra;
