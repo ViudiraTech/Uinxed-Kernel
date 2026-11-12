@@ -169,7 +169,16 @@ static int rtnl_queue_message(struct socket *sk, uint16_t type, uint16_t flags, 
     header->nlmsg_type  = type;
     header->nlmsg_flags = flags;
     header->nlmsg_seq   = seq;
-    header->nlmsg_pid   = 0;
+
+    /*
+     * A reply is addressed to the requesting socket: nlmsg_pid carries that
+     * socket's port id, exactly as the request's sender id is echoed by
+     * Linux.  iproute2 and sd-netlink both discard unicast messages whose
+     * nlmsg_pid is not their own port, so a zero here turns every reply into
+     * a request timeout.
+     */
+    nl_sock_t *requester = nl_sk(sk);
+    header->nlmsg_pid    = requester ? requester->nl_pid : 0;
     if (payload_length) memcpy(NLMSG_DATA(header), payload, payload_length);
     int result = netlink_unicast(sk, buffer, NLMSG_ALIGN(length), 0);
     free(buffer);
@@ -332,10 +341,139 @@ static int rtnl_parse_route_request(const nlmsghdr_t *request, rtnl_dump_context
     return EOK;
 }
 
-/* Serve one RTM_GETLINK/GETADDR/GETROUTE request, dumping matching data. */
+/* netdev_iterate() callback: pin the device with a given ifindex. */
+typedef struct rtnl_device_lookup {
+        uint32_t      ifindex;
+        net_device_t *device;
+} rtnl_device_lookup_t;
+
+static void rtnl_lookup_device(net_device_t *device, void *opaque)
+{
+    rtnl_device_lookup_t *lookup = opaque;
+    if (lookup->device) return;
+    spin_lock(&device->lock);
+    bool match = device->ifindex == lookup->ifindex;
+    spin_unlock(&device->lock);
+    if (match) {
+        netdev_get(device);
+        lookup->device = device;
+    }
+}
+
+/* Find a device by ifindex; the caller releases it with netdev_put(). */
+static net_device_t *rtnl_device_by_index(int32_t ifindex)
+{
+    rtnl_device_lookup_t lookup = {.ifindex = (uint32_t)ifindex, .device = NULL};
+    if (ifindex <= 0) return NULL;
+    netdev_iterate(rtnl_lookup_device, &lookup);
+    return lookup.device;
+}
+
+/* Find one attribute in the rtattr stream that follows a fixed-size family header. */
+static const rtattr_t *rtnl_find_attr(const nlmsghdr_t *request, uint32_t header_size, uint16_t type, uint32_t minimum_data)
+{
+    uint32_t payload_length = NLMSG_PAYLOAD(request, 0);
+    uint32_t offset         = NLMSG_ALIGN(header_size);
+    while (offset < payload_length) {
+        if (payload_length - offset < sizeof(rtattr_t)) return NULL;
+        const rtattr_t *attr = (const rtattr_t *)((const uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN) + offset);
+        if (attr->rta_len < sizeof(rtattr_t) || attr->rta_len > payload_length - offset) return NULL;
+        if ((attr->rta_type & 0x3fffU) == type && attr->rta_len - RTA_ALIGN(sizeof(rtattr_t)) >= minimum_data) return attr;
+        offset += RTA_ALIGN(attr->rta_len);
+    }
+    return NULL;
+}
+
+/*
+ * RTM_SETLINK / RTM_NEWLINK on an existing interface: administrative state
+ * and MTU.  Interfaces cannot be created from userspace.
+ */
+static int rtnl_set_link(const nlmsghdr_t *request)
+{
+    const ifinfomsg_t *message = (const ifinfomsg_t *)((const uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN));
+    net_device_t      *device  = rtnl_device_by_index(message->ifi_index);
+    if (!device) return message->ifi_index > 0 ? -ENODEV : -EOPNOTSUPP;
+
+    int status = EOK;
+    if (message->ifi_change & IFF_UP) status = netdev_set_up(device, (message->ifi_flags & IFF_UP) != 0);
+    const rtattr_t *mtu_attr = rtnl_find_attr(request, sizeof(ifinfomsg_t), IFLA_MTU, sizeof(uint32_t));
+    if (status == EOK && mtu_attr) {
+        uint32_t mtu;
+        memcpy(&mtu, RTA_DATA(mtu_attr), sizeof(mtu));
+        status = netdev_set_mtu(device, mtu);
+    }
+    netdev_put(device);
+    return status;
+}
+
+/* RTM_NEWADDR: assign the (single) IPv4 address of an interface. */
+static int rtnl_new_address(const nlmsghdr_t *request)
+{
+    const ifaddrmsg_t *message = (const ifaddrmsg_t *)((const uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN));
+    net_device_t      *device  = rtnl_device_by_index((int32_t)message->ifa_index);
+    if (!device) return -ENODEV;
+
+    spin_lock(&device->lock);
+    uint32_t flags           = device->flags;
+    uint32_t current_address = device->ipv4_address;
+    uint32_t current_gateway = device->ipv4_gateway;
+    spin_unlock(&device->lock);
+
+    int status;
+    if (message->ifa_family == AF_INET6) {
+        /* The loopback interface always owns ::1; other IPv6 addresses come from autoconfiguration only. */
+        static const uint8_t loopback6[16] = {[15] = 1};
+        const rtattr_t      *attr          = rtnl_find_attr(request, sizeof(ifaddrmsg_t), IFA_LOCAL, 16);
+        if (!attr) attr = rtnl_find_attr(request, sizeof(ifaddrmsg_t), IFA_ADDRESS, 16);
+        status = (attr && (flags & NETDEV_F_LOOPBACK) && !memcmp(RTA_DATA(attr), loopback6, sizeof(loopback6))) ? -EEXIST : -EOPNOTSUPP;
+    } else if (message->ifa_family != AF_INET) {
+        status = -EAFNOSUPPORT;
+    } else if (message->ifa_prefixlen > 32) {
+        status = -EINVAL;
+    } else {
+        const rtattr_t *attr = rtnl_find_attr(request, sizeof(ifaddrmsg_t), IFA_LOCAL, sizeof(uint32_t));
+        if (!attr) attr = rtnl_find_attr(request, sizeof(ifaddrmsg_t), IFA_ADDRESS, sizeof(uint32_t));
+        if (!attr) {
+            status = -EINVAL;
+        } else {
+            uint32_t address;
+            memcpy(&address, RTA_DATA(attr), sizeof(address));
+            address          = bswap32(address);
+            uint32_t netmask = message->ifa_prefixlen ? UINT32_MAX << (32 - message->ifa_prefixlen) : 0;
+            if (address == current_address) {
+                status = -EEXIST;
+            } else {
+                /* Keep the gateway only while it stays on-link for the new prefix. */
+                uint32_t gateway = (current_gateway && (current_gateway & netmask) == (address & netmask)) ? current_gateway : 0;
+                status           = netdev_configure_ipv4(device, address, netmask, gateway);
+            }
+        }
+    }
+    netdev_put(device);
+    return status;
+}
+
+/* Serve one rtnetlink request: link/address/route dumps plus link and address changes. */
 static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
 {
     if (!(request->nlmsg_flags & NLM_F_REQUEST)) return rtnl_queue_error(sk, request, -EINVAL);
+
+    /* Modifying requests are answered with exactly one NLMSG_ERROR (an ACK when the code is 0). */
+    if (request->nlmsg_type == RTM_SETLINK || request->nlmsg_type == RTM_NEWLINK || request->nlmsg_type == RTM_NEWADDR) {
+        bool     is_link = request->nlmsg_type != RTM_NEWADDR;
+        uint32_t minimum = is_link ? sizeof(ifinfomsg_t) : sizeof(ifaddrmsg_t);
+        int      status;
+        if (NLMSG_PAYLOAD(request, 0) < minimum) {
+            status = -EINVAL;
+        } else if (sk->uid != 0) {
+            status = -EPERM;
+        } else {
+            status = is_link ? rtnl_set_link(request) : rtnl_new_address(request);
+        }
+        if (status != EOK || (request->nlmsg_flags & NLM_F_ACK)) return rtnl_queue_error(sk, request, status);
+        return EOK;
+    }
+
     rtnl_dump_context_t context = {
         .sk              = sk,
         .seq             = request->nlmsg_seq,
@@ -1216,10 +1354,34 @@ int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *o
     uint32_t   koptlen;
 
     if (!sk) return -EBADF;
-    if (!optval || !optlen) return -EINVAL;
+    if (!optlen) return -EFAULT;
 
     ns = nl_sk(sk);
     if (!ns) return -EINVAL;
+
+    /*
+     * NETLINK_LIST_MEMBERSHIPS returns the group bitmap as an array of u32
+     * words and always reports the size the full bitmap needs, so a caller
+     * may probe with a zero-length (even NULL) buffer first.  sd-netlink does
+     * exactly that when it opens a socket and treats any failure other than
+     * ENOPROTOOPT as fatal.
+     */
+    if (optname == NETLINK_LIST_MEMBERSHIPS) {
+        uint32_t userlen;
+        if (copy_from_user(&userlen, optlen, sizeof(userlen))) return -EFAULT;
+        if ((int32_t)userlen < 0) return -EINVAL;
+        spin_lock(&sk->lock);
+        uint32_t groups = ns->nl_groups;
+        spin_unlock(&sk->lock);
+        if (userlen >= sizeof(groups)) {
+            if (!optval) return -EFAULT;
+            if (copy_to_user(optval, &groups, sizeof(groups))) return -EFAULT;
+        }
+        koptlen = sizeof(groups);
+        if (copy_to_user(optlen, &koptlen, sizeof(koptlen))) return -EFAULT;
+        return EOK;
+    }
+    if (!optval) return -EFAULT;
 
     switch (optname) {
         case NETLINK_PKTINFO :
