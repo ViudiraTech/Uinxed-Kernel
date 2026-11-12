@@ -161,4 +161,7 @@ int tmpfs_unbind_device(vfs_node_t node);
  */
 int tmpfs_set_node_type(vfs_node_t node, uint16_t node_type);
 
+/* Report whether a node is stored by tmpfs (or one of the filesystem types aliased to it). */
+bool tmpfs_owns_node(vfs_node_t node);
+
 #endif // INCLUDE_TMPFS_H_

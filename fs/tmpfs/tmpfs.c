@@ -738,10 +738,18 @@ int tmpfs_unbind_device(vfs_node_t node)
     return EOK;
 }
 
+/* Report whether a node is stored by tmpfs (or one of the filesystem types aliased to it). */
+bool tmpfs_owns_node(vfs_node_t node)
+{
+    if (!node || !node->fsid || !fs_callbacks[node->fsid]) return false;
+    return fs_callbacks[node->fsid]->mkfile == tmpfs_callbacks.mkfile && fs_callbacks[node->fsid]->stat == tmpfs_callbacks.stat;
+}
+
 /* Override a regular file's reported node type. */
 int tmpfs_set_node_type(vfs_node_t node, uint16_t node_type)
 {
     if (!node || !node->handle) return -EINVAL;
+    if (!tmpfs_owns_node(node)) return -EOPNOTSUPP;
     tmpfs_file_t *handle = node->handle;
     if (handle->type != tp_file_file) return -EINVAL;
     handle->node_type = node_type;
