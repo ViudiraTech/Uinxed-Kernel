@@ -233,6 +233,7 @@ struct socket {
         uint32_t linger_time;
         int      passcred;
         int      reuseaddr;
+        bool     binding; // a bind(2) is in progress (claimed under lock, completed outside it)
 
         /* Credentials */
         uint32_t pid;
