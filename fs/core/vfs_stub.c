@@ -94,13 +94,18 @@ int vfs_stub_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
-/* Reject an ioctl on a file system that declares no ioctl operation. */
+/*
+ * Reject an ioctl on a file system that declares no ioctl operation.  ioctl(2)
+ * itself always exists, so the answer for an unsupported request is ENOTTY:
+ * isatty() and every TCGETS probe key off that value, while ENOSYS would claim
+ * the system call is missing.
+ */
 int vfs_stub_ioctl(void *file, size_t req, void *arg)
 {
     (void)file;
     (void)req;
     (void)arg;
-    return -ENOSYS;
+    return -ENOTTY;
 }
 
 /* Reject an ioctl on a node that is not a control device. */

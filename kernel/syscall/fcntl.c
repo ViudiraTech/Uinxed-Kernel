@@ -146,6 +146,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             if (result == EOK) result = seals;
             break;
         }
+        case F_OFD_GETLK : /* open-file-description locks share the (advisory, never conflicting) POSIX lock model */
         case F_GETLK : {
             if (arg) {
                 /* Write back an unlocked lock struct */
@@ -167,6 +168,8 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
         }
         case F_SETLK :
         case F_SETLKW :
+        case F_OFD_SETLK :
+        case F_OFD_SETLKW :
         case F_SETOWN :
         case F_GETOWN :
         case F_SETOWN_EX :
