@@ -57,6 +57,7 @@
 #define PROC_SYS_VM                    4
 #define PROC_SYS_FS_INOTIFY            5
 #define PROC_SYS_NET_UNIX              6
+#define PROC_SYS_KERNEL_RANDOM         7
 
 /* Internal types */
 
@@ -189,19 +190,27 @@ static procfs_sysctl_t procfs_sysctl_kernel[] = {
     {.name = "threads-max", .kind = PROC_SYS_UINT, .values = {65536}, .readonly = 1, .count = 1},
     {.name = "randomize_va_space", .kind = PROC_SYS_UINT, .values = {2}, .readonly = 1, .count = 1},
     {.name = "perf_event_paranoid", .kind = PROC_SYS_UINT, .values = {3}, .readonly = 1, .count = 1},
-    {.name = "kptr_restrict", .kind = PROC_SYS_UINT, .values = {0}, .readonly = 1, .count = 1},
+    {.name = "kptr_restrict", .kind = PROC_SYS_UINT, .values = {0}, .count = 1, .has_range = 1, .minimum = 0, .maximum = 2},
     {.name = "shmmax", .kind = PROC_SYS_UINT, .values = {0x2000000}, .count = 1},
     {.name = "shmmni", .kind = PROC_SYS_UINT, .values = {4096}, .count = 1},
     {.name = "msgmax", .kind = PROC_SYS_UINT, .values = {8192}, .count = 1},
     {.name = "msgmnb", .kind = PROC_SYS_UINT, .values = {16384}, .count = 1},
     {.name = "msgmni", .kind = PROC_SYS_UINT, .values = {32000}, .count = 1},
     {.name = "sem", .kind = PROC_SYS_MULTI, .values = {250, 32000, 32, 128}, .count = 4},
-    {.name = "printk", .kind = PROC_SYS_MULTI, .values = {7, 4, 1, 7}, .readonly = 1, .count = 4},
+    {.name = "printk", .kind = PROC_SYS_MULTI, .values = {7, 4, 1, 7}, .count = 4},
     {.name = "cap_last_cap", .kind = PROC_SYS_UINT, .values = {40}, .count = 1, .readonly = 1},
     {.name = "printk_devkmsg", .kind = PROC_SYS_STR, .string = "on", .count = 0},
     {.name = "core_pattern", .kind = PROC_SYS_STR, .string = "core", .count = 0},
     {.name = "core_uses_pid", .kind = PROC_SYS_UINT, .values = {1}, .count = 1},
 };
+
+/*
+ * /proc/sys/kernel/random.  boot_id is a UUID fixed for the lifetime of the
+ * boot (sd_id128_get_boot() reads it; PID 1 refuses to spawn services that
+ * need an invocation context without it), uuid is a fresh UUID per read.
+ */
+static const char *const procfs_sysctl_random_names[] = {"boot_id", "uuid", "entropy_avail", "poolsize"};
+#define PROCFS_SYSCTL_RANDOM_COUNT (sizeof(procfs_sysctl_random_names) / sizeof(procfs_sysctl_random_names[0]))
 
 static procfs_sysctl_t procfs_sysctl_fs[] = {
     {.name = "nr_open", .kind = PROC_SYS_UINT, .values = {1073741816}, .count = 1, .readonly = 1},
@@ -1043,24 +1052,39 @@ static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
     return NULL;
 }
 
-/* Find a sysctl entry by name. */
-static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
+/* Find a sysctl entry by name; *index receives its position in the table of dir (SIZE_MAX for the dummy entry). */
+static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name, size_t *index)
 {
     if (dir == PROC_SYS_KERNEL) {
         for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++)
-            if (streq(procfs_sysctl_kernel[i].name, name)) return &procfs_sysctl_kernel[i];
+            if (streq(procfs_sysctl_kernel[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_kernel[i];
+            }
     } else if (dir == PROC_SYS_FS) {
         for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++)
-            if (streq(procfs_sysctl_fs[i].name, name)) return &procfs_sysctl_fs[i];
+            if (streq(procfs_sysctl_fs[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_fs[i];
+            }
     } else if (dir == PROC_SYS_FS_INOTIFY) {
         for (size_t i = 0; i < PROCFS_SYSCTL_FS_INOTIFY_COUNT; i++)
-            if (streq(procfs_sysctl_fs_inotify[i].name, name)) return &procfs_sysctl_fs_inotify[i];
+            if (streq(procfs_sysctl_fs_inotify[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_fs_inotify[i];
+            }
     } else if (dir == PROC_SYS_NET) {
         for (size_t i = 0; i < PROCFS_SYSCTL_NET_COUNT; i++)
-            if (streq(procfs_sysctl_net[i].name, name)) return &procfs_sysctl_net[i];
+            if (streq(procfs_sysctl_net[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_net[i];
+            }
     } else if (dir == PROC_SYS_NET_UNIX) {
         for (size_t i = 0; i < PROCFS_SYSCTL_NET_UNIX_COUNT; i++)
-            if (streq(procfs_sysctl_net_unix[i].name, name)) return &procfs_sysctl_net_unix[i];
+            if (streq(procfs_sysctl_net_unix[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_net_unix[i];
+            }
     }
 
     /*
@@ -1069,6 +1093,7 @@ static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
      * hierarchy) and expects either success or a writable dummy, not ENOENT.  Return
      * a static dummy entry in that case.
      */
+    *index = SIZE_MAX;
     static procfs_sysctl_t dummy = {.name = "dummy", .kind = PROC_SYS_UINT, .values = {0}, .count = 1};
 
     /* Only for sysctl dirs, not for other proc files */
@@ -1076,9 +1101,62 @@ static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
     return NULL;
 }
 
+/* Produce 64 unpredictable-enough bits for UUID generation (splitmix64 over a clock-seeded state). */
+static uint64_t procfs_random_u64(void)
+{
+    static spinlock_t lock;
+    static uint64_t   state;
+    spin_lock(&lock);
+    if (!state) state = (uint64_t)timer_realtime_ns() ^ (sched_ticks() << 32) ^ 0x9e3779b97f4a7c15ULL;
+    state += 0x9e3779b97f4a7c15ULL ^ sched_ticks();
+    uint64_t value = state;
+    spin_unlock(&lock);
+    value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
+    return value ^ (value >> 31);
+}
+
+/* Format a random (version 4, variant 1) UUID in its canonical 36-character form. */
+static void procfs_format_uuid(char out[37])
+{
+    uint64_t high = (procfs_random_u64() & ~0xf000ULL) | 0x4000ULL;
+    uint64_t low  = (procfs_random_u64() & ~(3ULL << 62)) | (2ULL << 62);
+    snprintf(out, 37, "%08llx-%04llx-%04llx-%04llx-%012llx", (unsigned long long)(high >> 32), (unsigned long long)((high >> 16) & 0xffff), (unsigned long long)(high & 0xffff),
+             (unsigned long long)(low >> 48), (unsigned long long)(low & 0xffffffffffffULL));
+}
+
+/* Generate a /proc/sys/kernel/random file. */
+static void gen_sysctl_random_file(procfs_file_t *pf)
+{
+    static spinlock_t boot_id_lock;
+    static char       boot_id[37];
+    char             *buf = malloc(64);
+    if (!buf) return;
+    int n = 0;
+    if (pf->pid == 0) {
+        spin_lock(&boot_id_lock);
+        if (!boot_id[0]) procfs_format_uuid(boot_id);
+        n = snprintf(buf, 64, "%s\n", boot_id);
+        spin_unlock(&boot_id_lock);
+    } else if (pf->pid == 1) {
+        char uuid[37];
+        procfs_format_uuid(uuid);
+        n = snprintf(buf, 64, "%s\n", uuid);
+    } else {
+        n = snprintf(buf, 64, "256\n"); // entropy_avail and poolsize of a fully seeded pool
+    }
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = 64;
+}
+
 /* Generate a /proc/sys sysctl file content. */
 static void gen_sysctl_file(procfs_file_t *pf)
 {
+    if (pf->subtype == PROC_SYS_KERNEL_RANDOM) {
+        gen_sysctl_random_file(pf);
+        return;
+    }
     procfs_sysctl_t *sc = procfs_sysctl_lookup(pf->subtype, (size_t)pf->pid);
     if (!sc) return;
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -2229,6 +2307,28 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                     break;
                 }
             }
+            if (ppf->subtype == PROC_SYS_KERNEL && streq(name, "random")) {
+                pf->type    = PROCFS_SYS_DIR;
+                pf->subtype = PROC_SYS_KERNEL_RANDOM;
+                node->type  = file_dir;
+                break;
+            }
+            if (ppf->subtype == PROC_SYS_KERNEL_RANDOM) {
+                bool found = false;
+                for (size_t i = 0; i < PROCFS_SYSCTL_RANDOM_COUNT; i++) {
+                    if (streq(procfs_sysctl_random_names[i], name)) {
+                        pf->type    = PROCFS_SYS_FILE;
+                        pf->subtype = PROC_SYS_KERNEL_RANDOM;
+                        pf->pid     = (pid_t)i;
+                        node->type  = file_none;
+                        found       = true;
+                        break;
+                    }
+                }
+                if (found) break;
+                free(pf);
+                return;
+            }
             if (ppf->subtype == PROC_SYS_KERNEL) {
                 bool found = false;
                 for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++) {
@@ -2269,7 +2369,8 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 node->type  = file_dir;
                 break;
             }
-            procfs_sysctl_t *sc = procfs_sysctl_find(ppf->subtype, name);
+            size_t           sc_index = 0;
+            procfs_sysctl_t *sc       = procfs_sysctl_find(ppf->subtype, name, &sc_index);
             if (!sc) {
                 pf->type    = PROCFS_SYS_FILE;
                 pf->subtype = ppf->subtype;
@@ -2279,7 +2380,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             }
             pf->type    = PROCFS_SYS_FILE;
             pf->subtype = ppf->subtype;
-            pf->pid     = (pid_t)(sc - procfs_sysctl_kernel);
+            pf->pid     = (pid_t)sc_index;
             node->type  = file_none;
             break;
         }
@@ -2618,6 +2719,9 @@ static int procfs_stat(void *file, vfs_node_t node)
                 (void)procfs_ensure_child(node, "vm", PROCFS_SYS_DIR, 0, PROC_SYS_VM, file_dir);
             } else if (pf->subtype == PROC_SYS_KERNEL) {
                 for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++) (void)procfs_ensure_child(node, procfs_sysctl_kernel[i].name, PROCFS_SYS_FILE, (pid_t)i, PROC_SYS_KERNEL, file_none);
+                (void)procfs_ensure_child(node, "random", PROCFS_SYS_DIR, 0, PROC_SYS_KERNEL_RANDOM, file_dir);
+            } else if (pf->subtype == PROC_SYS_KERNEL_RANDOM) {
+                for (size_t i = 0; i < PROCFS_SYSCTL_RANDOM_COUNT; i++) (void)procfs_ensure_child(node, procfs_sysctl_random_names[i], PROCFS_SYS_FILE, (pid_t)i, PROC_SYS_KERNEL_RANDOM, file_none);
             } else if (pf->subtype == PROC_SYS_FS) {
                 for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++) {
                     const char *name = procfs_sysctl_fs[i].name;
@@ -2761,8 +2865,15 @@ static int64_t procfs_file_write(vfs_node_t node, void *private_data, uint64_t f
     if (offset != 0) return -EINVAL;
 
     if (pf->type == PROCFS_SYS_FILE) {
-        size_t written = procfs_write(pf, addr, offset, size);
-        return written == size ? (int64_t)written : -EINVAL;
+        /* Report the real reason: sysctl(8) and systemd-sysctl tolerate EPERM on a read-only key but treat EINVAL as a failed setting. */
+        if (pf->subtype == PROC_SYS_KERNEL_RANDOM) return -EPERM;
+        procfs_sysctl_t *sc = procfs_sysctl_lookup(pf->subtype, (size_t)pf->pid);
+        if (!sc) return -ENOENT;
+        if (size >= PROCFS_BUF_SIZE) return -EINVAL;
+        char buf[PROCFS_BUF_SIZE];
+        memcpy(buf, addr, size);
+        int status = procfs_sysctl_apply(sc, buf, size);
+        return status == EOK ? (int64_t)size : status;
     }
 
     /*
@@ -2806,6 +2917,7 @@ static int procfs_resize(void *current, uint64_t size)
      * discard.
      */
     if (pf->type == PROCFS_PID_FILE && pf->subtype == PROC_PID_OOM_SCORE_ADJ) return EOK;
+    if (pf->type == PROCFS_SYS_FILE) return EOK; // sysctl(8) opens keys with fopen("w")
     return -EOPNOTSUPP;
 }
 
