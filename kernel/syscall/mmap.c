@@ -546,7 +546,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     }
 
     size_t changed = 0;
-    for (vm_area_t *vma = first; vma && vma->start < end; vma = vma->next) {
+    for (vm_area_t *vma = first; vma && vma->start < end && changed < count; vma = vma->next) {
         vm_flags_t new_flags = (vma->flags & ~(VM_READ | VM_WRITE | VM_EXEC)) | requested;
         int        ret       = memfd_vma_protect(vma->vm_file, vma->flags, new_flags);
         if (ret) {

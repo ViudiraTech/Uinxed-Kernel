@@ -212,24 +212,55 @@ int64_t sys_setgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
 }
 
 /* capget syscall: read process capabilities */
+#define LINUX_CAPABILITY_VERSION_1 0x19980330U
+#define LINUX_CAPABILITY_VERSION_2 0x20071026U
+#define LINUX_CAPABILITY_VERSION_3 0x20080522U
+#define LINUX_CAP_LAST_CAP         40 // must match /proc/sys/kernel/cap_last_cap
+
+/*
+ * Validate a capability header the way Linux does.  Returns the number of
+ * 32-bit data elements of the requested ABI (1 for v1, 2 for v2/v3).  For an
+ * unknown version the preferred version is written back and -EINVAL is
+ * returned; libcap and libcap-ng probe with version 0 and a NULL data
+ * pointer, and capget() then reports success.
+ */
+static int capability_header_check(uint64_t header, linux_cap_header_t *hdr)
+{
+    if (!header) return -EFAULT;
+    if (copy_from_user(hdr, (const void *)header, sizeof(*hdr))) return -EFAULT;
+    if (hdr->version == LINUX_CAPABILITY_VERSION_1) return 1;
+    if (hdr->version == LINUX_CAPABILITY_VERSION_2 || hdr->version == LINUX_CAPABILITY_VERSION_3) return 2;
+    uint32_t preferred = LINUX_CAPABILITY_VERSION_3;
+    if (copy_to_user((void *)header, &preferred, sizeof(preferred))) return -EFAULT;
+    return -EINVAL;
+}
+
+/* capget syscall: report process capabilities (root holds the full set, everyone else none) */
 int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (!header) return -EFAULT;
     linux_cap_header_t hdr;
-    if (copy_from_user(&hdr, (const void *)header, sizeof(hdr))) return -EFAULT;
-    if (hdr.version != 0x20080522) return -EINVAL;
+    int                words = capability_header_check(header, &hdr);
+    if (words < 0) return (words == -EINVAL && !data) ? 0 : words;
+    if (hdr.pid < 0) return -EINVAL;
+
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     process_t *target = (hdr.pid == 0 || hdr.pid == (int32_t)proc->task->pid) ? proc : process_find_get((pid_t)hdr.pid);
     if (!target) return -ESRCH;
-    linux_cap_data_t caps = {0};
-    if (target->uid == 0) caps.effective = caps.permitted = caps.inheritable = 0xFFFFFFFFu;
+    bool full = target->uid == 0;
     if (target != proc) process_put(target);
-    if (data && copy_to_user((void *)data, &caps, sizeof(caps))) return -EFAULT;
+    if (!data) return 0;
+
+    linux_cap_data_t caps[2] = {0};
+    if (full) {
+        caps[0].effective = caps[0].permitted = 0xffffffffU;
+        caps[1].effective = caps[1].permitted = (1U << (LINUX_CAP_LAST_CAP - 31)) - 1U;
+    }
+    if (copy_to_user((void *)data, caps, sizeof(caps[0]) * (size_t)words)) return -EFAULT;
     return 0;
 }
 
@@ -240,13 +271,22 @@ int64_t sys_capset_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t 
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    (void)data;
-    if (!header) return -EFAULT;
     linux_cap_header_t hdr;
-    if (copy_from_user(&hdr, (const void *)header, sizeof(hdr))) return -EFAULT;
-    if (hdr.version != 0x20080522) return -EINVAL;
+    int                words = capability_header_check(header, &hdr);
+    if (words < 0) return words;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
+    if (!proc) return -ESRCH;
+    if (hdr.pid != 0 && hdr.pid != (int32_t)proc->task->pid) return -EPERM; // only the calling thread may be changed
+    linux_cap_data_t caps[2];
+    if (!data || copy_from_user(caps, (const void *)data, sizeof(caps[0]) * (size_t)words)) return -EFAULT;
+
+    /*
+     * Capability sets are not tracked and never consulted: privilege checks in
+     * this kernel are made on uid 0.  Accepting the request keeps the libcap-ng
+     * "drop to a service user but retain a capability" sequence (prctl keep
+     * caps, setuid, capset) working for daemons such as dbus-daemon, without
+     * granting anything.
+     */
     return 0;
 }
 
@@ -408,10 +448,18 @@ int64_t sys_setpriority_impl(uint64_t which, uint64_t who, uint64_t niceval, uin
     (void)arg4;
     (void)arg5;
     if (which > 2) return -EINVAL;
-    if ((int64_t)niceval < -20 || (int64_t)niceval > 19) return -EINVAL;
+
+    /*
+     * The nice value is a C int: only the low 32 bits of the register are
+     * defined, so -1 arrives as 0x00000000ffffffff.  Out-of-range values are
+     * clamped to [-20, 19] rather than rejected, as on Linux.
+     */
+    int32_t nice = (int32_t)(uint32_t)niceval;
+    if (nice < -20) nice = -20;
+    if (nice > 19) nice = 19;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if ((int64_t)niceval < 0 && proc->uid != 0) return -EACCES;
+    if (nice < 0 && proc->uid != 0) return -EACCES;
     return 0;
 }
 
@@ -452,7 +500,7 @@ int64_t sys_sched_get_priority_max_impl(uint64_t policy, uint64_t arg1, uint64_t
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (policy == 0) return 0;
+    if (policy == 0 || policy == 3 || policy == 5 || policy == 6) return 0; // SCHED_OTHER/BATCH/IDLE/DEADLINE
     if (policy == 1 || policy == 2) return 99;
     return -EINVAL;
 }
@@ -465,7 +513,7 @@ int64_t sys_sched_get_priority_min_impl(uint64_t policy, uint64_t arg1, uint64_t
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (policy == 0) return 0;
+    if (policy == 0 || policy == 3 || policy == 5 || policy == 6) return 0; // SCHED_OTHER/BATCH/IDLE/DEADLINE
     if (policy == 1 || policy == 2) return 1;
     return -EINVAL;
 }
@@ -1166,7 +1214,8 @@ int64_t sys_getrandom_impl(uint64_t buf, uint64_t buflen, uint64_t flags, uint64
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (flags & ~3ULL) return -EINVAL; // GRND_NONBLOCK=1, GRND_RANDOM=2
+    if (flags & ~7ULL) return -EINVAL;          // GRND_NONBLOCK=1, GRND_RANDOM=2, GRND_INSECURE=4
+    if ((flags & 6ULL) == 6ULL) return -EINVAL; // GRND_INSECURE excludes GRND_RANDOM
     if (!buf) return -EFAULT;
     if (!buflen) return 0;
     if (buflen > 33554431) return -EINVAL; // max: 32 MiB - 1
@@ -1865,12 +1914,26 @@ int64_t sys_ioprio_get_impl(uint64_t which, uint64_t who, uint64_t arg2, uint64_
 /* settimeofday syscall */
 int64_t sys_settimeofday_impl(uint64_t tv, uint64_t tz, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)tz;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (!tv) return -EFAULT;
+
+    /*
+     * Either pointer may be NULL.  settimeofday(NULL, &tz) only updates the
+     * obsolete kernel timezone, which this kernel does not keep: validate the
+     * argument and report success, as PID 1 does this once at boot to reset
+     * the RTC-in-local-time warp.
+     */
+    if (tz) {
+        struct {
+                int32_t tz_minuteswest;
+                int32_t tz_dsttime;
+        } timezone;
+        if (copy_from_user(&timezone, (const void *)tz, sizeof(timezone))) return -EFAULT;
+        if (timezone.tz_minuteswest > 15 * 60 || timezone.tz_minuteswest < -15 * 60) return -EINVAL;
+    }
+    if (!tv) return 0;
 
     struct {
             int64_t tv_sec;
