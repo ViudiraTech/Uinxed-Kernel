@@ -5834,7 +5834,7 @@ __attribute__((naked, used)) void syscall_return(void)
 }
 
 /* Restore registers and return via SYSRET */
-__attribute__((naked, used)) static void syscall_return_sysret(void)
+__attribute__((naked, used)) void syscall_return_sysret(void)
 {
     __asm__ volatile("popq %r15\n\t"
                      "popq %r14\n\t"
