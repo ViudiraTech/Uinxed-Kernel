@@ -881,7 +881,15 @@ static int pipe_vfs_stat(void *file, vfs_node_t node)
     pipe_ring_t *ring = (pipe_ring_t *)node->handle;
     if (ring) node->size = ring->size;
     node->type |= file_pipe;
-    node->mode = PIPE_DEFAULT_MODE;
+
+    /*
+     * Only anonymous pipes have a fixed mode.  A named FIFO keeps the
+     * permissions it was created (or chmod-ed) with; overwriting them here
+     * made every mkfifo() report the anonymous-pipe mode, and callers that
+     * verify the node they created (systemd's ListenFIFO=, for /run/initctl)
+     * rejected it as a foreign file.
+     */
+    if (!node->parent) node->mode = PIPE_DEFAULT_MODE;
     return EOK;
 }
 
