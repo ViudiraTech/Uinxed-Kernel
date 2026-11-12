@@ -103,9 +103,15 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define MS_REC         16384
 #define MS_SILENT      32768
 
-#define MNT_FORCE  1
-#define MNT_DETACH 2
-#define MNT_EXPIRE 4
+#define MS_UNBINDABLE (1UL << 17)
+#define MS_PRIVATE    (1UL << 18)
+#define MS_SLAVE      (1UL << 19)
+#define MS_SHARED     (1UL << 20)
+
+#define MNT_FORCE       1
+#define MNT_DETACH      2
+#define MNT_EXPIRE      4
+#define UMOUNT_NOFOLLOW 8
 
 /* personality */
 #define PER_LINUX 0x0000
@@ -1896,6 +1902,20 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     vfs_node_t node = vfs_open(tgt);
     if (!node) return -ENOENT;
 
+    /*
+     * Propagation changes (shared/private/slave/unbindable) describe how mount
+     * events travel between peer mounts and namespaces.  With a single mount
+     * namespace and no peer groups there is nothing to propagate, so every
+     * such request is already satisfied.  This has to be decided before the
+     * filesystem-type handling below: the request carries no fstype and must
+     * never be mistaken for a mount attempt.
+     */
+    if ((flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE)) && !(flags & (MS_BIND | MS_MOVE | MS_REMOUNT))) {
+        uint64_t propagation = flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE);
+        vfs_close(node);
+        return (propagation & (propagation - 1)) ? -EINVAL : EOK; // exactly one type
+    }
+
     /* Bind mounts may target regular files, as used by systemd's namespace setup. */
     if (flags & MS_BIND) {
         vfs_close(node);
@@ -1999,7 +2019,18 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
 
     if (ret != EOK) return ret;
-    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
+    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW)) return -EINVAL;
+    if ((flags & MNT_EXPIRE) && (flags & (MNT_FORCE | MNT_DETACH))) return -EINVAL;
+    if (proc->uid != 0) return -EPERM;
+
+    /* UMOUNT_NOFOLLOW: the final component must not be a symbolic link. */
+    if (flags & UMOUNT_NOFOLLOW) {
+        vfs_node_t link = vfs_open_nofollow(tgt);
+        if (!link) return -ENOENT;
+        bool is_link = (link->type & file_symlink) != 0;
+        vfs_close(link);
+        if (is_link) return -EINVAL;
+    }
 
     /*
      * systemd's early umount of /proc with MNT_DETACH would detach the
@@ -2059,8 +2090,9 @@ static int64_t sys_name_to_handle_at_impl(uint64_t dirfd, uint64_t path, uint64_
     }
     vfs_update(node);
     uint64_t ino = node->inode;
-    uint64_t dev = node->dev; // the uapi file handle stores the device number in 8 bytes
-    uint64_t mid = node->mount_id ? node->mount_id : 1;
+    uint64_t dev = node->dev;               // the uapi file handle stores the device number in 8 bytes
+    uint64_t mid = vfs_node_mount_id(node); // the mount the object lives on, not only set on mount roots
+    if (!mid) mid = 1;
     vfs_close(node);
 
     struct {
@@ -3234,6 +3266,8 @@ static int64_t sys_clone3_impl(syscall_frame_t *frame, uint64_t cl_args, uint64_
     if ((is_vfork && !(flags & CLONE_VM)) || (exit_signal && exit_signal != SIGCHLD && exit_signal != 0)) return -EINVAL;
     if (flags & CLONE_THREAD) return -EINVAL; // thread creation handled above
     if (((flags & CLONE_PARENT_SETTID) && !args.parent_tid) || ((flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !args.child_tid)) return -EFAULT;
+    int ns_permitted = namespace_flags_permitted(flags);
+    if (ns_permitted != EOK) return ns_permitted;
 
     int        error = EOK;
     uint32_t   event = is_vfork ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK;
@@ -5508,6 +5542,10 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
                              | CLONE_PARENT | CLONE_UNTRACED | CLONE_SYSVSEM | CLONE_FILES | CLONE_FS | CLONE_SIGHAND | CLONE_SETTLS | CLONE_CHILD_CLEARTID;
         if (num == SYS_CLONE && (clone_flags & ~supported)) {
             frame->rax = (uint64_t)-EINVAL;
+            goto check_signals;
+        }
+        if (num == SYS_CLONE && namespace_flags_permitted(clone_flags) != EOK) {
+            frame->rax = (uint64_t)namespace_flags_permitted(clone_flags);
             goto check_signals;
         }
         if ((num == SYS_CLONE && vfork && !(clone_flags & CLONE_VM)) || ((clone_flags & 0xff) != SIGCHLD) || (vfork && num == SYS_CLONE && !frame->rsi)

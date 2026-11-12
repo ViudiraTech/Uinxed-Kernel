@@ -456,6 +456,9 @@ int vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t ev
 /* VFS operation: mount is readonly. */
 int vfs_mount_is_readonly(vfs_node_t node);
 
+/* Return the id of the mount a node lives on (0 when it is on no mount). */
+uint64_t vfs_node_mount_id(vfs_node_t node);
+
 /* VFS operation: the node's filesystem can host device nodes. */
 bool vfs_node_supports_device_nodes(vfs_node_t node);
 

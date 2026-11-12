@@ -399,11 +399,32 @@ nsproxy_t *nsproxy_clone(nsproxy_t *orig, uint64_t flags, int *error)
     return ns;
 }
 
+/*
+ * Decide whether the namespaces named by a clone/unshare flag set can be created.
+ *
+ * A mount namespace is a private copy of the mount tree.  The VFS keeps exactly
+ * one tree, so a task that believed it owned a private namespace would apply
+ * every mount, unmount and remount of its sandbox setup to the whole system:
+ * private /tmp instances, read-only remounts of /, bind mounts over /proc and
+ * so on.  Until the VFS can give each namespace its own tree, creating one is
+ * refused with the errno an unprivileged caller gets.  Sandboxing users
+ * (systemd's exec path, its generator and credential helpers, bubblewrap,
+ * unshare(1)) recognise that and continue without mount isolation instead of
+ * rewriting the global namespace.
+ */
+int namespace_flags_permitted(uint64_t flags)
+{
+    if (flags & CLONE_NEWNS) return -EPERM;
+    return EOK;
+}
+
 /* Unshare specified namespaces for current task */
 int namespace_unshare(uint64_t unshare_flags)
 {
     task_t *task = current_task();
     if (!task) return -ESRCH;
+    int permitted = namespace_flags_permitted(unshare_flags);
+    if (permitted != EOK) return permitted;
 
     int        error  = EOK;
     nsproxy_t *new_ns = nsproxy_clone(task->nsproxy, unshare_flags, &error);

@@ -1043,24 +1043,39 @@ static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
     return NULL;
 }
 
-/* Find a sysctl entry by name. */
-static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
+/* Find a sysctl entry by name; *index receives its position in the table of dir (SIZE_MAX for the dummy entry). */
+static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name, size_t *index)
 {
     if (dir == PROC_SYS_KERNEL) {
         for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++)
-            if (streq(procfs_sysctl_kernel[i].name, name)) return &procfs_sysctl_kernel[i];
+            if (streq(procfs_sysctl_kernel[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_kernel[i];
+            }
     } else if (dir == PROC_SYS_FS) {
         for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++)
-            if (streq(procfs_sysctl_fs[i].name, name)) return &procfs_sysctl_fs[i];
+            if (streq(procfs_sysctl_fs[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_fs[i];
+            }
     } else if (dir == PROC_SYS_FS_INOTIFY) {
         for (size_t i = 0; i < PROCFS_SYSCTL_FS_INOTIFY_COUNT; i++)
-            if (streq(procfs_sysctl_fs_inotify[i].name, name)) return &procfs_sysctl_fs_inotify[i];
+            if (streq(procfs_sysctl_fs_inotify[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_fs_inotify[i];
+            }
     } else if (dir == PROC_SYS_NET) {
         for (size_t i = 0; i < PROCFS_SYSCTL_NET_COUNT; i++)
-            if (streq(procfs_sysctl_net[i].name, name)) return &procfs_sysctl_net[i];
+            if (streq(procfs_sysctl_net[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_net[i];
+            }
     } else if (dir == PROC_SYS_NET_UNIX) {
         for (size_t i = 0; i < PROCFS_SYSCTL_NET_UNIX_COUNT; i++)
-            if (streq(procfs_sysctl_net_unix[i].name, name)) return &procfs_sysctl_net_unix[i];
+            if (streq(procfs_sysctl_net_unix[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_net_unix[i];
+            }
     }
 
     /*
@@ -1069,6 +1084,7 @@ static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
      * hierarchy) and expects either success or a writable dummy, not ENOENT.  Return
      * a static dummy entry in that case.
      */
+    *index = SIZE_MAX;
     static procfs_sysctl_t dummy = {.name = "dummy", .kind = PROC_SYS_UINT, .values = {0}, .count = 1};
 
     /* Only for sysctl dirs, not for other proc files */
@@ -1680,7 +1696,7 @@ static void gen_pid_fdinfo(procfs_file_t *pf)
                          "flags:\t0%llo\n"
                          "mnt_id:\t%llu\n"
                          "ino:\t%llu\n",
-                         file->offset, flags, file->node->mount_id, file->node->inode);
+                         file->offset, flags, vfs_node_mount_id(file->node), file->node->inode);
         if (n >= 0 && target_pid > 0 && n < 256) {
             int extra = snprintf(buf + n, 256 - n, "Pid:\t%lld\nNSpid:\t%lld\n", target_pid, target_pid);
             if (extra > 0) n += extra;
@@ -2269,7 +2285,8 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 node->type  = file_dir;
                 break;
             }
-            procfs_sysctl_t *sc = procfs_sysctl_find(ppf->subtype, name);
+            size_t           sc_index = 0;
+            procfs_sysctl_t *sc       = procfs_sysctl_find(ppf->subtype, name, &sc_index);
             if (!sc) {
                 pf->type    = PROCFS_SYS_FILE;
                 pf->subtype = ppf->subtype;
@@ -2279,7 +2296,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             }
             pf->type    = PROCFS_SYS_FILE;
             pf->subtype = ppf->subtype;
-            pf->pid     = (pid_t)(sc - procfs_sysctl_kernel);
+            pf->pid     = (pid_t)sc_index;
             node->type  = file_none;
             break;
         }
