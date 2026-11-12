@@ -134,6 +134,18 @@ static fpu_percpu_t *fpu_percpu(void)
     return cpu ? &cpu->fpu : &fpu_early_percpu;
 }
 
+/* Save the extended state with XSAVEOPT, which skips components in their initial state */
+static inline void fpu_xsaveopt(void *state, uint32_t low, uint32_t high)
+{
+    __asm__ volatile("xsaveopt64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
+}
+
+/* Save the extended state with plain XSAVE */
+static inline void fpu_xsave(void *state, uint32_t low, uint32_t high)
+{
+    __asm__ volatile("xsave64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
+}
+
 /* Save live FPU/SSE/AVX state, using XSAVE if the feature is active */
 static void fpu_save(void *state)
 {
@@ -143,9 +155,9 @@ static void fpu_save(void *state)
 
         /* AP feature validation may conservatively disable XSAVEOPT. */
         if (__atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE)) {
-            __asm__ volatile("xsaveopt64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
+            fpu_xsaveopt(state, low, high);
         } else {
-            __asm__ volatile("xsave64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
+            fpu_xsave(state, low, high);
         }
     } else {
         __asm__ volatile("fxsave64 (%0)" : : "r"(state) : "memory");
