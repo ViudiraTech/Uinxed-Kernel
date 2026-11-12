@@ -293,7 +293,7 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         size_t                       new_count = state->num_connector + 1;
         struct drm_connector       **new_connectors;
         struct drm_connector_state **new_states;
-        if (new_count > SIZE_MAX / sizeof(struct drm_connector *) || new_count > SIZE_MAX / sizeof(struct drm_connector_state *)) {
+        if (state->num_connector < 0 || new_count > SIZE_MAX / sizeof(struct drm_connector *) || new_count > SIZE_MAX / sizeof(struct drm_connector_state *)) {
             DRM_ERROR("Connector count %zu overflow.\n", new_count);
             return NULL;
         }
