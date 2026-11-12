@@ -73,6 +73,17 @@
 #define F_WRLCK 1
 #define F_UNLCK 2
 
+/* struct flock exchanged with F_GETLK, F_SETLK, F_SETLKW and their F_OFD_* counterparts */
+typedef struct linux_flock {
+        int16_t l_type;
+        int16_t l_whence;
+        int64_t l_start;
+        int64_t l_len;
+        int32_t l_pid;
+} linux_flock_t;
+
+_Static_assert(sizeof(linux_flock_t) == 32, "struct flock must match the x86-64 userspace layout");
+
 /* Path resolution flags for *at() syscalls */
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_EACCESS          0x200

@@ -8,6 +8,7 @@
  *
  */
 
+#include <fs/core/filelock.h>
 #include <fs/core/vfs.h>
 #include <libs/std/errno.h>
 #include <process/file_status.h>
@@ -16,6 +17,145 @@
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
+
+/* Read the access mode of an open file */
+static uint64_t fcntl_access_mode(process_file_t *file)
+{
+    spin_lock(&file->lock);
+    uint64_t mode = file->flags & O_ACCMODE;
+    spin_unlock(&file->lock);
+    return mode;
+}
+
+/* Translate a struct flock into an inclusive byte range, with the same checks as Linux. */
+static int fcntl_flock_range(process_file_t *file, const linux_flock_t *fl, int64_t *start, int64_t *end)
+{
+    int64_t base;
+
+    spin_lock(&file->lock);
+    switch (fl->l_whence) {
+        case SEEK_SET :
+            base = 0;
+            break;
+        case SEEK_CUR :
+            base = file->offset > (size_t)FILELOCK_OFFSET_MAX ? -1 : (int64_t)file->offset;
+            break;
+        case SEEK_END :
+            base = file->node->size > (uint64_t)FILELOCK_OFFSET_MAX ? -1 : (int64_t)file->node->size;
+            break;
+        default :
+            spin_unlock(&file->lock);
+            return -EINVAL;
+    }
+    spin_unlock(&file->lock);
+
+    if (base < 0 || fl->l_start > FILELOCK_OFFSET_MAX - base) return -EOVERFLOW;
+    int64_t first = base + fl->l_start;
+    if (first < 0) return -EINVAL;
+
+    if (fl->l_len > 0) {
+        if (fl->l_len - 1 > FILELOCK_OFFSET_MAX - first) return -EOVERFLOW;
+        *start = first;
+        *end   = first + fl->l_len - 1;
+    } else if (fl->l_len < 0) {
+        if (first + fl->l_len < 0) return -EINVAL;
+        *start = first + fl->l_len;
+        *end   = first - 1;
+    } else {
+        *start = first;
+        *end   = FILELOCK_OFFSET_MAX;
+    }
+    return EOK;
+}
+
+/* Build the lock request described by a struct flock; POSIX locks belong to the process, OFD locks to the open file description. */
+static int fcntl_lock_request(process_t *proc, process_file_t *file, const linux_flock_t *fl, bool ofd, filelock_request_t *request)
+{
+    int64_t start;
+    int64_t end;
+    int     ret = fcntl_flock_range(file, fl, &start, &end);
+
+    if (ret != EOK) return ret;
+    request->owner = ofd ? (const void *)file : (const void *)proc;
+    request->start = start;
+    request->end   = end;
+    request->pid   = proc->task ? (int32_t)proc->task->tgid : 0;
+    request->type  = (uint8_t)fl->l_type;
+    request->ofd   = ofd;
+    return EOK;
+}
+
+/* F_GETLK and F_OFD_GETLK: report the first lock that would block the described lock. */
+static int64_t fcntl_getlk(process_t *proc, process_file_t *file, int cmd, uint64_t arg)
+{
+    linux_flock_t fl;
+    bool          ofd = cmd == F_OFD_GETLK;
+
+    if (!arg || copy_from_user(&fl, (const void *)arg, sizeof(fl))) return -EFAULT;
+    if (ofd && fl.l_pid != 0) return -EINVAL;
+    if (fl.l_type != F_RDLCK && fl.l_type != F_WRLCK) return -EINVAL;
+    if (file->flags & O_PATH) return -EBADF;
+
+    filelock_request_t request;
+    int                ret = fcntl_lock_request(proc, file, &fl, ofd, &request);
+    if (ret != EOK) return ret;
+
+    filelock_key_t      key;
+    filelock_conflict_t conflict;
+    filelock_key_of(&key, file->node);
+    if (filelock_test(&key, &request, &conflict)) {
+        fl.l_type   = (int16_t)conflict.type;
+        fl.l_whence = SEEK_SET;
+        fl.l_start  = conflict.start;
+        fl.l_len    = conflict.end == FILELOCK_OFFSET_MAX ? 0 : conflict.end - conflict.start + 1;
+        fl.l_pid    = conflict.pid;
+    } else {
+        fl.l_type = F_UNLCK;
+    }
+    return copy_to_user((void *)arg, &fl, sizeof(fl)) ? -EFAULT : 0;
+}
+
+/* F_SETLK, F_SETLKW, F_OFD_SETLK and F_OFD_SETLKW: take, change or release a byte-range lock. */
+static int64_t fcntl_setlk(process_t *proc, process_file_t *file, int fd, int cmd, uint64_t arg)
+{
+    linux_flock_t fl;
+    bool          ofd  = cmd == F_OFD_SETLK || cmd == F_OFD_SETLKW;
+    bool          wait = cmd == F_SETLKW || cmd == F_OFD_SETLKW;
+
+    if (!arg || copy_from_user(&fl, (const void *)arg, sizeof(fl))) return -EFAULT;
+    if (ofd && fl.l_pid != 0) return -EINVAL;
+    if (fl.l_type != F_RDLCK && fl.l_type != F_WRLCK && fl.l_type != F_UNLCK) return -EINVAL;
+    if (file->flags & O_PATH) return -EBADF;
+
+    /* A read lock needs a descriptor open for reading and a write lock one open for writing. */
+    uint64_t access = fcntl_access_mode(file);
+    if (fl.l_type == F_RDLCK && access == O_WRONLY) return -EBADF;
+    if (fl.l_type == F_WRLCK && access == O_RDONLY) return -EBADF;
+
+    filelock_request_t request;
+    int                ret = fcntl_lock_request(proc, file, &fl, ofd, &request);
+    if (ret != EOK) return ret;
+
+    filelock_key_t key;
+    filelock_key_of(&key, file->node);
+    ret = filelock_set(&key, &request, wait);
+
+    /*
+     * A POSIX lock dies with any close of the file by this process.  If another
+     * thread closed the descriptor while the request slept, the close missed the
+     * lock that was only just granted, so take it back.
+     */
+    if (ret == EOK && !ofd && fl.l_type != F_UNLCK) {
+        spin_lock(&proc->fd_lock);
+        bool still_open = fd >= 0 && fd < CONFIG_PROCESS_MAX_FD && proc->fds[fd] == file;
+        spin_unlock(&proc->fd_lock);
+        if (!still_open) {
+            filelock_release(&key, proc);
+            ret = -EBADF;
+        }
+    }
+    return ret;
+}
 
 /* fcntl syscall: manipulate file descriptor flags, locks, and seals */
 int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
@@ -146,30 +286,16 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             if (result == EOK) result = seals;
             break;
         }
-        case F_OFD_GETLK : /* open-file-description locks share the (advisory, never conflicting) POSIX lock model */
-        case F_GETLK : {
-            if (arg) {
-                /* Write back an unlocked lock struct */
-                struct {
-                        int16_t l_type;
-                        int16_t l_whence;
-                        int64_t l_start;
-                        int64_t l_len;
-                        int32_t l_pid;
-                } fl = {F_UNLCK, 0, 0, 0, 0};
-
-                if (copy_to_user((void *)arg, &fl, sizeof(fl))) {
-                    result = -EFAULT;
-                    break;
-                }
-            }
-            result = 0;
+        case F_GETLK :
+        case F_OFD_GETLK :
+            result = fcntl_getlk(proc, file, cmd, arg);
             break;
-        }
         case F_SETLK :
         case F_SETLKW :
         case F_OFD_SETLK :
         case F_OFD_SETLKW :
+            result = fcntl_setlk(proc, file, fd, cmd, arg);
+            break;
         case F_SETOWN :
         case F_GETOWN :
         case F_SETOWN_EX :
