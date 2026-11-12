@@ -127,6 +127,7 @@ struct task {
         char            name[TASK_NAME_LEN];
         process_t      *process;
         uint64_t        clear_child_tid;
+        uint64_t        robust_list; // set_robust_list() head (distinct from clear_child_tid)
         ilist_node_t    thread_node;
         cgroup_t       *cgroup;
         ilist_node_t    cgroup_node;

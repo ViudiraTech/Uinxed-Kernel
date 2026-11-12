@@ -4469,6 +4469,7 @@ shebang_oom:
     }
 
     proc->task->clear_child_tid = 0;
+    proc->task->robust_list     = 0; // the old image's robust futex list does not survive exec
     switch_page_directory(proc->user_page_dir);
 
     proc->task->thread.fs_base = 0;
@@ -4906,8 +4907,8 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             task_t *task = current_task();
             if (!task) return -ESRCH;
 
-            /* clear_child_tid holds the thread's tid address when set via clone */
-            uintptr_t addr = 0;
+            /* clear_child_tid holds the thread's tid address when set via clone or set_tid_address */
+            uintptr_t addr = (uintptr_t)task->clear_child_tid;
             if (copy_to_user((void *)arg2, &addr, sizeof(addr))) return -EFAULT;
             return 0;
         }
