@@ -12,7 +12,7 @@
 #include <arch/misc/common.h>
 #include <drivers/audio/core/audio.h>
 #include <drivers/audio/soundblaster/sb16.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>

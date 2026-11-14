@@ -9,7 +9,7 @@
  */
 
 #include <arch/cpu/smp.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 
 /* Task state segment definition */
 tss_stack_t tss_stack;

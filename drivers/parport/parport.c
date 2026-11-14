@@ -10,7 +10,7 @@
 
 #include <drivers/base/device.h>
 #include <drivers/parport/parport.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 

@@ -138,7 +138,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     if (ret) {
         DRM_ERROR("Dumb_create: host 2D resource creation failed (ret=%d, %ux%u)\n", ret, args->width, args->height);
         obj->hw_res_handle = 0;
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 
@@ -146,7 +146,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
     if (ret) {
         DRM_ERROR("Dumb_create: backing attach failed (ret=%d, res_id=%u)\n", ret, obj->hw_res_handle);
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
     obj->backing_attached = true;
@@ -155,7 +155,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
         DRM_ERROR("Dumb_create: GEM handle creation failed (ret=%d)\n", ret);
-        virtgpu_gem_free_object(&obj->base);
+        drm_gem_object_put(&obj->base);
         return ret;
     }
 

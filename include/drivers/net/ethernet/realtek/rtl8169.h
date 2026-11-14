@@ -12,7 +12,7 @@
 #define INCLUDE_RTL8169_H_
 
 #include <drivers/bus/pci.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 
 #define RTL8169_VENDOR_REALTEK 0x10ec
 #define RTL8169_MTU            1500

@@ -18,7 +18,7 @@
  * parallel-port driver is compiled out.  When disabled it simply stays
  * empty and the dump is a no-op.
  */
-log_buffer_t parallel_log;
+deferlog_t parallel_log;
 
 #if CONFIG_PARPORT
 
@@ -95,10 +95,10 @@ int parport_pc_init(void)
         } else if (legacy_bases[i] == 0x278) {
             port_name = "LPT2";
         }
-        log_buffer_write(&parallel_log, "parport: Port %s detected.\n", port_name);
+        deferlog_write(&parallel_log, "parport: Port %s detected.\n", port_name);
         registered++;
     }
-    if (registered) log_buffer_write(&parallel_log, "parport: %d port(s) available.\n", registered);
+    if (registered) deferlog_write(&parallel_log, "parport: %d port(s) available.\n", registered);
     return registered;
 }
 

@@ -52,6 +52,9 @@ int buddy_add_range(buddy_allocator_t *allocator, size_t start, size_t count);
 size_t buddy_alloc(buddy_allocator_t *allocator, unsigned order);
 int    buddy_free(buddy_allocator_t *allocator, size_t index, unsigned order);
 
+/* Allocate an aligned 2^order-unit block whose range ends at or below limit_units. */
+size_t buddy_alloc_below(buddy_allocator_t *allocator, unsigned order, size_t limit_units);
+
 /*
  * Convert an allocated power-of-two block into individually-owned units and
  * return its unused suffix.  This supports legacy exact-length frame APIs

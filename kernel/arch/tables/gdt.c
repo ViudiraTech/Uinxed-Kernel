@@ -10,7 +10,7 @@
 
 #include <arch/tables/gdt.h>
 #include <arch/tables/tss.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 
 /* Global Descriptor Table Definition */
 gdt_t gdt0;

@@ -11,10 +11,10 @@
 #ifndef INCLUDE_SECCOMP_H_
 #define INCLUDE_SECCOMP_H_
 
-#include <kernel/ioctl.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <syscall/ioctl.h>
 
 /* Classic BPF instruction encoding. */
 #define BPF_CLASS(code) ((code) & 0x07)

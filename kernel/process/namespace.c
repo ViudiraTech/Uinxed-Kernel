@@ -10,7 +10,7 @@
 
 #include <cgroup/cgroup.h>
 #include <fs/core/vfs.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/namespace.h>

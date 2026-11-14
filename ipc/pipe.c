@@ -12,15 +12,15 @@
 #include <arch/misc/common.h>
 #include <fs/core/vfs_stub.h>
 #include <ipc/pipe.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/termios.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <syscall/fcntl.h>
+#include <syscall/ioctls.h>
 #include <syscall/poll.h>
 #include <syscall/syscall.h>
 

@@ -8,9 +8,10 @@
  *
  */
 
+#include <arch/cpu/eflags.h>
 #include <kernel/debug/debug.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <mem/heap.h>
 #include <process/kthread.h>
 #include <process/process.h>
@@ -64,7 +65,7 @@ static int setup_kthread_stack(task_t *task, kthread_bootstrap_t *bootstrap)
     task->context.r13    = 0;
     task->context.r14    = 0;
     task->context.r15    = 0;
-    task->context.rflags = 0x202;
+    task->context.rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
     task->context.rdi    = (uint64_t)bootstrap;
     return 0;
 }
@@ -139,7 +140,7 @@ void kthreadd_init(void)
     *(--stack)           = 0;
     *(--stack)           = (uint64_t)kthreadd_main;
     task->context.rsp    = (uint64_t)stack;
-    task->context.rflags = 0x202;
+    task->context.rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
     task->context.rdi    = 0;
 
     process_t *proc = process_create_kthread(task, "kthreadd");
@@ -155,9 +156,14 @@ void kthreadd_init(void)
     plogk("kthread: kthreadd started (pid=2)\n");
 }
 
-/* Enqueue a creation request for kthreadd and block until it has allocated the task. Returns the (not-yet-runnable) task, or NULL with no errno on OOM. */
+/* Enqueue a creation request for kthreadd and block until it has allocated the task. Returns the (not-yet-runnable) task, or NULL with no errno on failure. */
 static task_t *__kthread_create(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id, bool pinned)
 {
+    if (pinned && cpu_id >= cpu_scheduler_count) {
+        plogk("kthread: %s: CPU %u out of range (%u CPUs)\n", name ? name : "kthread", cpu_id, cpu_scheduler_count);
+        return NULL;
+    }
+
     kthread_create_info_t *info = malloc(sizeof(kthread_create_info_t));
     if (!info) {
         plogk("kthread: %s: create request allocation failed.\n", name ? name : "unnamed");
@@ -213,8 +219,8 @@ static void create_kthread(kthread_create_info_t *info)
     }
 
     if (info->pinned) {
-        if (info->cpu_id >= cpu_scheduler_count) info->cpu_id = 0;
-        task->cpu_id = info->cpu_id;
+        task->cpu_id     = info->cpu_id;
+        task->cpu_pinned = true;
     } else {
         spin_lock(&scheduler.lock);
         task->cpu_id = choose_task_cpu_locked();

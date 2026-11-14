@@ -11,11 +11,7 @@
 #ifndef INCLUDE_GPU_DRIVERS_H_
 #define INCLUDE_GPU_DRIVERS_H_
 
-/*
- * Probe every registered GPU driver: real hardware drivers first, and only
- * if none attach, the framebuffer fallback drivers.  Returns 0 if at least
- * one driver attached, otherwise -ENODEV.
- */
+/* Probe the hardware drivers, falling back to the framebuffer; 0 if attached, else -ENODEV. */
 int gpu_drivers_probe(void);
 
 /* Register every built-in GPU driver with the bus. */

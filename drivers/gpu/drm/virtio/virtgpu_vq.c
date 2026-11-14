@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/eflags.h>
 #include <arch/misc/common.h>
 #include <arch/tables/idt.h>
 #include <drivers/bus/virtpci.h>
@@ -251,6 +252,8 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     uint32_t                    completed  = 0;
     uint32_t                    timeout    = 0;
     uint32_t                    fast_polls = 0;
+    bool                        can_yield;
+    bool                        defer_waits;
     uint32_t                    len;
     uint32_t                    log_index    = 0;
     uint32_t                    log_type     = 0;
@@ -350,13 +353,18 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     /* One doorbell covers every avail entry published above. */
     virtqueue_kick(vq);
     uint64_t overall_deadline = __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) ? sched_ticks() + VIRTGPU_QUEUE_TIMEOUT_TICKS : 0;
+
+    /* A sleeping wait needs the timer tick and the completion IRQ; without them only polling can finish. */
+    can_yield   = __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) && (get_rflags() & X86_EFLAGS_IF);
+    defer_waits = vgdev->irq_enabled && can_yield;
+
     while (completed < submitted) {
         if (virtqueue_get_buf(vq, &len)) {
             completed++;
             timeout = 0;
             continue;
         }
-        if (vgdev->irq_enabled && __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) {
+        if (defer_waits) {
             if (fast_polls++ < VIRTGPU_FAST_POLL_COUNT) {
                 cpu_relax();
                 compiler_barrier();
@@ -402,7 +410,7 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
             ret = -EIO;
             goto out_unlock;
         }
-        if ((timeout & 0x3fffU) == 0 && __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) {
+        if ((timeout & 0x3fffU) == 0 && can_yield) {
             sched_yield();
         } else {
             cpu_relax();
@@ -464,26 +472,27 @@ out_unlock:
      * print while owning the command gate: doing so recursively submits another
      * control command and deadlocks the task that must release this gate.
      */
+    static DEFINE_RATELIMIT_STATE(ratelimit_no_desc, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    static DEFINE_RATELIMIT_STATE(ratelimit_queue_add, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    static DEFINE_RATELIMIT_STATE(ratelimit_timeout, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    static DEFINE_RATELIMIT_STATE(ratelimit_bad_response, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+    static DEFINE_RATELIMIT_STATE(ratelimit_bad_fence, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
+
     switch (log_reason) {
         case CTRL_LOG_NO_DESCRIPTORS :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Ctrl_cmd_batch: not enough free descriptors (count=%u, num_free=%u)\n", count, vq->num_free);
+            if (ratelimit_allow(&ratelimit_no_desc)) plogk("virtgpu: Ctrl_cmd_batch: not enough free descriptors (count=%u, num_free=%u)\n", count, vq->num_free);
             break;
         case CTRL_LOG_QUEUE_ADD :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Ctrl_cmd_batch: queue add failed (index=%u, err=%d)\n", log_index, log_error);
+            if (ratelimit_allow(&ratelimit_queue_add)) plogk("virtgpu: Ctrl_cmd_batch: queue add failed (index=%u, err=%d)\n", log_index, log_error);
             break;
         case CTRL_LOG_TIMEOUT :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Timed out waiting for GPU command batch (%u/%u complete)\n", completed, submitted);
+            if (ratelimit_allow(&ratelimit_timeout)) plogk("virtgpu: Timed out waiting for GPU command batch (%u/%u complete)\n", completed, submitted);
             break;
         case CTRL_LOG_BAD_RESPONSE :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: GPU command 0x%04x returned 0x%04x, expected 0x%04x\n", log_type, log_reply, log_expected);
+            if (ratelimit_allow(&ratelimit_bad_response)) plogk("virtgpu: GPU command 0x%04x returned 0x%04x, expected 0x%04x\n", log_type, log_reply, log_expected);
             break;
         case CTRL_LOG_BAD_FENCE :
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtgpu: GPU command 0x%04x returned an invalid fence response.\n", log_type);
+            if (ratelimit_allow(&ratelimit_bad_fence)) plogk("virtgpu: GPU command 0x%04x returned an invalid fence response.\n", log_type);
             break;
         default :
             break;
@@ -535,6 +544,8 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
     uint64_t dma_phys;
     void    *dma_cmd;
     bool     pooled;
+    bool     can_yield;
+    bool     defer_waits;
 
     if (!vgdev || !cmd || cmd_size < (int)sizeof(struct virtio_gpu_ctrl_hdr)) return -EINVAL;
 
@@ -559,10 +570,15 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
         uint32_t len;
         virtqueue_kick(&vgdev->cursorq);
         uint64_t overall_deadline = __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) ? sched_ticks() + VIRTGPU_QUEUE_TIMEOUT_TICKS : 0;
+
+        /* A sleeping wait needs the timer tick and the completion IRQ; without them only polling can finish. */
+        can_yield   = __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE) && (get_rflags() & X86_EFLAGS_IF);
+        defer_waits = vgdev->irq_enabled && can_yield;
+
         for (;;) {
             void *completed = virtqueue_get_buf(&vgdev->cursorq, &len);
             if (completed == dma_cmd) break;
-            if (vgdev->irq_enabled && __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) {
+            if (defer_waits) {
                 if (fast_polls++ < VIRTGPU_FAST_POLL_COUNT) {
                     cpu_relax();
                     compiler_barrier();
@@ -593,7 +609,7 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
                 ret = -EIO;
                 break;
             }
-            if ((timeout & 0x3fffU) == 0 && __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE)) {
+            if ((timeout & 0x3fffU) == 0 && can_yield) {
                 sched_yield();
             } else {
                 cpu_relax();

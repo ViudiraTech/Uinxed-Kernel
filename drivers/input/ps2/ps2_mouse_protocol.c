@@ -9,8 +9,8 @@
  */
 
 #include <drivers/input/ps2/ps2_mouse.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 
 #if CONFIG_PS2_KEYBOARD_MOUSE
 
