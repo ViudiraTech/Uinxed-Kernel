@@ -383,7 +383,7 @@ static uint8_t atapi_send_packet_locked(uint8_t drive, const uint8_t *cdb, uint1
             uint16_t words = bc / 2;
             for (uint16_t h = 0; h < words; h++) {
                 uint16_t val = inw(bus);
-                if (transferred + (size_t)h * 2 < *xfer_len) word_buf[(transferred / 2) + h] = val;
+                if (transferred + ((size_t)h * 2) < *xfer_len) word_buf[(transferred / 2) + h] = val;
             }
 
             size_t remaining = *xfer_len - transferred;
