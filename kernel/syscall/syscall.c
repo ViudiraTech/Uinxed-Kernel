@@ -2373,10 +2373,13 @@ int64_t mknod_create_node(char *resolved, uint64_t mode, uint64_t dev)
              */
             int status = vfs_mkfile_mode(resolved, (uint16_t)(mode & 07777));
             if (status != EOK) return status;
+
             vfs_node_t node = vfs_open_nofollow(resolved);
             if (!node) return -EIO;
+
             status = tmpfs_set_node_type(node, file_socket);
             if (status != EOK) (void)vfs_delete(node);
+
             vfs_close(node);
             return status;
         }
