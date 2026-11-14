@@ -1134,7 +1134,7 @@ static task_t *newidle_balance_locked(uint32_t dst_cpu)
 
         for (unsigned int slot = 0; slot < count; slot++) {
             /* Pressure-ordered: the remaining sources cannot beat dst either. */
-            if (sources[slot].pressure <= dst_pressure + SCHED_NICE_0_LOAD / 2ULL) break;
+            if (sources[slot].pressure <= dst_pressure + (SCHED_NICE_0_LOAD / 2ULL)) break;
             task_t *moved = migrate_one_locked(sources[slot].cpu, dst_cpu, true);
             if (moved) return moved;
         }

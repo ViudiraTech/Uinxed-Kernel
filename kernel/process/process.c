@@ -3070,7 +3070,7 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     vma = proc->mmap_list;
     while (vma && vma->end <= page) vma = vma->next;
     if (!vma || vma->start > page || page >= vma->end || vma->flags != flags || vma->vm_file != vm_file || vma->vm_pagecache != pagecache
-        || (vm_file && vma->vm_pgoff + (page - vma->start) / PAGE_4K_SIZE != pgoff + index / PAGE_4K_SIZE)) {
+        || (vm_file && vma->vm_pgoff + ((page - vma->start) / PAGE_4K_SIZE) != pgoff + (index / PAGE_4K_SIZE))) {
         spin_unlock(&proc->mmap_lock);
         (void)frame_release_range(frame, 1);
         goto fail_perm;
