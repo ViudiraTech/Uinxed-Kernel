@@ -488,11 +488,11 @@ int64_t tty_core_read(tty_core_t *tty, void *buffer, size_t size, uint64_t flags
         }
         if (!(tty->termios.c_lflag & ICANON) && vtime) {
             if (!minimum) {
-                if (!deadline) deadline = sched_ticks() + (uint64_t)vtime * TTY_TICKS_PER_DECISECOND;
+                if (!deadline) deadline = sched_ticks() + ((uint64_t)vtime * TTY_TICKS_PER_DECISECOND);
             } else if (tty->input_count) {
                 if (tty->input_count != observed) {
                     observed = tty->input_count;
-                    deadline = sched_ticks() + (uint64_t)vtime * TTY_TICKS_PER_DECISECOND;
+                    deadline = sched_ticks() + ((uint64_t)vtime * TTY_TICKS_PER_DECISECOND);
                 }
             }
             if (deadline && sched_ticks() >= deadline) break;

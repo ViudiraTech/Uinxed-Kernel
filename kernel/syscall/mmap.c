@@ -559,6 +559,16 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
             spin_unlock(&proc->mmap_lock);
             return ret;
         }
+        if (changed >= count) {
+            while (changed) {
+                changed--;
+                (void)memfd_vma_protect(changes[changed].vma->vm_file, changes[changed].vma->flags, changes[changed].old_flags);
+                changes[changed].vma->flags = changes[changed].old_flags;
+            }
+            free(changes);
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
+        }
         changes[changed].vma       = vma;
         changes[changed].old_flags = vma->flags;
         changed++;
@@ -615,7 +625,7 @@ int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
         uintptr_t overlap_start = addr > vma->start ? addr : vma->start;
         uintptr_t overlap_end   = end < vma->end ? end : vma->end;
         ranges[used].file       = vfs_node_retain(vma->vm_file);
-        ranges[used].start      = vma->vm_pgoff * PAGE_4K_SIZE + overlap_start - vma->start;
+        ranges[used].start      = (vma->vm_pgoff * PAGE_4K_SIZE) + overlap_start - vma->start;
         ranges[used].end        = ranges[used].start + overlap_end - overlap_start - 1;
         ranges[used].shared     = (vma->flags & VM_SHARED) != 0;
         ranges[used].writable   = (vma->flags & VM_WRITE) != 0;

@@ -169,12 +169,12 @@ void acpi_gpe_status_clear(uint8_t block_index, uint8_t bit)
 /* Convert GPE number (0-255) to {block_index, bit_offset}. Returns -1 if out of range. */
 static int gpe_number_to_bit(uint8_t gpe, uint8_t *block, uint8_t *bit)
 {
-    if (gpe < gpe_blocks.block0_base + gpe_blocks.block0_len * 8) {
+    if (gpe < gpe_blocks.block0_base + (gpe_blocks.block0_len * 8)) {
         *block = 0;
         *bit   = gpe - gpe_blocks.block0_base;
         return 0;
     }
-    if (gpe_blocks.block1_addr && gpe >= gpe_blocks.block1_base && gpe < gpe_blocks.block1_base + gpe_blocks.block1_len * 8) {
+    if (gpe_blocks.block1_addr && gpe >= gpe_blocks.block1_base && gpe < gpe_blocks.block1_base + (gpe_blocks.block1_len * 8)) {
         *block = 1;
         *bit   = gpe - gpe_blocks.block1_base;
         return 0;

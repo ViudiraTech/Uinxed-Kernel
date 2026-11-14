@@ -1046,6 +1046,8 @@ static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
 /* Find a sysctl entry by name. */
 static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name, size_t *index)
 {
+    *index = SIZE_MAX; // dummy entry
+
     if (dir == PROC_SYS_KERNEL) {
         for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++)
             if (streq(procfs_sysctl_kernel[i].name, name)) {
@@ -1084,7 +1086,6 @@ static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name, size_t *in
      * hierarchy) and expects either success or a writable dummy, not ENOENT.  Return
      * a static dummy entry in that case.
      */
-    *index = SIZE_MAX; // dummy entry
     static procfs_sysctl_t dummy = {.name = "dummy", .kind = PROC_SYS_UINT, .values = {0}, .count = 1};
 
     /* Only for sysctl dirs, not for other proc files */
@@ -1156,7 +1157,7 @@ static int procfs_sysctl_apply(procfs_sysctl_t *sc, const char *data, size_t siz
             valid          = true;
             uint64_t digit = (uint64_t)(*cursor - '0');
             if (value > (UINT64_MAX - digit) / 10) return -ERANGE;
-            value = value * 10 + digit;
+            value = (value * 10) + digit;
             cursor++;
             left--;
         }

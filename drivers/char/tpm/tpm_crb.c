@@ -165,7 +165,7 @@ static int crb_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
 
     if (maxlen < TPM_HEADER_SIZE) return -EINVAL;
 
-    deadline = nano_time() + (uint64_t)dev->timeout_c * 1000000ULL;
+    deadline = nano_time() + ((uint64_t)dev->timeout_c * 1000000ULL);
     for (;;) {
         sts = crb_status(dev);
         if (sts & CRB_DRV_STS_COMPLETE) break;
