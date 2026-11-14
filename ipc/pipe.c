@@ -881,7 +881,9 @@ static int pipe_vfs_stat(void *file, vfs_node_t node)
     pipe_ring_t *ring = (pipe_ring_t *)node->handle;
     if (ring) node->size = ring->size;
     node->type |= file_pipe;
-    node->mode = PIPE_DEFAULT_MODE;
+
+    /* Only anonymous pipes take the default; a named FIFO keeps its own mode. */
+    if (!node->parent) node->mode = PIPE_DEFAULT_MODE;
     return EOK;
 }
 
