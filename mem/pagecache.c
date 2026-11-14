@@ -9,8 +9,8 @@
  */
 
 #include <arch/misc/common.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/string.h>
 #include <libs/util/overflow.h>
@@ -835,6 +835,7 @@ int pagecache_writeback_all(uint32_t flags)
     size_t used = 0;
     for (pagecache_mapping_t *mapping = pagecache.mappings; mapping; mapping = mapping->global_next) {
         if (mapping->dying) continue;
+        if (used >= slots) break;
         __atomic_add_fetch(&mapping->references, 1, __ATOMIC_ACQ_REL);
         mappings[used++] = mapping;
     }

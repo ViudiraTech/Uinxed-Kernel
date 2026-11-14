@@ -12,7 +12,7 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>
@@ -213,7 +213,7 @@ static int drm_parse_minor(const char *s)
     if (!s || !*s) return -1;
     for (; *s; s++) {
         if (*s < '0' || *s > '9') return -1;
-        minor = minor * 10 + (*s - '0');
+        minor = (minor * 10) + (*s - '0');
         if (minor < 0) return -1; // signed overflow
     }
     return minor;

@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/eflags.h>
 #include <arch/cpu/fpu.h>
 #include <arch/cpu/smp.h>
 #include <arch/misc/common.h>
@@ -74,7 +75,6 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
  * flag must be clear (SMAP correctness requires IRET).
  */
 #define X86_64_CANONICAL_BOUNDARY 0x0000800000000000ULL
-#define X86_EFLAGS_AC             0x00040000ULL
 
 #define WNOHANG     0x00000001
 #define WUNTRACED   0x00000002
@@ -4504,7 +4504,7 @@ shebang_oom:
         memset(frame, 0, sizeof(*frame));
         frame->rip    = entry;
         frame->cs     = 0x1B;
-        frame->rflags = 0x202;
+        frame->rflags = X86_EFLAGS_IF | X86_EFLAGS_FIXED;
         frame->rsp    = rsp;
         frame->ss     = 0x23;
     }
@@ -5938,7 +5938,7 @@ void syscall_init_cpu(void)
     star |= ((uint64_t)0x08 << 32) | ((uint64_t)0x23 << 48);
     wrmsr(0xC0000081, star);
     wrmsr(0xC0000082, (uint64_t)syscall_entry_syscall);
-    wrmsr(0xC0000084, 0x200);
+    wrmsr(0xC0000084, X86_EFLAGS_IF);
     wrmsr(0xC0000080, rdmsr(0xC0000080) | 1);
 }
 

@@ -15,7 +15,7 @@
 #include <arch/cpu/smp.h>
 #include <boot/limine_module.h>
 #include <kernel/cmdline/cmdline.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 
 /* Every backend the core can drive; append a new vendor's table here. */
@@ -32,7 +32,7 @@ static int microcode_loader_disabled;
 
 /* Revision the boot processor reported, and one slot per other processor, bounded like the kernel's other per-CPU state. */
 static uint32_t microcode_boot_revision;
-static uint32_t microcode_ap_revisions[CONFIG_NMI_LOG_MAX_CPUS];
+static uint32_t microcode_ap_revisions[CONFIG_PER_CPU_TABLE_MAX_CPUS];
 
 /* Remember what the boot processor reports, so readers stay off the MSRs. */
 static void microcode_cache_revision(void)
@@ -45,6 +45,19 @@ static const microcode_ops_t *microcode_find_backend(void)
 {
     for (size_t i = 0; i < sizeof(microcode_backends) / sizeof(microcode_backends[0]); i++)
         if (microcode_backends[i]->match()) return microcode_backends[i];
+    return NULL;
+}
+
+/* A microcode module the bootloader supplied under a name the backends know. */
+static const char *microcode_find_module(void)
+{
+    for (size_t i = 0; i < sizeof(microcode_backends) / sizeof(microcode_backends[0]); i++) {
+        const microcode_ops_t *ops = microcode_backends[i];
+        for (size_t j = 0; j < ops->module_name_count; j++) {
+            lmodule_t *module = get_lmodule(ops->module_names[j]);
+            if (module && module->data && module->size) return module->name;
+        }
+    }
     return NULL;
 }
 
@@ -113,7 +126,8 @@ void init_microcode(void)
     /* Detected before the gates below, so microcode_revision() still works. */
     microcode_backend = microcode_find_backend();
     if (!microcode_backend) {
-        plogk("microcode: no support for this CPU vendor.\n");
+        const char *module = microcode_find_module();
+        if (module) plogk("microcode: no loader for CPU vendor %s; \"%s\" was not applied.\n", get_vendor_name(), module);
         return;
     }
 
@@ -155,12 +169,12 @@ void init_microcode_ap(void)
 
     /* Record this CPU's own revision, whether or not an update was applied. */
     cpu = get_current_cpu_id();
-    if (microcode_backend->revision && cpu < CONFIG_NMI_LOG_MAX_CPUS) microcode_ap_revisions[cpu] = microcode_backend->revision();
+    if (microcode_backend->revision && cpu < CONFIG_PER_CPU_TABLE_MAX_CPUS) microcode_ap_revisions[cpu] = microcode_backend->revision();
 }
 
 /* Revision @cpu runs, for /proc/cpuinfo. */
 uint32_t microcode_revision(uint32_t cpu)
 {
-    if (cpu < CONFIG_NMI_LOG_MAX_CPUS && microcode_ap_revisions[cpu]) return microcode_ap_revisions[cpu];
+    if (cpu < CONFIG_PER_CPU_TABLE_MAX_CPUS && microcode_ap_revisions[cpu]) return microcode_ap_revisions[cpu];
     return microcode_boot_revision;
 }

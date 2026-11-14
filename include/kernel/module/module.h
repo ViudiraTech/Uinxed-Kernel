@@ -11,8 +11,8 @@
 #ifndef INCLUDE_MODULE_H_
 #define INCLUDE_MODULE_H_
 
-#include <kernel/errno.h>
 #include <kernel/uinxed.h>
+#include <libs/std/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

@@ -125,7 +125,7 @@ static void uhci_writel(uhci_controller_t *ctrl, uint8_t reg, uint32_t value)
 static void *uhci_dma_alloc(size_t size, uint64_t *physical)
 {
     size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
-    uint64_t address = alloc_frames_dma32(count);
+    uint64_t address = alloc_frames_below(count, 0x100000000ULL);
     if (!address) return NULL;
     void *memory = phys_to_virt(address);
     memset(memory, 0, count * PAGE_4K_SIZE);

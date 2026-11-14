@@ -10,7 +10,7 @@
 
 #include <arch/tables/idt.h>
 #include <drivers/firmware/acpi.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <mem/hhdm.h>
 

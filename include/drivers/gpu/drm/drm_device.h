@@ -284,8 +284,8 @@ struct drm_display_mode {
 
 /* CRTC helper funcs - stored in crtc->helper_private */
 struct drm_crtc_helper_funcs {
-        /* Called after a mode has been set on the CRTC */
-        void (*mode_set)(struct drm_crtc *crtc, struct drm_framebuffer *fb);
+        /* Called after a mode has been set on the CRTC; a negative return aborts the commit */
+        int (*mode_set)(struct drm_crtc *crtc, struct drm_framebuffer *fb);
 
         /* Called on page-flip ioctl */
         int (*page_flip)(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags);
@@ -295,8 +295,8 @@ struct drm_crtc_helper_funcs {
         /* Called when CRTC is being enabled after modeset */
         void (*atomic_enable)(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
 
-        /* Called when CRTC is being disabled */
-        void (*atomic_disable)(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+        /* Called when CRTC is being disabled; a negative return aborts the commit */
+        int (*atomic_disable)(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
 
         /* Called by the software-vblank timer before completion events. */
         void (*vblank)(struct drm_crtc *crtc);
@@ -317,6 +317,13 @@ struct drm_connector_helper_funcs {
 
         /* Legacy (non-atomic) connector power control hook, invoked with a DRM_MODE_DPMS_* level. */
         void (*dpms)(struct drm_connector *connector, int mode);
+};
+
+/* Plane helper funcs - stored in plane->helper_private */
+
+struct drm_plane_helper_funcs {
+        /* Optional scanout validation; a negative return rejects the commit. */
+        int (*atomic_check)(struct drm_plane *plane, struct drm_plane_state *state);
 };
 
 struct drm_crtc_state {
@@ -350,6 +357,7 @@ struct drm_crtc_state {
 struct drm_plane_state {
         struct drm_plane         *plane;
         struct drm_crtc          *crtc;
+        struct drm_crtc_state    *crtc_state; // pending CRTC state, valid during atomic_check
         struct drm_framebuffer   *fb;
         struct drm_rect           src;
         struct drm_rect           dst;
@@ -901,7 +909,7 @@ int                         drm_mode_addfb(struct drm_device *dev, void *data, s
 int                         drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                         drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, const struct drm_framebuffer_funcs *funcs);
 struct drm_framebuffer     *drm_framebuffer_lookup(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
-void                        drm_framebuffer_cleanup(struct drm_framebuffer *fb);
+bool                        drm_framebuffer_cleanup(struct drm_framebuffer *fb);
 void                        drm_framebuffer_get(struct drm_framebuffer *fb);
 void                        drm_framebuffer_put(struct drm_framebuffer *fb);
 int                         drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv);
@@ -1003,6 +1011,7 @@ int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_pri
 int                       drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_crtc *crtc);
 int                       drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct drm_crtc *crtc);
 int                       drm_atomic_check_only(struct drm_atomic_state *state);
+bool                      drm_plane_state_full_frame(const struct drm_framebuffer *fb, const struct drm_plane_state *state);
 void                      drm_encoder_cleanup(struct drm_encoder *encoder);
 struct drm_file          *drm_file_alloc(struct drm_device *dev);
 void                      drm_file_free(struct drm_file *file);

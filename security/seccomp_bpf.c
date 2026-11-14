@@ -8,7 +8,7 @@
  *
  */
 
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <security/seccomp.h>
 

@@ -10,8 +10,8 @@
 
 #include <arch/misc/common.h>
 #include <drivers/char/chrdev.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <process/uaccess.h>
 

@@ -13,7 +13,7 @@
 /*------------------------------------------------------------------------*/
 
 #include <fs/fatfs/ff.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <process/sched.h>
 #include <sync/rt_mutex.h>
 

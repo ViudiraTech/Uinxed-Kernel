@@ -22,7 +22,7 @@
 #define UART8250_LSR_TX_EMPTY 0x20
 #define UART8250_FIFO_SIZE    16
 
-log_buffer_t serial_log;
+deferlog_t serial_log;
 
 #if CONFIG_SERIAL
 
@@ -280,7 +280,7 @@ void init_serial(void)
         spin_unlock_irqrestore(&port->lock, flags);
         if (present) {
             detected++;
-            log_buffer_write(&serial_log, "serial: Port COM%d detected.\n", i + 1);
+            deferlog_write(&serial_log, "serial: Port COM%d detected.\n", i + 1);
         }
     }
 
@@ -295,7 +295,7 @@ void init_serial(void)
         serial_consoles[i].get_tty = serial_console_get_tty;
         (void)register_console(&serial_consoles[i]);
     }
-    log_buffer_write(&serial_log, "serial: %d port(s) available.\n", detected);
+    deferlog_write(&serial_log, "serial: %d port(s) available.\n", detected);
 }
 
 /* Install IRQ handlers for the legacy COM lines in use. */

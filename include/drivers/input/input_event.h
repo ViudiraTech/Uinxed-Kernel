@@ -11,8 +11,8 @@
 #ifndef INCLUDE_INPUT_EVENT_H_
 #define INCLUDE_INPUT_EVENT_H_
 
-#include <kernel/ioctl.h>
 #include <libs/std/stdint.h>
+#include <syscall/ioctl.h>
 
 #define EV_VERSION 0x010001
 

@@ -11,7 +11,7 @@
 #ifndef INCLUDE_DRM_PRINT_H_
 #define INCLUDE_DRM_PRINT_H_
 
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 
 #define DRM_PRINTK_FMT "drm: "
 

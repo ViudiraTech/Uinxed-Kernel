@@ -11,7 +11,7 @@
 #ifndef INCLUDE_LIMINE_MODULE_H_
 #define INCLUDE_LIMINE_MODULE_H_
 
-#include <kernel/debug/ringlog.h>
+#include <kernel/debug/deferlog.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
@@ -22,7 +22,7 @@ typedef struct {
         size_t   size;
 } lmodule_t;
 
-extern log_buffer_t lmodule_log;
+extern deferlog_t lmodule_log;
 
 /* Find resource modules by module name */
 lmodule_t *get_lmodule(const char *lmodule_name);

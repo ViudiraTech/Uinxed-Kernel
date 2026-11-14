@@ -12,7 +12,7 @@
 #define INCLUDE_VFS_STUB_H_
 
 #include <fs/core/vfs.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/stddef.h>
 #include <syscall/poll.h>
 

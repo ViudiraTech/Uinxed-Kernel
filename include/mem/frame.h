@@ -11,7 +11,7 @@
 #ifndef INCLUDE_FRAME_H_
 #define INCLUDE_FRAME_H_
 
-#include <kernel/debug/ringlog.h>
+#include <kernel/debug/deferlog.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/buddy.h>
@@ -36,7 +36,7 @@ typedef struct {
         unsigned max_order;
 } frame_stats_t;
 
-extern log_buffer_t      frame_log;
+extern deferlog_t        frame_log;
 extern frame_allocator_t frame_allocator;
 
 /* Initialize memory frame */
@@ -45,8 +45,8 @@ void init_frame(void);
 /* Allocate memory frames */
 uint64_t alloc_frames(size_t count);
 
-/* Allocate memory frames reachable by 32-bit DMA (entirely below 4 GiB) */
-uint64_t alloc_frames_dma32(size_t count);
+/* Allocate count contiguous frames whose every frame lies below max_phys. */
+uint64_t alloc_frames_below(size_t count, uint64_t max_phys);
 
 /* Reclaim pages under the frame allocator's recursion guard. */
 int frame_reclaim_pages(size_t target);

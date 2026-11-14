@@ -11,10 +11,10 @@
 #ifndef INCLUDE_VSPRINTF_H_
 #define INCLUDE_VSPRINTF_H_
 
-#include <kernel/writer.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/util/writer.h>
 
 typedef struct {
         char  *buf;
