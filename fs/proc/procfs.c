@@ -1388,9 +1388,10 @@ static void gen_pid_status(procfs_file_t *pf)
                                "Mems_allowed_list:\t0\n"
                                "voluntary_ctxt_switches:\t%llu\n"
                                "nonvoluntary_ctxt_switches:\t%llu\n",
-                          proc->task->name, state_str, (unsigned long long)pf->pid, (unsigned long long)pf->pid, (unsigned long long)ppid, (unsigned long long)ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U,
-                          0U, memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024, (memory.data_bytes / 1024), (memory.stack_bytes / 1024), (memory.text_bytes / 1024),
-                     stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, seccomp_mode, seccomp_filters, cpu_mask, cpu_list, stats.voluntary_switches, stats.involuntary_switches);
+                          proc->task->name, state_str, (unsigned long long)pf->pid, (unsigned long long)pf->pid, (unsigned long long)ppid, (unsigned long long)ptrace_tracer_pid(proc->task), proc->uid,
+                          proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024,
+                          (memory.data_bytes / 1024), (memory.stack_bytes / 1024), (memory.text_bytes / 1024), stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, seccomp_mode, seccomp_filters,
+                          cpu_mask, cpu_list, stats.voluntary_switches, stats.involuntary_switches);
     process_put(proc);
 
     pf->content  = buf;
@@ -1839,8 +1840,7 @@ static void gen_pid_stat(procfs_file_t *pf)
                      "%llu %llu %llu %llu %llu %llu %llu %lld\n",
                      pf->pid, name, state_char, ppid, pgid, sid, tty_nr, tpgid, 0U, 0ULL, 0ULL, 0ULL, 0ULL, timer_ticks_to_user_ticks(task_stats.user_ticks),
                      timer_ticks_to_user_ticks(task_stats.system_ticks), 0LL, 0LL, 20LL, 0LL, thread_count, 0LL, timer_ticks_to_user_ticks(task_stats.start_tick), vsize, resident_pages, rss_limit,
-                     start_code, end_code, PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, SIGCHLD, cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL,
-                     start_data, end_data, start_brk,
+                     start_code, end_code, PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, SIGCHLD, cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL, start_data, end_data, start_brk,
                      0ULL, 0ULL, 0ULL, 0ULL, exit_code);
     process_put(proc);
 

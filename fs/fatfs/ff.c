@@ -1303,10 +1303,10 @@ static FRESULT change_bitmap(FATFS *fs, DWORD clst, DWORD ncl, int bv)
     UINT  i;
     LBA_t sect;
 
-    clst -= 2;                              // The first bit corresponds to cluster #2
+    clst -= 2;                                // The first bit corresponds to cluster #2
     sect = fs->bitbase + (clst / 8 / SS(fs)); // Sector address
-    i    = clst / 8 % SS(fs);               // Byte offset in the sector
-    bm   = 1 << (clst % 8);                 // Bit mask in the byte
+    i    = clst / 8 % SS(fs);                 // Byte offset in the sector
+    bm   = 1 << (clst % 8);                   // Bit mask in the byte
     for (;;) {
         if (move_window(fs, sect++) != FR_OK) return FR_DISK_ERR;
         do {
@@ -1652,7 +1652,7 @@ static FRESULT dir_next(DIR *dp, int stretch)
                 return FR_NO_FILE;
             }
         } else {                                            // Dynamic table
-            if (((ofs / SS(fs)) & (fs->csize - 1)) == 0) {    // Cluster changed?
+            if (((ofs / SS(fs)) & (fs->csize - 1)) == 0) {  // Cluster changed?
                 clst = get_fat(&dp->obj, dp->clust);        // Get next cluster
                 if (clst <= 1) return FR_INT_ERR;           // Internal error
                 if (clst == 0xFFFFFFFF) return FR_DISK_ERR; // Disk error
@@ -1679,7 +1679,7 @@ static FRESULT dir_next(DIR *dp, int stretch)
             }
         }
     }
-    dp->dptr = ofs;                    // Current entry
+    dp->dptr = ofs;                      // Current entry
     dp->dir  = fs->win + (ofs % SS(fs)); // Pointer to the entry in the win[]
     return FR_OK;
 }
@@ -2252,9 +2252,9 @@ static FRESULT dir_register(DIR *dp)
     for (len = 0; fs->lfnbuf[len]; len++);                             // Get lfn length
 
 #            if FF_FS_EXFAT
-    if (fs->fs_type == FS_EXFAT) {    // On the exFAT volume
-        n_ent = ((len + 14) / 15) + 2;  // Number of entries to allocate (85+C0+C1s)
-        res   = dir_alloc(dp, n_ent); // Allocate directory entries
+    if (fs->fs_type == FS_EXFAT) {     // On the exFAT volume
+        n_ent = ((len + 14) / 15) + 2; // Number of entries to allocate (85+C0+C1s)
+        res   = dir_alloc(dp, n_ent);  // Allocate directory entries
         if (res != FR_OK) return res;
         dp->blk_ofs = dp->dptr - (SZDIRE * (n_ent - 1)); // Set the allocated entry block offset
 
@@ -3262,7 +3262,7 @@ static FRESULT mount_volume(const TCHAR **path, FATFS **rfs, BYTE mode)
         }
         bcl = ld_32(fs->win + i + 20);                               // Bitmap cluster
         if (bcl < 2 || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM; // (Wrong cluster#)
-        fs->bitbase = fs->database + ((LBA_t)fs->csize * (bcl - 2));   // Bitmap sector
+        fs->bitbase = fs->database + ((LBA_t)fs->csize * (bcl - 2)); // Bitmap sector
         for (;;) {                                                   // Check if bitmap is contiguous
             if (move_window(fs, fs->fatbase + (bcl / (SS(fs) / 4))) != FR_OK) return FR_DISK_ERR;
             cv = ld_32(fs->win + ((size_t)(bcl % (SS(fs) / 4)) * 4));
@@ -3304,9 +3304,9 @@ static FRESULT mount_volume(const TCHAR **path, FATFS **rfs, BYTE mode)
 
         /* Determine the FAT sub type */
         sysect = nrsv + fasize + (fs->n_rootdir / (SS(fs) / SZDIRE)); // RSV + FAT + DIR
-        if (tsect < sysect) return FR_NO_FILESYSTEM;                // (Invalid volume size)
-        nclst = (tsect - sysect) / fs->csize;                       // Number of clusters
-        if (nclst == 0) return FR_NO_FILESYSTEM;                    // (Invalid volume size)
+        if (tsect < sysect) return FR_NO_FILESYSTEM;                  // (Invalid volume size)
+        nclst = (tsect - sysect) / fs->csize;                         // Number of clusters
+        if (nclst == 0) return FR_NO_FILESYSTEM;                      // (Invalid volume size)
         fmt = 0;
         if (nclst <= MAX_FAT32) fmt = FS_FAT32;
         if (nclst <= MAX_FAT16) fmt = FS_FAT16;
@@ -3709,7 +3709,7 @@ FRESULT f_read(FIL *fp, void *buff, UINT btr, UINT *br)
             fp->sect = sect;
         }
         rcnt = SS(fs) - ((UINT)fp->fptr % SS(fs)); // Number of bytes remains in the sector
-        if (rcnt > btr) rcnt = btr;              // Clip it by btr if needed
+        if (rcnt > btr) rcnt = btr;                // Clip it by btr if needed
 #    if FF_FS_TINY
         if (move_window(fs, fp->sect) != FR_OK) ABORT(fs, FR_DISK_ERR); // Move sector window
         memcpy(rbuff, fs->win + (fp->fptr % SS(fs)), rcnt);             // Extract partial sector
@@ -3813,7 +3813,7 @@ FRESULT f_write(FIL *fp, const void *buff, UINT btw, UINT *bw)
             fp->sect = sect;
         }
         wcnt = SS(fs) - ((UINT)fp->fptr % SS(fs)); // Number of bytes remains in the sector
-        if (wcnt > btw) wcnt = btw;              // Clip it by btw if needed
+        if (wcnt > btw) wcnt = btw;                // Clip it by btw if needed
 #        if FF_FS_TINY
         if (move_window(fs, fp->sect) != FR_OK) ABORT(fs, FR_DISK_ERR); // Move sector window
         memcpy(fs->win + (fp->fptr % SS(fs)), wbuff, wcnt);             // Fit data to the sector
@@ -5614,7 +5614,7 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
 
         /* Create a compressed up-case table */
         sect     = b_data + ((LBA_t)sz_au * clen[0]); // Table start sector
-        sum      = 0;                               // Table checksum to be stored in the 82 entry
+        sum      = 0;                                 // Table checksum to be stored in the 82 entry
         st       = 0;
         si       = 0;
         i        = 0;
@@ -5800,7 +5800,7 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
                 sz_rsv = 1;                           // Number of reserved sectors
                 sz_dir = (DWORD)n_root * SZDIRE / ss; // Root directory size [sector]
             }
-            b_fat  = b_vol + sz_rsv;                         // FAT base
+            b_fat  = b_vol + sz_rsv;                           // FAT base
             b_data = b_fat + ((LBA_t)sz_fat * n_fat) + sz_dir; // Data base
 
             /* Align data area to erase block boundary (for flash memory media) */
