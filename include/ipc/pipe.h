@@ -29,4 +29,16 @@ int pipe_mknod(char *path, uint16_t mode);
 /* Copy up to len bytes between two pipe endpoints without consuming the input. */
 int64_t pipe_tee(void *in_private, void *out_private, size_t len, uint64_t flags);
 
+/* Create an anonymous in-kernel pipe with one reader and one writer. */
+void *pipe_kernel_create(void);
+
+/* Blocking read from an in-kernel pipe. */
+int64_t pipe_kernel_read(void *pipe, void *addr, size_t size);
+
+/* Blocking write to an in-kernel pipe. */
+int64_t pipe_kernel_write(void *pipe, const void *addr, size_t size);
+
+/* Free an in-kernel pipe once neither end is in use. */
+void pipe_kernel_destroy(void *pipe);
+
 #endif // INCLUDE_PIPE_H_
