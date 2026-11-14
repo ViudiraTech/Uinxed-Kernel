@@ -1040,7 +1040,7 @@ static int parse_unsigned_value(const char *value, uint64_t *result)
             return -EINVAL;
         }
         if (digit >= base || number > (UINT64_MAX - digit) / base) return -ERANGE;
-        number = number * base + digit;
+        number = (number * base) + digit;
         digits = 1;
     }
     if (!digits) return -EINVAL;

@@ -86,7 +86,7 @@ size_t bitmap_find_range(const bitmap_t *bitmap, size_t length, int value)
             for (size_t bit = 0; bit < 8; bit++) {
                 int bit_value = (int)((byte >> bit) & 1);
                 if (bit_value == value) {
-                    if (count == 0) start_index = byte_idx * 8 + bit;
+                    if (count == 0) start_index = (byte_idx * 8) + bit;
                     count++;
                     if (count == length) return start_index;
                 } else {
