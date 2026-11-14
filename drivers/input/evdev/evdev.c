@@ -852,7 +852,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
     }
 
     bufsize     = evdev_compute_buffer_size(evdev->input_dev);
-    client_size = sizeof(evdev_client_t) + bufsize * sizeof(input_event_t);
+    client_size = sizeof(evdev_client_t) + (bufsize * sizeof(input_event_t));
 
     client = malloc(client_size);
     if (!client) {

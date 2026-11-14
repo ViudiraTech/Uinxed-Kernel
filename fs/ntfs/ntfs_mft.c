@@ -61,8 +61,8 @@ static int ntfs_record_layout(ntfs_mount_t *mnt, uint8_t *record, uint32_t recor
 
     *usa_offset = load_le16(record + 4);
     *usa_count  = load_le16(record + 6);
-    usa_end     = (uint32_t)*usa_offset + (uint32_t)*usa_count * sizeof(uint16_t);
-    if (*usa_offset < 8 || (*usa_offset & 1) || *usa_count != record_size / mnt->sector_size + 1 || usa_end > record_size || usa_end > mnt->sector_size - sizeof(uint16_t)) return -EIO;
+    usa_end     = (uint32_t)*usa_offset + ((uint32_t)*usa_count * sizeof(uint16_t));
+    if (*usa_offset < 8 || (*usa_offset & 1) || *usa_count != (record_size / mnt->sector_size) + 1 || usa_end > record_size || usa_end > mnt->sector_size - sizeof(uint16_t)) return -EIO;
     return 0;
 }
 
