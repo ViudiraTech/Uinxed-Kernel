@@ -8,8 +8,8 @@
  *
  */
 
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
 
 idt_register_t idt_pointer;
 idt_entry_t    idt_entries[256];

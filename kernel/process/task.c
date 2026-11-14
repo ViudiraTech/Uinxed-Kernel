@@ -10,7 +10,7 @@
 
 #include <arch/cpu/fpu.h>
 #include <cgroup/cgroup.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <mem/heap.h>
 #include <process/namespace.h>
 #include <process/sched.h>

@@ -12,7 +12,7 @@
 #define INCLUDE_USB_H_
 
 #include <drivers/base/device.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/stddef.h>
 
 #define USB_MAX_INTERFACES  64

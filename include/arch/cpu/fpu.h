@@ -11,7 +11,7 @@
 #ifndef INCLUDE_FPU_H_
 #define INCLUDE_FPU_H_
 
-#include <kernel/debug/ringlog.h>
+#include <kernel/debug/deferlog.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
@@ -24,7 +24,7 @@
 #define FPU_SIGNAL_STATE_MAX 4096U
 
 struct task;
-extern log_buffer_t fpu_log;
+extern deferlog_t fpu_log;
 
 /*
  * Initialize FPU/SSE/AVX support on the current logical CPU.

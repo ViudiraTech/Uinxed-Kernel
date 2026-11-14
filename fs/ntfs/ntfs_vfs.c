@@ -13,8 +13,8 @@
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/ntfs/ntfs.h>
 #include <fs/ntfs/ntfs_index.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <libs/util/bitops.h>
 #include <libs/util/byteorder.h>

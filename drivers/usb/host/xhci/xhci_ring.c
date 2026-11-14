@@ -10,8 +10,8 @@
 
 #include <arch/misc/common.h>
 #include <drivers/usb/host/xhci/xhci.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 
 #if CONFIG_USB_XHCI && CONFIG_USB
@@ -54,7 +54,7 @@ xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t st
     trb->status       = status;
     trb->control      = (control & ~XHCI_TRB_CYCLE) | ring->cycle;
     dma_write_barrier();
-    if (physical) *physical = ring->physical + (uint64_t)index * sizeof(*trb);
+    if (physical) *physical = ring->physical + ((uint64_t)index * sizeof(*trb));
     spin_unlock(&ring->lock);
     return trb;
 }

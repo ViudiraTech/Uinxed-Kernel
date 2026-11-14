@@ -10,7 +10,7 @@
 
 #include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <mem/alloc.h>
 
 #if CONFIG_DRM

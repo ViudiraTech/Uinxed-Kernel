@@ -12,8 +12,8 @@
 #include <drivers/firmware/apic.h>
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/input/ps2/ps2.h>
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
 
 #if CONFIG_PS2_KEYBOARD_MOUSE
 

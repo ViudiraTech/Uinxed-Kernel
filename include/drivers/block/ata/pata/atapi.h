@@ -79,6 +79,9 @@ typedef struct {
         uint32_t lba_size;
         uint32_t blk_size;
         uint8_t  model[41];
+        uint8_t  dma_enabled;
+        uint8_t  dma_capable;
+        uint8_t  dma_dir;
 } atapi_device_t;
 
 extern atapi_device_t atapi_devices[4];
@@ -89,6 +92,9 @@ uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index);
 /* Soft reset the ATAPI device */
 void atapi_soft_reset(uint8_t drive);
 
+/* Clear the unit attention raised by a channel reset; the caller holds the channel lock */
+void atapi_reset_recover(uint8_t drive);
+
 /* Send a TEST UNIT READY command */
 uint8_t atapi_test_unit_ready(uint8_t drive);
 
@@ -97,6 +103,9 @@ uint8_t atapi_inquiry(uint8_t drive, void *buf);
 
 /* Send READ CAPACITY, returning the LBA count and block size */
 uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size);
+
+/* Refresh capacity after a possible disc change */
+int atapi_revalidate(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size);
 
 /* Send REQUEST SENSE, returning the sense key and ASC/ASCQ */
 uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uint8_t *ascq);

@@ -9,8 +9,8 @@
  */
 
 #include <arch/cpu/smp.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/buddy.h>

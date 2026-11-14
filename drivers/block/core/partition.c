@@ -9,8 +9,8 @@
  */
 
 #include <drivers/block/core/partition.h>
-#include <kernel/errno.h>
-#include <kernel/vsprintf.h>
+#include <kernel/debug/vsprintf.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <libs/util/bitops.h>
 #include <libs/util/byteorder.h>
@@ -322,7 +322,7 @@ static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_
     if (!location->entry_count || location->entry_size < 128 || location->entry_size % 128 || !is_power_of_two(location->entry_size / 128)) return -EINVAL;
     if (location->entry_count > UINT64_MAX / location->entry_size) return -EOVERFLOW;
     location->entries_bytes = (uint64_t)location->entry_count * location->entry_size;
-    entry_blocks            = location->entries_bytes / device->sector_size + (location->entries_bytes % device->sector_size != 0);
+    entry_blocks            = (location->entries_bytes / device->sector_size) + (location->entries_bytes % device->sector_size != 0);
 
     if (!entry_blocks || location->entries_lba >= device->sector_count || entry_blocks > device->sector_count - location->entries_lba) return -EINVAL;
     table_end = location->entries_lba + entry_blocks;

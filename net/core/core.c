@@ -10,7 +10,7 @@
 
 #include <arch/cpu/cpuid.h>
 #include <arch/cpu/fpu.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <net/core/endian.h>

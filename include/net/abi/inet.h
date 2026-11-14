@@ -11,7 +11,7 @@
 #ifndef INCLUDE_INET_H_
 #define INCLUDE_INET_H_
 
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <syscall/abi.h>

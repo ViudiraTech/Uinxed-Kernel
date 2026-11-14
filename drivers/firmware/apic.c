@@ -9,13 +9,14 @@
  */
 
 #include <arch/cpu/cpuid.h>
+#include <arch/cpu/eflags.h>
 #include <arch/misc/common.h>
 #include <arch/tables/idt.h>
 #include <boot/limine.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/time/tsc.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/uinxed.h>
 #include <mem/hhdm.h>
 
@@ -214,10 +215,8 @@ void lapic_timer_try_upgrade(void)
     uint32_t eax, ebx, ecx, edx;
     cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
 
-    if (!((ecx >> 24) & 1U)) {
-        plogk("apic: TSC-deadline mode not supported by this CPU; staying periodic.\n");
-        return;
-    }
+    /* A CPU without TSC-deadline keeps the calibrated periodic timer already in use. */
+    if (!((ecx >> 24) & 1U)) return;
 
     /*
      * Publish the new mode BEFORE reprogramming: the timer IRQ handler reads
@@ -246,6 +245,7 @@ void io_apic_init(void)
         &(ioapic_routing_t) {IRQ_1,  1 }, // Keyboard IRQ_1 = 33
         &(ioapic_routing_t) {IRQ_3,  3 }, // Serial COM2/COM4 IRQ_3 = 35
         &(ioapic_routing_t) {IRQ_4,  4 }, // Serial COM1/COM3 IRQ_4 = 36
+        &(ioapic_routing_t) {IRQ_6,  6 }, // Floppy disk controller IRQ_6 = 38
         &(ioapic_routing_t) {IRQ_12, 12}, // Mouse IRQ_12 = 44
         &(ioapic_routing_t) {IRQ_14, 14}, // IDE0 IRQ_14 = 46
         &(ioapic_routing_t) {IRQ_15, 15}, // IDE1 IRQ_15 = 47
@@ -313,7 +313,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
             break;
         }
     }
-    if (rflags & (1ULL << 9)) enable_intr();
+    if (rflags & X86_EFLAGS_IF) enable_intr();
 }
 
 /* Initialize APIC */

@@ -11,9 +11,9 @@
 #include <fs/core/vfs_stub.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/extfs/extfs.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 

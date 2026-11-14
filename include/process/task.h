@@ -107,6 +107,7 @@ struct task {
         wait_queue_t      *wait_queue;
         task_wake_reason_t wake_reason;
         uint32_t           cpu_id;
+        bool               cpu_pinned;        // never migrated off cpu_id (per-CPU kernel threads)
         uint32_t           last_cpu;          // previous CPU before migration
         uint64_t           last_wake_tick;    // scheduler tick of last wakeup
         uint64_t           last_migrate_tick; // anti-ping-pong migration stamp

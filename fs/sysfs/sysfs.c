@@ -11,8 +11,8 @@
 #include <fs/core/vfs.h>
 #include <fs/core/vfs_stub.h>
 #include <fs/sysfs/sysfs.h>
-#include <kernel/errno.h>
 #include <libs/kobject/kobject.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 

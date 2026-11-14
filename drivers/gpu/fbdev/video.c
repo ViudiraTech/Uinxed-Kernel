@@ -15,10 +15,10 @@
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/tty.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/gfx/gfx_proc.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <process/process.h>
 #include <process/sched.h>
@@ -64,9 +64,11 @@ video_info_t video_get_info(void)
     video_info_t info;
 
     spin_lock(&video_state_lock);
-    info            = video_active_info;
-    info.c_width    = font_width ? info.width / font_width : 0;
-    info.c_height   = font_height ? info.height / font_height : 0;
+    info = video_active_info;
+
+    /* The grid in use is the one fbcon allocated, including the 80x25 fallback. */
+    info.c_width    = c_width;
+    info.c_height   = c_height;
     info.cx         = cx;
     info.cy         = cy;
     info.fore_color = fore_color;

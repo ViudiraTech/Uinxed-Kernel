@@ -9,8 +9,8 @@
  */
 
 #include <drivers/tty/serial/serial_core.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <syscall/fcntl.h>
 
 #if CONFIG_SERIAL

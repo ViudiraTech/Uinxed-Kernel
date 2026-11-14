@@ -11,7 +11,7 @@
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/input/ps2/ps2.h>
 #include <drivers/input/ps2/ps2_mouse.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 #include <libs/util/bitops.h>
 

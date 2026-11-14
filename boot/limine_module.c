@@ -14,7 +14,7 @@
 #include <libs/std/string.h>
 
 lmodule_t     lmodule[128];
-log_buffer_t  lmodule_log;
+deferlog_t    lmodule_log;
 static size_t lmodule_count = 0;
 
 /* Extract the base module name from its loader-provided path. */
@@ -52,7 +52,7 @@ void lmodule_init(void)
         lmodule[lmodule_count].path = file->path;
         lmodule[lmodule_count].data = file->address;
         lmodule[lmodule_count].size = file->size;
-        log_buffer_write(&lmodule_log, "mod: %s (path: %s, size: %llu KiB, base %p)\n", lmodule[lmodule_count].name, file->path, (file->size / 1024), file->address);
+        deferlog_write(&lmodule_log, "mod: %s (path: %s, size: %llu KiB, base %p)\n", lmodule[lmodule_count].name, file->path, (file->size / 1024), file->address);
         lmodule_count++;
     }
 }

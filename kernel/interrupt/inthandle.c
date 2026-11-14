@@ -14,8 +14,8 @@
 #include <arch/misc/common.h>
 #include <arch/tables/idt.h>
 #include <kernel/debug/debug.h>
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <process/process.h>
 #include <process/sched.h>

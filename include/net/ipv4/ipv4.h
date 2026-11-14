@@ -11,7 +11,7 @@
 #ifndef INCLUDE_IPV4_H_
 #define INCLUDE_IPV4_H_
 
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>
 

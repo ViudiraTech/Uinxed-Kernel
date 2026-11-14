@@ -11,9 +11,9 @@
 #include <arch/misc/common.h>
 #include <drivers/block/ata/sata/satapi.h>
 #include <drivers/bus/pci.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
@@ -455,7 +455,7 @@ void init_ahci(void)
 
         ahci_port_state_t *port = &ahci_ports[ahci_port_count];
         memset(port, 0, sizeof(*port));
-        port->port_mmio   = hba_mmio + 0x100 + (size_t)i * 0x80;
+        port->port_mmio   = hba_mmio + 0x100 + ((size_t)i * 0x80);
         port->port_no     = (uint8_t)i;
         port->lock.lock   = 0;
         port->lock.rflags = 0;

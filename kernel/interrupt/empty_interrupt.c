@@ -10,8 +10,8 @@
 
 #include <arch/misc/common.h>
 #include <drivers/firmware/apic.h>
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
 
 /* Generate an empty interrupt handler for a vector */
 #define INTERRUPT_HANDLE(id)                                                 \

@@ -11,8 +11,8 @@
 #include <fs/core/vfs.h>
 #include <fs/core/vfs_stub.h>
 #include <ipc/epoll.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <process/process.h>

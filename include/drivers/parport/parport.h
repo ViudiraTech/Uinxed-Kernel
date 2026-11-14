@@ -11,7 +11,7 @@
 #ifndef INCLUDE_PARPORT_H_
 #define INCLUDE_PARPORT_H_
 
-#include <kernel/debug/ringlog.h>
+#include <kernel/debug/deferlog.h>
 #include <kernel/kdev_t.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
@@ -63,7 +63,7 @@ struct parport {
         parport_t *next;
 };
 
-extern log_buffer_t parallel_log;
+extern deferlog_t parallel_log;
 
 /* Register a port in the global list. */
 int parport_register_port(const char *name, uint16_t base, int irq, void *private_data);
