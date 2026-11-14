@@ -141,7 +141,7 @@ static int simpledrm_blit_rect(simpledrm_device_t *sdev, struct drm_framebuffer 
     if (fb_pitch < fb->width * sizeof(uint32_t)) return -EINVAL;
 
     row_bytes = (size_t)(x2 - x1) * sizeof(uint32_t);
-    src_end   = (uint64_t)fb->offsets[0] + (uint64_t)(y2 - 1) * fb_pitch + (uint64_t)x1 * sizeof(uint32_t) + row_bytes;
+    src_end   = (uint64_t)fb->offsets[0] + ((uint64_t)(y2 - 1) * fb_pitch) + ((uint64_t)x1 * sizeof(uint32_t)) + row_bytes;
     if (src_end > fb->obj[0]->size) return -EINVAL;
 
     src = (const uint8_t *)fb->obj[0]->backing + fb->offsets[0];
