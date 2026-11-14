@@ -34,6 +34,15 @@ static int64_t kmsg_read(void *ctx, void *private_data, uint64_t flags, void *bu
     return -EAGAIN;
 }
 
+/* Only POLLOUT can be ready; kmsg_read() never queues a record. */
+static int kmsg_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
+{
+    (void)ctx;
+    (void)private_data;
+    (void)flags;
+    return (int)(events & 0x0004); // POLLOUT only
+}
+
 /* Print the written message to the kernel log. */
 static int64_t kmsg_write(void *ctx, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size)
 {
@@ -74,6 +83,7 @@ void kmsgdev_init(void)
     static const tmpfs_device_ops_t ops = {
         .file_read  = kmsg_read,
         .file_write = kmsg_write,
+        .file_poll  = kmsg_poll,
     };
     if (cdev_add("", "kmsg", KMSG_MAJOR, KMSG_MINOR, 1, file_stream, 0600, &ops) != EOK) plogk("chrdev: Cannot register /dev/kmsg\n");
 }
