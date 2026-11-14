@@ -34,12 +34,7 @@ static int64_t kmsg_read(void *ctx, void *private_data, uint64_t flags, void *bu
     return -EAGAIN;
 }
 
-/*
- * Readiness must agree with kmsg_read(): no record is ever queued, so the
- * device is never readable.  Without this callback the generic device poll
- * reports "readable" unconditionally and a log daemon that watches /dev/kmsg
- * with epoll (journald, rsyslog's imkmsg) spins forever on EAGAIN.
- */
+/* Only POLLOUT can be ready; kmsg_read() never queues a record. */
 static int kmsg_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
 {
     (void)ctx;
