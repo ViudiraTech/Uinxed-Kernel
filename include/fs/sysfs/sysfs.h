@@ -11,7 +11,7 @@
 #ifndef INCLUDE_SYSFS_H_
 #define INCLUDE_SYSFS_H_
 
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 
 /* Convenience attribute macros */
 

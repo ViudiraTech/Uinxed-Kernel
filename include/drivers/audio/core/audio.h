@@ -12,7 +12,7 @@
 #define INCLUDE_AUDIO_H_
 
 #include <fs/tmpfs/tmpfs.h>
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <process/task.h>
 #include <syscall/poll.h>
 

@@ -9,7 +9,7 @@
  */
 
 #include <ipc/sysv_ipc.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/kobject/kobject.h>
 #include <libs/std/string.h>

@@ -15,6 +15,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
+#include <libs/util/writer.h>
 
 struct vfs_node;
 struct process;

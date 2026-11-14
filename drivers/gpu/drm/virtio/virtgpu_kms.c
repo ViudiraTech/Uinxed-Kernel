@@ -8,10 +8,12 @@
  *
  */
 
+#include <boot/limine.h>
 #include <drivers/gpu/drm/drm_edid.h>
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 #include <drivers/gpu/drm/virtio/virtgpu_kms.h>
+#include <drivers/gpu/fbdev/video.h>
 
 #if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
@@ -20,21 +22,26 @@ static struct virtio_gpu_device *vgdev_flush_ctx;
 static struct virtio_gpu_object *vgdev_flush_obj;
 static raw_spinlock_t            vgdev_flush_lock;
 
-/* Mode config helpers */
 static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *connector, bool force);
 static int                       virtgpu_connector_get_modes(struct drm_connector *connector);
 static int                       virtgpu_connector_mode_valid(struct drm_connector *connector, struct drm_display_mode *mode);
+static uint64_t                  virtgpu_mode_area(const struct drm_display_mode *mode);
 static void                      virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state);
-static void                      virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb);
+static int                       virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb);
 static void                      virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
-static void                      virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+static int                       virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
 static int                       virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags);
 static int                       virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height, int32_t hot_x, int32_t hot_y);
 static int                       virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y);
+static int                       virtgpu_plane_atomic_check(struct drm_plane *plane, struct drm_plane_state *state);
 
 static const uint32_t virtgpu_formats[] = {
     DRM_FORMAT_XRGB8888,
     DRM_FORMAT_ARGB8888,
+};
+
+static const struct drm_plane_helper_funcs virtgpu_plane_helpers = {
+    .atomic_check = virtgpu_plane_atomic_check,
 };
 
 static const struct drm_crtc_helper_funcs virtgpu_crtc_helpers = {
@@ -56,11 +63,34 @@ static const struct drm_connector_helper_funcs virtgpu_conn_helpers = {
     .mode_valid = virtgpu_connector_mode_valid,
 };
 
+/* Reject modes and layouts the 2D scanout cannot scale or address. */
+static int virtgpu_plane_atomic_check(struct drm_plane *plane, struct drm_plane_state *state)
+{
+    struct drm_crtc_state    *crtc_state = state->crtc_state;
+    struct drm_framebuffer   *fb         = state->fb;
+    struct virtio_gpu_object *obj;
+
+    if (!fb) return 0;
+
+    /* The host scanout takes the framebuffer size as the output size; no scaler. */
+    if (crtc_state && crtc_state->active && ((uint32_t)crtc_state->mode.hdisplay != fb->width || (uint32_t)crtc_state->mode.vdisplay != fb->height)) return -EINVAL;
+
+    /* The host scanout cannot crop or pan; the committed view must cover the whole buffer. */
+    if (!drm_plane_state_full_frame(fb, state)) return -EINVAL;
+
+    /* A blob carries its own layout; a 2D resource is scanned out through its packed stride. */
+    obj = (fb->obj[0] && fb->obj[0]->dev == plane->dev) ? to_virtio_gpu_object(fb->obj[0]) : NULL;
+    if (!obj) return -EINVAL;
+    if (!obj->created_blob && (fb->width > obj->width || fb->height > obj->height || fb->pitches[0] != obj->stride || fb->offsets[0] || !virtgpu_2d_formats_compatible(obj->format, fb->format)))
+        return -EINVAL;
+
+    return 0;
+}
+
 /* Panic-time flush guard: skip while an ordinary control submission is active. */
 static bool virtgpu_display_flush_guard(void)
 {
     struct virtio_gpu_device *vgdev = vgdev_flush_ctx;
-
     if (!vgdev) return true;
     return !mutex_is_locked(&vgdev->ctrlq_cmd_lock);
 }
@@ -70,50 +100,54 @@ static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *
 {
     struct drm_device        *dev   = connector->dev;
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
-
     (void)force;
 
     /* VirtIO-GPU is always connected in a VM */
     return vgdev->num_scanouts > 0 ? connector_status_connected : connector_status_disconnected;
 }
 
-/*
- * Fetch the EDID for scanout 0 from the host and, if valid, publish it as
- * the connector's EDID property blob and add the EDID-derived modes.
- *
- * Returns the number of modes added, or 0 if no EDID / invalid EDID.
- */
+/* Publish the host EDID and its modes; returns modes added, 0 when none, negative on a read fault. */
 static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)connector->dev->dev_private;
     struct edid              *edid;
+    ilist_node_t             *node;
     int                       edid_size = 0;
     int                       count     = 0;
     int                       ret;
 
+    vgdev->edid_mode_count = 0;
     if (!vgdev->has_edid) return 0;
 
     /* The host EDID response is capped at 1024 bytes by the virtio protocol. */
     edid = malloc(1024);
-    if (!edid) return 0;
+    if (!edid) return -ENOMEM;
 
     ret = virtgpu_cmd_get_edid(vgdev, 0, edid, &edid_size);
-    if (ret || edid_size <= 0) {
+    if (ret) {
+        free(edid);
+        return ret;
+    }
+    if (edid_size <= 0) {
         free(edid);
         return 0;
+    }
+
+    /* A partial EDID is a malformed reply, not an absent display. */
+    if (edid_size < EDID_LENGTH) {
+        free(edid);
+        return -EIO;
     }
 
     /* Reject a truncated EDID whose header overstates its size. */
     if ((size_t)((unsigned)edid->extensions + 1) * EDID_LENGTH > (size_t)edid_size) {
-        DRM_ERROR("Connector: EDID size mismatch (declared %u blocks, received %d bytes)\n", edid->extensions + 1, edid_size);
         free(edid);
-        return 0;
+        return -EIO;
     }
 
     if (!drm_edid_is_valid(edid)) {
-        DRM_ERROR("Connector: EDID invalid (%d bytes)\n", edid_size);
         free(edid);
-        return 0;
+        return -EINVAL;
     }
 
     /* Publish the raw EDID as the connector's EDID property blob. */
@@ -125,8 +159,17 @@ static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
 
     /* Fill in the connector display info derived from the EDID. */
     drm_edid_to_display_info(connector, edid);
-
     count = drm_add_edid_modes(connector, edid);
+
+    /* Keep a flagged timing first so the cap cannot drop the monitor's preferred mode. */
+    for (node = connector->modes.next; node && node != &connector->modes && vgdev->edid_mode_count < VIRTGPU_MAX_EDID_MODES; node = node->next) {
+        struct drm_display_mode *mode = container_of(node, struct drm_display_mode, head);
+        if (mode->type & DRM_MODE_TYPE_PREFERRED) vgdev->edid_modes[vgdev->edid_mode_count++] = mode;
+    }
+    for (node = connector->modes.next; node && node != &connector->modes && vgdev->edid_mode_count < VIRTGPU_MAX_EDID_MODES; node = node->next) {
+        struct drm_display_mode *mode = container_of(node, struct drm_display_mode, head);
+        if (!(mode->type & DRM_MODE_TYPE_PREFERRED)) vgdev->edid_modes[vgdev->edid_mode_count++] = mode;
+    }
     if (count > 0) {
         char name[14];
 
@@ -138,12 +181,54 @@ static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
     return count;
 }
 
+/* Describe @width x @height with a synthetic timing. */
+static void virtgpu_mode_fill(struct drm_display_mode *mode, uint32_t width, uint32_t height, uint32_t vrefresh)
+{
+    memset(mode, 0, sizeof(*mode));
+
+    (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%ux%u", (unsigned)width, (unsigned)height);
+    mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
+    mode->hdisplay                       = (int)width;
+    mode->hsync_start                    = (int)width + 80;
+    mode->hsync_end                      = (int)width + 160;
+    mode->htotal                         = (int)width + 320;
+    mode->vdisplay                       = (int)height;
+    mode->vsync_start                    = (int)height + 3;
+    mode->vsync_end                      = (int)height + 6;
+    mode->vtotal                         = (int)height + 32;
+    mode->vrefresh                       = (int)(vrefresh ? vrefresh : 60);
+
+    /* Pixel clock includes blanking totals, so userspace derives the refresh. */
+    mode->clock  = (int)((uint64_t)mode->htotal * (uint64_t)mode->vtotal * (uint64_t)mode->vrefresh / 1000ULL);
+    mode->flags  = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
+    mode->type   = DRM_MODE_TYPE_DRIVER;
+    mode->status = MODE_OK;
+}
+
+/* Make @preferred the only DRM_MODE_TYPE_PREFERRED mode of the connector. */
+static void virtgpu_connector_set_preferred(struct drm_connector *connector, struct drm_display_mode *preferred)
+{
+    ilist_node_t *node;
+
+    for (node = connector->modes.next; node && node != &connector->modes; node = node->next) {
+        struct drm_display_mode *mode = container_of(node, struct drm_display_mode, head);
+        if (mode == preferred) {
+            mode->type |= DRM_MODE_TYPE_PREFERRED;
+        } else {
+            mode->type &= ~DRM_MODE_TYPE_PREFERRED;
+        }
+    }
+}
+
 /* Fill the connector mode list from host display info or EDID. */
 static int virtgpu_connector_get_modes(struct drm_connector *connector)
 {
-    struct drm_device        *dev   = connector->dev;
-    struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
+    struct drm_device        *dev            = connector->dev;
+    struct virtio_gpu_device *vgdev          = (struct virtio_gpu_device *)dev->dev_private;
+    struct drm_display_mode  *edid_preferred = NULL;
     ilist_node_t             *node;
+    bool                      host_preferred = false;
+    int                       edid_modes;
     int                       i;
 
     /* virtio-gpu has no hotplug: probe the EDID/scanout modes once. */
@@ -152,7 +237,9 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
     /* Query display info from host if not already done */
     if (vgdev->num_scanouts == 0) virtgpu_cmd_get_display_info(vgdev);
 
-    /* Drop modes from an earlier failed probe, if any. */
+    /* The mode pointers die with the list rebuilt below. */
+    vgdev->edid_mode_count = 0;
+
     for (node = connector->modes.next; node != &connector->modes;) {
         struct drm_display_mode *m = container_of(node, struct drm_display_mode, head);
 
@@ -161,40 +248,43 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
     }
 
     /* Publish EDID modes (preferred first) plus the host scanout modes. */
-    (void)virtgpu_connector_get_edid_modes(connector);
+    edid_modes = virtgpu_connector_get_edid_modes(connector);
+    if (edid_modes < 0) DRM_ERROR("connector %s: failed to read EDID (%d), continuing without it.\n", connector->name, edid_modes);
+
+    for (i = 0; i < vgdev->edid_mode_count; i++) {
+        if (vgdev->edid_modes[i]->type & DRM_MODE_TYPE_PREFERRED) {
+            edid_preferred = vgdev->edid_modes[i];
+            break;
+        }
+    }
+
+    /* Without a flagged preference the console leads with the largest EDID mode. */
+    if (!edid_preferred) {
+        for (i = 0; i < vgdev->edid_mode_count; i++)
+            if (!edid_preferred || virtgpu_mode_area(vgdev->edid_modes[i]) > virtgpu_mode_area(edid_preferred)) edid_preferred = vgdev->edid_modes[i];
+    }
 
     for (i = 0; i < vgdev->num_scanouts && i < VIRTGPU_MAX_SCANOUTS; i++) {
         struct virtio_gpu_display_mode *dm = &vgdev->scanouts[i];
         struct drm_display_mode        *mode;
-
         if (!dm->enabled) continue;
+        if (dm->width <= 0 || dm->height <= 0 || dm->width > 8192 || dm->height > 8192) {
+            plogk("virtgpu: scanout %d: host reports invalid geometry %dx%d, skipped.\n", i, dm->width, dm->height);
+            continue;
+        }
 
         mode = drm_mode_create(dev);
         if (!mode) {
             DRM_ERROR("out of memory allocating display mode.\n");
             return -ENOMEM;
         }
+        virtgpu_mode_fill(mode, (uint32_t)dm->width, (uint32_t)dm->height, (uint32_t)dm->vrefresh);
 
-        (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", dm->width, dm->height);
-        mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
-        mode->hdisplay                       = dm->width;
-        mode->hsync_start                    = dm->width + 80;
-        mode->hsync_end                      = dm->width + 160;
-        mode->htotal                         = dm->width + 320;
-        mode->vdisplay                       = dm->height;
-        mode->vsync_start                    = dm->height + 3;
-        mode->vsync_end                      = dm->height + 6;
-        mode->vtotal                         = dm->height + 32;
-        mode->vrefresh                       = dm->vrefresh ? dm->vrefresh : 60;
-
-        /* Pixel clock includes blanking totals, so userspace derives 60 Hz. */
-        mode->clock  = (int)((uint64_t)mode->htotal * (uint64_t)mode->vtotal * (uint64_t)mode->vrefresh / 1000ULL);
-        mode->flags  = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
-        mode->type   = DRM_MODE_TYPE_DRIVER;
-        mode->status = MODE_OK;
-
-        if (i == 0) mode->type |= DRM_MODE_TYPE_PREFERRED;
-
+        /* The host scanout leads only when the EDID offers no mode. */
+        if (!edid_preferred && !host_preferred) {
+            mode->type |= DRM_MODE_TYPE_PREFERRED;
+            host_preferred = true;
+        }
         drm_mode_probed_add(connector, mode);
     }
 
@@ -204,12 +294,15 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
             DRM_ERROR("out of memory adding fallback mode.\n");
             return -ENOMEM;
         }
+
+        /* The synthesized scanout only keeps the connector present; the boot chain skips it. */
         vgdev->num_scanouts         = 1;
-        vgdev->scanouts[0].enabled  = true;
+        vgdev->scanouts[0].enabled  = false;
         vgdev->scanouts[0].width    = CONFIG_DRM_DEFAULT_WIDTH;
         vgdev->scanouts[0].height   = CONFIG_DRM_DEFAULT_HEIGHT;
         vgdev->scanouts[0].vrefresh = 60;
     }
+    if (edid_preferred) virtgpu_connector_set_preferred(connector, edid_preferred);
 
     vgdev->modes_probed = true;
     return 0;
@@ -233,13 +326,14 @@ static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm
     (void)conn_state;
 }
 
-/* On modeset, push the new framebuffer to the scanout. */
-static void virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb)
+/* On modeset, push the new framebuffer to the scanout; a NULL fb drops it. */
+static int virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb)
 {
     struct drm_device        *dev   = crtc->dev;
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
-    if (fb) virtgpu_page_flip(vgdev, fb, NULL);
+    /* Pass the live framebuffer so an unchanged layout skips the redundant SET_SCANOUT. */
+    return virtgpu_page_flip(vgdev, fb, vgdev->current_fb);
 }
 
 /* Enable the CRTC output and deliver any pending vblank event. */
@@ -259,33 +353,38 @@ static void virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_st
 }
 
 /* Disable the CRTC scanout and drop the current framebuffer. */
-static void virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state)
+static int virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state)
 {
     struct drm_device        *dev   = crtc->dev;
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
     (void)old_state;
 
-    (void)virtgpu_page_flip(vgdev, NULL, vgdev->current_fb);
-    vgdev->current_fb          = NULL;
-    vgdev->current_scanout_obj = NULL;
+    /* Keep the recorded scanout on failure so a later commit can retry the disable. */
+    return virtgpu_page_flip(vgdev, NULL, vgdev->current_fb);
 }
 
 /* Page flip helper for legacy ioctl */
 static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags)
 {
-    struct drm_device        *dev   = crtc->dev;
-    struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
+    struct drm_device        *dev    = crtc->dev;
+    struct virtio_gpu_device *vgdev  = (struct virtio_gpu_device *)dev->dev_private;
+    struct drm_framebuffer   *old_fb = crtc->primary->state->fb;
     int                       ret;
 
     (void)event;
     (void)flags;
 
-    ret = virtgpu_page_flip(vgdev, fb, crtc->primary->state->fb);
-    if (ret) return ret;
+    /* A flip must not silently change the mode the CRTC reports. */
+    if (fb && crtc->mode.hdisplay && ((uint32_t)crtc->mode.hdisplay != fb->width || (uint32_t)crtc->mode.vdisplay != fb->height)) return -EINVAL;
+
+    /* The console or another client may own the scanout; only the framebuffer actually on it may disable the output. */
+    if (fb || !old_fb || vgdev->current_fb == old_fb) {
+        ret = virtgpu_page_flip(vgdev, fb, old_fb);
+        if (ret) return ret;
+    }
 
     /* The committed plane state, not the ioctl lookup, owns scanout. */
-    struct drm_framebuffer *old_fb = crtc->primary->state->fb;
     if (old_fb != fb) {
         drm_framebuffer_get(fb);
         crtc->primary->state->fb = fb;
@@ -296,28 +395,27 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
     return 0;
 }
 
-/*
- * Flush callback invoked by the video subsystem after fbcon draws.
- * Transfers the guest-side framebuffer to the host GPU resource and
- * flushes the scanout so the new pixels become visible.
- */
+/* fbcon flush: send the damaged rect to the host and flush the scanout. */
 static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
 {
-    struct virtio_gpu_rect damage;
-    uint64_t               offset;
+    struct virtio_gpu_device *vgdev = vgdev_flush_ctx;
+    struct virtio_gpu_rect    damage;
+    uint64_t                  offset;
 
-    if (!vgdev_flush_ctx || !vgdev_flush_obj) return;
+    if (!vgdev || !vgdev_flush_obj) return;
     if (x >= vgdev_flush_obj->width || y >= vgdev_flush_obj->height || !width || !height) return;
     if (width > vgdev_flush_obj->width - x) width = vgdev_flush_obj->width - x;
     if (height > vgdev_flush_obj->height - y) height = vgdev_flush_obj->height - y;
 
-    /*
-     * printk is backed by this same scanout.  A GPU error emitted while a
-     * flush is unwinding therefore re-enters this callback.  Damage is
-     * best-effort (the refresh worker retries changed rows), so drop only the
-     * recursive/concurrent flush instead of deadlocking controlq.
-     */
+    /* printk shares this scanout: drop recursive flushes instead of deadlocking. */
     if (!raw_spin_trylock(&vgdev_flush_lock)) return;
+
+    /* A client may own the scanout; the next console flush puts it back. */
+    if (vgdev->console_fb && vgdev->current_scanout_obj != vgdev_flush_obj) {
+        (void)virtgpu_page_flip(vgdev, vgdev->console_fb, NULL);
+        raw_spin_unlock(&vgdev_flush_lock);
+        return;
+    }
 
     damage = (struct virtio_gpu_rect) {x, y, width, height};
     offset = (uint64_t)y * vgdev_flush_obj->stride + (uint64_t)x * sizeof(uint32_t);
@@ -329,7 +427,7 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
 
             if (!flush_fail_logged) {
                 flush_fail_logged = true;
-                DRM_ERROR("Console flush failed: %d (rect %ux%u+%u+%u)\n", flush_ret, width, height, x, y);
+                plogk("virtgpu: console flush failed: %d (rect %ux%u+%u+%u)\n", flush_ret, width, height, x, y);
             }
         }
     }
@@ -344,12 +442,7 @@ static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object 
     int                       ret;
 
     if (obj) {
-        /*
-         * The VirtIO cursor command requires a 64x64 resource but does not
-         * impose a DRM fourcc.  Xorg allocates cursor storage through the
-         * dumb-buffer API, which creates XRGB8888 objects.  Accept both
-         * advertised 32-bit KMS formats here.
-         */
+        /* The host wants a 64x64 cursor; Xorg hands us XRGB8888 dumb buffers, accept both. */
         if (width != 64 || height != 64 || gem->size < 64 * 64 * 4 || obj->width != 64 || obj->height != 64 || (obj->format != DRM_FORMAT_XRGB8888 && obj->format != DRM_FORMAT_ARGB8888)
             || obj->created_3d || obj->created_blob)
             return -EINVAL;
@@ -430,7 +523,7 @@ static int virtgpu_kms_initial_try_mode(struct virtio_gpu_device *vgdev, struct 
         goto err_free_obj;
     }
 
-    /* A mode the device rejects (bad size, etc.) fails here -> next mode. */
+    /* Host rejection of this mode fails here; the caller tries the next. */
     ret = virtgpu_page_flip(vgdev, fb, NULL);
     if (ret) goto err_free_fb;
 
@@ -438,12 +531,13 @@ static int virtgpu_kms_initial_try_mode(struct virtio_gpu_device *vgdev, struct 
     *out_fb  = fb;
     return 0;
 err_free_fb:
-    /* cleanup's drm_gem_object_put() frees obj when its refcount drops. */
+    /* Unregister, then drop the registered reference; the final put releases the GEM object. */
     drm_framebuffer_cleanup(fb);
     drm_framebuffer_put(fb);
     return ret;
 err_free_obj:
-    virtgpu_gem_free_object(&obj->base);
+    /* Put releases the mmap offset slot before the driver frees obj. */
+    drm_gem_object_put(&obj->base);
     return ret;
 }
 
@@ -489,13 +583,13 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
         primary->crtc_id = crtc ? crtc->base.id : 0;
     }
 
-    /*
-     * Attach the scanout flush hooks to the DRM device, then let the DRM
-     * core hand the kernel console over to this framebuffer. The driver
-     * only reports its scanout to DRM; all console/TTY work is core-owned.
-     */
-    vgdev_flush_ctx             = vgdev;
-    vgdev_flush_obj             = obj;
+    /* Attach the console flush hooks and hand the console to the DRM core. */
+    vgdev_flush_ctx = vgdev;
+    vgdev_flush_obj = obj;
+
+    /* RMFB on the console framebuffer would free the buffer the console draws into. */
+    drm_framebuffer_get(fb);
+    vgdev->console_fb           = fb;
     dev->fb_console_flush       = virtgpu_kms_flush_fb;
     dev->fb_console_flush_guard = virtgpu_display_flush_guard;
     drm_kms_console_handoff(dev, fb);
@@ -504,39 +598,145 @@ static int virtgpu_kms_initial_commit(struct virtio_gpu_device *vgdev, struct dr
     return 0;
 }
 
-/* Initial modeset: try modes preferred-first, else keep the bootloader framebuffer. Non-fatal on failure. */
-static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
+/* Pixel area of a mode, used to order the EDID fallbacks. */
+static uint64_t virtgpu_mode_area(const struct drm_display_mode *mode)
 {
-    struct drm_device        *dev    = vgdev->drm_dev;
-    struct drm_mode_config   *config = &dev->mode_config;
-    struct drm_connector     *conn   = NULL;
-    struct drm_display_mode  *mode;
+    return (uint64_t)(uint32_t)mode->hdisplay * (uint32_t)mode->vdisplay;
+}
+
+/* Sort EDID modes from the largest pixel area down. */
+static void virtgpu_edid_sort(struct drm_display_mode **modes, int count)
+{
+    int i;
+    int j;
+
+    for (i = 1; i < count; i++) {
+        struct drm_display_mode *key = modes[i];
+        for (j = i - 1; j >= 0 && virtgpu_mode_area(modes[j]) < virtgpu_mode_area(key); j--) modes[j + 1] = modes[j];
+        modes[j + 1] = key;
+    }
+}
+
+/* The EDID preferred mode, else the largest one; @modes must be sorted. */
+static struct drm_display_mode *virtgpu_edid_preferred(struct virtio_gpu_device *vgdev)
+{
+    int i;
+
+    for (i = 0; i < vgdev->edid_mode_count; i++)
+        if (vgdev->edid_modes[i]->type & DRM_MODE_TYPE_PREFERRED) return vgdev->edid_modes[i];
+    return vgdev->edid_mode_count ? vgdev->edid_modes[0] : NULL;
+}
+
+/* True when @width x @height was already attempted. */
+static bool virtgpu_geometry_tried(const uint32_t (*tried)[2], unsigned count, uint32_t width, uint32_t height)
+{
+    unsigned i;
+
+    for (i = 0; i < count; i++)
+        if (tried[i][0] == width && tried[i][1] == height) return true;
+    return false;
+}
+
+/* Try one mode for the console, remembering its geometry. */
+static int virtgpu_kms_try_mode(struct virtio_gpu_device *vgdev, struct drm_connector *connector, struct drm_display_mode *mode, uint32_t (*tried)[2], unsigned *tried_count, int *last_ret)
+{
     struct virtio_gpu_object *obj;
     struct drm_framebuffer   *fb;
-    ilist_node_t             *node;
-    int                       ret = -ENODEV;
+    uint32_t                  width  = (uint32_t)mode->hdisplay;
+    uint32_t                  height = (uint32_t)mode->vdisplay;
+    int                       ret;
+
+    if (!width || !height) return -EINVAL;
+    if (virtgpu_geometry_tried(tried, *tried_count, width, height)) return 1;
+    if (*tried_count < VIRTGPU_MAX_EDID_MODES + VIRTGPU_MAX_SCANOUTS + 2) {
+        tried[*tried_count][0] = width;
+        tried[*tried_count][1] = height;
+        (*tried_count)++;
+    }
+
+    ret = virtgpu_kms_initial_try_mode(vgdev, mode, &obj, &fb);
+    if (ret) {
+        *last_ret = ret;
+        return ret;
+    }
+
+    ret = virtgpu_kms_initial_commit(vgdev, connector, mode, obj, fb);
+    if (!ret) return 0;
+
+    drm_framebuffer_cleanup(fb);
+    drm_framebuffer_put(fb);
+    *last_ret = ret;
+    return ret;
+}
+
+/* Try a synthetic mode of the given geometry. */
+static int virtgpu_kms_try_geometry(struct virtio_gpu_device *vgdev, struct drm_connector *connector, uint32_t width, uint32_t height, uint32_t (*tried)[2], unsigned *tried_count, int *last_ret)
+{
+    struct drm_display_mode mode;
+    if (!width || !height || width > 8192 || height > 8192) return -EINVAL;
+
+    virtgpu_mode_fill(&mode, width, height, 60);
+    return virtgpu_kms_try_mode(vgdev, connector, &mode, tried, tried_count, last_ret);
+}
+
+/* Boot modeset in fallback order: EDID modes, boot geometry, configured default. */
+static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
+{
+    struct drm_device         *dev    = vgdev->drm_dev;
+    struct drm_mode_config    *config = &dev->mode_config;
+    struct drm_connector      *conn   = NULL;
+    struct drm_display_mode   *preferred;
+    struct limine_framebuffer *boot;
+    uint32_t                   tried[VIRTGPU_MAX_EDID_MODES + VIRTGPU_MAX_SCANOUTS + 2][2];
+    unsigned                   tried_count = 0;
+    ilist_node_t              *node;
+    int                        last_ret = -ENODEV;
+    int                        i;
 
     /* Find the first connected connector */
     for (node = config->connector_list.next; node != &config->connector_list; node = node->next) {
-        conn = container_of(node, struct drm_connector, head);
-        if (conn->status == connector_status_connected) break;
+        struct drm_connector *candidate = container_of(node, struct drm_connector, head);
+        if (candidate->status == connector_status_connected) {
+            conn = candidate;
+            break;
+        }
     }
     if (!conn) {
         DRM_INFO("No connected connector - skipping initial modeset.\n");
         return -ENODEV;
     }
 
-    /* Try EDID preferred, then remaining EDID/driver modes, in list order. */
-    for (node = conn->modes.next; node != &conn->modes; node = node->next) {
-        mode = container_of(node, struct drm_display_mode, head);
-        ret  = virtgpu_kms_initial_try_mode(vgdev, mode, &obj, &fb);
-        if (!ret) return virtgpu_kms_initial_commit(vgdev, conn, mode, obj, fb);
+    /* The EDID preferred mode, then every other EDID mode, largest first. */
+    virtgpu_edid_sort(vgdev->edid_modes, vgdev->edid_mode_count);
+    preferred = virtgpu_edid_preferred(vgdev);
+
+    if (preferred && !virtgpu_kms_try_mode(vgdev, conn, preferred, tried, &tried_count, &last_ret)) return 0;
+    for (i = 0; i < vgdev->edid_mode_count; i++) {
+        if (vgdev->edid_modes[i] == preferred) continue;
+        if (!virtgpu_kms_try_mode(vgdev, conn, vgdev->edid_modes[i], tried, &tried_count, &last_ret)) return 0;
     }
 
-    /* No usable mode: clear the scanout so nothing half-configured is displayed. */
-    virtgpu_cmd_set_scanout(vgdev, 0, NULL);
-    DRM_INFO("Initial modeset: no usable mode (%d)\n", ret);
-    return ret;
+    /* Host scanout modes are advertised by the display too; they precede the boot geometry. */
+    for (i = 0; i < vgdev->num_scanouts && i < VIRTGPU_MAX_SCANOUTS; i++) {
+        struct virtio_gpu_display_mode *dm = &vgdev->scanouts[i];
+        struct drm_display_mode         mode;
+
+        if (!dm->enabled || dm->width <= 0 || dm->height <= 0 || dm->width > 8192 || dm->height > 8192) continue;
+        virtgpu_mode_fill(&mode, (uint32_t)dm->width, (uint32_t)dm->height, (uint32_t)dm->vrefresh);
+        if (!virtgpu_kms_try_mode(vgdev, conn, &mode, tried, &tried_count, &last_ret)) return 0;
+    }
+
+    /* The geometry the bootloader left on the host window. */
+    boot = get_framebuffer();
+    if (boot && boot->width && boot->height && boot->width <= 8192 && boot->height <= 8192) {
+        if (!virtgpu_kms_try_geometry(vgdev, conn, (uint32_t)boot->width, (uint32_t)boot->height, tried, &tried_count, &last_ret)) return 0;
+    }
+
+    /* The configured console mode. */
+    if (!virtgpu_kms_try_geometry(vgdev, conn, CONFIG_DRM_DEFAULT_WIDTH, CONFIG_DRM_DEFAULT_HEIGHT, tried, &tried_count, &last_ret)) return 0;
+
+    DRM_WARN("initial modeset: no usable mode (%d)\n", last_ret);
+    return last_ret;
 }
 
 /* Set up the full KMS pipeline: plane, CRTC, encoder and connector. */
@@ -551,7 +751,11 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     /* Query display info from host */
     ret = virtgpu_cmd_get_display_info(vgdev);
-    if (ret) plogk("virtgpu: Failed to get display info: %d (using defaults)\n", ret);
+    if (ret) {
+        /* An unknown scanout count lets get_modes() synthesize the fallback mode. */
+        vgdev->num_scanouts = 0;
+        plogk("virtgpu: Failed to get display info: %d (using defaults)\n", ret);
+    }
 
     /* Primary plane */
 
@@ -563,7 +767,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     memset(primary, 0, sizeof(*primary));
     vgdev->kms_primary = primary;
 
-    ret = drm_plane_init(dev, primary, 1, NULL, virtgpu_formats, sizeof(virtgpu_formats) / sizeof(virtgpu_formats[0]), NULL, DRM_PLANE_TYPE_PRIMARY, "virtgpu-primary");
+    ret = drm_plane_init(dev, primary, 1, (void *)&virtgpu_plane_helpers, virtgpu_formats, sizeof(virtgpu_formats) / sizeof(virtgpu_formats[0]), NULL, DRM_PLANE_TYPE_PRIMARY, "virtgpu-primary");
     if (ret) {
         DRM_ERROR("Failed to init primary plane: %d\n", ret);
         free(primary);
@@ -694,20 +898,32 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
         DRM_INFO("virtgpu: KMS pipeline up, %d mode(s)\n", mode_count);
     }
 
-    /*
-     * Perform an initial modeset so the display is live immediately.
-     * Failure is non-fatal - the KMS pipeline remains registered.
-     */
+    /* The initial modeset runs before drm_dev_register() publishes the node. */
     ret = virtgpu_kms_initial_modeset(vgdev);
-    if (ret) DRM_INFO("Initial modeset deferred (display will activate on first userspace commit)\n");
+    if (ret) return ret;
 
     return 0;
 }
 
-/* Disable the scanout when the KMS pipeline is torn down. */
+/* Detach the console and disable our scanout when the KMS pipeline is torn down. */
 void virtgpu_kms_fini(struct virtio_gpu_device *vgdev)
 {
-    virtgpu_cmd_set_scanout(vgdev, 0, NULL);
+    if (!vgdev) return;
+    if (vgdev->drm_dev) {
+        vgdev->drm_dev->fb_console_flush       = NULL;
+        vgdev->drm_dev->fb_console_flush_guard = NULL;
+    }
+
+    vgdev_flush_ctx = NULL;
+    vgdev_flush_obj = NULL;
+
+    if (vgdev->console_fb) {
+        drm_framebuffer_put(vgdev->console_fb);
+        vgdev->console_fb = NULL;
+    }
+
+    /* Disable only the scanout we set; a failed probe leaves the boot one alone. */
+    if (vgdev->current_fb) (void)virtgpu_cmd_set_scanout(vgdev, 0, NULL);
 }
 
 #endif

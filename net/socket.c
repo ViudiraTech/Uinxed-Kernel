@@ -10,7 +10,7 @@
 
 #include <fs/core/vfs_stub.h>
 #include <fs/tmpfs/tmpfs.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <libs/std/string.h>
 #include <libs/util/bitops.h>
 #include <mem/heap.h>

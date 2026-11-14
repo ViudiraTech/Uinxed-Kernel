@@ -12,8 +12,8 @@
 #include <arch/tables/idt.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/net/ethernet/realtek/rtl8169.h>
+#include <kernel/debug/printk.h>
 #include <kernel/interrupt/interrupt.h>
-#include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>

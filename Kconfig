@@ -33,6 +33,15 @@ menu "Processor type and features"
     help
       Limits the maximum number of CPUs the kernel can use.
       Set to 0 for no limit (auto-detect all cores).
+
+  config PER_CPU_TABLE_MAX_CPUS
+    int "Maximum CPUs indexed by per-CPU tables"
+    default 256
+    range 1 1024
+    help
+      Static array bound for per-CPU printk recursion tracking, NMI
+      message parking, and AP microcode revision records. Must cover
+      every CPU id the kernel can observe.
 endmenu
 
 menu "Memory management"
@@ -180,6 +189,18 @@ menu "Scheduler"
       unbounded time migrating tasks. Newly-idle stealing always pulls at most
       one task.
 
+  config SCHED_BALANCE_SOURCES
+    int "Maximum source runqueues considered per balance pass"
+    default 4
+    range 1 32
+    help
+      One balance pass walks a scheduling domain's source runqueues from the
+      highest to the lowest pressure. A source that cannot donate a task right
+      now - every movable entity is inside SCHED_MIGRATION_COOLDOWN, or the
+      candidate is still executing on its CPU - no longer ends the pass; the
+      next source in the list is tried instead. This bounds how many source
+      runqueues one pass examines per domain.
+
   config SCHED_MIGRATION_COOLDOWN
     int "Task migration cooldown (ticks)"
     default 4
@@ -187,6 +208,26 @@ menu "Scheduler"
     help
       Hysteresis against repeatedly bouncing a hot task between CPUs. Idle-CPU
       stealing may override this when leaving a CPU idle would be worse.
+
+  config SCHED_STEAL_HOT_BUDGET
+    int "Recently migrated candidates skipped per steal attempt"
+    default 8
+    range 0 64
+    help
+      When a steal scan is not running for a newly idle CPU and the source
+      runqueue has at most two runnable tasks, candidates migrated within
+      SCHED_MIGRATION_COOLDOWN are skipped to avoid bouncing hot tasks. This
+      bounds how many such candidates one attempt passes over before
+      abandoning the source runqueue. Zero stops at the first hot candidate.
+
+  config SCHED_STEAL_SCAN_LIMIT
+    int "Maximum runqueue nodes visited per steal attempt"
+    default 32
+    range 1 256
+    help
+      Hard bound on rb-tree nodes examined by one steal attempt, including
+      CPU-pinned entities. Keeps load-balancing cost bounded on large
+      runqueues. Must be at least SCHED_STEAL_HOT_BUDGET.
 
   config TASK_DEFAULT_SLICE
     int "Default initial task time slice (ticks)"
@@ -894,6 +935,12 @@ menu "Device Drivers"
       help
         Namespaces tracked per NVMe controller.
 
+    config FLOPPY
+      bool "PC floppy disk controller support"
+      default n
+      help
+        Enable the legacy PC/AT floppy disk controller and ISA DMA driver.
+
     config BLOCKDEV_MAX_TYPES
       int "Block device operation types"
       default 16
@@ -1276,6 +1323,15 @@ menu "Device Drivers"
           VirtIO-GPU DRM driver for paravirtualised GPU devices.
           Provides KMS display pipeline, render node, and optional
           3D acceleration via virgl context protocol.
+
+      config BOCHS
+        bool "Bochs dispi VGA DRM driver"
+        depends on DRM
+        default n
+        help
+          DRM driver for the Bochs dispi VGA adapter, used by QEMU
+          stdvga, Bochs and Simics.  Provides a KMS display pipeline
+          on the adapter's linear framebuffer with EDID mode detection.
     endmenu
   endmenu
 
@@ -1363,6 +1419,15 @@ menu "Device Drivers"
       range 1 64
       help
         I2C adapters registered with the I2C core.
+  endmenu
+
+  menu "ACPI support"
+    config ACPI_MAX_GPE_HANDLERS
+      int "ACPI GPE handler slots"
+      default 32
+      range 4 256
+      help
+        Handlers that can be registered for general purpose events.
   endmenu
 endmenu
 
@@ -1510,80 +1575,76 @@ menu "File systems"
 endmenu
 
 menu "Kernel interfaces"
-  config POLL_NFDS_MAX
-    int "Maximum poll descriptors"
-    default 65536
-    range 64 1048576
-    help
-      Upper bound on the number of descriptors in a single poll() call.
+  menu "System call limits"
+    config POLL_NFDS_MAX
+      int "Maximum poll descriptors"
+      default 65536
+      range 64 1048576
+      help
+        Upper bound on the number of descriptors in a single poll() call.
 
-  config SELECT_NFDS_MAX
-    int "Maximum select descriptors"
-    default 1024
-    range 64 65536
-    help
-      Upper bound on the file descriptor count accepted by select().
+    config SELECT_NFDS_MAX
+      int "Maximum select descriptors"
+      default 1024
+      range 64 65536
+      help
+        Upper bound on the file descriptor count accepted by select().
 
-  config SIGQUEUE_MAX
-    int "Maximum queued realtime signals per process"
-    default 32
-    range 1 1024
-    help
-      Maximum number of pending realtime signals queued per process.
+    config SIGQUEUE_MAX
+      int "Maximum queued realtime signals per process"
+      default 32
+      range 1 1024
+      help
+        Maximum number of pending realtime signals queued per process.
 
-  config SECCOMP_MAX_INSNS_PER_FILTER
-    int "Maximum seccomp BPF instructions per filter"
-    default 4096
-    range 32 65536
-    help
-      Upper bound on the number of BPF instructions in a single seccomp filter.
+    config SECCOMP_MAX_INSNS_PER_FILTER
+      int "Maximum seccomp BPF instructions per filter"
+      default 4096
+      range 32 65536
+      help
+        Upper bound on the number of BPF instructions in a single seccomp filter.
+  endmenu
 
-  config KERNEL_LOG
-    bool "Kernel runtime log output"
-    default y
-    help
-      Emit kernel log messages (plogk) to the console with a timestamp.
-      Turning this off silences them; printk() is unaffected.
+  menu "Kernel logging"
+    config KERNEL_LOG
+      bool "Kernel runtime log output"
+      default y
+      help
+        Emit kernel log messages (plogk) to the console with a timestamp.
+        Turning this off compiles plogk() out entirely: no formatting, no
+        console output, and no record kept.  printk() is unaffected.
 
-  config NMI_LOG_MAX_CPUS
-    int "NMI log per-CPU slots"
-    default 256
-    range 1 1024
-    help
-      Per-CPU buffers reserved for logging from NMI context.
+    config DEFERLOG_MAX_LENGTH
+      int "Deferred log entry length"
+      depends on KERNEL_LOG
+      default 1024
+      range 64 4096
+      help
+        Maximum length of one deferred log entry, terminator included.
+        Deferred entries are only ever flushed through plogk().
 
-  config LOG_MAX_LENGTH
-    int "Ring log entry length"
-    default 1024
-    range 64 4096
-    help
-      Maximum length of one ring log entry, terminator included.
+    config DEFERLOG_ENTRY_COUNT
+      int "Deferred log entry count"
+      depends on KERNEL_LOG
+      default 32
+      range 4 1024
+      help
+        Number of entries retained by each deferred log.
+  endmenu
 
-  config LOG_BUFFER_SIZE
-    int "Ring log entry count"
-    default 32
-    range 4 1024
-    help
-      Number of entries retained by each ring log.
+  menu "Uevent notifications"
+    config UEVENT_BUFFER_SIZE
+      int "uevent environment block size"
+      default 2048
+      range 256 16384
+      help
+        Bytes reserved for the environment block of one uevent.
 
-  config UEVENT_BUFFER_SIZE
-    int "uevent environment block size"
-    default 2048
-    range 256 16384
-    help
-      Bytes reserved for the environment block of one uevent.
-
-  config UEVENT_NUM_ENVP
-    int "uevent environment entries"
-    default 64
-    range 4 256
-    help
-      Maximum environment variables carried by one uevent.
-
-  config ACPI_MAX_GPE_HANDLERS
-    int "ACPI GPE handler slots"
-    default 32
-    range 4 256
-    help
-      Handlers that can be registered for general purpose events.
+    config UEVENT_NUM_ENVP
+      int "uevent environment entries"
+      default 64
+      range 4 256
+      help
+        Maximum environment variables carried by one uevent.
+  endmenu
 endmenu

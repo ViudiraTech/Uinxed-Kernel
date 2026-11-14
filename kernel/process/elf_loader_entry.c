@@ -8,7 +8,7 @@
  *
  */
 
-#include <kernel/errno.h>
+#include <libs/std/errno.h>
 #include <process/elf_loader.h>
 #include <process/process.h>
 

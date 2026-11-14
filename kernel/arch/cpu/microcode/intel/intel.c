@@ -11,9 +11,9 @@
 #include <arch/cpu/cpuid.h>
 #include <arch/cpu/microcode/intel/intel.h>
 #include <arch/misc/common.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/vsprintf.h>
+#include <kernel/debug/printk.h>
+#include <kernel/debug/vsprintf.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 
@@ -41,7 +41,7 @@ static uint32_t intel_totalsize(const struct intel_microcode_header *mc)
 /* Size of the extended signature table described by @et. */
 static size_t intel_exttable_size(const struct intel_microcode_extended_table *et)
 {
-    return (size_t)et->count * INTEL_MC_EXT_SIG_SIZE + INTEL_MC_EXT_HEADER_SIZE;
+    return ((size_t)et->count * INTEL_MC_EXT_SIG_SIZE) + INTEL_MC_EXT_HEADER_SIZE;
 }
 
 /* Sum of the 32-bit words of a region; a valid record sums to zero. */

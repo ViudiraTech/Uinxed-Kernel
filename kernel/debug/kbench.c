@@ -12,7 +12,7 @@
 #include <ipc/pipe.h>
 #include <kernel/cmdline/cmdline.h>
 #include <kernel/debug/kbench.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>

@@ -10,9 +10,9 @@
 
 #include <ipc/futex.h>
 #include <kernel/debug/debug.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <mem/alloc.h>
 #include <mem/page.h>
 #include <process/process.h>

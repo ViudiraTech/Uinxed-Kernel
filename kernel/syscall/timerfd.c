@@ -11,9 +11,9 @@
 #include <arch/cpu/smp.h>
 #include <fs/core/vfs.h>
 #include <fs/core/vfs_stub.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
@@ -58,7 +58,7 @@ static int timerfd_timespec_to_ns(const linux_timespec_t *ts, uint64_t *ns)
     if (!ts || !ns || ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= (int64_t)TIMER_NSEC_PER_SEC) return -EINVAL;
     if ((uint64_t)ts->tv_sec > (UINT64_MAX - (uint64_t)ts->tv_nsec) / TIMER_NSEC_PER_SEC) return -EINVAL;
 
-    *ns = (uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC + (uint64_t)ts->tv_nsec;
+    *ns = ((uint64_t)ts->tv_sec * TIMER_NSEC_PER_SEC) + (uint64_t)ts->tv_nsec;
     return EOK;
 }
 

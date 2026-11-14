@@ -10,9 +10,9 @@
 
 #include <arch/cpu/smp.h>
 #include <arch/misc/common.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
+#include <kernel/debug/printk.h>
 #include <kernel/uinxed.h>
+#include <libs/std/errno.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
@@ -34,7 +34,7 @@ typedef struct {
         size_t     frames[CONFIG_FRAME_PCP_HIGH];
 } frame_pcp_t;
 
-log_buffer_t      frame_log;
+deferlog_t        frame_log;
 frame_allocator_t frame_allocator;
 uint64_t          memory_size = 0;
 
@@ -136,6 +136,7 @@ static size_t frame_pcp_refill(void)
     if (first != SIZE_MAX) {
         units = (size_t)1 << order;
         if (buddy_trim_allocation(&frame_allocator.buddy, first, order, units)) {
+            plogk("frame: PCP refill trim failed for order %u block at 0x%016llx\n", order, (unsigned long long)(first * PAGE_4K_SIZE));
             (void)buddy_free(&frame_allocator.buddy, first, order);
             first = SIZE_MAX;
             units = 0;
@@ -209,6 +210,12 @@ void frame_reclaim_if_needed(size_t requested)
     }
 }
 
+/* Add one usable region to the buddy, reporting a region it rejects. */
+static void frame_add_buddy_range(size_t start, size_t count)
+{
+    if (buddy_add_range(&frame_allocator.buddy, start, count)) deferlog_write(&frame_log, "frame: Failed to add 0x%08zx frames from %p to buddy.\n", count, (void *)(start * PAGE_4K_SIZE));
+}
+
 /* Initialize memory frame */
 void init_frame(void)
 {
@@ -225,7 +232,7 @@ void init_frame(void)
             if (region_end > memory_size) memory_size = region_end;
         }
     }
-    log_buffer_write(&frame_log, "frame: Highest usable address is %p\n", (void *)memory_size);
+    deferlog_write(&frame_log, "frame: Highest usable address is %p\n", (void *)memory_size);
     size_t   frame_count      = ALIGN_UP(memory_size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
     size_t   metadata_size    = ALIGN_UP(frame_count * sizeof(buddy_page_t), PAGE_4K_SIZE);
     uint64_t metadata_address = 0;
@@ -242,15 +249,15 @@ void init_frame(void)
         break;
     }
     if (metadata_address) {
-        log_buffer_write(&frame_log, "frame: Ownership metadata allocated at %p (size: %zu KiB)\n", (void *)metadata_address, metadata_size / 1024);
+        deferlog_write(&frame_log, "frame: Ownership metadata allocated at %p (size: %zu KiB)\n", (void *)metadata_address, metadata_size / 1024);
     } else {
-        log_buffer_write(&frame_log, "frame: Failed to allocate ownership metadata.\n");
+        deferlog_write(&frame_log, "frame: Failed to allocate ownership metadata.\n");
         return;
     }
     unsigned max_order = buddy_order_for_units(frame_count);
     if (max_order > CONFIG_BUDDY_MAX_ORDER || ((size_t)1 << max_order) > frame_count) max_order--;
     if (buddy_init(&frame_allocator.buddy, phys_to_virt(metadata_address), frame_count, max_order)) {
-        log_buffer_write(&frame_log, "frame: Failed to initialise buddy metadata.\n");
+        deferlog_write(&frame_log, "frame: Failed to initialise buddy metadata.\n");
         return;
     }
     frame_allocator.frame_count = frame_count;
@@ -277,25 +284,25 @@ void init_frame(void)
             size_t metadata_count = metadata_size / PAGE_4K_SIZE;
             size_t range_end      = start_frame + count;
             if (metadata_start >= range_end || metadata_start + metadata_count <= start_frame) {
-                (void)buddy_add_range(&frame_allocator.buddy, start_frame, count);
+                frame_add_buddy_range(start_frame, count);
             } else {
-                if (metadata_start > start_frame) (void)buddy_add_range(&frame_allocator.buddy, start_frame, metadata_start - start_frame);
+                if (metadata_start > start_frame) frame_add_buddy_range(start_frame, metadata_start - start_frame);
                 size_t after_metadata = metadata_start + metadata_count;
-                if (after_metadata < range_end) (void)buddy_add_range(&frame_allocator.buddy, after_metadata, range_end - after_metadata);
+                if (after_metadata < range_end) frame_add_buddy_range(after_metadata, range_end - after_metadata);
             }
-            log_buffer_write(&frame_log, "frame: Added    0x%08zx frames from %p to buddy.\n", count, (void *)start);
+            deferlog_write(&frame_log, "frame: Added    0x%08zx frames from %p to buddy.\n", count, (void *)start);
         }
     }
     size_t metadata_frame_count = metadata_size / PAGE_4K_SIZE;
 
-    log_buffer_write(&frame_log, "frame: Reserved 0x%08zx frames for ownership metadata at %p\n", metadata_frame_count, (void *)metadata_address);
+    deferlog_write(&frame_log, "frame: Reserved 0x%08zx frames for ownership metadata at %p\n", metadata_frame_count, (void *)metadata_address);
 
     frame_allocator.origin_frames   = origin_frames;
     frame_allocator.usable_frames   = frame_allocator.buddy.free_pages;
     frame_allocator.metadata_frames = metadata_frame_count;
 
-    log_buffer_write(&frame_log, "frame: Total physical frames = 0x%08zx (%zu KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
-    log_buffer_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08zx (%zu KiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
+    deferlog_write(&frame_log, "frame: Total physical frames = 0x%08zx (%zu KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
+    deferlog_write(&frame_log, "frame: Available frames after buddy metadata = 0x%08zx (%zu KiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
 }
 
 /* Allocate count frames aligned to 2^alignment_order pages. */
@@ -344,6 +351,44 @@ static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order)
 uint64_t alloc_frames(size_t count)
 {
     return alloc_frames_aligned(count, 0);
+}
+
+/* Allocate count contiguous frames whose whole range ends at or below max_phys. */
+uint64_t alloc_frames_below(size_t count, uint64_t max_phys)
+{
+    if (!count) return 0;
+
+    unsigned order = buddy_order_for_units(count);
+    if (order > CONFIG_BUDDY_MAX_ORDER) return 0;
+
+    size_t limit_units = (size_t)(max_phys / PAGE_4K_SIZE);
+    if (limit_units > frame_allocator.buddy.page_count) limit_units = frame_allocator.buddy.page_count;
+    if (!limit_units) return 0;
+
+    spin_lock(&frame_allocator.lock);
+    size_t frame_index = buddy_alloc_below(&frame_allocator.buddy, order, limit_units);
+    if (frame_index == SIZE_MAX) {
+        /* Low pages may be parked in the per-CPU caches; drain and retry. */
+        spin_unlock(&frame_allocator.lock);
+        frame_pcp_drain_all();
+        spin_lock(&frame_allocator.lock);
+        frame_index = buddy_alloc_below(&frame_allocator.buddy, order, limit_units);
+    }
+    if (frame_index == SIZE_MAX) {
+        spin_unlock(&frame_allocator.lock);
+        return 0;
+    }
+    if (buddy_trim_allocation(&frame_allocator.buddy, frame_index, order, count)) {
+        plogk("frame: Trim failed for order %u block at 0x%016llx (keep %llu frames)\n", order, (unsigned long long)(frame_index * PAGE_4K_SIZE), (unsigned long long)count);
+        (void)buddy_free(&frame_allocator.buddy, frame_index, order);
+        spin_unlock(&frame_allocator.lock);
+        return 0;
+    }
+    for (size_t i = 0; i < count; i++) frame_allocator.buddy.pages[frame_index + i].tag = 1;
+
+    __atomic_sub_fetch(&frame_allocator.usable_frames, count, __ATOMIC_RELAXED);
+    spin_unlock(&frame_allocator.lock);
+    return frame_index * PAGE_4K_SIZE;
 }
 
 /* Allocate 2M memory frames */

@@ -23,6 +23,7 @@
 #include <drivers/block/ata/pata/ide.h>
 #include <drivers/block/ata/sata/ahci.h>
 #include <drivers/block/core/gendisk.h>
+#include <drivers/block/floppy/floppy.h>
 #include <drivers/block/nvme/nvme.h>
 #include <drivers/char/chrdev.h>
 #include <drivers/char/tpm/tpm.h>
@@ -286,7 +287,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
     /* Architecture */
-    log_buffer_print(&fpu_log);                                    //
+    deferlog_print(&fpu_log);                                      //
                                                                    //
     init_microcode();                                              // Processor Microcode
     init_gdt();                                                    // Global Descriptor Table
@@ -302,16 +303,16 @@ __attribute__((noreturn)) void kernel_entry(void)
     smp_init();                                                    // Symmetric Multiprocessing
                                                                    //
     print_memory_map();                                            //
-    log_buffer_print(&frame_log);                                  //
+    deferlog_print(&frame_log);                                    //
                                                                    //
     /* Hardware Bus & Input */                                     //
     pci_init();                                                    // Peripheral Component Interconnect
     init_ps2();                                                    // PS/2 Controller
     parport_pc_init();                                             // PC Parallel Port (SPP)
                                                                    //
-    log_buffer_print(&serial_log);                                 //
-    log_buffer_print(&parallel_log);                               //
-    log_buffer_print(&lmodule_log);                                //
+    deferlog_print(&serial_log);                                   //
+    deferlog_print(&parallel_log);                                 //
+    deferlog_print(&lmodule_log);                                  //
                                                                    //
     /* Process Management */                                       //
     sched_init();                                                  // Preemptive Scheduler
@@ -372,6 +373,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     init_ide();                    // ATA / ATAPI
     init_ahci();                   // Advanced Host Controller Interface
     nvme_init();                   // Non-Volatile Memory Express
+    floppy_init();                 // Legacy PC floppy disk controller
     block_register_all_disks();    // Publish discovered disks into the gendisk registry
     e1000_init();                  // Intel 8254x Gigabit Ethernet
     rtl8169_init();                // Realtek RTL8169 Gigabit Ethernet
@@ -422,6 +424,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     rtl8139_start_workers();      // Register rtl8139 workers
     usb_host_start_workers();     // Register USB host workers
     video_start_refresh_worker(); // Register display refresh worker
+    floppy_start_workers();       // Register floppy motor idle worker
     timer_deferred_init();        // Register timer bottom-half processing
     kbench_init();                // Register the kbench worker when requested
     kernel_workers_start();       // Create every registered kernel worker

@@ -11,10 +11,10 @@
 #include <fs/core/vfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/cmdline/cmdline.h>
-#include <kernel/errno.h>
 #include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/kobject/kobject.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <process/namespace.h>
 #include <process/sched.h>
