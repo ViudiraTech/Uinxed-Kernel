@@ -546,7 +546,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     }
 
     size_t changed = 0;
-    for (vm_area_t *vma = first; vma && vma->start < end && changed < count; vma = vma->next) {
+    for (vm_area_t *vma = first; vma && vma->start < end; vma = vma->next) {
         vm_flags_t new_flags = (vma->flags & ~(VM_READ | VM_WRITE | VM_EXEC)) | requested;
         int        ret       = memfd_vma_protect(vma->vm_file, vma->flags, new_flags);
         if (ret) {
@@ -558,6 +558,16 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
             free(changes);
             spin_unlock(&proc->mmap_lock);
             return ret;
+        }
+        if (changed >= count) {
+            while (changed) {
+                changed--;
+                (void)memfd_vma_protect(changes[changed].vma->vm_file, changes[changed].vma->flags, changes[changed].old_flags);
+                changes[changed].vma->flags = changes[changed].old_flags;
+            }
+            free(changes);
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
         }
         changes[changed].vma       = vma;
         changes[changed].old_flags = vma->flags;
@@ -615,7 +625,7 @@ int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
         uintptr_t overlap_start = addr > vma->start ? addr : vma->start;
         uintptr_t overlap_end   = end < vma->end ? end : vma->end;
         ranges[used].file       = vfs_node_retain(vma->vm_file);
-        ranges[used].start      = vma->vm_pgoff * PAGE_4K_SIZE + overlap_start - vma->start;
+        ranges[used].start      = (vma->vm_pgoff * PAGE_4K_SIZE) + overlap_start - vma->start;
         ranges[used].end        = ranges[used].start + overlap_end - overlap_start - 1;
         ranges[used].shared     = (vma->flags & VM_SHARED) != 0;
         ranges[used].writable   = (vma->flags & VM_WRITE) != 0;

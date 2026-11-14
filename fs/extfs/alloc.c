@@ -231,7 +231,7 @@ int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
             bit    = (goal - sb->s_first_data_block) % sb->blocks_per_group;
             status = extfs_alloc_bit_from_bitmap(sb, group, 0, sb->group_desc[group].bg_block_bitmap, extfs_blocks_in_group(sb, group), bit, out);
             if (status == EOK) {
-                *out += group * sb->blocks_per_group + sb->s_first_data_block;
+                *out += (group * sb->blocks_per_group) + sb->s_first_data_block;
                 sb->group_desc[group].bg_free_blocks_count--;
                 sb->es->s_free_blocks_count--;
                 status = extfs_write_group_desc(sb, group, &sb->group_desc[group]);
@@ -246,7 +246,7 @@ int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
         if (sb->group_desc[i].bg_free_blocks_count == 0) continue;
         status = extfs_alloc_bit_from_bitmap(sb, i, 0, sb->group_desc[i].bg_block_bitmap, extfs_blocks_in_group(sb, i), 0, out);
         if (status == EOK) {
-            *out += i * sb->blocks_per_group + sb->s_first_data_block;
+            *out += (i * sb->blocks_per_group) + sb->s_first_data_block;
             sb->group_desc[i].bg_free_blocks_count--;
             sb->es->s_free_blocks_count--;
             status = extfs_write_group_desc(sb, i, &sb->group_desc[i]);
@@ -310,7 +310,7 @@ int extfs_alloc_inode(extfs_sb_info_t *sb, uint32_t *out)
         uint32_t start = i == 0 && sb->s_first_ino > 1 ? sb->s_first_ino - 1 : 0;
         status         = extfs_alloc_bit_from_bitmap(sb, i, 1, sb->group_desc[i].bg_inode_bitmap, extfs_inodes_in_group(sb, i), start, out);
         if (status == EOK) {
-            *out += i * sb->inodes_per_group + 1;
+            *out += (i * sb->inodes_per_group) + 1;
             sb->group_desc[i].bg_free_inodes_count--;
             sb->group_desc[i].bg_flags &= (uint16_t)~EXT4_BG_INODE_UNINIT;
             uint32_t unused = sb->group_desc[i].bg_itable_unused_lo | (uint32_t)sb->group_desc[i].bg_itable_unused_hi << 16;

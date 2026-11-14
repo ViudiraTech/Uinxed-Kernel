@@ -8,11 +8,11 @@
  *
  */
 
+#include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
-#include <errno.h>
 
 #define SUPERBLOCK_MAGIC        0x53424C4B
 #define SUPERBLOCK_SECTOR       1
@@ -33,38 +33,38 @@ enum {
 };
 
 typedef struct superblock_disk {
-    uint32_t magic;
-    uint32_t version;
-    uint32_t block_size;
-    uint32_t inode_size;
-    uint32_t inode_count;
-    uint32_t block_count;
-    uint32_t inode_table_start;
-    uint32_t data_block_start;
-    uint32_t root_inode;
-    uint32_t features;
-    char     volume_name[SUPERBLOCK_NAME_LENGTH];
+        uint32_t magic;
+        uint32_t version;
+        uint32_t block_size;
+        uint32_t inode_size;
+        uint32_t inode_count;
+        uint32_t block_count;
+        uint32_t inode_table_start;
+        uint32_t data_block_start;
+        uint32_t root_inode;
+        uint32_t features;
+        char     volume_name[SUPERBLOCK_NAME_LENGTH];
 } __attribute__((packed)) superblock_disk_t;
 
 typedef struct simplefs_inode_disk {
-    uint32_t inode;
-    uint16_t type;
-    uint16_t links;
-    uint32_t permissions;
-    uint32_t owner;
-    uint32_t group;
-    uint64_t size;
-    uint64_t create_time;
-    uint64_t write_time;
-    uint32_t direct[SIMPLEFS_INODE_DIRECT_COUNT];
-    uint32_t indirect;
+        uint32_t inode;
+        uint16_t type;
+        uint16_t links;
+        uint32_t permissions;
+        uint32_t owner;
+        uint32_t group;
+        uint64_t size;
+        uint64_t create_time;
+        uint64_t write_time;
+        uint32_t direct[SIMPLEFS_INODE_DIRECT_COUNT];
+        uint32_t indirect;
 } __attribute__((packed)) simplefs_inode_disk_t;
 
 typedef struct simplefs_dirent_disk {
-    uint32_t inode;
-    uint16_t type;
-    uint16_t name_length;
-    char     name[SIMPLEFS_DIRENT_NAME_LENGTH];
+        uint32_t inode;
+        uint16_t type;
+        uint16_t name_length;
+        char     name[SIMPLEFS_DIRENT_NAME_LENGTH];
 } __attribute__((packed)) simplefs_dirent_disk_t;
 
 /* Write zeros. */
@@ -90,7 +90,7 @@ static int write_at(FILE *fp, long offset, const void *buf, size_t size)
 /* Parse size mb. */
 static int parse_size_mb(const char *str, uint32_t *size_mb)
 {
-    char *end;
+    char         *end;
     unsigned long value;
 
     if (!str || !size_mb) return -1;
@@ -106,18 +106,18 @@ static int parse_size_mb(const char *str, uint32_t *size_mb)
 /* Main. */
 int main(int argc, char **argv)
 {
-    const char             *image_path;
-    uint32_t                image_mb = SIMPLEFS_DEFAULT_IMAGE_MB;
-    uint32_t                block_size = 4096;
-    uint32_t                image_size;
-    uint32_t                block_count;
-    FILE                   *fp;
-    superblock_disk_t       sb;
-    simplefs_inode_disk_t   inodes[SIMPLEFS_DEFAULT_BLOCKS] = {0};
-    simplefs_dirent_disk_t  dirents[1]                      = {0};
-    unsigned char          *root_block;
-    unsigned char          *file_block;
-    const char              hello[] = "simplefs is mounted from ide0\n";
+    const char            *image_path;
+    uint32_t               image_mb   = SIMPLEFS_DEFAULT_IMAGE_MB;
+    uint32_t               block_size = 4096;
+    uint32_t               image_size;
+    uint32_t               block_count;
+    FILE                  *fp;
+    superblock_disk_t      sb;
+    simplefs_inode_disk_t  inodes[SIMPLEFS_DEFAULT_BLOCKS] = {0};
+    simplefs_dirent_disk_t dirents[1]                      = {0};
+    unsigned char         *root_block;
+    unsigned char         *file_block;
+    const char             hello[] = "simplefs is mounted from ide0\n";
 
     if (argc < 2 || argc > 3) {
         fprintf(stderr, "Usage: %s <image> [size_mb]\n", argv[0]);
@@ -194,10 +194,8 @@ int main(int argc, char **argv)
     memcpy(root_block, dirents, sizeof(dirents));
     memcpy(file_block, hello, sizeof(hello) - 1);
 
-    if (write_at(fp, SUPERBLOCK_SECTOR * SUPERBLOCK_BLOCK_SECTOR, &sb, sizeof(sb)) != 0 ||
-        write_at(fp, (long)sb.inode_table_start * block_size, inodes, sizeof(inodes)) != 0 ||
-        write_at(fp, (long)sb.data_block_start * block_size, root_block, block_size) != 0 ||
-        write_at(fp, (long)(sb.data_block_start + 1) * block_size, file_block, block_size) != 0) {
+    if (write_at(fp, SUPERBLOCK_SECTOR * SUPERBLOCK_BLOCK_SECTOR, &sb, sizeof(sb)) != 0 || write_at(fp, (long)sb.inode_table_start * block_size, inodes, sizeof(inodes)) != 0
+        || write_at(fp, (long)sb.data_block_start * block_size, root_block, block_size) != 0 || write_at(fp, (long)(sb.data_block_start + 1) * block_size, file_block, block_size) != 0) {
         fprintf(stderr, "mkfs_simplefs: write failed\n");
         free(root_block);
         free(file_block);
