@@ -1357,7 +1357,7 @@ static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdispl
         hmargin = hdisplay_rnd * CVT_MARGIN_PERCENTAGE / 1000;
         hmargin -= hmargin % CVT_H_GRANULARITY;
     }
-    drm_mode->hdisplay = hdisplay_rnd + 2 * hmargin;
+    drm_mode->hdisplay = hdisplay_rnd + (2 * hmargin);
 
     if (interlaced) {
         vdisplay_rnd = vdisplay / 2;
@@ -1367,7 +1367,7 @@ static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdispl
 
     vmargin = 0;
     if (margins) vmargin = vdisplay_rnd * CVT_MARGIN_PERCENTAGE / 1000;
-    drm_mode->vdisplay = vdisplay + 2 * vmargin;
+    drm_mode->vdisplay = vdisplay + (2 * vmargin);
     interlace = interlaced ? 1 : 0;
 
     if (!(vdisplay % 3) && ((vdisplay * 4 / 3) == hdisplay)) {
@@ -1389,31 +1389,31 @@ static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdispl
         int          vsyncandback_porch, hblank;
         int          tmp1, tmp2;
 
-        tmp1    = HV_FACTOR * 1000000 - CVT_MIN_VSYNC_BP * HV_FACTOR * vfieldrate;
-        tmp2    = (vdisplay_rnd + 2 * vmargin + CVT_MIN_V_PORCH) * 2 + interlace;
+        tmp1    = (HV_FACTOR * 1000000) - (CVT_MIN_VSYNC_BP * HV_FACTOR * vfieldrate);
+        tmp2    = ((vdisplay_rnd + 2 * vmargin + CVT_MIN_V_PORCH) * 2) + interlace;
         hperiod = (unsigned int)(tmp1 * 2 / (tmp2 * vfieldrate));
 
-        tmp1 = CVT_MIN_VSYNC_BP * HV_FACTOR / hperiod + 1;
+        tmp1 = (CVT_MIN_VSYNC_BP * HV_FACTOR / hperiod) + 1;
         if (tmp1 < (vsync + CVT_MIN_V_PORCH)) {
             vsyncandback_porch = vsync + CVT_MIN_V_PORCH;
         } else {
             vsyncandback_porch = tmp1;
         }
-        drm_mode->vtotal = vdisplay_rnd + 2 * vmargin + vsyncandback_porch + CVT_MIN_V_PORCH;
+        drm_mode->vtotal = vdisplay_rnd + (2 * vmargin) + vsyncandback_porch + CVT_MIN_V_PORCH;
 #define CVT_M_FACTOR 600
 #define CVT_C_FACTOR 40
 #define CVT_K_FACTOR 128
 #define CVT_J_FACTOR 20
 #define CVT_M_PRIME  (CVT_M_FACTOR * CVT_K_FACTOR / 256)
 #define CVT_C_PRIME  ((CVT_C_FACTOR - CVT_J_FACTOR) * CVT_K_FACTOR / 256 + CVT_J_FACTOR)
-        hblank_percentage = CVT_C_PRIME * HV_FACTOR - CVT_M_PRIME * hperiod / 1000;
+        hblank_percentage = (CVT_C_PRIME * HV_FACTOR) - (CVT_M_PRIME * hperiod / 1000);
         if (hblank_percentage < 20 * HV_FACTOR) hblank_percentage = 20 * HV_FACTOR;
         hblank = drm_mode->hdisplay * hblank_percentage / (100 * HV_FACTOR - hblank_percentage);
         hblank -= hblank % (2 * CVT_H_GRANULARITY);
         drm_mode->htotal      = drm_mode->hdisplay + hblank;
-        drm_mode->hsync_end   = drm_mode->hdisplay + hblank / 2;
-        drm_mode->hsync_start = drm_mode->hsync_end - (drm_mode->htotal * CVT_HSYNC_PERCENTAGE) / 100;
-        drm_mode->hsync_start += CVT_H_GRANULARITY - drm_mode->hsync_start % CVT_H_GRANULARITY;
+        drm_mode->hsync_end   = drm_mode->hdisplay + (hblank / 2);
+        drm_mode->hsync_start = drm_mode->hsync_end - ((drm_mode->htotal * CVT_HSYNC_PERCENTAGE) / 100);
+        drm_mode->hsync_start += CVT_H_GRANULARITY - (drm_mode->hsync_start % CVT_H_GRANULARITY);
         drm_mode->vsync_start = drm_mode->vdisplay + CVT_MIN_V_PORCH;
         drm_mode->vsync_end   = drm_mode->vsync_start + vsync;
     } else {
@@ -1424,14 +1424,14 @@ static struct drm_display_mode *edid_cvt_mode(struct drm_device *dev, int hdispl
         int vbilines;
         int tmp1, tmp2;
 
-        tmp1     = HV_FACTOR * 1000000 - CVT_RB_MIN_VBLANK * HV_FACTOR * vfieldrate;
-        tmp2     = vdisplay_rnd + 2 * vmargin;
+        tmp1     = (HV_FACTOR * 1000000) - (CVT_RB_MIN_VBLANK * HV_FACTOR * vfieldrate);
+        tmp2     = vdisplay_rnd + (2 * vmargin);
         hperiod  = (unsigned int)(tmp1 / (tmp2 * vfieldrate));
-        vbilines = CVT_RB_MIN_VBLANK * HV_FACTOR / hperiod + 1;
+        vbilines = (CVT_RB_MIN_VBLANK * HV_FACTOR / hperiod) + 1;
         if (vbilines < (CVT_RB_VFPORCH + vsync + CVT_MIN_V_BPORCH)) vbilines = CVT_RB_VFPORCH + vsync + CVT_MIN_V_BPORCH;
-        drm_mode->vtotal      = vdisplay_rnd + 2 * vmargin + vbilines;
+        drm_mode->vtotal      = vdisplay_rnd + (2 * vmargin) + vbilines;
         drm_mode->htotal      = drm_mode->hdisplay + CVT_RB_H_BLANK;
-        drm_mode->hsync_end   = drm_mode->hdisplay + CVT_RB_H_BLANK / 2;
+        drm_mode->hsync_end   = drm_mode->hdisplay + (CVT_RB_H_BLANK / 2);
         drm_mode->hsync_start = drm_mode->hsync_end - CVT_RB_H_SYNC;
         drm_mode->vsync_start = drm_mode->vdisplay + CVT_RB_VFPORCH;
         drm_mode->vsync_end   = drm_mode->vsync_start + vsync;
@@ -1515,7 +1515,7 @@ static struct drm_display_mode *edid_gtf_mode_complex(struct drm_device *dev, in
     interlace = interlaced ? 1 : 0;
 
     tmp1      = (1000000 - MIN_VSYNC_PLUS_BP * vfieldrate_rqd) / 500;
-    tmp2      = (vdisplay_rnd + 2 * top_margin + GTF_MIN_V_PORCH) * 2 + interlace;
+    tmp2      = ((vdisplay_rnd + 2 * top_margin + GTF_MIN_V_PORCH) * 2) + interlace;
     hfreq_est = ((tmp2 * 1000 * vfieldrate_rqd) / tmp1);
 
     vsync_plus_bp = MIN_VSYNC_PLUS_BP * hfreq_est / 1000;
@@ -1530,7 +1530,7 @@ static struct drm_display_mode *edid_gtf_mode_complex(struct drm_device *dev, in
     right_margin        = left_margin;
     total_active_pixels = hdisplay_rnd + left_margin + right_margin;
 
-    ideal_duty_cycle = GTF_C_PRIME * 1000 - (GTF_M_PRIME * 1000000 / hfreq_est);
+    ideal_duty_cycle = (GTF_C_PRIME * 1000) - (GTF_M_PRIME * 1000000 / hfreq_est);
 
     hblank       = total_active_pixels * ideal_duty_cycle / (100000 - ideal_duty_cycle);
     hblank       = (hblank + GTF_CELL_GRAN) / (2 * GTF_CELL_GRAN);
@@ -1541,7 +1541,7 @@ static struct drm_display_mode *edid_gtf_mode_complex(struct drm_device *dev, in
     hsync                  = H_SYNC_PERCENT * total_pixels / 100;
     hsync                  = (hsync + GTF_CELL_GRAN / 2) / GTF_CELL_GRAN;
     hsync                  = hsync * GTF_CELL_GRAN;
-    hfront_porch           = hblank / 2 - hsync;
+    hfront_porch           = (hblank / 2) - hsync;
     vodd_front_porch_lines = GTF_MIN_V_PORCH;
 
     drm_mode->hdisplay    = (int)hdisplay_rnd;
@@ -1671,7 +1671,7 @@ static struct drm_display_mode *mode_from_std_timing(struct drm_connector *conne
     if (std_timing_is_reserved(t->hsize, t->vfreq_aspect)) return NULL;
 
     /* According to the EDID spec, the hdisplay = hsize * 8 + 248 */
-    hsize = t->hsize * 8 + 248;
+    hsize = (t->hsize * 8) + 248;
 
     /* vrefresh_rate = vfreq + 60 */
     vrefresh_rate = vfreq + 60;

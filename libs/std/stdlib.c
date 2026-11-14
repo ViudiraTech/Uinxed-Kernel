@@ -171,7 +171,7 @@ int atoi(const char *pstr)
     if (*pstr == '-' || *pstr == '+') pstr++;
 
     while (*pstr >= '0' && *pstr <= '9') {
-        ret_integer = ret_integer * 10 + *pstr - '0';
+        ret_integer = (ret_integer * 10) + *pstr - '0';
         pstr++;
     }
     ret_integer = integer_sign * ret_integer;
@@ -182,7 +182,7 @@ int atoi(const char *pstr)
 int skip_atoi(const char **s)
 {
     int i = 0;
-    while (IS_DIGIT(**s)) i = i * 10 + *((*s)++) - '0';
+    while (IS_DIGIT(**s)) i = (i * 10) + *((*s)++) - '0';
     return i;
 }
 

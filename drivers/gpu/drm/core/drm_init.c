@@ -213,7 +213,7 @@ static int drm_parse_minor(const char *s)
     if (!s || !*s) return -1;
     for (; *s; s++) {
         if (*s < '0' || *s > '9') return -1;
-        minor = minor * 10 + (*s - '0');
+        minor = (minor * 10) + (*s - '0');
         if (minor < 0) return -1; // signed overflow
     }
     return minor;

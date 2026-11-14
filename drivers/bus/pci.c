@@ -458,7 +458,7 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
     max_bars                          = max_bars_table[headertype < 3 ? headertype : 3];
 
     if (bar >= max_bars) return result;
-    reg.offset        = PCI_CONF_BAR0 + 4 * bar;
+    reg.offset        = PCI_CONF_BAR0 + (4 * bar);
     uint32_t bar_orig = read_pci(reg);
 
     if (bar_orig == 0xFFFFFFFF) return result;
@@ -475,7 +475,7 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
     uint64_t bar_full = bar_orig;
     if (bar_type == BAR_S64) {
         if (bar + 1 >= max_bars) return result;
-        reg.offset = 0x10 + 4 * (bar + 1);
+        reg.offset = 0x10 + (4 * (bar + 1));
         bar_full |= (uint64_t)read_pci(reg) << 32;
     }
 
@@ -483,12 +483,12 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
     uint64_t bar_saved   = bar_full;
     uint64_t region_size = 0;
 
-    reg.offset = PCI_CONF_BAR0 + 4 * bar;
+    reg.offset = PCI_CONF_BAR0 + (4 * bar);
     write_pci(reg, 0xFFFFFFFF);
     uint64_t probe = read_pci(reg);
 
     if (bar_type == BAR_S64) {
-        reg.offset = 0x10 + 4 * (bar + 1);
+        reg.offset = 0x10 + (4 * (bar + 1));
         write_pci(reg, 0xFFFFFFFF);
         probe |= (uint64_t)read_pci(reg) << 32;
     }
@@ -499,11 +499,11 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
     }
 
     /* Restore original BAR value */
-    reg.offset = PCI_CONF_BAR0 + 4 * bar;
+    reg.offset = PCI_CONF_BAR0 + (4 * bar);
     write_pci(reg, bar_saved);
 
     if (bar_type == BAR_S64) {
-        reg.offset = 0x10 + 4 * (bar + 1);
+        reg.offset = 0x10 + (4 * (bar + 1));
         write_pci(reg, bar_saved >> 32);
     }
 

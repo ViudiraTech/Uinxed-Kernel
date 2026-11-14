@@ -1044,23 +1044,40 @@ static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
 }
 
 /* Find a sysctl entry by name. */
-static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
+static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name, size_t *index)
 {
+    *index = SIZE_MAX; // dummy entry
+
     if (dir == PROC_SYS_KERNEL) {
         for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++)
-            if (streq(procfs_sysctl_kernel[i].name, name)) return &procfs_sysctl_kernel[i];
+            if (streq(procfs_sysctl_kernel[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_kernel[i];
+            }
     } else if (dir == PROC_SYS_FS) {
         for (size_t i = 0; i < PROCFS_SYSCTL_FS_COUNT; i++)
-            if (streq(procfs_sysctl_fs[i].name, name)) return &procfs_sysctl_fs[i];
+            if (streq(procfs_sysctl_fs[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_fs[i];
+            }
     } else if (dir == PROC_SYS_FS_INOTIFY) {
         for (size_t i = 0; i < PROCFS_SYSCTL_FS_INOTIFY_COUNT; i++)
-            if (streq(procfs_sysctl_fs_inotify[i].name, name)) return &procfs_sysctl_fs_inotify[i];
+            if (streq(procfs_sysctl_fs_inotify[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_fs_inotify[i];
+            }
     } else if (dir == PROC_SYS_NET) {
         for (size_t i = 0; i < PROCFS_SYSCTL_NET_COUNT; i++)
-            if (streq(procfs_sysctl_net[i].name, name)) return &procfs_sysctl_net[i];
+            if (streq(procfs_sysctl_net[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_net[i];
+            }
     } else if (dir == PROC_SYS_NET_UNIX) {
         for (size_t i = 0; i < PROCFS_SYSCTL_NET_UNIX_COUNT; i++)
-            if (streq(procfs_sysctl_net_unix[i].name, name)) return &procfs_sysctl_net_unix[i];
+            if (streq(procfs_sysctl_net_unix[i].name, name)) {
+                *index = i;
+                return &procfs_sysctl_net_unix[i];
+            }
     }
 
     /*
@@ -1140,7 +1157,7 @@ static int procfs_sysctl_apply(procfs_sysctl_t *sc, const char *data, size_t siz
             valid          = true;
             uint64_t digit = (uint64_t)(*cursor - '0');
             if (value > (UINT64_MAX - digit) / 10) return -ERANGE;
-            value = value * 10 + digit;
+            value = (value * 10) + digit;
             cursor++;
             left--;
         }
@@ -1371,9 +1388,10 @@ static void gen_pid_status(procfs_file_t *pf)
                                "Mems_allowed_list:\t0\n"
                                "voluntary_ctxt_switches:\t%llu\n"
                                "nonvoluntary_ctxt_switches:\t%llu\n",
-                          proc->task->name, state_str, (unsigned long long)pf->pid, (unsigned long long)pf->pid, (unsigned long long)ppid, (unsigned long long)ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U,
-                          0U, memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024, (memory.data_bytes / 1024), (memory.stack_bytes / 1024), (memory.text_bytes / 1024),
-                     stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, seccomp_mode, seccomp_filters, cpu_mask, cpu_list, stats.voluntary_switches, stats.involuntary_switches);
+                          proc->task->name, state_str, (unsigned long long)pf->pid, (unsigned long long)pf->pid, (unsigned long long)ppid, (unsigned long long)ptrace_tracer_pid(proc->task), proc->uid,
+                          proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, memory.virtual_pages * PAGE_4K_SIZE / 1024, memory.resident_pages * PAGE_4K_SIZE / 1024,
+                          (memory.data_bytes / 1024), (memory.stack_bytes / 1024), (memory.text_bytes / 1024), stats.threads ? stats.threads : 1, no_new_privs ? 1U : 0U, seccomp_mode, seccomp_filters,
+                          cpu_mask, cpu_list, stats.voluntary_switches, stats.involuntary_switches);
     process_put(proc);
 
     pf->content  = buf;
@@ -1822,8 +1840,7 @@ static void gen_pid_stat(procfs_file_t *pf)
                      "%llu %llu %llu %llu %llu %llu %llu %lld\n",
                      pf->pid, name, state_char, ppid, pgid, sid, tty_nr, tpgid, 0U, 0ULL, 0ULL, 0ULL, 0ULL, timer_ticks_to_user_ticks(task_stats.user_ticks),
                      timer_ticks_to_user_ticks(task_stats.system_ticks), 0LL, 0LL, 20LL, 0LL, thread_count, 0LL, timer_ticks_to_user_ticks(task_stats.start_tick), vsize, resident_pages, rss_limit,
-                     start_code, end_code, PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, SIGCHLD, cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL,
-                     start_data, end_data, start_brk,
+                     start_code, end_code, PROCESS_USER_STACK_TOP, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, SIGCHLD, cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL, start_data, end_data, start_brk,
                      0ULL, 0ULL, 0ULL, 0ULL, exit_code);
     process_put(proc);
 
@@ -2269,7 +2286,8 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 node->type  = file_dir;
                 break;
             }
-            procfs_sysctl_t *sc = procfs_sysctl_find(ppf->subtype, name);
+            size_t           sc_index = 0;
+            procfs_sysctl_t *sc       = procfs_sysctl_find(ppf->subtype, name, &sc_index);
             if (!sc) {
                 pf->type    = PROCFS_SYS_FILE;
                 pf->subtype = ppf->subtype;
@@ -2279,7 +2297,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             }
             pf->type    = PROCFS_SYS_FILE;
             pf->subtype = ppf->subtype;
-            pf->pid     = (pid_t)(sc - procfs_sysctl_kernel);
+            pf->pid     = (pid_t)sc_index;
             node->type  = file_none;
             break;
         }

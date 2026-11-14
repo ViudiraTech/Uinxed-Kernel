@@ -112,14 +112,14 @@ static ssize_t fb_virtual_size_store(struct device *dev, struct device_attribute
     (void)attr;
 
     while (i < count && buf[i] >= '0' && buf[i] <= '9') {
-        x = x * 10 + (uint64_t)(buf[i] - '0');
+        x = (x * 10) + (uint64_t)(buf[i] - '0');
         i++;
     }
     if (!i) return -EINVAL;
     while (i < count && (buf[i] == ',' || buf[i] == ' ' || buf[i] == 'x')) i++;
     if (i >= count) return -EINVAL;
     while (i < count && buf[i] >= '0' && buf[i] <= '9') {
-        y = y * 10 + (uint64_t)(buf[i] - '0');
+        y = (y * 10) + (uint64_t)(buf[i] - '0');
         i++;
     }
     (void)x;

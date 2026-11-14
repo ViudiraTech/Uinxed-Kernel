@@ -299,7 +299,7 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
 /* Read a single byte from an I2C client. */
 int32_t i2c_smbus_read_byte(const struct i2c_client *client)
 {
-    union i2c_smbus_data data;
+    union i2c_smbus_data data = {0};
     int                  ret;
 
     if (!client || !client->adapter) return -EINVAL;
@@ -328,7 +328,7 @@ int32_t i2c_smbus_write_byte(const struct i2c_client *client, uint8_t value)
 /* Read a byte at a command register of an I2C client. */
 int32_t i2c_smbus_read_byte_data(const struct i2c_client *client, uint8_t command)
 {
-    union i2c_smbus_data data;
+    union i2c_smbus_data data = {0};
     int                  ret;
 
     if (!client || !client->adapter) return -EINVAL;
@@ -357,7 +357,7 @@ int32_t i2c_smbus_write_byte_data(const struct i2c_client *client, uint8_t comma
 /* Read a 16-bit word at a command register of an I2C client. */
 int32_t i2c_smbus_read_word_data(const struct i2c_client *client, uint8_t command)
 {
-    union i2c_smbus_data data;
+    union i2c_smbus_data data = {0};
     int                  ret;
 
     if (!client || !client->adapter) return -EINVAL;
@@ -386,7 +386,7 @@ int32_t i2c_smbus_write_word_data(const struct i2c_client *client, uint8_t comma
 /* Read a device-length block from an I2C client. */
 int32_t i2c_smbus_read_block_data(const struct i2c_client *client, uint8_t command, uint8_t *values)
 {
-    union i2c_smbus_data data;
+    union i2c_smbus_data data = {0};
     int                  ret;
 
     if (!client || !client->adapter || !values) return -EINVAL;
@@ -420,7 +420,7 @@ int32_t i2c_smbus_write_block_data(const struct i2c_client *client, uint8_t comm
 /* Read a caller-length block from an I2C client. */
 int32_t i2c_smbus_read_i2c_block_data(const struct i2c_client *client, uint8_t command, uint8_t length, uint8_t *values)
 {
-    union i2c_smbus_data data;
+    union i2c_smbus_data data = {0};
     int                  ret;
 
     if (!client || !client->adapter || !values) return -EINVAL;

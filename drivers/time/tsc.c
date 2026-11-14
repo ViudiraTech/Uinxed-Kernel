@@ -138,7 +138,7 @@ void tsc_init(void)
     uint64_t hpet_after  = nano_time();
 
     tsc_epoch_value = tsc_epoch;
-    tsc_epoch_ns    = hpet_before + (hpet_after - hpet_before) / 2ULL;
+    tsc_epoch_ns    = hpet_before + ((hpet_after - hpet_before) / 2ULL);
 
     /* A non-invariant TSC follows the core clock and cannot back CLOCK_MONOTONIC. */
     if (!tsc_invariant) return;

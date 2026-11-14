@@ -71,7 +71,7 @@ static int parse_u64(const char *value, size_t size, uint64_t *result)
     for (; i < size && value[i] >= '0' && value[i] <= '9'; i++) {
         uint64_t digit = (uint64_t)(value[i] - '0');
         if (n > (UINT64_MAX - digit) / 10) return -ERANGE;
-        n = n * 10 + digit;
+        n = (n * 10) + digit;
     }
     while (i < size && (value[i] == ' ' || value[i] == '\t' || value[i] == '\n')) i++;
     if (i != size) return -EINVAL;

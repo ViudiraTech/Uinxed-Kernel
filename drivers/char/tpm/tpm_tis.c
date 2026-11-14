@@ -133,7 +133,7 @@ static int tis_request_locality(tpm_device_t *dev, int l)
     /* Request the locality */
     tis_write8(dev, TIS_REG_ACCESS(l), TPM_ACCESS_REQUEST_USE);
 
-    deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
+    deadline = nano_time() + ((uint64_t)timeout_ms * 1000000ULL);
     while (nano_time() < deadline) {
         if (check_locality(dev, l)) return l;
         tpm_udelay(200);

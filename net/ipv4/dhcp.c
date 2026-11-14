@@ -94,7 +94,7 @@ static uint32_t dhcp_default_netmask(uint32_t address)
 /* Generate a transaction ID mixed from the clock, device, and prior value. */
 static uint32_t dhcp_new_xid(dhcp_client_t *client, uint64_t now)
 {
-    xid_sequence = xid_sequence * 1664525U + 1013904223U + (uint32_t)now + client->device->ifindex;
+    xid_sequence = (xid_sequence * 1664525U) + 1013904223U + (uint32_t)now + client->device->ifindex;
     for (unsigned i = 0; i < 6; i++) xid_sequence = (xid_sequence << 5) ^ (xid_sequence >> 2) ^ client->device->address[i];
     return xid_sequence ? xid_sequence : ++xid_sequence;
 }
@@ -281,7 +281,7 @@ static int dhcp_apply_lease(dhcp_client_t *client, const dhcp_reply_t *reply, ui
     uint32_t t1    = reply->has_renewal ? reply->renewal_seconds : lease / 2U;
     uint32_t t2    = reply->has_rebinding ? reply->rebinding_seconds : lease - (lease / 8U);
     if (!t1 || t1 >= lease) t1 = lease / 2U;
-    if (t2 <= t1 || t2 >= lease) t2 = lease - lease / 8U;
+    if (t2 <= t1 || t2 >= lease) t2 = lease - (lease / 8U);
     if (!t1) t1 = 1;
     if (t2 <= t1) t2 = t1 + 1U < lease ? t1 + 1U : t1;
 

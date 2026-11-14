@@ -137,19 +137,23 @@ static fpu_percpu_t *fpu_percpu(void)
 /* Save live FPU/SSE/AVX state, using XSAVE if the feature is active */
 static void fpu_save(void *state)
 {
-    if (fpu_use_xsave) {
-        uint32_t low  = (uint32_t)fpu_xstate_mask;
-        uint32_t high = (uint32_t)(fpu_xstate_mask >> 32);
+    uint32_t low;
+    uint32_t high;
 
-        /* AP feature validation may conservatively disable XSAVEOPT. */
-        if (__atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE)) {
-            __asm__ volatile("xsaveopt64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
-        } else {
-            __asm__ volatile("xsave64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
-        }
-    } else {
+    if (!fpu_use_xsave) {
         __asm__ volatile("fxsave64 (%0)" : : "r"(state) : "memory");
+        return;
     }
+
+    low  = (uint32_t)fpu_xstate_mask;
+    high = (uint32_t)(fpu_xstate_mask >> 32);
+
+    /* AP feature validation may conservatively disable XSAVEOPT. */
+    if (__atomic_load_n(&fpu_use_xsaveopt, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile("xsaveopt64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
+        return;
+    }
+    __asm__ volatile("xsave64 (%0)" : : "r"(state), "a"(low), "d"(high) : "memory");
 }
 
 /* Restore FPU/SSE/AVX state, using XRSTOR if the feature is active */
