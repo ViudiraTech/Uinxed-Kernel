@@ -41,7 +41,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         obj->backing_page_count = ALIGN_UP(size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
         obj->backing_phys       = alloc_frames(obj->backing_page_count);
         if (!obj->backing_phys) {
-            DRM_ERROR("GEM backing frame allocation failed (%llu pages)\n", obj->backing_page_count);
+            DRM_ERROR("GEM backing frame allocation failed (%zu pages)\n", obj->backing_page_count);
             free(obj);
             return NULL;
         }
@@ -52,7 +52,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         obj->num_entries = 1;
         obj->entries     = malloc(sizeof(struct virtio_gpu_mem_entry));
         if (!obj->entries) {
-            DRM_ERROR("GEM memory entry allocation failed (size=%llu)\n", size);
+            DRM_ERROR("GEM memory entry allocation failed (size=%zu)\n", size);
             free_frames(obj->backing_phys, obj->backing_page_count);
             free(obj);
             return NULL;
@@ -63,7 +63,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
     }
 
     if (size && drm_gem_create_mmap_offset(&obj->base)) {
-        DRM_ERROR("GEM mmap offset allocation failed (size=%llu)\n", size);
+        DRM_ERROR("GEM mmap offset allocation failed (size=%zu)\n", size);
         free(obj->entries);
         free_frames(obj->backing_phys, obj->backing_page_count);
         free(obj);
