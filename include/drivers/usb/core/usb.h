@@ -343,11 +343,15 @@ int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint1
 int  usb_hid_probe(usb_interface_t *interface);
 void usb_hid_disconnect(usb_interface_t *interface);
 #else
-static inline int usb_hid_probe(usb_interface_t *)
+static inline int usb_hid_probe(usb_interface_t *interface)
 {
+    (void)interface;
     return -EOPNOTSUPP;
 }
-static inline void usb_hid_disconnect(usb_interface_t *) {}
+static inline void usb_hid_disconnect(usb_interface_t *interface)
+{
+    (void)interface;
+}
 #endif
 
 /* Mass-storage class driver entry points, called by the core on probe/disconnect. */
@@ -355,11 +359,15 @@ static inline void usb_hid_disconnect(usb_interface_t *) {}
 int  usb_storage_probe(usb_interface_t *interface);
 void usb_storage_disconnect(usb_interface_t *interface);
 #else
-static inline int usb_storage_probe(usb_interface_t *)
+static inline int usb_storage_probe(usb_interface_t *interface)
 {
+    (void)interface;
     return -EOPNOTSUPP;
 }
-static inline void usb_storage_disconnect(usb_interface_t *) {}
+static inline void usb_storage_disconnect(usb_interface_t *interface)
+{
+    (void)interface;
+}
 #endif
 
 /* Hub class driver entry points, called by the core on probe/disconnect. */
@@ -367,11 +375,15 @@ static inline void usb_storage_disconnect(usb_interface_t *) {}
 int  usb_hub_probe(usb_interface_t *interface);
 void usb_hub_disconnect(usb_interface_t *interface);
 #else
-static inline int usb_hub_probe(usb_interface_t *)
+static inline int usb_hub_probe(usb_interface_t *interface)
 {
+    (void)interface;
     return -EOPNOTSUPP;
 }
-static inline void usb_hub_disconnect(usb_interface_t *) {}
+static inline void usb_hub_disconnect(usb_interface_t *interface)
+{
+    (void)interface;
+}
 #endif
 
 /* Enumerate a downstream device on a hub port (hub has already been reset). */

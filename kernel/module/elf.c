@@ -197,10 +197,11 @@ int module_elf_apply_relocation(uint32_t type, void *location, uint64_t symbol_v
         case R_X86_64_SIZE64 :
             *(uint64_t *)location = symbol_value + (uint64_t)addend;
             return EOK;
-        default :
+        default : {
             static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
             if (ratelimit_allow(&ratelimit)) plogk("module: Unsupported relocation type %u (place=%p)\n", type, (void *)place);
             return -ENOEXEC;
+        }
     }
 }
 

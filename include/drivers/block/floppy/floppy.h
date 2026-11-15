@@ -117,16 +117,20 @@ int blockdev_open_floppy(uint8_t drive, blockdev_device_t *device);
 #else
 static inline void floppy_init(void) {}
 static inline void floppy_start_workers(void) {}
-static inline bool floppy_drive_present(uint8_t)
+static inline bool floppy_drive_present(uint8_t drive)
 {
+    (void)drive;
     return false;
 }
-static inline const floppy_geometry_t *floppy_get_geometry(uint8_t)
+static inline const floppy_geometry_t *floppy_get_geometry(uint8_t drive)
 {
+    (void)drive;
     return NULL;
 }
-static inline int blockdev_open_floppy(uint8_t, blockdev_device_t *)
+static inline int blockdev_open_floppy(uint8_t drive, blockdev_device_t *device)
 {
+    (void)drive;
+    (void)device;
     return -ENODEV;
 }
 #endif
