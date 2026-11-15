@@ -12,7 +12,7 @@
 #include <drivers/gpu/drm/virtio/virtgpu_kms.h>
 #include <mem/frame.h>
 
-#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Allocate a GEM object backed by physically contiguous frames. */
 struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_t size)
