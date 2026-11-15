@@ -324,11 +324,19 @@ void pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_uframes_t frames);
 size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames, unsigned int channels);
 
 #else
-static inline int audio_register_card(const char *, const audio_pcm_format_t *, const audio_card_ops_t *, void *)
+static inline int audio_register_card(const char *name, const audio_pcm_format_t *format, const audio_card_ops_t *ops, void *driver_data)
 {
+    (void)name;
+    (void)format;
+    (void)ops;
+    (void)driver_data;
     return -EOPNOTSUPP;
 }
-static inline void pcm_ring_buffer_advance_hw(audio_pcm_file_t *, snd_pcm_uframes_t) {}
+static inline void pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_uframes_t frames)
+{
+    (void)pf;
+    (void)frames;
+}
 #endif
 
 #endif // INCLUDE_AUDIO_H_

@@ -56,8 +56,10 @@ int net_ipv4_parse(const void *data, size_t length, net_ipv4_packet_t *packet);
 #if CONFIG_INET && CONFIG_NET
 int ipv4_input(net_device_t *device, net_pbuf_t *packet);
 #else
-static inline int ipv4_input(net_device_t *, net_pbuf_t *)
+static inline int ipv4_input(net_device_t *device, net_pbuf_t *packet)
 {
+    (void)device;
+    (void)packet;
     return -EPROTONOSUPPORT;
 }
 #endif

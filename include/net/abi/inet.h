@@ -266,16 +266,20 @@ const struct inet_backend_ops *inet_backend_get(void);
 size_t                         inet_backend_proc_read(enum inet_proc_file file, char *buf, size_t capacity);
 int                            inet_builtin_backend_register(void);
 #else
-static inline int inet_backend_register(const struct inet_backend_ops *)
+static inline int inet_backend_register(const struct inet_backend_ops *ops)
 {
+    (void)ops;
     return -EOPNOTSUPP;
 }
 static inline const struct inet_backend_ops *inet_backend_get(void)
 {
     return NULL;
 }
-static inline size_t inet_backend_proc_read(enum inet_proc_file, char *, size_t)
+static inline size_t inet_backend_proc_read(enum inet_proc_file file, char *buf, size_t capacity)
 {
+    (void)file;
+    (void)buf;
+    (void)capacity;
     return 0;
 }
 static inline int inet_builtin_backend_register(void)

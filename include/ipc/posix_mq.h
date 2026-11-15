@@ -70,28 +70,48 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
 void posix_mq_init(void);
 
 #else
-static inline int64_t sys_mq_open(const char *, int, uint32_t, mq_attr_t *)
+static inline int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
 {
+    (void)name;
+    (void)oflag;
+    (void)mode;
+    (void)attr;
     return -ENOSYS;
 }
-static inline int64_t sys_mq_unlink(const char *)
+static inline int64_t sys_mq_unlink(const char *name)
 {
+    (void)name;
     return -ENOSYS;
 }
-static inline int64_t sys_mq_timedsend(int, const char *, size_t, uint32_t, const void *)
+static inline int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_t msg_prio, const void *abs_timeout)
 {
+    (void)mqdes;
+    (void)msg_ptr;
+    (void)msg_len;
+    (void)msg_prio;
+    (void)abs_timeout;
     return -ENOSYS;
 }
-static inline int64_t sys_mq_timedreceive(int, char *, size_t, uint32_t *, const void *)
+static inline int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *msg_prio, const void *abs_timeout)
 {
+    (void)mqdes;
+    (void)msg_ptr;
+    (void)msg_len;
+    (void)msg_prio;
+    (void)abs_timeout;
     return -ENOSYS;
 }
-static inline int64_t sys_mq_notify(int, const sigevent_t *)
+static inline int64_t sys_mq_notify(int mqdes, const sigevent_t *notification)
 {
+    (void)mqdes;
+    (void)notification;
     return -ENOSYS;
 }
-static inline int64_t sys_mq_getsetattr(int, const mq_attr_t *, mq_attr_t *)
+static inline int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldattr)
 {
+    (void)mqdes;
+    (void)newattr;
+    (void)oldattr;
     return -ENOSYS;
 }
 static inline void posix_mq_init(void) {}
