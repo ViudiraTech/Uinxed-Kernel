@@ -17,7 +17,7 @@
         if (!(exp)) assertion_failure(#exp, __FILE__, __LINE__); \
     } while (0)
 
-/* if the stack carries an error code, set this variable to 1 before calling panic */
+/* Set right before panic() when the interrupted frame carries an error code; dump_stack() clears it. */
 extern int carry_error_code;
 
 /* Dump stack */
