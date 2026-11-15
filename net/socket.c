@@ -442,7 +442,7 @@ static int sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addr
     }
 
     spin_unlock(&sock_bound_lock);
-    return -ENOMEM;
+    return -ENOSPC;
 }
 
 /* Remove a bound address from the registry */
