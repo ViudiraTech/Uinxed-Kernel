@@ -138,6 +138,10 @@ void dump_stack(void)
     uintptr_t   rip;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
 
+    /* One-shot: consume it so a nested dump does not inherit the marker. */
+    bool carry_error_frame = carry_error_code != 0;
+    carry_error_code       = 0;
+
     plogk("Call Trace:\n");
     plogk(" <TASK>\n");
 
@@ -145,7 +149,7 @@ void dump_stack(void)
     for (int i = 0; i < 16; ++i) {
         if ((uintptr_t)rbp <= 0x1000 || !frame_pointer_plausible((uintptr_t)rbp)) break;
         if (!frame_pointer_plausible((uintptr_t)(rbp + 1))) break;
-        if (carry_error_code && frame_count == 3) {
+        if (carry_error_frame && frame_count == 3) {
             uintptr_t next = (uintptr_t)rbp->next;
             if (next <= 0x1000 || !frame_pointer_plausible(next)) break;
             rbp = rbp->next;
@@ -240,7 +244,6 @@ __attribute__((noreturn, format(printf, 1, 2))) void panic(const char *format, .
     plogk("Hardware name: %s %s, BIOS %s %s\n", sys_vendor, sys_product, bios_version, bios_date);
 
     dump_stack();
-    carry_error_code = 0; // consumed by the dump above
 
     plogk("Kernel Offset: 0x%08llx from %p\n", (current_address - KERNEL_BASE_ADDRESS), (void *)KERNEL_BASE_ADDRESS);
     plogk("---[ end Kernel panic - not syncing: %s ]---", buff);
@@ -259,7 +262,6 @@ __attribute__((noreturn)) void assertion_failure(const char *exp, const char *fi
 
     printk("assert(%s) failed!\nfile: %s\nline: %d\n\n", exp, file, line);
     dump_stack();
-    carry_error_code = 0; // consumed by the dump above
 
     tty_buff_flush();
     video_flush_now();

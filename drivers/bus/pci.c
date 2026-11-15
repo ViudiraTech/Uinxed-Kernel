@@ -1101,12 +1101,13 @@ void pci_device_find(pci_finding_request_t *req)
         case PCI_FOUND_DEVICE :
             *req->response = pci_device_finding(0, req);
             break;
-        default :
+        default : {
             static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
             if (ratelimit_allow(&ratelimit)) plogk("pci: Unknown finding type %d\n", req->type);
             req->response->device = 0;
             req->response->error  = PCI_FINDING_ERROR;
             break;
+        }
     }
 
     /*

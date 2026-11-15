@@ -85,8 +85,10 @@ void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6]);
 #if CONFIG_INET && CONFIG_NET
 int ipv6_input(net_device_t *device, net_pbuf_t *packet);
 #else
-static inline int ipv6_input(net_device_t *, net_pbuf_t *)
+static inline int ipv6_input(net_device_t *device, net_pbuf_t *packet)
 {
+    (void)device;
+    (void)packet;
     return -EPROTONOSUPPORT;
 }
 #endif

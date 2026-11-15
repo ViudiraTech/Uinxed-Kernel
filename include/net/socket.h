@@ -333,77 +333,143 @@ int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeo
 size_t socket_format_unix_table(char *buffer, size_t capacity);
 
 #else
-static inline int64_t sys_socket(uint32_t, uint32_t, uint32_t)
+static inline int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
 {
+    (void)family;
+    (void)type;
+    (void)protocol;
     return -ENOSYS;
 }
-static inline int64_t sys_bind(int, const sockaddr_t *, uint32_t)
+static inline int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
+    (void)fd;
+    (void)addr;
+    (void)addrlen;
     return -ENOSYS;
 }
-static inline int64_t sys_listen(int, int)
+static inline int64_t sys_listen(int fd, int backlog)
 {
+    (void)fd;
+    (void)backlog;
     return -ENOSYS;
 }
-static inline int64_t sys_accept(int, sockaddr_t *, uint32_t *, int)
+static inline int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 {
+    (void)fd;
+    (void)addr;
+    (void)addrlen;
+    (void)flags;
     return -ENOSYS;
 }
-static inline int64_t sys_connect(int, const sockaddr_t *, uint32_t)
+static inline int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
+    (void)fd;
+    (void)addr;
+    (void)addrlen;
     return -ENOSYS;
 }
-static inline int64_t sys_sendto(int, const void *, size_t, int, const sockaddr_t *, uint32_t)
+static inline int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_t *addr, uint32_t addrlen)
 {
+    (void)fd;
+    (void)buf;
+    (void)len;
+    (void)flags;
+    (void)addr;
+    (void)addrlen;
     return -ENOSYS;
 }
-static inline int64_t sys_recvfrom(int, void *, size_t, int, sockaddr_t *, uint32_t *)
+static inline int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr, uint32_t *addrlen)
 {
+    (void)fd;
+    (void)buf;
+    (void)len;
+    (void)flags;
+    (void)addr;
+    (void)addrlen;
     return -ENOSYS;
 }
-static inline int64_t sys_sendmsg(int, const msghdr_t *, int)
+static inline int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
 {
+    (void)fd;
+    (void)msg;
+    (void)flags;
     return -ENOSYS;
 }
-static inline int64_t sys_recvmsg(int, msghdr_t *, int)
+static inline int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
 {
+    (void)fd;
+    (void)msg;
+    (void)flags;
     return -ENOSYS;
 }
-static inline int64_t sys_shutdown(int, int)
+static inline int64_t sys_shutdown(int fd, int how)
 {
+    (void)fd;
+    (void)how;
     return -ENOSYS;
 }
-static inline int64_t sys_socketpair(int, int, int, int *)
+static inline int64_t sys_socketpair(int domain, int type, int protocol, int *sv)
 {
+    (void)domain;
+    (void)type;
+    (void)protocol;
+    (void)sv;
     return -ENOSYS;
 }
-static inline int64_t sys_getsockname(int, sockaddr_t *, uint32_t *)
+static inline int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
+    (void)fd;
+    (void)addr;
+    (void)addrlen;
     return -ENOSYS;
 }
-static inline int64_t sys_getpeername(int, sockaddr_t *, uint32_t *)
+static inline int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
+    (void)fd;
+    (void)addr;
+    (void)addrlen;
     return -ENOSYS;
 }
-static inline int64_t sys_setsockopt(int, int, int, const void *, uint32_t)
+static inline int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t optlen)
 {
+    (void)fd;
+    (void)level;
+    (void)optname;
+    (void)optval;
+    (void)optlen;
     return -ENOSYS;
 }
-static inline int64_t sys_getsockopt(int, int, int, void *, uint32_t *)
+static inline int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen)
 {
+    (void)fd;
+    (void)level;
+    (void)optname;
+    (void)optval;
+    (void)optlen;
     return -ENOSYS;
 }
-static inline int64_t sys_sendmmsg(int, void *, uint32_t, int)
+static inline int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
 {
+    (void)fd;
+    (void)msgvec;
+    (void)vlen;
+    (void)flags;
     return -ENOSYS;
 }
-static inline int64_t sys_recvmmsg(int, void *, uint32_t, int, void *)
+static inline int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeout)
 {
+    (void)fd;
+    (void)msgvec;
+    (void)vlen;
+    (void)flags;
+    (void)timeout;
     return -ENOSYS;
 }
 static inline void   socket_init(void) {}
-static inline size_t socket_format_unix_table(char *, size_t)
+static inline size_t socket_format_unix_table(char *buffer, size_t capacity)
 {
+    (void)buffer;
+    (void)capacity;
     return 0;
 }
 #endif

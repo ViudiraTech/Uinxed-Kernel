@@ -124,9 +124,25 @@ void vt_ansi_process(vt_ansi_state_t *state, uint8_t c, const vt_ansi_callbacks_
 void vt_ansi_set_default_colors(vt_ansi_state_t *s, uint32_t fg, uint32_t bg);
 
 #else
-static inline void vt_ansi_init(vt_ansi_state_t *, uint32_t, uint32_t) {}
-static inline void vt_ansi_process(vt_ansi_state_t *, uint8_t, const vt_ansi_callbacks_t *, void *) {}
-static inline void vt_ansi_set_default_colors(vt_ansi_state_t *, uint32_t, uint32_t) {}
+static inline void vt_ansi_init(vt_ansi_state_t *state, uint32_t cols, uint32_t rows)
+{
+    (void)state;
+    (void)cols;
+    (void)rows;
+}
+static inline void vt_ansi_process(vt_ansi_state_t *state, uint8_t c, const vt_ansi_callbacks_t *cb, void *arg)
+{
+    (void)state;
+    (void)c;
+    (void)cb;
+    (void)arg;
+}
+static inline void vt_ansi_set_default_colors(vt_ansi_state_t *s, uint32_t fg, uint32_t bg)
+{
+    (void)s;
+    (void)fg;
+    (void)bg;
+}
 #endif
 
 #endif // INCLUDE_VT_ANSI_H_

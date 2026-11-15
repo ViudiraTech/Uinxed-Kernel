@@ -15,7 +15,10 @@
 #if CONFIG_AUDIO_PCSPKR
 void system_speaker(int divisor);
 #else
-static inline void system_speaker(int) {}
+static inline void system_speaker(int arg)
+{
+    (void)arg;
+}
 #endif
 
 #endif // INCLUDE_SPEAKER_H_
