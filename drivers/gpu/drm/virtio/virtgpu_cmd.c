@@ -10,7 +10,7 @@
 
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 
-#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Display information */
 int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
