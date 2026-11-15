@@ -40,11 +40,18 @@ void block_sysfs_unregister_device(block_sysfs_dev_t *handle);
 
 #else
 static inline void block_sysfs_init(void) {}
-static inline int  block_sysfs_register_device(const char *, const blockdev_device_t *, bool, block_sysfs_dev_t **)
+static inline int  block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable, block_sysfs_dev_t **handle)
 {
+    (void)name;
+    (void)device;
+    (void)removable;
+    (void)handle;
     return -EOPNOTSUPP;
 }
-static inline void block_sysfs_unregister_device(block_sysfs_dev_t *) {}
+static inline void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
+{
+    (void)handle;
+}
 #endif
 
 #endif // INCLUDE_BLOCK_SYSFS_H_

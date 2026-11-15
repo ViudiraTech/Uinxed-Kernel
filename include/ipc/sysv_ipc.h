@@ -226,60 +226,107 @@ void sysv_sem_undo_release(struct process *proc);
 void sysv_ipc_init(void);
 
 #else
-static inline int64_t sys_semget(key_t, int, int)
+static inline int64_t sys_semget(key_t key, int nsems, int semflg)
 {
+    (void)key;
+    (void)nsems;
+    (void)semflg;
     return -ENOSYS;
 }
-static inline int64_t sys_semop(int, sembuf_t *, size_t)
+static inline int64_t sys_semop(int semid, sembuf_t *sops, size_t nsops)
 {
+    (void)semid;
+    (void)sops;
+    (void)nsops;
     return -ENOSYS;
 }
-static inline int64_t sys_semtimedop(int, sembuf_t *, size_t, const void *)
+static inline int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *timeout)
 {
+    (void)semid;
+    (void)sops;
+    (void)nsops;
+    (void)timeout;
     return -ENOSYS;
 }
-static inline int64_t sys_semctl(int, int, int, uint64_t)
+static inline int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 {
+    (void)semid;
+    (void)semnum;
+    (void)cmd;
+    (void)arg;
     return -ENOSYS;
 }
-static inline int64_t sys_shmget(key_t, size_t, int)
+static inline int64_t sys_shmget(key_t key, size_t size, int shmflg)
 {
+    (void)key;
+    (void)size;
+    (void)shmflg;
     return -ENOSYS;
 }
-static inline int64_t sys_shmat(int, const void *, int)
+static inline int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 {
+    (void)shmid;
+    (void)shmaddr;
+    (void)shmflg;
     return -ENOSYS;
 }
-static inline int64_t sys_shmdt(const void *)
+static inline int64_t sys_shmdt(const void *shmaddr)
 {
+    (void)shmaddr;
     return -ENOSYS;
 }
-static inline int64_t sys_shmctl(int, int, void *)
+static inline int64_t sys_shmctl(int shmid, int cmd, void *buf)
 {
+    (void)shmid;
+    (void)cmd;
+    (void)buf;
     return -ENOSYS;
 }
-static inline int sysv_shm_vma_get(void *, uint32_t)
+static inline int sysv_shm_vma_get(void *identity, uint32_t pid)
 {
+    (void)identity;
+    (void)pid;
     return 0;
 }
-static inline void    sysv_shm_vma_put(void *, uint32_t) {}
-static inline int64_t sys_msgget(key_t, int)
+static inline void sysv_shm_vma_put(void *identity, uint32_t pid)
 {
+    (void)identity;
+    (void)pid;
+}
+static inline int64_t sys_msgget(key_t key, int msgflg)
+{
+    (void)key;
+    (void)msgflg;
     return -ENOSYS;
 }
-static inline int64_t sys_msgsnd(int, const void *, size_t, int)
+static inline int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
 {
+    (void)msqid;
+    (void)msgp;
+    (void)msgsz;
+    (void)msgflg;
     return -ENOSYS;
 }
-static inline int64_t sys_msgrcv(int, void *, size_t, int64_t, int)
+static inline int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgflg)
 {
+    (void)msqid;
+    (void)msgp;
+    (void)msgsz;
+    (void)msgtyp;
+    (void)msgflg;
     return -ENOSYS;
 }
-static inline int64_t sys_msgctl(int, int, void *)
+static inline int64_t sys_msgctl(int msqid, int cmd, void *buf)
 {
+    (void)msqid;
+    (void)cmd;
+    (void)buf;
     return -ENOSYS;
 }
-static inline void sysv_sem_undo_release(struct process *) {}
+static inline void sysv_sem_undo_release(struct process *process)
+{
+    (void)process;
+}
 static inline void sysv_ipc_init(void) {}
 #endif
 

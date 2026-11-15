@@ -1400,10 +1400,11 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
     }
     operation_end();
     return EOK;
-out_destroy:
+out_destroy: {
     static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
     if (ratelimit_allow(&ratelimit)) plogk("module: Load of \"%s\" failed: %d\n", internal->module->name[0] ? internal->module->name : "(unnamed)", result);
     destroy_internal(internal);
+}
 out_operation:
     operation_end();
     return result;
