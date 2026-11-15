@@ -30,6 +30,7 @@ menu "Processor type and features"
   config CPU_MAX_COUNT
     int "Maximum number of CPUs"
     default 0
+    range 0 1024
     help
       Limits the maximum number of CPUs the kernel can use.
       Set to 0 for no limit (auto-detect all cores).
@@ -56,7 +57,7 @@ menu "Memory management"
     config FRAME_PCP_BATCH
       int "Per-CPU frame batch size"
       default 16
-      range 1 256
+      range 1 FRAME_PCP_HIGH
       help
         Number of pages moved in one batch between the per-CPU lists and the buddy allocator.
 
@@ -212,7 +213,7 @@ menu "Scheduler"
   config SCHED_STEAL_HOT_BUDGET
     int "Recently migrated candidates skipped per steal attempt"
     default 8
-    range 0 64
+    range 0 SCHED_STEAL_SCAN_LIMIT
     help
       When a steal scan is not running for a newly idle CPU and the source
       runqueue has at most two runnable tasks, candidates migrated within
@@ -297,39 +298,39 @@ menu "Process management"
       Default user-space stack size for newly created processes.
 
   config PROCESS_MAX_ARGV
-    int "Maximum total argv size (bytes)"
+    int "Maximum argv entries"
     default 4096
     range 64 65536
     help
-      Upper bound on the combined size of a process argument vector.
+      Upper bound on the number of entries in a process argument vector.
 
   config PROCESS_MAX_ENVP
-    int "Maximum total envp size (bytes)"
+    int "Maximum envp entries"
     default 4096
     range 64 65536
     help
-      Upper bound on the combined size of a process environment vector.
+      Upper bound on the number of entries in a process environment vector.
 
   config PROCESS_MAX_GROUPS
     int "Maximum supplementary groups per process"
-    default 64
+    default 256
     range 1 1024
     help
       Maximum number of supplementary groups a process may belong to.
 
   config PROCESS_HEAP_START
-    int "Default process heap start offset (bytes)"
+    int "Default brk start address (bytes)"
     default 1048576
-    range 4096 1073741824
+    range 4096 PROCESS_HEAP_MAX
     help
-      Offset from process base where the brk heap begins by default.
+      Address where the brk heap begins.
 
   config PROCESS_HEAP_MAX
-    int "Maximum process heap size (bytes)"
+    int "Maximum brk end address (bytes)"
     default 2146435072
     range 65536 2146435072
     help
-      Upper bound on the size of a process brk heap region.
+      Upper bound on the brk end address.
 
   config INIT_PATH
     string "Default init program path"
@@ -412,7 +413,7 @@ menu "IPC (Inter-Process Communication)"
     config PIPE_ATOMIC_SIZE
       int "Pipe atomic write size (bytes)"
       default 4096
-      range 256 65536
+      range 256 PIPE_BUF_SIZE
       help
         Maximum size of an atomic pipe write (POSIX PIPE_BUF guarantee).
 
@@ -447,15 +448,15 @@ menu "IPC (Inter-Process Communication)"
     config EPOLL_MAX_FDS
       int "Maximum epoll registered descriptors"
       default 1024
-      range 64 65536
+      range 64 1024
       help
         Maximum number of file descriptors that can be registered
         with a single epoll instance.
 
     config EPOLL_MAX_EVENTS
       int "Maximum events returned by a single epoll_wait"
-      default 256
-      range 16 4096
+      default 1024
+      range 1 178956970
       help
         Upper bound on the number of events a single epoll_wait() call may return.
 
@@ -544,7 +545,7 @@ menu "IPC (Inter-Process Communication)"
       int "Default POSIX MQ message count"
       depends on POSIX_MQ
       default 10
-      range 1 256
+      range 1 MQ_MAXMSG_MAX
       help
         Default mq_maxmsg used when a POSIX message queue is created without attributes.
 
@@ -560,7 +561,7 @@ menu "IPC (Inter-Process Communication)"
       int "Default POSIX MQ message size (bytes)"
       depends on POSIX_MQ
       default 8192
-      range 256 65536
+      range 256 MQ_MSGSIZE_MAX
       help
         Default mq_msgsize used when a POSIX message queue is created without attributes.
 
@@ -575,7 +576,7 @@ menu "IPC (Inter-Process Communication)"
     config MQ_MAX_QUEUES
       int "Maximum POSIX MQ queues system-wide"
       depends on POSIX_MQ
-      default 64
+      default 256
       range 1 1024
       help
         Total number of POSIX message queues that may exist at once.
@@ -655,12 +656,12 @@ menu "Networking"
         Maximum number of file descriptors that may be passed in a single SCM_RIGHTS message.
 
     config SOCK_BOUND_MAX
-      int "Maximum bound sockets per process"
+      int "Maximum bound sockets"
       depends on NET
       default 256
       range 1 4096
       help
-        Maximum number of bound (listening/connected) sockets per process.
+        Maximum number of bound (listening/connected) sockets in the system.
 
     config LOOPBACK_QUEUE_MAX
       int "Loopback device queue depth"
@@ -758,7 +759,7 @@ menu "Networking"
     config TCP_ENDPOINT_MAX
       int "Maximum TCP endpoints"
       depends on INET
-      default 128
+      default 256
       range 4 1024
       help
         Maximum number of TCP endpoints (sockets) that may exist at once.
@@ -766,8 +767,8 @@ menu "Networking"
     config TCP_ACCEPT_MAX
       int "Maximum pending TCP connections"
       depends on INET
-      default 16
-      range 1 256
+      default 64
+      range 1 255
       help
         Maximum number of pending connections on a TCP listening socket.
 
@@ -775,7 +776,7 @@ menu "Networking"
       int "Maximum TCP receive buffer (bytes)"
       depends on INET
       default 65535
-      range 1024 1048576
+      range 1024 65535
       help
         Ceiling for the TCP receive buffer size.
 
@@ -798,7 +799,7 @@ menu "Networking"
     config UDP_ENDPOINT_MAX
       int "Maximum UDP endpoints"
       depends on INET
-      default 128
+      default 256
       range 4 1024
       help
         Maximum number of UDP endpoints (sockets) that may exist at once.
@@ -846,7 +847,7 @@ menu "Networking"
     config IPV4_REASSEMBLY_SLOTS
       int "IPv4 reassembly slots"
       depends on INET
-      default 4
+      default 16
       range 1 32
       help
         Maximum number of concurrent IPv4 fragmentation reassemblies.
@@ -854,7 +855,7 @@ menu "Networking"
     config IPV6_REASSEMBLY_SLOTS
       int "IPv6 reassembly slots"
       depends on INET
-      default 4
+      default 16
       range 1 32
       help
         Maximum number of concurrent IPv6 fragmentation reassemblies.
@@ -1097,13 +1098,12 @@ menu "Device Drivers"
           /dev/input/eventX character devices.
 
       config INPUT_EVDEV_BUFSIZE
-        int "evdev client buffer size (power of 2)"
+        int "evdev client buffer size"
         default 256
         depends on INPUT_EVDEV
         range 64 4096
         help
-          Size of the per-client evdev event ring buffer, must be
-          a power of 2.
+          Size of the per-client evdev event ring buffer; rounded up to a power of 2.
 
       config EVDEV_MAX_DEVICES
         int "Maximum evdev devices"
@@ -1261,6 +1261,7 @@ menu "Device Drivers"
       int "Default console width"
       depends on DRM
       default 1024
+      range 320 8192
       help
         Resolution used for the kernel console when a GPU driver reports
         neither a usable EDID nor display-info scanout modes.
@@ -1269,6 +1270,7 @@ menu "Device Drivers"
       int "Default console height"
       depends on DRM
       default 768
+      range 200 8192
       help
         Resolution used for the kernel console when a GPU driver reports
         neither a usable EDID nor display-info scanout modes.
@@ -1436,7 +1438,7 @@ menu "File systems"
     config VFS_PATH_MAX
       int "Maximum path length (bytes)"
       default 4096
-      range 256 65536
+      range 256 4096
       help
         Maximum length of a canonical path accepted by the VFS.
 
@@ -1544,7 +1546,6 @@ menu "File systems"
 
     config DEVTMPFS_MAX_DEVICES
       int "Maximum devtmpfs devices"
-      depends on DEVTMPFS_MOUNT
       default 512
       range 16 4096
       help
@@ -1586,21 +1587,21 @@ menu "Kernel interfaces"
     config SELECT_NFDS_MAX
       int "Maximum select descriptors"
       default 1024
-      range 64 65536
+      range 64 1024
       help
         Upper bound on the file descriptor count accepted by select().
 
     config SIGQUEUE_MAX
       int "Maximum queued realtime signals per process"
-      default 32
-      range 1 1024
+      default 4096
+      range 1 4096
       help
         Maximum number of pending realtime signals queued per process.
 
     config SECCOMP_MAX_INSNS_PER_FILTER
       int "Maximum seccomp BPF instructions per filter"
       default 4096
-      range 32 65536
+      range 32 4096
       help
         Upper bound on the number of BPF instructions in a single seccomp filter.
   endmenu
