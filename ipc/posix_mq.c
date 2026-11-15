@@ -122,10 +122,6 @@ static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr)
         queue->attr.mq_flags   = 0;
     }
 
-    /* Clamp to valid ranges */
-    if (queue->attr.mq_maxmsg <= 0 || queue->attr.mq_maxmsg > CONFIG_MQ_MAXMSG_MAX) queue->attr.mq_maxmsg = CONFIG_MQ_MAXMSG_DEFAULT;
-    if (queue->attr.mq_msgsize <= 0 || queue->attr.mq_msgsize > CONFIG_MQ_MSGSIZE_MAX) queue->attr.mq_msgsize = CONFIG_MQ_MSGSIZE_DEFAULT;
-
     queue->attr.mq_curmsgs = 0;
     queue->msg_count       = 0;
     queue->refcount        = 0;
@@ -452,6 +448,12 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
         queue->refcount++;
         spin_unlock(&queue->lock);
     } else if (creating) {
+        /* Attribute limits apply to the queue being created. */
+        if (attr && (kernel_attr.mq_maxmsg <= 0 || kernel_attr.mq_maxmsg > CONFIG_MQ_MAXMSG_MAX || kernel_attr.mq_msgsize <= 0 || kernel_attr.mq_msgsize > CONFIG_MQ_MSGSIZE_MAX)) {
+            spin_unlock(&mq_registry_lock);
+            return -EINVAL;
+        }
+
         /* Create new queue */
         queue = mq_queue_create(name_buf, attr ? &kernel_attr : NULL);
         if (!queue) {
@@ -593,7 +595,7 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
     if (!des) return err;
 
     /* Validate priority */
-    if (msg_prio > (uint32_t)CONFIG_MQ_PRIO_MAX) return -EINVAL;
+    if (msg_prio >= (uint32_t)CONFIG_MQ_PRIO_MAX) return -EINVAL;
 
     mq_queue_t *queue = des->queue;
     if (!queue) return -EBADF;
