@@ -928,8 +928,9 @@ void drm_vblank_tick(void);
 bool drm_vblank_deferred_due(uint64_t monotonic_ns);
 #else
 static inline void drm_vblank_tick(void) {}
-static inline bool drm_vblank_deferred_due(uint64_t)
+static inline bool drm_vblank_deferred_due(uint64_t monotonic_ns)
 {
+    (void)monotonic_ns;
     return false;
 }
 #endif

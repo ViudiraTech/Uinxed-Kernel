@@ -65,8 +65,14 @@ void dhcp_timer(uint64_t now_ticks);
 void dhcp_device_removed(net_device_t *device);
 #else
 static inline void dhcp_init(void) {}
-static inline void dhcp_timer(uint64_t) {}
-static inline void dhcp_device_removed(net_device_t *) {}
+static inline void dhcp_timer(uint64_t now_ticks)
+{
+    (void)now_ticks;
+}
+static inline void dhcp_device_removed(net_device_t *device)
+{
+    (void)device;
+}
 #endif
 
 /* Parses and validates a BOOTP/DHCP reply for one transaction and client. */

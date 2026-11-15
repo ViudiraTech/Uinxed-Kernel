@@ -47,9 +47,18 @@ void ndp_timer(uint64_t now_ticks);
 void ndp_device_removed(net_device_t *device);
 
 #else
-static inline void ndp_device_up(net_device_t *) {}
-static inline void ndp_timer(uint64_t) {}
-static inline void ndp_device_removed(net_device_t *) {}
+static inline void ndp_device_up(net_device_t *net_device)
+{
+    (void)net_device;
+}
+static inline void ndp_timer(uint64_t value)
+{
+    (void)value;
+}
+static inline void ndp_device_removed(net_device_t *net_device)
+{
+    (void)net_device;
+}
 #endif
 
 #endif // INCLUDE_NDP_H_

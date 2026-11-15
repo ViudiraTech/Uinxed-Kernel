@@ -84,7 +84,10 @@ struct net_device {
 #if CONFIG_NET
 void net_timer(uint64_t now_ticks);
 #else
-static inline void net_timer(uint64_t) {}
+static inline void net_timer(uint64_t now_ticks)
+{
+    (void)now_ticks;
+}
 #endif
 
 /* Device registry and lookup. */
@@ -97,9 +100,15 @@ net_device_t *netdev_get_default(void);
 void netdev_iterate(netdev_iter_fn callback, void *context);
 int  netdev_set_lifecycle_notifier(netdev_lifecycle_fn callback, void *context);
 #else
-static inline void netdev_iterate(netdev_iter_fn, void *) {}
-static inline int  netdev_set_lifecycle_notifier(netdev_lifecycle_fn, void *)
+static inline void netdev_iterate(netdev_iter_fn callback, void *context)
 {
+    (void)callback;
+    (void)context;
+}
+static inline int netdev_set_lifecycle_notifier(netdev_lifecycle_fn callback, void *context)
+{
+    (void)callback;
+    (void)context;
     return -ENOSYS;
 }
 #endif
@@ -117,8 +126,9 @@ int    netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t sour
 #if CONFIG_NET
 void netdev_get_stats(net_device_t *device, netdev_stats_t *stats);
 #else
-static inline void netdev_get_stats(net_device_t *, netdev_stats_t *stats)
+static inline void netdev_get_stats(net_device_t *device, netdev_stats_t *stats)
 {
+    (void)device;
     if (stats) *stats = (netdev_stats_t) {0};
 }
 #endif

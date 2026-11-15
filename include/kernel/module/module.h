@@ -153,12 +153,19 @@ int module_unload(const char *name, unsigned int flags);
 
 #else
 static inline void module_subsystem_init(void) {}
-static inline int  module_load(const void *, size_t, const char *, unsigned int, const char *)
+static inline int  module_load(const void *image, size_t size, const char *params, unsigned int flags, const char *name_hint)
 {
+    (void)image;
+    (void)size;
+    (void)params;
+    (void)flags;
+    (void)name_hint;
     return -ENOSYS;
 }
-static inline int module_unload(const char *, unsigned int)
+static inline int module_unload(const char *name, unsigned int flags)
 {
+    (void)name;
+    (void)flags;
     return -ENOSYS;
 }
 #endif
@@ -196,8 +203,10 @@ void  module_symbol_put(struct module *owner);
 #if CONFIG_MODULES
 size_t module_format_proc(char *buffer, size_t size);
 #else
-static inline size_t module_format_proc(char *, size_t)
+static inline size_t module_format_proc(char *buffer, size_t size)
 {
+    (void)buffer;
+    (void)size;
     return 0;
 }
 #endif

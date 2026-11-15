@@ -304,61 +304,115 @@ int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *o
 
 #else
 static inline void netlink_init(void) {}
-static inline int  netlink_broadcast(uint32_t, uint32_t, const void *, uint32_t, int)
+static inline int  netlink_broadcast(uint32_t protocol, uint32_t group, const void *data, uint32_t len, int flags)
 {
+    (void)protocol;
+    (void)group;
+    (void)data;
+    (void)len;
+    (void)flags;
     return 0;
 }
-static inline int netlink_unicast(struct socket *, const void *, uint32_t, int)
+static inline int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags)
 {
+    (void)sk;
+    (void)data;
+    (void)len;
+    (void)flags;
     return -ENOSYS;
 }
-static inline int netlink_has_listeners(uint32_t, uint32_t)
+static inline int netlink_has_listeners(uint32_t protocol, uint32_t group)
 {
+    (void)protocol;
+    (void)group;
     return 0;
 }
-static inline struct socket *netlink_sock_alloc(uint32_t)
+static inline struct socket *netlink_sock_alloc(uint32_t protocol)
 {
+    (void)protocol;
     return NULL;
 }
-static inline int netlink_bind(struct socket *, const sockaddr_nl_t *, uint32_t)
+static inline int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
 {
+    (void)sk;
+    (void)addr;
+    (void)addrlen;
     return -ENOSYS;
 }
-static inline int netlink_connect(struct socket *, const sockaddr_nl_t *, uint32_t)
+static inline int netlink_connect(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
 {
+    (void)sk;
+    (void)addr;
+    (void)addrlen;
     return -ENOSYS;
 }
-static inline int netlink_getsockname(struct socket *, sockaddr_nl_t *)
+static inline int netlink_getsockname(struct socket *sk, sockaddr_nl_t *addr)
 {
+    (void)sk;
+    (void)addr;
     return -ENOSYS;
 }
-static inline int netlink_sendmsg(struct socket *, const void *, size_t, const sockaddr_nl_t *, uint32_t, int)
+static inline int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockaddr_nl_t *addr, uint32_t addrlen, int flags)
 {
+    (void)sk;
+    (void)buf;
+    (void)len;
+    (void)addr;
+    (void)addrlen;
+    (void)flags;
     return -ENOSYS;
 }
-static inline int netlink_recvmsg(struct socket *, void *, size_t, sockaddr_nl_t *, uint32_t *, int)
+static inline int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, uint32_t *addrlen, int flags)
 {
+    (void)sk;
+    (void)buf;
+    (void)len;
+    (void)addr;
+    (void)addrlen;
+    (void)flags;
     return -ENOSYS;
 }
-static inline int netlink_recvmsg_kern(struct socket *, void *, size_t, sockaddr_nl_t *, int, uint32_t *, uint32_t *, int *)
+static inline int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid, int *msg_flags)
 {
+    (void)sk;
+    (void)buf;
+    (void)len;
+    (void)addr;
+    (void)flags;
+    (void)sender_uid;
+    (void)sender_gid;
+    (void)msg_flags;
     return -ENOSYS;
 }
-static inline void netlink_close(struct socket *) {}
-static inline int  netlink_poll(struct socket *, size_t)
+static inline void netlink_close(struct socket *sk)
 {
+    (void)sk;
+}
+static inline int netlink_poll(struct socket *sk, size_t events)
+{
+    (void)sk;
+    (void)events;
     return -ENOSYS;
 }
-static inline int netlink_packet_info_enabled(struct socket *)
+static inline int netlink_packet_info_enabled(struct socket *sk)
 {
+    (void)sk;
     return 0;
 }
-static inline int netlink_setsockopt(struct socket *, int, const void *, uint32_t)
+static inline int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint32_t optlen)
 {
+    (void)sk;
+    (void)optname;
+    (void)optval;
+    (void)optlen;
     return -ENOSYS;
 }
-static inline int netlink_getsockopt(struct socket *, int, void *, uint32_t *)
+static inline int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *optlen)
 {
+    (void)sk;
+    (void)optname;
+    (void)optval;
+    (void)optlen;
     return -ENOSYS;
 }
 #endif

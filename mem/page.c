@@ -113,8 +113,6 @@ __attribute__((used)) void page_fault_handle_frame(exception_frame_t *frame, uin
         pf_msg = "ReadOnly";
     }
 
-    carry_error_code = 1; // carry error code
-
     /*
      * copy_{to,from}_user() deliberately accesses the user virtual address
      * through the current hardware page table.  Resolve ordinary demand/COW
@@ -145,6 +143,7 @@ __attribute__((used)) void page_fault_handle_frame(exception_frame_t *frame, uin
         }
     }
 
+    carry_error_code = 1; // #PF always pushes an error code.
     panic("PAGE_FAULT-%s-Address: 0x%016llx", pf_msg, (faulting_address));
 }
 

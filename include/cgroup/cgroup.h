@@ -56,20 +56,31 @@ static inline cgroup_t *cgroup_root(void)
 {
     return NULL;
 }
-static inline cgroup_t *cgroup_get(cgroup_t *)
+static inline cgroup_t *cgroup_get(cgroup_t *cgroup)
 {
+    (void)cgroup;
     return NULL;
 }
-static inline void cgroup_put(cgroup_t *) {}
-static inline int  cgroup_register_controller(const char *, uint64_t)
+static inline void cgroup_put(cgroup_t *cgroup)
 {
+    (void)cgroup;
+}
+static inline int cgroup_register_controller(const char *name, uint64_t id)
+{
+    (void)name;
+    (void)id;
     return -ENOSYS;
 }
-static inline int cgroup_task_fork(struct task *, struct task *)
+static inline int cgroup_task_fork(struct task *task, struct task *parent)
 {
+    (void)task;
+    (void)parent;
     return 0;
 }
-static inline void cgroup_task_exit(struct task *) {}
+static inline void cgroup_task_exit(struct task *task)
+{
+    (void)task;
+}
 #endif
 
 /* Move an existing task into the given cgroup */
@@ -158,8 +169,11 @@ int cgroup_show_cpuset_mems(cgroup_t *cgroup, char *buf, size_t size);
 #if CONFIG_CGROUP
 int cgroup_format_path(cgroup_t *cgroup, char *buf, size_t size);
 #else
-static inline int cgroup_format_path(cgroup_t *, char *, size_t)
+static inline int cgroup_format_path(cgroup_t *cgroup, char *buf, size_t size)
 {
+    (void)cgroup;
+    (void)buf;
+    (void)size;
     return 0;
 }
 #endif
@@ -168,8 +182,10 @@ static inline int cgroup_format_path(cgroup_t *, char *, size_t)
 #if CONFIG_CGROUP
 int cgroup_format_proc_cgroups(char *buf, size_t size);
 #else
-static inline int cgroup_format_proc_cgroups(char *, size_t)
+static inline int cgroup_format_proc_cgroups(char *buf, size_t size)
 {
+    (void)buf;
+    (void)size;
     return 0;
 }
 #endif

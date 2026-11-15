@@ -208,7 +208,10 @@ void tcp_control_error(uint32_t source, uint32_t destination, const void *quoted
 #if CONFIG_INET && CONFIG_NET
 void tcp_timer(uint64_t now_ticks);
 #else
-static inline void tcp_timer(uint64_t) {}
+static inline void tcp_timer(uint64_t now_ticks)
+{
+    (void)now_ticks;
+}
 #endif
 
 int         net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_tcp_segment_t *segment);
