@@ -479,4 +479,71 @@ void ulsa_init(void);
 static inline void ulsa_init(void) {}
 #endif
 
+/* -------------------------------------------------------------- procfs */
+
+typedef enum ulsa_proc_file_kind {
+    ULSA_PROC_VERSION = 0,
+    ULSA_PROC_CARDS,
+    ULSA_PROC_DEVICES,
+    ULSA_PROC_PCM,
+    ULSA_PROC_TIMERS,
+    ULSA_PROC_CARD_ID,
+    ULSA_PROC_PCM_INFO,
+    ULSA_PROC_SUB_INFO,
+    ULSA_PROC_SUB_HW_PARAMS,
+    ULSA_PROC_SUB_SW_PARAMS,
+    ULSA_PROC_SUB_STATUS,
+} ulsa_proc_file_kind_t;
+
+/* Pack (card, pcm_dev, stream, sub) into a non-negative 31-bit cookie for procfs. */
+static inline uint32_t ulsa_info_pack_id(int card, int pcm_dev, int stream, int sub)
+{
+    return ((uint32_t)(card & 0xff) << 20) | ((uint32_t)(pcm_dev & 0xff) << 12) | ((uint32_t)(stream & 1) << 11) | (uint32_t)(sub & 0x7ff);
+}
+
+#if CONFIG_AUDIO
+size_t ulsa_info_format(ulsa_proc_file_kind_t kind, uint32_t packed_id, char *buf, size_t cap);
+bool   ulsa_info_card_exists(int card_idx, char *id_out, size_t id_cap);
+int    ulsa_info_find_card_by_id(const char *id);
+bool   ulsa_info_pcm_exists(int card_idx, int pcm_dev, int stream, unsigned int *sub_count_out);
+bool   ulsa_info_sub_exists(int card_idx, int pcm_dev, int stream, unsigned int sub_idx);
+#else
+static inline size_t ulsa_info_format(ulsa_proc_file_kind_t kind, uint32_t packed_id, char *buf, size_t cap)
+{
+    (void)kind;
+    (void)packed_id;
+    (void)buf;
+    (void)cap;
+    return 0;
+}
+static inline bool ulsa_info_card_exists(int card_idx, char *id_out, size_t id_cap)
+{
+    (void)card_idx;
+    (void)id_out;
+    (void)id_cap;
+    return false;
+}
+static inline int ulsa_info_find_card_by_id(const char *id)
+{
+    (void)id;
+    return -1;
+}
+static inline bool ulsa_info_pcm_exists(int card_idx, int pcm_dev, int stream, unsigned int *sub_count_out)
+{
+    (void)card_idx;
+    (void)pcm_dev;
+    (void)stream;
+    (void)sub_count_out;
+    return false;
+}
+static inline bool ulsa_info_sub_exists(int card_idx, int pcm_dev, int stream, unsigned int sub_idx)
+{
+    (void)card_idx;
+    (void)pcm_dev;
+    (void)stream;
+    (void)sub_idx;
+    return false;
+}
+#endif
+
 #endif // INCLUDE_DRIVERS_AUDIO_ULSA_ULSA_H_

@@ -12,6 +12,7 @@
 #include <arch/cpu/microcode/microcode.h>
 #include <arch/cpu/smp.h>
 #include <cgroup/cgroup.h>
+#include <drivers/audio/ulsa/ulsa.h>
 #include <drivers/time/tsc.h>
 #include <drivers/tty/tty_core.h>
 #include <fs/core/vfs.h>
@@ -133,6 +134,12 @@ typedef enum procfs_type {
     PROCFS_SYS_DIR,
     PROCFS_SYS_FILE,
     PROCFS_DRIVER_DIR,
+    PROCFS_ASOUND_DIR,
+    PROCFS_ASOUND_CARD_DIR,
+    PROCFS_ASOUND_PCM_DIR,
+    PROCFS_ASOUND_SUB_DIR,
+    PROCFS_ASOUND_FILE,
+    PROCFS_ASOUND_LINK,
 } procfs_type_t;
 
 typedef struct procfs_file {
@@ -222,6 +229,142 @@ static procfs_sysctl_t procfs_sysctl_net[] = {
 static procfs_sysctl_t procfs_sysctl_net_unix[] = {
     {.name = "max_dgram_qlen", .kind = PROC_SYS_UINT, .values = {512}, .count = 1},
 };
+
+/* Hide dynamic /proc/asound children before re-binding active entries. */
+static void procfs_deactivate_asound_children(vfs_node_t dir, procfs_type_t type)
+{
+    if (!dir) return;
+    for (clist_t link = dir->child; link; link = link->next) {
+        vfs_node_t     child = link->data;
+        procfs_file_t *pf    = child ? child->handle : NULL;
+        if (!pf || pf->type != type) continue;
+        child->flags |= VFS_NODE_UNLINKED;
+        child->type = file_none;
+    }
+}
+
+typedef struct procfs_asound_entry {
+        const char           *name;
+        ulsa_proc_file_kind_t kind;
+} procfs_asound_entry_t;
+
+static const procfs_asound_entry_t procfs_asound_root_files[] = {
+    {"version", ULSA_PROC_VERSION},
+    {"cards",   ULSA_PROC_CARDS  },
+    {"devices", ULSA_PROC_DEVICES},
+    {"pcm",     ULSA_PROC_PCM    },
+    {"timers",  ULSA_PROC_TIMERS },
+};
+
+static const procfs_asound_entry_t procfs_asound_sub_files[] = {
+    {"info",      ULSA_PROC_SUB_INFO     },
+    {"hw_params", ULSA_PROC_SUB_HW_PARAMS},
+    {"sw_params", ULSA_PROC_SUB_SW_PARAMS},
+    {"status",    ULSA_PROC_SUB_STATUS   },
+};
+
+/* Pack ALSA card/device/stream/substream coordinates into procfs_file_t::pid. */
+static pid_t procfs_asound_pack(int card, int dev, int stream, int sub)
+{
+    uint32_t v = ((uint32_t)card & 0xffU) | (((uint32_t)dev & 0xffU) << 8) | (((uint32_t)stream & 1U) << 16) | (((uint32_t)sub & 0x7fU) << 17);
+    return (pid_t)v;
+}
+
+/* Unpack ALSA card/device/stream/substream coordinates from procfs_file_t::pid. */
+static void procfs_asound_unpack(pid_t packed, int *card, int *dev, int *stream, int *sub)
+{
+    uint32_t v = (uint32_t)packed;
+    if (card) *card = (int)(v & 0xffU);
+    if (dev) *dev = (int)((v >> 8) & 0xffU);
+    if (stream) *stream = (int)((v >> 16) & 1U);
+    if (sub) *sub = (int)((v >> 17) & 0x7fU);
+}
+
+/* Parse /proc/asound "cardN" directory name into a card index. */
+static bool procfs_asound_parse_card(const char *name, int *card_out)
+{
+    if (!name || strncmp(name, "card", 4) != 0) return false;
+    if (name[4] < '0' || name[4] > '9') return false;
+    if (name[4] == '0' && name[5] != '\0') return false;
+
+    char *end;
+    long  card = strtol(name + 4, &end, 10);
+    if (*end != '\0' || card < 0 || card >= 32) return false;
+    *card_out = (int)card;
+    return true;
+}
+
+/* Parse /proc/asound/cardN "pcmX{p,c}" directory name into device and stream. */
+static bool procfs_asound_parse_pcm(const char *name, int *dev_out, int *stream_out)
+{
+    if (!name || strncmp(name, "pcm", 3) != 0) return false;
+    if (name[3] < '0' || name[3] > '9') return false;
+    if (name[3] == '0' && name[4] >= '0' && name[4] <= '9') return false;
+
+    char *end;
+    long  dev = strtol(name + 3, &end, 10);
+    if (end == name + 3 || dev < 0 || dev >= 8 || (*end != 'p' && *end != 'c') || end[1] != '\0') return false;
+    *dev_out    = (int)dev;
+    *stream_out = *end == 'p' ? SNDRV_PCM_STREAM_PLAYBACK : SNDRV_PCM_STREAM_CAPTURE;
+    return true;
+}
+
+/* Parse /proc/asound/cardN/pcmX{p,c} "subK" directory name into substream index. */
+static bool procfs_asound_parse_sub(const char *name, int *sub_out)
+{
+    if (!name || strncmp(name, "sub", 3) != 0) return false;
+    if (name[3] < '0' || name[3] > '9') return false;
+    if (name[3] == '0' && name[4] != '\0') return false;
+
+    char *end;
+    long  sub = strtol(name + 3, &end, 10);
+    if (*end != '\0' || sub < 0 || sub >= 64) return false;
+    *sub_out = (int)sub;
+    return true;
+}
+
+/* Match a /proc/asound table entry name to its ulsa_proc_file_kind_t. */
+static int procfs_asound_match_file(const char *name, const procfs_asound_entry_t *entries, size_t count)
+{
+    for (size_t i = 0; i < count; i++) {
+        if (streq(name, entries[i].name)) return (int)entries[i].kind;
+    }
+    return -1;
+}
+
+/* Generate dynamic content for a /proc/asound file. */
+static void gen_asound_file(procfs_file_t *pf)
+{
+    free(pf->content);
+    pf->content  = NULL;
+    pf->size     = 0;
+    pf->capacity = 0;
+
+    int card = 0, dev = 0, stream = 0, sub = 0;
+    procfs_asound_unpack(pf->pid, &card, &dev, &stream, &sub);
+    uint32_t packed = ulsa_info_pack_id(card, dev, stream, sub);
+
+    size_t cap = 4096;
+    char  *buf = malloc(cap);
+    if (!buf) return;
+
+    size_t len = ulsa_info_format((ulsa_proc_file_kind_t)pf->subtype, packed, buf, cap);
+    if (len >= cap) {
+        size_t new_cap = len + 1;
+        char  *bigger  = malloc(new_cap);
+        if (bigger) {
+            free(buf);
+            buf = bigger;
+            cap = new_cap;
+            len = ulsa_info_format((ulsa_proc_file_kind_t)pf->subtype, packed, buf, cap);
+        }
+        if (len >= cap) len = cap - 1;
+    }
+
+    pf->content  = buf;
+    pf->size     = len;
+    pf->capacity = cap;
+}
 
 /*
  * procfs directory nodes are namespace objects, not disposable directory
@@ -1990,6 +2133,9 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                 gen_tty_ldiscs(pf);
             }
             break;
+        case PROCFS_ASOUND_FILE :
+            gen_asound_file(pf);
+            break;
         default :
             break;
     }
@@ -2086,6 +2232,11 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 }
                 if (streq(name, "driver")) {
                     pf->type   = PROCFS_DRIVER_DIR;
+                    node->type = file_dir;
+                    break;
+                }
+                if (streq(name, "asound")) {
+                    pf->type   = PROCFS_ASOUND_DIR;
                     node->type = file_dir;
                     break;
                 }
@@ -2301,6 +2452,87 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             node->type  = file_none;
             break;
         }
+        case PROCFS_ASOUND_DIR : {
+            int kind = procfs_asound_match_file(name, procfs_asound_root_files, sizeof(procfs_asound_root_files) / sizeof(procfs_asound_root_files[0]));
+            if (kind >= 0) {
+                pf->type    = PROCFS_ASOUND_FILE;
+                pf->subtype = kind;
+                break;
+            }
+            int card = -1;
+            if (procfs_asound_parse_card(name, &card) && ulsa_info_card_exists(card, NULL, 0)) {
+                pf->type   = PROCFS_ASOUND_CARD_DIR;
+                pf->pid    = card;
+                node->type = file_dir;
+                break;
+            }
+            card = ulsa_info_find_card_by_id(name);
+            if (card >= 0) {
+                pf->type   = PROCFS_ASOUND_LINK;
+                pf->pid    = card;
+                node->type = file_symlink;
+                break;
+            }
+            free(pf);
+            return;
+        }
+        case PROCFS_ASOUND_CARD_DIR : {
+            if (!ulsa_info_card_exists(ppf->pid, NULL, 0)) {
+                free(pf);
+                return;
+            }
+            if (streq(name, "id")) {
+                pf->type    = PROCFS_ASOUND_FILE;
+                pf->pid     = procfs_asound_pack(ppf->pid, 0, 0, 0);
+                pf->subtype = ULSA_PROC_CARD_ID;
+                break;
+            }
+            int dev = 0, stream = 0;
+            if (procfs_asound_parse_pcm(name, &dev, &stream) && ulsa_info_pcm_exists(ppf->pid, dev, stream, NULL)) {
+                pf->type   = PROCFS_ASOUND_PCM_DIR;
+                pf->pid    = procfs_asound_pack(ppf->pid, dev, stream, 0);
+                node->type = file_dir;
+                break;
+            }
+            free(pf);
+            return;
+        }
+        case PROCFS_ASOUND_PCM_DIR : {
+            int card = 0, dev = 0, stream = 0;
+            procfs_asound_unpack(ppf->pid, &card, &dev, &stream, NULL);
+            if (!ulsa_info_pcm_exists(card, dev, stream, NULL)) {
+                free(pf);
+                return;
+            }
+            if (streq(name, "info")) {
+                pf->type    = PROCFS_ASOUND_FILE;
+                pf->pid     = procfs_asound_pack(card, dev, stream, 0);
+                pf->subtype = ULSA_PROC_PCM_INFO;
+                break;
+            }
+            int sub = 0;
+            if (procfs_asound_parse_sub(name, &sub) && ulsa_info_sub_exists(card, dev, stream, (unsigned int)sub)) {
+                pf->type   = PROCFS_ASOUND_SUB_DIR;
+                pf->pid    = procfs_asound_pack(card, dev, stream, sub);
+                node->type = file_dir;
+                break;
+            }
+            free(pf);
+            return;
+        }
+        case PROCFS_ASOUND_SUB_DIR : {
+            int card = 0, dev = 0, stream = 0, sub = 0;
+            procfs_asound_unpack(ppf->pid, &card, &dev, &stream, &sub);
+            int kind = procfs_asound_match_file(name, procfs_asound_sub_files, sizeof(procfs_asound_sub_files) / sizeof(procfs_asound_sub_files[0]));
+            if (kind >= 0 && ulsa_info_sub_exists(card, dev, stream, (unsigned int)sub)) {
+                pf->type    = PROCFS_ASOUND_FILE;
+                pf->pid     = ppf->pid;
+                pf->subtype = kind;
+                break;
+            }
+            free(pf);
+            return;
+        }
         default :
             free(pf);
             return;
@@ -2350,6 +2582,12 @@ static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t
             length = (int)strlen(target);
             break;
         }
+        case PROCFS_ASOUND_LINK : {
+            if (!ulsa_info_card_exists((int)pf->pid, NULL, 0)) return 0;
+            length = snprintf(target, sizeof(target), "card%d", (int)pf->pid);
+            if (length < 0 || (size_t)length >= sizeof(target)) return 0;
+            break;
+        }
         default :
             return 0;
     }
@@ -2369,7 +2607,7 @@ static int procfs_file_open(vfs_node_t node, uint64_t flags, void **private_data
     procfs_file_t *source = node->handle;
     if (!source
         || (source->type != PROCFS_INFO_FILE && source->type != PROCFS_PID_FILE && source->type != PROCFS_PID_FDINFO_FILE && source->type != PROCFS_NET_FILE && source->type != PROCFS_SYS_FILE
-            && source->type != PROCFS_TTY_FILE)) {
+            && source->type != PROCFS_TTY_FILE && source->type != PROCFS_ASOUND_FILE)) {
         *private_data = NULL;
         return EOK;
     }
@@ -2455,6 +2693,7 @@ static int procfs_stat(void *file, vfs_node_t node)
             (void)procfs_ensure_child(node, "tty", PROCFS_TTY_DIR, 0, 0, file_dir);
             (void)procfs_ensure_child(node, "sys", PROCFS_SYS_DIR, 0, 0, file_dir);
             (void)procfs_ensure_child(node, "driver", PROCFS_DRIVER_DIR, 0, 0, file_dir);
+            (void)procfs_ensure_child(node, "asound", PROCFS_ASOUND_DIR, 0, 0, file_dir);
             (void)procfs_ensure_child(node, "self", PROCFS_SELF_LINK, 0, 0, file_symlink);
             (void)procfs_ensure_child(node, "thread-self", PROCFS_SELF_LINK, 0, 1, file_symlink);
 
@@ -2696,6 +2935,72 @@ static int procfs_stat(void *file, vfs_node_t node)
         case PROCFS_DRIVER_DIR :
             node->type = file_dir;
             break;
+        case PROCFS_ASOUND_DIR : {
+            node->type = file_dir;
+            procfs_deactivate_asound_children(node, PROCFS_ASOUND_CARD_DIR);
+            procfs_deactivate_asound_children(node, PROCFS_ASOUND_LINK);
+            for (size_t i = 0; i < sizeof(procfs_asound_root_files) / sizeof(procfs_asound_root_files[0]); i++) {
+                (void)procfs_ensure_child(node, procfs_asound_root_files[i].name, PROCFS_ASOUND_FILE, 0, (int)procfs_asound_root_files[i].kind, file_none);
+            }
+            for (int i = 0; i < 32; i++) {
+                char id[64];
+                if (!ulsa_info_card_exists(i, id, sizeof(id))) continue;
+                char cname[16];
+                snprintf(cname, sizeof(cname), "card%d", i);
+                (void)procfs_ensure_child(node, cname, PROCFS_ASOUND_CARD_DIR, i, 0, file_dir);
+                if (id[0] != '\0') (void)procfs_ensure_child(node, id, PROCFS_ASOUND_LINK, i, 0, file_symlink);
+            }
+            break;
+        }
+        case PROCFS_ASOUND_CARD_DIR : {
+            if (!ulsa_info_card_exists(pf->pid, NULL, 0)) {
+                node->type = file_none;
+                return -ENOENT;
+            }
+            node->type = file_dir;
+            procfs_deactivate_asound_children(node, PROCFS_ASOUND_PCM_DIR);
+            (void)procfs_ensure_child(node, "id", PROCFS_ASOUND_FILE, procfs_asound_pack(pf->pid, 0, 0, 0), ULSA_PROC_CARD_ID, file_none);
+            for (int dev = 0; dev < 8; dev++) {
+                for (int s = 0; s < 2; s++) {
+                    if (!ulsa_info_pcm_exists(pf->pid, dev, s, NULL)) continue;
+                    char pname[24];
+                    snprintf(pname, sizeof(pname), "pcm%d%c", dev, s == SNDRV_PCM_STREAM_PLAYBACK ? 'p' : 'c');
+                    (void)procfs_ensure_child(node, pname, PROCFS_ASOUND_PCM_DIR, procfs_asound_pack(pf->pid, dev, s, 0), 0, file_dir);
+                }
+            }
+            break;
+        }
+        case PROCFS_ASOUND_PCM_DIR : {
+            int          card = 0, dev = 0, stream = 0;
+            unsigned int sub_count = 0;
+            procfs_asound_unpack(pf->pid, &card, &dev, &stream, NULL);
+            if (!ulsa_info_pcm_exists(card, dev, stream, &sub_count)) {
+                node->type = file_none;
+                return -ENOENT;
+            }
+            node->type = file_dir;
+            procfs_deactivate_asound_children(node, PROCFS_ASOUND_SUB_DIR);
+            (void)procfs_ensure_child(node, "info", PROCFS_ASOUND_FILE, procfs_asound_pack(card, dev, stream, 0), ULSA_PROC_PCM_INFO, file_none);
+            for (unsigned int k = 0; k < sub_count && k < 64; k++) {
+                char sname[16];
+                snprintf(sname, sizeof(sname), "sub%u", k);
+                (void)procfs_ensure_child(node, sname, PROCFS_ASOUND_SUB_DIR, procfs_asound_pack(card, dev, stream, (int)k), 0, file_dir);
+            }
+            break;
+        }
+        case PROCFS_ASOUND_SUB_DIR : {
+            int card = 0, dev = 0, stream = 0, sub = 0;
+            procfs_asound_unpack(pf->pid, &card, &dev, &stream, &sub);
+            if (!ulsa_info_sub_exists(card, dev, stream, (unsigned int)sub)) {
+                node->type = file_none;
+                return -ENOENT;
+            }
+            node->type = file_dir;
+            for (size_t i = 0; i < sizeof(procfs_asound_sub_files) / sizeof(procfs_asound_sub_files[0]); i++) {
+                (void)procfs_ensure_child(node, procfs_asound_sub_files[i].name, PROCFS_ASOUND_FILE, pf->pid, (int)procfs_asound_sub_files[i].kind, file_none);
+            }
+            break;
+        }
         case PROCFS_SELF_LINK :
         case PROCFS_PID_FD_LINK :
         case PROCFS_PID_EXE_LINK :
@@ -2704,12 +3009,20 @@ static int procfs_stat(void *file, vfs_node_t node)
         case PROCFS_PID_NS_LINK :
             node->type = file_symlink;
             break;
+        case PROCFS_ASOUND_LINK :
+            if (!ulsa_info_card_exists(pf->pid, NULL, 0)) {
+                node->type = file_none;
+                return -ENOENT;
+            }
+            node->type = file_symlink;
+            break;
         case PROCFS_INFO_FILE :
         case PROCFS_PID_FILE :
         case PROCFS_PID_FDINFO_FILE :
         case PROCFS_NET_FILE :
         case PROCFS_SYS_FILE :
         case PROCFS_TTY_FILE :
+        case PROCFS_ASOUND_FILE :
             /*
              * procfs files are generated pseudo-regular files.  They are
              * seekable and, most importantly, reads must advance the open

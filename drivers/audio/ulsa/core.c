@@ -49,6 +49,19 @@ int ulsa_card_count_registered(void)
     return n;
 }
 
+/* Return the published minor entry at `number`, or NULL. */
+ulsa_minor_t *ulsa_minor_get(int number)
+{
+    ulsa_minor_t *minor;
+    uint64_t      flags;
+
+    if (number < 0 || number >= 256) return NULL;
+    flags = spin_lock_irqsave(&cards_lock);
+    minor = minors[number];
+    spin_unlock_irqrestore(&cards_lock, flags);
+    return minor;
+}
+
 /* True when another card already uses `id`. */
 static bool card_id_in_use(const char *id, const ulsa_card_t *self)
 {

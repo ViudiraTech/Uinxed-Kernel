@@ -42,9 +42,10 @@ typedef struct ulsa_pcm_file {
 } ulsa_pcm_file_t;
 
 /* Device nodes (core.c). */
-int  ulsa_register_device(enum ulsa_device_type type, ulsa_card_t *card, ulsa_pcm_t *pcm, int stream, int dev, const char *name, const tmpfs_device_ops_t *ops, ulsa_minor_t **minor_ret);
-void ulsa_unregister_device(ulsa_minor_t *minor);
-int  ulsa_card_count_registered(void);
+int           ulsa_register_device(enum ulsa_device_type type, ulsa_card_t *card, ulsa_pcm_t *pcm, int stream, int dev, const char *name, const tmpfs_device_ops_t *ops, ulsa_minor_t **minor_ret);
+void          ulsa_unregister_device(ulsa_minor_t *minor);
+int           ulsa_card_count_registered(void);
+ulsa_minor_t *ulsa_minor_get(int number);
 
 /* PCM device ops and registration (pcm.c / pcm_native.c). */
 extern const tmpfs_device_ops_t ulsa_pcm_device_ops;
