@@ -18,7 +18,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 
-#if CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_VIRTIO_PCI
 
 /* Return the MMIO virtual address for a given PCI capability. Maps the BAR fully (if not yet mapped) and returns bar_base + cap->offset. */
 static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)

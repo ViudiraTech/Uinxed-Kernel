@@ -517,13 +517,27 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 
     switch (op) {
         case EPOLL_CTL_ADD : {
+            if (fd >= CONFIG_EPOLL_MAX_FDS) {
+                ret = -ENOSPC;
+                break;
+            }
+
             epoll_item_t *old = epoll_item_find(epi, fd);
-            if (old && __atomic_load_n(&old->target_closed, __ATOMIC_ACQUIRE)) release = epoll_item_del(epi, fd);
-            epoll_item_t *item = epoll_item_add(epi, fd, target, &ev);
-            if (!item) {
+            if (old && __atomic_load_n(&old->target_closed, __ATOMIC_ACQUIRE)) {
+                release = epoll_item_del(epi, fd);
+                old     = NULL;
+            }
+            if (old) {
                 ret = -EEXIST;
                 break;
             }
+
+            epoll_item_t *item = epoll_item_add(epi, fd, target, &ev);
+            if (!item) {
+                ret = -ENOMEM;
+                break;
+            }
+
             target             = NULL;
             item->event_source = vfs_file_poll_source(item->file->node, item->file->private_data);
             vfs_poll_source_subscribe(item->event_source, &item->subscription, UINT32_MAX, epoll_item_notify, item);
@@ -604,8 +618,9 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (!events && maxevents > 0) return -EFAULT;
-    if (maxevents <= 0 || maxevents > CONFIG_EPOLL_MAX_EVENTS) return -EINVAL;
+    if (maxevents <= 0 || maxevents > (INT32_MAX / (int)sizeof(epoll_event_t))) return -EINVAL;
+    if (!events) return -EFAULT;
+    if (maxevents > CONFIG_EPOLL_MAX_EVENTS) maxevents = CONFIG_EPOLL_MAX_EVENTS;
 
     process_file_t   *ep_file = NULL;
     epoll_instance_t *epi     = epoll_resolve_fd(epfd, proc, &ep_file);

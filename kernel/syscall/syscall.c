@@ -17,6 +17,7 @@
 #include <fs/core/inotify.h>
 #include <fs/core/vfs_stub.h>
 #include <fs/devtmpfs/devtmpfs.h>
+#include <fs/tmpfs/tmpfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
 #include <ipc/pipe.h>
@@ -2361,8 +2362,27 @@ int64_t mknod_create_node(char *resolved, uint64_t mode, uint64_t dev)
     switch (mode & 0170000) {
         case 0010000 : // FIFO
             return pipe_mknod(resolved, (uint16_t)mode);
+        case 0 :       // no type bits means a regular file
         case 0100000 : // regular file
-            return vfs_mkfile_mode(resolved, (uint16_t)mode);
+            return vfs_mkfile_mode(resolved, (uint16_t)(mode & 07777));
+        case 0140000 : {
+            /*
+             * A socket inode that no endpoint is bound to: connect() on it is
+             * refused, but it has the right type for stat().  systemd creates
+             * one as the template it bind-mounts over inaccessible sockets.
+             */
+            int status = vfs_mkfile_mode(resolved, (uint16_t)(mode & 07777));
+            if (status != EOK) return status;
+
+            vfs_node_t node = vfs_open_nofollow(resolved);
+            if (!node) return -EIO;
+
+            status = tmpfs_set_node_type(node, file_socket);
+            if (status != EOK) (void)vfs_delete(node);
+
+            vfs_close(node);
+            return status;
+        }
         case 0020000 : // character device
         case 0060000 : // block device
             /* A device node hands its opener the driver bound to the device number. */
@@ -4469,6 +4489,7 @@ shebang_oom:
     }
 
     proc->task->clear_child_tid = 0;
+    proc->task->robust_list     = 0;
     switch_page_directory(proc->user_page_dir);
 
     proc->task->thread.fs_base = 0;
@@ -4907,7 +4928,7 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             if (!task) return -ESRCH;
 
             /* clear_child_tid holds the thread's tid address when set via clone */
-            uintptr_t addr = 0;
+            uintptr_t addr = (uintptr_t)task->clear_child_tid;
             if (copy_to_user((void *)arg2, &addr, sizeof(addr))) return -EFAULT;
             return 0;
         }
@@ -5834,7 +5855,7 @@ __attribute__((naked, used)) void syscall_return(void)
 }
 
 /* Restore registers and return via SYSRET */
-__attribute__((naked, used)) static void syscall_return_sysret(void)
+__attribute__((naked, used)) void syscall_return_sysret(void)
 {
     __asm__ volatile("popq %r15\n\t"
                      "popq %r14\n\t"

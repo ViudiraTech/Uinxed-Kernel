@@ -140,13 +140,18 @@ void evdev_register_led_notify(evdev_led_notify_t notify, void *ctx);
 void evdev_unregister_led_notify(evdev_led_notify_t notify, void *ctx);
 
 #else
-static inline evdev_t *evdev_create(input_dev_t *)
+static inline evdev_t *evdev_create(input_dev_t *dev)
 {
+    (void)dev;
     return NULL;
 }
-static inline void evdev_destroy(evdev_t *) {}
-static inline int  evdev_register(evdev_t *)
+static inline void evdev_destroy(evdev_t *evdev)
 {
+    (void)evdev;
+}
+static inline int evdev_register(evdev_t *evdev)
+{
+    (void)evdev;
     return -ENOSYS;
 }
 static inline int evdev_publish_nodes(void)
@@ -154,11 +159,33 @@ static inline int evdev_publish_nodes(void)
     return 0;
 }
 static inline void evdev_init(void) {}
-static inline void evdev_inject_event(input_dev_t *, uint16_t, uint16_t, int32_t) {}
-static inline void evdev_inject_events(input_dev_t *, const input_event_t *, size_t) {}
-static inline void evdev_inject_syn(input_dev_t *) {}
-static inline void evdev_register_led_notify(evdev_led_notify_t, void *) {}
-static inline void evdev_unregister_led_notify(evdev_led_notify_t, void *) {}
+static inline void evdev_inject_event(input_dev_t *dev, uint16_t type, uint16_t code, int32_t value)
+{
+    (void)dev;
+    (void)type;
+    (void)code;
+    (void)value;
+}
+static inline void evdev_inject_events(input_dev_t *dev, const input_event_t *events, size_t count)
+{
+    (void)dev;
+    (void)events;
+    (void)count;
+}
+static inline void evdev_inject_syn(input_dev_t *dev)
+{
+    (void)dev;
+}
+static inline void evdev_register_led_notify(evdev_led_notify_t evdev_led_notify, void *ptr)
+{
+    (void)evdev_led_notify;
+    (void)ptr;
+}
+static inline void evdev_unregister_led_notify(evdev_led_notify_t notify, void *ctx)
+{
+    (void)notify;
+    (void)ctx;
+}
 #endif
 
 /* File operation callbacks (for VFS integration) */

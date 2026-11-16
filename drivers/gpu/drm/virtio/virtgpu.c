@@ -16,7 +16,7 @@
 #include <drivers/gpu/gpu_drivers.h>
 #include <mem/frame.h>
 
-#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Probed device singleton, kept driver-private so the DRM core stays generic. */
 static struct virtio_gpu_device   *virtio_gpu_probed_device;

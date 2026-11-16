@@ -38,12 +38,20 @@ void arp_timer(uint64_t now_ticks);
 void arp_device_removed(net_device_t *device);
 #else
 static inline void arp_init(void) {}
-static inline int  arp_input(net_device_t *, net_pbuf_t *)
+static inline int  arp_input(net_device_t *device, net_pbuf_t *packet)
 {
+    (void)device;
+    (void)packet;
     return -EPROTONOSUPPORT;
 }
-static inline void arp_timer(uint64_t) {}
-static inline void arp_device_removed(net_device_t *) {}
+static inline void arp_timer(uint64_t now_ticks)
+{
+    (void)now_ticks;
+}
+static inline void arp_device_removed(net_device_t *device)
+{
+    (void)device;
+}
 #endif
 
 #endif // INCLUDE_ARP_H_

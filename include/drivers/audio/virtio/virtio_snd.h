@@ -130,7 +130,7 @@ struct virtio_snd_pcm_status {
 };
 
 /* Probe the sound device and publish a sound card for it. */
-#if CONFIG_AUDIO && CONFIG_AUDIO_VIRTIO_SND && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_AUDIO && CONFIG_AUDIO_VIRTIO_SND && CONFIG_VIRTIO_PCI
 void virtio_snd_init(void);
 #else
 static inline void virtio_snd_init(void) {}

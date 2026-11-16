@@ -25,7 +25,7 @@
 #include <process/sched.h>
 #include <sync/mutex.h>
 
-#if CONFIG_AUDIO && CONFIG_AUDIO_VIRTIO_SND && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_AUDIO && CONFIG_AUDIO_VIRTIO_SND && CONFIG_VIRTIO_PCI
 
 /* Descriptors asked of each virtqueue (the device may hand back fewer). */
 #    define VIRTIO_SND_VQ_NUM 64U

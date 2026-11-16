@@ -17,7 +17,7 @@
 #include <kernel/interrupt/interrupt.h>
 #include <mem/frame.h>
 
-#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /*
  * Queue completions normally arrive through MSI/MSI-X, but a lost or

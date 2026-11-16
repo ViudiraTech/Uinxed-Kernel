@@ -15,7 +15,7 @@
 #include <drivers/gpu/drm/virtio/virtgpu_kms.h>
 #include <drivers/gpu/fbdev/video.h>
 
-#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Static context for the DRM-flush callback (set during initial modeset) */
 static struct virtio_gpu_device *vgdev_flush_ctx;

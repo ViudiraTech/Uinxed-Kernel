@@ -69,8 +69,9 @@ uint64_t swap_entry_encode(uint32_t type, uint64_t offset, uint64_t pte_flags);
 #if CONFIG_SWAP
 int swap_entry_is_swap(uint64_t pte);
 #else
-static inline int swap_entry_is_swap(uint64_t)
+static inline int swap_entry_is_swap(uint64_t pte)
 {
+    (void)pte;
     return 0;
 }
 #endif
@@ -120,40 +121,50 @@ int swap_format_proc_swaps(char *buf, size_t cap);
 
 #else
 static inline void swap_init(void) {}
-static inline int  swap_activate_path(const char *, uint32_t)
+static inline int  swap_activate_path(const char *path, uint32_t flags)
 {
+    (void)path;
+    (void)flags;
     return -ENOSYS;
 }
-static inline int swap_deactivate_path(const char *)
+static inline int swap_deactivate_path(const char *path)
 {
+    (void)path;
     return -ENOSYS;
 }
-static inline int swap_reclaim(size_t)
+static inline int swap_reclaim(size_t target)
 {
+    (void)target;
     return 0;
 }
 static inline bool swap_has_free_space(void)
 {
     return false;
 }
-static inline int swap_fault(page_directory_t *, uintptr_t)
+static inline int swap_fault(page_directory_t *directory, uintptr_t address)
 {
+    (void)directory;
+    (void)address;
     return -EFAULT;
 }
-static inline int swap_entry_retain_pte(uint64_t)
+static inline int swap_entry_retain_pte(uint64_t pte)
 {
+    (void)pte;
     return 0;
 }
-static inline int swap_entry_release_pte(uint64_t)
+static inline int swap_entry_release_pte(uint64_t pte)
 {
+    (void)pte;
     return 0;
 }
 static inline void swap_get_stats(swap_stats_t *stats)
 {
     if (stats) *stats = (swap_stats_t) {0};
 }
-static inline int swap_format_proc_swaps(char *, size_t)
+static inline int swap_format_proc_swaps(char *buf, size_t cap)
 {
+    (void)buf;
+    (void)cap;
     return 0;
 }
 #endif

@@ -10,7 +10,7 @@
 
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 
-#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
 
 /* Display information */
 int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
@@ -132,7 +132,7 @@ int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_o
     cmd      = malloc(cmd_size);
     if (!cmd) {
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-        if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Create_blob: command allocation failed (size=%llu)\n", cmd_size);
+        if (ratelimit_allow(&ratelimit)) plogk("virtgpu: Create_blob: command allocation failed (size=%zu)\n", cmd_size);
         return -ENOMEM;
     }
     memset(cmd, 0, cmd_size);

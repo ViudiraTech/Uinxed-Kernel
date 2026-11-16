@@ -96,7 +96,7 @@ int gpu_drivers_probe(void)
 /* Register every built-in GPU driver with the bus. */
 void gpu_drivers_init(void)
 {
-#if CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
+#if CONFIG_VIRTIO && CONFIG_VIRTIO_GPU && CONFIG_DRM && CONFIG_VIRTIO_PCI
     gpu_driver_register("virtio_gpu", virtio_gpu_probe, false);
 #endif
 #if CONFIG_BOCHS && CONFIG_DRM
