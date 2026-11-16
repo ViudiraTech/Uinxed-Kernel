@@ -649,6 +649,34 @@ static size_t pipe_vfs_write(void *file, const void *addr, size_t offset, size_t
     return result < 0 ? (size_t)-1 : (size_t)result;
 }
 
+/* Create an anonymous in-kernel pipe with one reader and one writer. */
+void *pipe_kernel_create(void)
+{
+    pipe_ring_t *ring = pipe_ring_alloc();
+    if (!ring) return NULL;
+    ring->readers = 1;
+    ring->writers = 1;
+    return ring;
+}
+
+/* Blocking read from an in-kernel pipe. */
+int64_t pipe_kernel_read(void *pipe, void *addr, size_t size)
+{
+    return pipe_read_common(NULL, pipe, 0, addr, size);
+}
+
+/* Blocking write to an in-kernel pipe. */
+int64_t pipe_kernel_write(void *pipe, const void *addr, size_t size)
+{
+    return pipe_write_common(NULL, pipe, 0, addr, size);
+}
+
+/* Free an in-kernel pipe once neither end is in use. */
+void pipe_kernel_destroy(void *pipe)
+{
+    pipe_ring_free(pipe);
+}
+
 /* Copy up to len bytes between two pipe endpoints without consuming the input, for tee(2). */
 int64_t pipe_tee(void *in_private, void *out_private, size_t len, uint64_t flags)
 {
