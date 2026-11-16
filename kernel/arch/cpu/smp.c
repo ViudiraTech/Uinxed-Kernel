@@ -342,8 +342,8 @@ uint32_t get_current_cpu_id(void)
         if (cpu_id < cpu_count) return cpu_id;
     }
 
-    /* Before smp_init() the LAPIC is not mapped yet and only the BSP runs. */
-    if (!cpu_count) return 0;
+    /* smp_init() publishes cpu_count before allocating cpus through the heap. */
+    if (!cpu_count || !cpus) return 0;
 
     uint64_t current_lapic_id = lapic_id();
     for (size_t i = 0; i < cpu_count; i++)
