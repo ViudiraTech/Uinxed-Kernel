@@ -2440,7 +2440,7 @@ bool is_global_init(const process_t *proc)
 }
 
 /* Fork the current process, returning the unqueued child */
-process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, bool vfork)
+static process_t *process_fork_locked(int *error, uint32_t ptrace_event, bool vfork, process_t **discard)
 {
     task_t    *current = current_task();
     process_t *parent  = current ? current->process : NULL;
@@ -2449,9 +2449,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (error) *error = -ESRCH;
         return NULL;
     }
-
-    /* Fork allocates page-table frames while VM/scheduler locks are held. */
-    frame_reclaim_if_needed(16);
 
     disable_intr();
     spin_lock(&scheduler.lock);
@@ -2552,7 +2549,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (page directory setup)\n", parent->name);
         if (error) *error = -ENOMEM;
-        process_free(child);
+        *discard = child; // freed by the caller once every lock is dropped
         spin_unlock(&parent->mmap_lock);
         spin_unlock(&scheduler.lock);
         return NULL;
@@ -2562,24 +2559,20 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
         if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (user pages COW clone)\n", parent->name);
         if (error) *error = -ENOMEM;
-        process_free(child);
+        *discard = child; // freed by the caller once every lock is dropped
         spin_unlock(&parent->mmap_lock);
         spin_unlock(&scheduler.lock);
         return NULL;
     }
 
     /*
-     * VMA file processing below (vfs_node_retain / vfs_cache_mapping_pin /
-     * memfd_vma_retain) can sleep on the VFS namespace lock.  It must NOT run
-     * while holding scheduler.lock with IRQs masked: a contended
-     * mutex_lock(&vfs_namespace_lock) calls wait_queue_prepare()/
-     * wait_queue_sleep(), which re-acquire scheduler.lock and self-deadlock
-     * the fork (recursive spin).  The parent's mmap_lock still guards
-     * mmap_list, so drop scheduler.lock and unmask IRQs for the duration of
-     * the copy, then restore both.
+     * The VMA list is copied under the parent's mmap_lock with interrupts
+     * masked: the page-fault path takes the same spinlock, so the holder must
+     * neither sleep nor be preempted.  The caller already holds the VFS
+     * namespace lock, so file references are taken with the non-sleeping
+     * *_locked helpers.  scheduler.lock is not needed for the copy.
      */
     spin_unlock(&scheduler.lock);
-    enable_intr();
 
     for (vm_area_t *vma = parent->mmap_list; vma; vma = vma->next) {
         vm_area_t *copy = vm_area_alloc(vma->start, vma->end, vma->flags);
@@ -2587,12 +2580,12 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
             if (ratelimit_allow(&ratelimit)) plogk("process: Fork of '%s' failed (VMA copy OOM)\n", parent->name);
             if (error) *error = -ENOMEM;
-            process_free(child);
+            *discard = child; // freed by the caller once every lock is dropped
             spin_unlock(&parent->mmap_lock);
             return NULL;
         }
         copy->type            = vma->type;
-        copy->vm_file         = vma->vm_file ? vfs_node_retain(vma->vm_file) : NULL;
+        copy->vm_file         = vma->vm_file ? vfs_node_retain_locked(vma->vm_file) : NULL;
         copy->vm_pgoff        = vma->vm_pgoff;
         copy->vm_private_data = vma->vm_private_data;
         copy->vm_private_put  = vma->vm_private_put;
@@ -2602,7 +2595,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (vma->vm_file && !copy->vm_file) {
             free(copy);
             if (error) *error = -ENOENT;
-            process_free(child);
+            *discard = child; // freed by the caller once every lock is dropped
             spin_unlock(&parent->mmap_lock);
             return NULL;
         }
@@ -2614,11 +2607,11 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             if (copy->vm_file) {
                 if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
                 memfd_vma_release(copy->vm_file, copy->flags);
-                vfs_close(copy->vm_file);
+                vfs_node_unretain_locked(copy->vm_file);
             }
             free(copy);
             if (error) *error = -ENOMEM;
-            process_free(child);
+            *discard = child; // freed by the caller once every lock is dropped
             spin_unlock(&parent->mmap_lock);
             return NULL;
         }
@@ -2636,11 +2629,11 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             if (copy->vm_file) {
                 if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
                 memfd_vma_release(copy->vm_file, copy->flags);
-                vfs_close(copy->vm_file);
+                vfs_node_unretain_locked(copy->vm_file);
             }
             free(copy);
             if (error) *error = -ENOMEM;
-            process_free(child);
+            *discard = child; // freed by the caller once every lock is dropped
             spin_unlock(&parent->mmap_lock);
             return NULL;
         }
@@ -2669,6 +2662,35 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
      * parent directory lock was still held; nothing here can reintroduce a
      * stale writable translation before the child runs.
      */
+    return child;
+}
+
+/*
+ * Fork the calling process.
+ *
+ * Lock order: VFS namespace mutex, then scheduler.lock, then the parent's
+ * mmap_lock.  The mutex is the only sleeping lock and is held around the
+ * whole spinlock section, so copying file-backed VMAs never sleeps while the
+ * parent's mmap_lock is held (a page fault in another thread of the parent
+ * would otherwise spin on that lock forever on the same CPU).  A child that
+ * fails half-way is released only after every lock has been dropped, since
+ * tearing down its descriptor table closes files.
+ */
+process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, bool vfork)
+{
+    process_t *discard = NULL;
+
+    /* Fork allocates page-table frames while VM/scheduler locks are held. */
+    frame_reclaim_if_needed(16);
+
+    uint64_t rflags = get_rflags();
+    vfs_namespace_lock_acquire();
+    process_t *child = process_fork_locked(error, ptrace_event, vfork, &discard);
+    vfs_namespace_lock_release();
+
+    /* process_fork_locked() returns with interrupts masked; give back the caller's state before anything may sleep. */
+    if (rflags & (1ULL << 9)) enable_intr();
+    if (discard) process_free(discard);
     return child;
 }
 

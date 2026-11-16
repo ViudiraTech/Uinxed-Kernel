@@ -286,6 +286,14 @@ int vfs_node_path(vfs_node_t node, char *path, size_t size);
 /* Retain an already resolved node without consulting the namespace. */
 vfs_node_t vfs_node_retain(vfs_node_t node);
 
+/* Namespace-lock bracket for taking node references inside spinlock sections. */
+void vfs_namespace_lock_acquire(void);
+void vfs_namespace_lock_release(void);
+
+/* Reference helpers for callers that hold the namespace lock (never sleep). */
+vfs_node_t vfs_node_retain_locked(vfs_node_t node);
+void       vfs_node_unretain_locked(vfs_node_t node);
+
 /* Check file access permissions against the current process */
 int vfs_access_check(vfs_node_t node, uint32_t access_mask);
 int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, struct process *proc);
