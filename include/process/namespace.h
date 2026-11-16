@@ -126,6 +126,9 @@ nsproxy_t *nsproxy_clone(nsproxy_t *orig, uint64_t flags, int *error);
 /* Unshare specified namespaces for current task */
 int namespace_unshare(uint64_t unshare_flags);
 
+/* Check that every namespace named by a clone/unshare flag set can be created (EOK or a negative errno). */
+int namespace_flags_permitted(uint64_t flags);
+
 /* Switch namespace via fd */
 int namespace_setns(int fd, int nstype);
 

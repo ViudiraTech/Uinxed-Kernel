@@ -1480,18 +1480,11 @@ int vfs_umount(const char *path)
 {
     vfs_node_t node = vfs_open(path);
 
-    if (!node) return -EINVAL;
-    if (!node->fsid) {
+    /* umount(2): a missing path is ENOENT, an existing path that is not a mount point is EINVAL. */
+    if (!node) return -ENOENT;
+    if (!node->fsid || !(node->type & file_dir) || !node->parent || node->root != node || !node->is_mount) {
         vfs_close(node);
         return -EINVAL;
-    }
-    if (!(node->type & file_dir)) {
-        vfs_close(node);
-        return -ENOTDIR;
-    }
-    if (!node->parent || node->root != node || !node->is_mount) {
-        vfs_close(node);
-        return -ENOENT;
     }
 
     mutex_lock(&vfs_namespace_lock);
@@ -1581,6 +1574,16 @@ static size_t vfs_mount_options(char *output, size_t capacity, vfs_node_t node)
     int n = snprintf(output, capacity, "%s%s%s%s", (node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw", (node->flags & MOUNT_FLAG_NOSUID) ? ",nosuid" : "",
                      (node->flags & MOUNT_FLAG_NODEV) ? ",nodev" : "", (node->flags & MOUNT_FLAG_NOEXEC) ? ",noexec" : "");
     return n < 0 ? 0 : (size_t)n;
+}
+
+/* Return the id of the mount a node lives on (0 when it is on no mount). */
+uint64_t vfs_node_mount_id(vfs_node_t node)
+{
+    for (vfs_node_t current = node; current; current = current->parent) {
+        if (current->is_mount && current->mount_id) return current->mount_id;
+        if (current == current->parent) break;
+    }
+    return 0;
 }
 
 /* Find the nearest enclosing mount id above the node. */
