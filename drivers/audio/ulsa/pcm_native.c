@@ -384,7 +384,7 @@ static int hw_params_state_check(ulsa_pcm_substream_t *substream, bool check_mma
         case SNDRV_PCM_STATE_OPEN :
         case SNDRV_PCM_STATE_SETUP :
         case SNDRV_PCM_STATE_PREPARED :
-            if (check_mmap && substream->runtime->mmap_count) return -EBADFD;
+            if (check_mmap && __atomic_load_n(&substream->runtime->mmap_count, __ATOMIC_ACQUIRE)) return -EBADFD;
             return EOK;
         default :
             return -EBADFD;
@@ -517,7 +517,7 @@ static int pcm_hw_free(ulsa_pcm_substream_t *substream)
     switch (runtime->status->state) {
         case SNDRV_PCM_STATE_SETUP :
         case SNDRV_PCM_STATE_PREPARED :
-            if (runtime->mmap_count || runtime->buffer_accessing) err = -EBADFD;
+            if (__atomic_load_n(&runtime->mmap_count, __ATOMIC_ACQUIRE) || runtime->buffer_accessing) err = -EBADFD;
             break;
         default :
             err = -EBADFD;
@@ -845,6 +845,7 @@ static void pcm_detach_runtime(ulsa_pcm_substream_t *substream)
 
     if (!runtime) return;
     ulsa_timer_pcm_free(substream);
+    ulsa_pcm_mmap_detach(runtime);
     if (runtime->private_free) runtime->private_free(runtime);
     vfs_poll_source_close(&runtime->poll_source, POLLHUP);
     ulsa_pcm_hw_constraints_free(runtime);

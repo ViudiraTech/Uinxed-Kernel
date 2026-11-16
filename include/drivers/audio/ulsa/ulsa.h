@@ -257,9 +257,10 @@ struct ulsa_pcm_runtime {
         wait_queue_t      tsleep;
         vfs_poll_source_t poll_source;
 
-        int  buffer_accessing; // > 0 while copying, < 0 while hw_params/hw_free run
-        int  mmap_count;
-        bool stop_operating;
+        int   buffer_accessing; // > 0 while copying, < 0 while hw_params/hw_free run
+        int   mmap_count;
+        void *mmap_priv;
+        bool  stop_operating;
 
         void *private_data;
         void (*private_free)(ulsa_pcm_runtime_t *runtime);

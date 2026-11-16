@@ -119,6 +119,7 @@ void ulsa_pcm_managed_free(ulsa_pcm_substream_t *substream);
 /* pcm_mmap.c: whether the data/status/control records can be mapped, and the mmap entry point. */
 bool  ulsa_pcm_mmap_supported(const ulsa_pcm_substream_t *substream);
 void *ulsa_pcm_mmap(ulsa_pcm_substream_t *substream, size_t offset, size_t size, int flags, struct vm_area *vma);
+void  ulsa_pcm_mmap_detach(ulsa_pcm_runtime_t *runtime);
 
 /* timer.c: the /dev/snd/timer device and the per-substream PCM timers. */
 int  ulsa_timer_init(void);
