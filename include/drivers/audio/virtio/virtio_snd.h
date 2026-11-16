@@ -39,10 +39,34 @@
 #define VIRTIO_SND_S_IO_ERR   0x8003
 
 /* Sample formats, as bit indexes into virtio_snd_pcm_info::formats. */
-#define VIRTIO_SND_PCM_FMT_U8  4
-#define VIRTIO_SND_PCM_FMT_S16 5
+#define VIRTIO_SND_PCM_FMT_IMA_ADPCM       0
+#define VIRTIO_SND_PCM_FMT_MU_LAW          1
+#define VIRTIO_SND_PCM_FMT_A_LAW           2
+#define VIRTIO_SND_PCM_FMT_S8              3
+#define VIRTIO_SND_PCM_FMT_U8              4
+#define VIRTIO_SND_PCM_FMT_S16             5
+#define VIRTIO_SND_PCM_FMT_U16             6
+#define VIRTIO_SND_PCM_FMT_S18_3           7
+#define VIRTIO_SND_PCM_FMT_U18_3           8
+#define VIRTIO_SND_PCM_FMT_S20_3           9
+#define VIRTIO_SND_PCM_FMT_U20_3           10
+#define VIRTIO_SND_PCM_FMT_S24_3           11
+#define VIRTIO_SND_PCM_FMT_U24_3           12
+#define VIRTIO_SND_PCM_FMT_S20             13
+#define VIRTIO_SND_PCM_FMT_U20             14
+#define VIRTIO_SND_PCM_FMT_S24             15
+#define VIRTIO_SND_PCM_FMT_U24             16
+#define VIRTIO_SND_PCM_FMT_S32             17
+#define VIRTIO_SND_PCM_FMT_U32             18
+#define VIRTIO_SND_PCM_FMT_FLOAT           19
+#define VIRTIO_SND_PCM_FMT_FLOAT64         20
+#define VIRTIO_SND_PCM_FMT_DSD_U8          21
+#define VIRTIO_SND_PCM_FMT_DSD_U16         22
+#define VIRTIO_SND_PCM_FMT_DSD_U32         23
+#define VIRTIO_SND_PCM_FMT_IEC958_SUBFRAME 24
 
 /* Frame rates, as bit indexes into virtio_snd_pcm_info::rates. */
+#define VIRTIO_SND_PCM_RATE_5512   0
 #define VIRTIO_SND_PCM_RATE_8000   1
 #define VIRTIO_SND_PCM_RATE_11025  2
 #define VIRTIO_SND_PCM_RATE_16000  3
@@ -55,6 +79,7 @@
 #define VIRTIO_SND_PCM_RATE_96000  10
 #define VIRTIO_SND_PCM_RATE_176400 11
 #define VIRTIO_SND_PCM_RATE_192000 12
+#define VIRTIO_SND_PCM_RATE_384000 13
 
 /* Device configuration space (virtio specification 5.14.6.1). */
 struct virtio_snd_config {

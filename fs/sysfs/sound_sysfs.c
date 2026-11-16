@@ -1,43 +1,64 @@
 /*
  *
  *      sound_sysfs.c
- *      /sys/class/sound - sound card class integration
+ *      /sys/class/sound - Linux-layout ULSA sysfs and uevent integration
  *
- *      2026/8/6 By MicroFish
+ *      2026/11/16 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
-#include <drivers/audio/core/audio.h>
+#include <drivers/audio/ulsa/internal.h>
 #include <drivers/base/device.h>
+#include <fs/sysfs/sound_sysfs.h>
+#include <kernel/debug/printk.h>
+#include <libs/std/string.h>
 #include <mem/heap.h>
 
 #if CONFIG_AUDIO
 
 #    if CONFIG_SYSFS
-static bool sound_class_ready;
-#    endif
 
-/* Return the audio card bound to a device-model device. */
-static audio_card_t *sound_card_from(struct device *dev)
+struct sound_minor_device {
+        struct device dev;
+        char          devnode[32];
+};
+
+static struct class sound_class = {.name = "sound"};
+static bool sound_class_ready;
+
+/* Ensure the "sound" device class is registered on first use. */
+static bool sound_class_ensure(void)
+{
+    if (sound_class_ready) return true;
+    if (class_register(&sound_class) != EOK) {
+        plogk("sound_sysfs: class_register(sound) failed.\n");
+        return false;
+    }
+    sound_class_ready = true;
+    return true;
+}
+
+/* Return the ULSA card bound to a cardN sysfs device. */
+static ulsa_card_t *sound_card_from(struct device *dev)
 {
     return dev ? dev->driver_data : NULL;
 }
 
-/* Show the sound card name. */
+/* Show the sound card identifier string. */
 static ssize_t id_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    audio_card_t *card = sound_card_from(dev);
+    ulsa_card_t *card = sound_card_from(dev);
     (void)attr;
-    return sysfs_emit(buf, "%s\n", card ? card->name : "");
+    return sysfs_emit(buf, "%s\n", card ? card->id : "");
 }
 
-/* Show the sound card index. */
+/* Show the sound card index number. */
 static ssize_t number_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    audio_card_t *card = sound_card_from(dev);
+    ulsa_card_t *card = sound_card_from(dev);
     (void)attr;
-    return sysfs_emit(buf, "%u\n", card ? card->id : 0);
+    return sysfs_emit(buf, "%d\n", card ? card->number : 0);
 }
 
 static DEVICE_ATTR(id, 0444, id_show, NULL);
@@ -58,96 +79,113 @@ static const struct attribute_group *card_groups[] = {
     NULL,
 };
 
-static struct class sound_class = {.name = "sound", .dev_groups = card_groups};
-
-/* Sub-device (controlC0, pcmC0D0p, ...): report the owning card number. */
-static ssize_t device_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    struct device *parent = dev ? dev->parent : NULL;
-    audio_card_t  *card   = sound_card_from(parent);
-    (void)attr;
-    return sysfs_emit(buf, "%u\n", card ? card->id : 0);
-}
-
-static DEVICE_ATTR(device, 0444, device_show, NULL);
-
-static struct attribute *node_attributes[] = {
-    &dev_attr_device.attr,
-    NULL,
-};
-
-static struct attribute_group node_group = {
-    .attrs = node_attributes,
-};
-
-static const struct attribute_group *node_groups[] = {
-    &node_group,
-    NULL,
-};
-
-/* Free a sound sub-device node. */
-static void sound_node_release(struct device *dev)
+/* Free a card sysfs device. */
+static void sound_card_release(struct device *dev)
 {
     free(dev);
 }
 
-/* Create and register a sound sub-device node. */
-static struct device *sound_create_node(struct device *parent, audio_card_t *card, const char *name)
+/* Free a minor sysfs device along with its embedded devnode string. */
+static void sound_minor_release(struct device *dev)
 {
-    struct device *dev = calloc(1, sizeof(*dev));
-    if (!dev) return NULL;
+    struct sound_minor_device *sdev = container_of(dev, struct sound_minor_device, dev);
+    free(sdev);
+}
+
+/* Register /sys/class/sound/cardN for a ULSA card. */
+void sound_sysfs_card_register(ulsa_card_t *card)
+{
+    struct device *dev;
+
+    if (!card || card->sysfs_priv || !sound_class_ensure()) return;
+    dev = calloc(1, sizeof(*dev));
+    if (!dev) return;
     dev->class       = &sound_class;
-    dev->parent      = parent;
     dev->driver_data = card;
-    dev->groups      = node_groups;
-    dev->release     = sound_node_release;
-    if (kobject_set_name(&dev->kobj, "%s", name) != EOK) {
+    dev->groups      = card_groups;
+    dev->release     = sound_card_release;
+    if (kobject_set_name(&dev->kobj, "card%d", card->number) != EOK) {
         free(dev);
-        return NULL;
+        return;
     }
     if (device_register(dev) != EOK) {
         put_device(dev);
-        return NULL;
-    }
-    return dev;
-}
-
-/* Export every sound card and its ALSA-style nodes to /sys/class/sound/. */
-void sound_sysfs_init(void)
-{
-#    if CONFIG_SYSFS
-    size_t         cards;
-    struct device *card_devs[CONFIG_AUDIO_MAX_CARDS] = {0};
-
-    if (sound_class_ready) return;
-    if (class_register(&sound_class) != EOK) {
-        plogk("sound_sysfs: Class_register(sound) failed.\n");
         return;
     }
-    sound_class_ready = true;
-
-    cards = audio_card_count();
-    if (cards > CONFIG_AUDIO_MAX_CARDS) cards = CONFIG_AUDIO_MAX_CARDS;
-
-    for (size_t c = 0; c < cards; c++) {
-        audio_card_t *card = audio_get_card((uint32_t)c);
-        if (!card) continue;
-        card_devs[c] = device_create(&sound_class, NULL, 0, card, "card%u", card->id);
-    }
-
-    /*
-     * Publish each ALSA-style node name (controlC0, pcmC0D0p, ...) as a
-     * sub-device of its card, matching the /dev/snd/<name> nodes.
-     */
-    for (size_t n = 0; n < audio_device_node_count(); n++) {
-        audio_device_node_t *node = audio_get_device_node(n);
-        if (!node || !node->card || node->card->id >= cards) continue;
-        if (!card_devs[node->card->id]) continue;
-        (void)sound_create_node(card_devs[node->card->id], node->card, node->name);
-    }
-
-    plogk("sound_sysfs: exported %zu sound card(s) to /sys/class/sound\n", cards);
-#    endif
+    card->sysfs_priv = dev;
 }
+
+/* Unregister /sys/class/sound/cardN for a ULSA card. */
+void sound_sysfs_card_unregister(ulsa_card_t *card)
+{
+    if (!card || !card->sysfs_priv) return;
+    device_unregister(card->sysfs_priv);
+    card->sysfs_priv = NULL;
+}
+
+/* Register /sys/class/sound/<name> (controlCN, pcmCNDMx, timer) with MAJOR/MINOR/DEVNAME. */
+void sound_sysfs_minor_register(ulsa_minor_t *minor)
+{
+    struct sound_minor_device *sdev;
+    struct device             *parent;
+
+    if (!minor || minor->sysfs_dev || !sound_class_ensure()) return;
+    parent = (minor->type != ULSA_DEVICE_TIMER && minor->card) ? minor->card->sysfs_priv : NULL;
+    sdev   = calloc(1, sizeof(*sdev));
+    if (!sdev) return;
+
+    (void)snprintf(sdev->devnode, sizeof(sdev->devnode), "snd/%s", minor->name);
+    sdev->dev.class       = &sound_class;
+    sdev->dev.parent      = parent;
+    sdev->dev.devt        = MKDEV(SNDRV_MAJOR, (uint32_t)minor->minor);
+    sdev->dev.driver_data = minor;
+    sdev->dev.devnode     = sdev->devnode;
+    sdev->dev.release     = sound_minor_release;
+    if (kobject_set_name(&sdev->dev.kobj, "%s", minor->name) != EOK) {
+        free(sdev);
+        return;
+    }
+    if (device_register(&sdev->dev) != EOK) {
+        put_device(&sdev->dev);
+        return;
+    }
+    minor->sysfs_dev = &sdev->dev;
+}
+
+/* Unregister /sys/class/sound/<name> for a ULSA minor device. */
+void sound_sysfs_minor_unregister(ulsa_minor_t *minor)
+{
+    if (!minor || !minor->sysfs_dev) return;
+    device_unregister(minor->sysfs_dev);
+    minor->sysfs_dev = NULL;
+}
+
+#    else
+
+/* No-op sysfs card registration when CONFIG_SYSFS is disabled. */
+void sound_sysfs_card_register(ulsa_card_t *card)
+{
+    (void)card;
+}
+
+/* No-op sysfs card unregistration when CONFIG_SYSFS is disabled. */
+void sound_sysfs_card_unregister(ulsa_card_t *card)
+{
+    (void)card;
+}
+
+/* No-op sysfs minor registration when CONFIG_SYSFS is disabled. */
+void sound_sysfs_minor_register(ulsa_minor_t *minor)
+{
+    (void)minor;
+}
+
+/* No-op sysfs minor unregistration when CONFIG_SYSFS is disabled. */
+void sound_sysfs_minor_unregister(ulsa_minor_t *minor)
+{
+    (void)minor;
+}
+
+#    endif
 
 #endif

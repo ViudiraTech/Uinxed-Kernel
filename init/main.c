@@ -18,6 +18,7 @@
 #include <cgroup/cgroup.h>
 #include <drivers/audio/intel/hda.h>
 #include <drivers/audio/soundblaster/sb16.h>
+#include <drivers/audio/ulsa/ulsa.h>
 #include <drivers/audio/virtio/virtio_snd.h>
 #include <drivers/base/device.h>
 #include <drivers/block/ata/pata/ide.h>
@@ -65,7 +66,6 @@
 #include <fs/sysfs/net_sysfs.h>
 #include <fs/sysfs/pci_sysfs.h>
 #include <fs/sysfs/rtc_sysfs.h>
-#include <fs/sysfs/sound_sysfs.h>
 #include <fs/sysfs/tpm_sysfs.h>
 #include <fs/sysfs/tty_sysfs.h>
 #include <fs/sysfs/usb_sysfs.h>
@@ -378,6 +378,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     rtl8169_init();                // Realtek RTL8169 Gigabit Ethernet
     rtl8139_init();                // Realtek RTL8139 Fast Ethernet
     usb_host_pci_scan();           // Discover and init all USB host controllers
+    ulsa_init();                   // ULSA sound subsystem core
     sb16_init();                   // Sound Blaster 16
     hda_init();                    // Intel HD Audio
     virtio_snd_init();             // VirtIO sound (virtio-snd)
@@ -396,7 +397,6 @@ __attribute__((noreturn)) void kernel_entry(void)
     input_sysfs_init();            // /sys/class/input/eventX
     fb_sysfs_init();               // /sys/class/graphics/fb0 + platform topology
     mem_sysfs_init();              // /sys/class/mem/ (null, zero, full, random, urandom)
-    sound_sysfs_init();            // /sys/class/sound/cardN + ALSA node sub-devices
     rtc_sysfs_init();              // /sys/class/rtc/rtc0
     tpm_vfs_init();                // /dev/tpm0, /dev/tpmrm0
     tpm_sysfs_init();              // /sys/class/tpm{,rm}

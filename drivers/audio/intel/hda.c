@@ -9,8 +9,8 @@
  */
 
 #include <arch/misc/common.h>
-#include <drivers/audio/core/audio.h>
 #include <drivers/audio/intel/hda.h>
+#include <drivers/audio/ulsa/ulsa.h>
 #include <drivers/bus/pci.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/debug/printk.h>
@@ -27,7 +27,7 @@
 #    define HDA_MAX_CODECS      4
 #    define HDA_MAX_STREAMS     8
 #    define HDA_BDL_ENTRIES     256
-#    define HDA_DMA_BUFFER_SIZE (64 * 1024)
+#    define HDA_DMA_BUFFER_SIZE (64UL * 1024UL)
 #    define HDA_PERIOD_FRAGS    32
 
 /* CORB/RIRB ring entry counts; must match HDA_RING_SIZE_256 programmed below. */
@@ -85,20 +85,22 @@ typedef struct hda_controller {
 
         /* Streams */
         struct {
-                int               allocated;
-                volatile uint8_t *buf;
-                size_t            buf_size;
-                uint64_t          bdl_phys;
-                int               running;
-                int               period_frags;
-                snd_pcm_uframes_t hw_pos;   // frames consumed
-                audio_pcm_file_t *pcm_file; // owner
+                int                   allocated;
+                volatile uint8_t     *buf;
+                size_t                buf_size;
+                uint64_t              bdl_phys;
+                int                   running;
+                int                   period_frags;
+                snd_pcm_uframes_t     hw_pos;    // frames consumed
+                ulsa_pcm_substream_t *substream; // owner
         } streams[HDA_MAX_STREAMS];
 
         /* Audio interface */
-        audio_pcm_format_t audio_fmt;
-        size_t             buffer_bytes;
-        size_t             period_bytes;
+        unsigned int sample_rate;
+        unsigned int bits;
+        unsigned int channels;
+        size_t       buffer_bytes;
+        size_t       period_bytes;
 
         /* Playback / capture stream index */
         int playback_stream;
@@ -656,125 +658,69 @@ static int hda_allocate_stream(int direction)
     return -EBUSY;
 }
 
-/* audio callback: start both allocated streams. */
-static int hda_audio_start(audio_card_t *card)
+/* ULSA callback: expose minimal HDA hardware constraints. */
+static int hda_pcm_open(ulsa_pcm_substream_t *substream)
 {
-    (void)card;
-    spin_lock(&hda_ctrl.lock);
-    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].allocated) hda_start_stream(hda_ctrl.playback_stream);
-    if (hda_ctrl.capture_stream >= 0 && hda_ctrl.streams[hda_ctrl.capture_stream].allocated) hda_start_stream(hda_ctrl.capture_stream);
-    spin_unlock(&hda_ctrl.lock);
+    ulsa_pcm_runtime_t *runtime = substream->runtime;
+
+    memset(&runtime->hw, 0, sizeof(runtime->hw));
+    runtime->hw.info             = SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_INTERLEAVED;
+    runtime->hw.formats          = ULSA_PCM_FMTBIT(SNDRV_PCM_FORMAT_S16_LE);
+    runtime->hw.rates            = ULSA_PCM_RATE_8000_192000;
+    runtime->hw.rate_min         = 8000U;
+    runtime->hw.rate_max         = 192000U;
+    runtime->hw.channels_min     = 1U;
+    runtime->hw.channels_max     = 8U;
+    runtime->hw.buffer_bytes_max = HDA_DMA_BUFFER_SIZE;
+    runtime->hw.period_bytes_min = 512U;
+    runtime->hw.period_bytes_max = HDA_DMA_BUFFER_SIZE / 2U;
+    runtime->hw.periods_min      = 2U;
+    runtime->hw.periods_max      = HDA_PERIOD_FRAGS;
     return EOK;
 }
 
-/* audio callback: stop both streams. */
-static int hda_audio_stop(audio_card_t *card)
+/* ULSA callback: tear down and detach one HDA stream on close. */
+static int hda_pcm_close(ulsa_pcm_substream_t *substream)
 {
-    (void)card;
-    spin_lock(&hda_ctrl.lock);
-    if (hda_ctrl.playback_stream >= 0) hda_stop_stream(hda_ctrl.playback_stream);
-    if (hda_ctrl.capture_stream >= 0) hda_stop_stream(hda_ctrl.capture_stream);
-    spin_unlock(&hda_ctrl.lock);
-    return EOK;
-}
+    const bool is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
 
-/* audio callback: wait for playback DMA to finish before stopping. */
-static int hda_audio_drain(audio_card_t *card)
-{
-    (void)card;
-
-    /* Wait for all pending DMA to complete */
     spin_lock(&hda_ctrl.lock);
-    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].running) {
-        /* Let the BDL finish, then stop */
-        int timeout = 50000;
-        while (timeout--) {
-            uint32_t lpib = sd_read32(hda_ctrl.playback_stream, HDA_SD_LPIB);
-            if (lpib >= hda_ctrl.streams[hda_ctrl.playback_stream].buf_size) break;
-            usleep(10);
-        }
-        if (timeout < 0) {
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("hda: Playback stream %d drain timed out (LPIB=0x%x)\n", hda_ctrl.playback_stream, sd_read32(hda_ctrl.playback_stream, HDA_SD_LPIB));
-        }
-        hda_stop_stream(hda_ctrl.playback_stream);
+    int s = is_play ? hda_ctrl.playback_stream : hda_ctrl.capture_stream;
+    if (s >= 0 && s < HDA_MAX_STREAMS) {
+        hda_stop_stream(s);
+        hda_ctrl.streams[s].substream = NULL;
+    }
+    if (is_play) {
+        hda_ctrl.playback_stream = -1;
+    } else {
+        hda_ctrl.capture_stream = -1;
     }
     spin_unlock(&hda_ctrl.lock);
     return EOK;
 }
 
-/* audio callback: copy a chunk into the playback DMA buffer. */
-static size_t hda_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size)
+/* ULSA callback: program format verbs and set up the DMA stream for this direction. */
+static int hda_pcm_hw_params(ulsa_pcm_substream_t *substream, struct snd_pcm_hw_params *params)
 {
-    (void)card;
-    (void)offset;
-    if (hda_ctrl.playback_stream < 0) return 0;
+    const bool             is_play      = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
+    const snd_pcm_format_t fmt          = ulsa_params_format(params);
+    const unsigned int     rate         = ulsa_params_rate(params);
+    const unsigned int     channels     = ulsa_params_channels(params);
+    const size_t           buffer_bytes = ulsa_params_buffer_bytes(params);
+    const size_t           period_bytes = ulsa_params_period_bytes(params);
+    const int              bits         = ulsa_pcm_format_physical_width(fmt);
+
+    if (bits <= 0) return -EINVAL;
 
     spin_lock(&hda_ctrl.lock);
-    if (!hda_ctrl.streams[hda_ctrl.playback_stream].allocated) {
-        spin_unlock(&hda_ctrl.lock);
-        return 0;
-    }
-
-    size_t buf_sz  = hda_ctrl.streams[hda_ctrl.playback_stream].buf_size;
-    size_t to_copy = (size > buf_sz) ? buf_sz : size;
-
-    memcpy((void *)hda_ctrl.streams[hda_ctrl.playback_stream].buf, addr, to_copy);
-
-    spin_unlock(&hda_ctrl.lock);
-    return to_copy;
-}
-
-/* audio callback: copy a chunk out of the capture DMA buffer. */
-static size_t hda_audio_read(audio_card_t *card, void *addr, size_t offset, size_t size)
-{
-    (void)card;
-    (void)offset;
-    if (hda_ctrl.capture_stream < 0) return 0;
-
-    spin_lock(&hda_ctrl.lock);
-    if (!hda_ctrl.streams[hda_ctrl.capture_stream].allocated) {
-        spin_unlock(&hda_ctrl.lock);
-        return 0;
-    }
-
-    size_t buf_sz  = hda_ctrl.streams[hda_ctrl.capture_stream].buf_size;
-    size_t to_copy = (size > buf_sz) ? buf_sz : size;
-
-    memcpy(addr, (const void *)hda_ctrl.streams[hda_ctrl.capture_stream].buf, to_copy);
-
-    spin_unlock(&hda_ctrl.lock);
-    return to_copy;
-}
-
-/* audio callback: validate and store the PCM format. */
-static int hda_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format)
-{
-    if (!card || !format) return -EINVAL;
-    if (format->channels < 1 || format->channels > 8) return -EINVAL;
-    if (format->bits != 8 && format->bits != 16 && format->bits != 24 && format->bits != 32) return -EINVAL;
-    if (format->sample_rate < 8000 || format->sample_rate > 192000) return -EINVAL;
-
-    spin_lock(&hda_ctrl.lock);
-    card->format       = *format;
-    hda_ctrl.audio_fmt = *format;
-    spin_unlock(&hda_ctrl.lock);
-    return EOK;
-}
-
-/* audio callback: program format verbs and set up the DMA streams. */
-static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes)
-{
-    if (!card || !fmt) return -EINVAL;
-    spin_lock(&hda_ctrl.lock);
-
-    card->format          = *fmt;
-    hda_ctrl.audio_fmt    = *fmt;
+    hda_ctrl.sample_rate  = rate;
+    hda_ctrl.bits         = (unsigned int)bits;
+    hda_ctrl.channels     = channels;
     hda_ctrl.buffer_bytes = buffer_bytes;
     hda_ctrl.period_bytes = period_bytes;
 
-    uint16_t fmt_val = (uint16_t)((fmt->channels - 1) & 0xf);
-    switch (fmt->bits) {
+    uint16_t fmt_val = (uint16_t)((channels - 1) & 0xf);
+    switch (bits) {
         case 8 :
             fmt_val |= (uint16_t)(0 << 4);
             break;
@@ -792,7 +738,6 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
     }
 
     uint32_t base = AC_FMT_BASE_RATE;
-    uint32_t rate = fmt->sample_rate;
     uint32_t mult = rate / base;
     if (rate % base == 0 && mult >= 1 && mult <= 4) {
         fmt_val |= (uint16_t)((mult - 1) << 11);
@@ -800,160 +745,122 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
         fmt_val |= (uint16_t)((base / rate - 1) << 8);
     }
 
-    /* Set format verbs for all codecs */
     for (int c = 0; c < hda_ctrl.num_codecs; c++) {
         hda_codec_t *codec = &hda_ctrl.codecs[c];
-        if (codec->dac_nid > 0) {
+        if (is_play && codec->dac_nid > 0) {
             hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_STREAM_FORMAT, fmt_val);
             hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_CHANNEL_STREAMID, 0);
         }
-        if (codec->adc_nid > 0) {
+        if (!is_play && codec->adc_nid > 0) {
             hda_set_verb(codec->addr, (uint16_t)codec->adc_nid, AC_VERB_SET_STREAM_FORMAT, fmt_val);
             hda_set_verb(codec->addr, (uint16_t)codec->adc_nid, AC_VERB_SET_CHANNEL_STREAMID, 1);
         }
     }
 
-    /* Set up playback stream */
-    if (hda_ctrl.playback_stream >= 0) {
+    if (is_play && hda_ctrl.playback_stream >= 0 && hda_ctrl.playback_stream < HDA_MAX_STREAMS) {
         hda_stop_stream(hda_ctrl.playback_stream);
-        hda_ctrl.playback_stream = -1;
+        hda_ctrl.streams[hda_ctrl.playback_stream].substream = NULL;
+        hda_ctrl.playback_stream                             = -1;
     }
-
-    int ps = hda_allocate_stream(0);
-    if (ps >= 0) {
-        int err = hda_setup_stream(ps, fmt_val, buffer_bytes, period_bytes);
-        if (err) {
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("hda: Playback stream %d setup failed: %d\n", ps, err);
-            spin_unlock(&hda_ctrl.lock);
-            return err;
-        }
-    } else {
-        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-        if (ratelimit_allow(&ratelimit)) plogk("hda: No playback stream available.\n");
-        spin_unlock(&hda_ctrl.lock);
-        return ps;
-    }
-
-    /* Set up capture stream (if ADC available) */
-    if (hda_ctrl.capture_stream >= 0) {
+    if (!is_play && hda_ctrl.capture_stream >= 0 && hda_ctrl.capture_stream < HDA_MAX_STREAMS) {
         hda_stop_stream(hda_ctrl.capture_stream);
-        hda_ctrl.capture_stream = -1;
+        hda_ctrl.streams[hda_ctrl.capture_stream].substream = NULL;
+        hda_ctrl.capture_stream                             = -1;
     }
 
-    int has_adc = 0;
-    for (int c = 0; c < hda_ctrl.num_codecs; c++) {
-        if (hda_ctrl.codecs[c].adc_nid > 0) {
-            has_adc = 1;
+    int s = hda_allocate_stream(is_play ? 0 : 1);
+    if (s < 0) {
+        spin_unlock(&hda_ctrl.lock);
+        return s;
+    }
+
+    int err = hda_setup_stream(s, fmt_val, buffer_bytes, period_bytes);
+    if (err) {
+        if (is_play) {
+            hda_ctrl.playback_stream = -1;
+        } else {
+            hda_ctrl.capture_stream = -1;
+        }
+        spin_unlock(&hda_ctrl.lock);
+        return err;
+    }
+
+    hda_ctrl.streams[s].substream = substream;
+    spin_unlock(&hda_ctrl.lock);
+    return EOK;
+}
+
+/* ULSA callback: release the HDA DMA stream. */
+static int hda_pcm_hw_free(ulsa_pcm_substream_t *substream)
+{
+    return hda_pcm_close(substream);
+}
+
+/* ULSA callback: reset software hardware-position tracker before start. */
+static int hda_pcm_prepare(ulsa_pcm_substream_t *substream)
+{
+    const bool is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
+
+    spin_lock(&hda_ctrl.lock);
+    int s = is_play ? hda_ctrl.playback_stream : hda_ctrl.capture_stream;
+    if (s >= 0 && s < HDA_MAX_STREAMS) hda_ctrl.streams[s].hw_pos = 0;
+    spin_unlock(&hda_ctrl.lock);
+    return EOK;
+}
+
+/* ULSA callback: start or stop stream DMA (atomic context). */
+static int hda_pcm_trigger(ulsa_pcm_substream_t *substream, int cmd)
+{
+    const bool is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
+    int        ret     = EOK;
+
+    spin_lock(&hda_ctrl.lock);
+    int s = is_play ? hda_ctrl.playback_stream : hda_ctrl.capture_stream;
+    if (s < 0 || s >= HDA_MAX_STREAMS || !hda_ctrl.streams[s].allocated) {
+        spin_unlock(&hda_ctrl.lock);
+        return -EINVAL;
+    }
+    switch (cmd) {
+        case ULSA_PCM_TRIGGER_START :
+            hda_start_stream(s);
             break;
-        }
+        case ULSA_PCM_TRIGGER_STOP :
+            sd_write8(s, HDA_SD_CTL, 0);
+            hda_ctrl.streams[s].running = 0;
+            break;
+        default :
+            ret = -EINVAL;
+            break;
     }
-
-    if (has_adc) {
-        int cs = hda_allocate_stream(1);
-        if (cs >= 0) {
-            int err = hda_setup_stream(cs, fmt_val, buffer_bytes, period_bytes);
-            if (err) {
-                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-                if (ratelimit_allow(&ratelimit)) plogk("hda: Capture stream %d setup failed: %d\n", cs, err);
-            }
-        } else {
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("hda: No capture stream available.\n");
-        }
-    }
-
     spin_unlock(&hda_ctrl.lock);
-    return EOK;
+    return ret;
 }
 
-/* audio callback: write DAC gain for left and right channels. */
-static int hda_audio_set_volume(audio_card_t *card, const audio_volume_t *volume)
+/* ULSA callback: read current hardware LPIB offset in frames (atomic context). */
+static snd_pcm_uframes_t hda_pcm_pointer(ulsa_pcm_substream_t *substream)
 {
-    if (!card || !volume) return -EINVAL;
-    for (int c = 0; c < hda_ctrl.num_codecs; c++) {
-        hda_codec_t *codec = &hda_ctrl.codecs[c];
-        if (codec->dac_nid > 0) {
-            uint32_t gl = ((uint32_t)volume->left * 0x7f) / 255;
-            uint32_t gr = ((uint32_t)volume->right * 0x7f) / 255;
-            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_LEFT | AC_AMP_SET_GAIN(gl));
-            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_GAIN(gr));
-        }
-    }
-    return EOK;
-}
-
-/* audio callback: read DAC gain from the first available codec. */
-static int hda_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
-{
-    if (!card || !volume) return -EINVAL;
-
-    /* Read volume from first available codec's DAC */
-    for (int c = 0; c < hda_ctrl.num_codecs; c++) {
-        hda_codec_t *codec = &hda_ctrl.codecs[c];
-        if (codec->dac_nid > 0) {
-            uint32_t vl   = hda_get_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_GET_AMP_GAIN_MUTE, AC_AMP_GET_OUTPUT | AC_AMP_GET_LEFT);
-            uint32_t vr   = hda_get_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_GET_AMP_GAIN_MUTE, AC_AMP_GET_OUTPUT | AC_AMP_GET_RIGHT);
-            volume->left  = (uint8_t)((vl & 0x7f) * 255 / 0x7f);
-            volume->right = (uint8_t)((vr & 0x7f) * 255 / 0x7f);
-            return EOK;
-        }
-    }
-
-    volume->left  = 0x80;
-    volume->right = 0x80;
-    return EOK;
-}
-
-/* audio callback: report the hardware playback position in frames. */
-static int hda_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
-{
-    (void)card;
-    if (!pos) return -EINVAL;
+    const bool        is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
+    snd_pcm_uframes_t pos     = 0;
 
     spin_lock(&hda_ctrl.lock);
-    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].running) {
-        uint32_t lpib = sd_read32(hda_ctrl.playback_stream, HDA_SD_LPIB);
-        size_t   fb   = (size_t)(hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels;
-        if (fb > 0) *pos = lpib / fb;
+    int s = is_play ? hda_ctrl.playback_stream : hda_ctrl.capture_stream;
+    if (s >= 0 && s < HDA_MAX_STREAMS && hda_ctrl.streams[s].allocated && substream->runtime->frame_bits) {
+        uint32_t lpib = sd_read32(s, HDA_SD_LPIB);
+        pos           = (snd_pcm_uframes_t)ulsa_bytes_to_frames(substream->runtime, lpib);
+        if (substream->runtime->buffer_size) pos %= substream->runtime->buffer_size;
     }
     spin_unlock(&hda_ctrl.lock);
-    return EOK;
+    return pos;
 }
 
-/* audio callback: report free space left in the playback buffer. */
-static int hda_audio_get_avail(audio_card_t *card, size_t *avail)
-{
-    (void)card;
-    if (!avail) return -EINVAL;
-    spin_lock(&hda_ctrl.lock);
-    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].allocated) {
-        uint32_t lpib   = sd_read32(hda_ctrl.playback_stream, HDA_SD_LPIB);
-        size_t   buf_sz = hda_ctrl.streams[hda_ctrl.playback_stream].buf_size;
-        if (lpib > buf_sz) {
-            *avail = 0;
-        } else {
-            *avail = buf_sz - lpib;
-        }
-    } else {
-        *avail = 0;
-    }
-    spin_unlock(&hda_ctrl.lock);
-    return EOK;
-}
-
-static const audio_card_ops_t hda_audio_ops = {
-    .pcm_read     = hda_audio_read,
-    .pcm_write    = hda_audio_write,
-    .set_format   = hda_audio_set_format,
-    .start        = hda_audio_start,
-    .stop         = hda_audio_stop,
-    .drain        = hda_audio_drain,
-    .set_volume   = hda_audio_set_volume,
-    .get_volume   = hda_audio_get_volume,
-    .get_position = hda_audio_get_position,
-    .get_avail    = hda_audio_get_avail,
-    .set_params   = hda_audio_set_params,
+static const ulsa_pcm_ops_t hda_pcm_ops = {
+    .open      = hda_pcm_open,
+    .close     = hda_pcm_close,
+    .hw_params = hda_pcm_hw_params,
+    .hw_free   = hda_pcm_hw_free,
+    .prepare   = hda_pcm_prepare,
+    .trigger   = hda_pcm_trigger,
+    .pointer   = hda_pcm_pointer,
 };
 
 /* Handle HDA controller interrupts. */
@@ -975,11 +882,11 @@ INTERRUPT_BEGIN static void hda_interrupt_handler(interrupt_frame_t *frame)
         if (rirb_sts & 0x01) hda_read16(HDA_RIRBWP);
     }
 
+    ulsa_pcm_substream_t *notify[HDA_MAX_STREAMS] = {0};
+
     /*
-     * Handle stream interrupts.  The stream state (allocated, buf_size,
-     * period_frags, pcm_file) is mutated by hda_audio_set_params() under
-     * hda_ctrl.lock, so the ISR must read it under the same lock to avoid
-     * dereferencing a reallocated/freed DMA buffer.
+     * Stream state (allocated, buf_size, period_frags, substream) is mutated
+     * under hda_ctrl.lock; snapshot substreams before notifying ULSA outside the lock.
      */
     spin_lock(&hda_ctrl.lock);
     for (int s = 0; s < HDA_MAX_STREAMS; s++) {
@@ -988,24 +895,11 @@ INTERRUPT_BEGIN static void hda_interrupt_handler(interrupt_frame_t *frame)
 
         uint8_t sts = sd_read8(s, HDA_SD_STS);
         if (sts & HDA_SD_STS_DMA_COMPLETE) {
-            /* DMA completed a BDL entry - update position */
-            hda_ctrl.streams[s].hw_pos += hda_ctrl.streams[s].buf_size / hda_ctrl.streams[s].period_frags;
-            if (hda_ctrl.streams[s].hw_pos >= hda_ctrl.streams[s].buf_size) hda_ctrl.streams[s].hw_pos = 0;
-
-            /* Notify the PCM layer */
-            if (hda_ctrl.streams[s].pcm_file) {
-                audio_pcm_file_t *pf = hda_ctrl.streams[s].pcm_file;
-                spin_lock(&pf->lock);
-                snd_pcm_uframes_t frames_consumed = hda_ctrl.streams[s].buf_size / ((size_t)(hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels) / hda_ctrl.streams[s].period_frags;
-
-                pcm_ring_buffer_advance_hw(pf, frames_consumed);
-                pf->period_event = 1;
-                spin_unlock(&pf->lock);
-                wait_queue_wake_all(&pf->write_wait);
-                wait_queue_wake_all(&pf->read_wait);
+            if (hda_ctrl.streams[s].period_frags > 0) {
+                hda_ctrl.streams[s].hw_pos += hda_ctrl.streams[s].buf_size / (size_t)hda_ctrl.streams[s].period_frags;
+                if (hda_ctrl.streams[s].hw_pos >= hda_ctrl.streams[s].buf_size) hda_ctrl.streams[s].hw_pos = 0;
             }
-
-            /* Clear status bit */
+            notify[s] = hda_ctrl.streams[s].substream;
             sd_write8(s, HDA_SD_STS, HDA_SD_STS_DMA_COMPLETE);
         }
 
@@ -1021,6 +915,9 @@ INTERRUPT_BEGIN static void hda_interrupt_handler(interrupt_frame_t *frame)
         }
     }
     spin_unlock(&hda_ctrl.lock);
+    for (int s = 0; s < HDA_MAX_STREAMS; s++) {
+        if (notify[s]) ulsa_pcm_period_elapsed(notify[s]);
+    }
     send_eoi();
     irq_leave_gs(frame);
 }
@@ -1125,13 +1022,40 @@ void hda_init(void)
 
     for (int c = 0; c < hda_ctrl.num_codecs; c++) hda_config_codec(&hda_ctrl.codecs[c]);
 
-    audio_pcm_format_t fmt = {.sample_rate = 48000, .bits = 16, .channels = 2};
-    hda_ctrl.audio_fmt     = fmt;
-    hda_ctrl.buffer_bytes  = (size_t)HDA_DMA_BUFFER_SIZE;
-    hda_ctrl.period_bytes  = HDA_DMA_BUFFER_SIZE / HDA_PERIOD_FRAGS;
+    hda_ctrl.sample_rate  = 48000U;
+    hda_ctrl.bits         = 16U;
+    hda_ctrl.channels     = 2U;
+    hda_ctrl.buffer_bytes = (size_t)HDA_DMA_BUFFER_SIZE;
+    hda_ctrl.period_bytes = HDA_DMA_BUFFER_SIZE / HDA_PERIOD_FRAGS;
 
-    int card_id = audio_register_card("Intel HD Audio", &fmt, &hda_audio_ops, &hda_ctrl);
-    if (card_id < 0) plogk("hda: sound card registration failed: %d\n", card_id);
+    ulsa_card_t *card = NULL;
+    ulsa_pcm_t  *pcm  = NULL;
+    int          ret  = ulsa_card_new(-1, "HDA", &card);
+    if (ret != EOK) {
+        plogk("hda: sound card allocation failed: %d\n", ret);
+        return;
+    }
+    strncpy(card->driver, "HDA-Intel", sizeof(card->driver) - 1);
+    strncpy(card->shortname, "HDA Intel", sizeof(card->shortname) - 1);
+    strncpy(card->longname, "Intel HD Audio", sizeof(card->longname) - 1);
+    card->private_data = &hda_ctrl;
+
+    ret = ulsa_pcm_new(card, "HDA Generic", 0, 1, 1, &pcm);
+    if (ret != EOK) {
+        plogk("hda: PCM device creation failed: %d\n", ret);
+        ulsa_card_free(card);
+        return;
+    }
+    pcm->private_data = &hda_ctrl;
+    ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &hda_pcm_ops);
+    ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &hda_pcm_ops);
+    ulsa_pcm_set_managed_buffer_all(pcm, 0xffffffffULL, HDA_DMA_BUFFER_SIZE);
+
+    ret = ulsa_card_register(card);
+    if (ret != EOK) {
+        plogk("hda: sound card registration failed: %d\n", ret);
+        ulsa_card_free(card);
+    }
 }
 
 #endif

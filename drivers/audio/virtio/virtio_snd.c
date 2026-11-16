@@ -9,7 +9,7 @@
  */
 
 #include <arch/misc/common.h>
-#include <drivers/audio/core/audio.h>
+#include <drivers/audio/ulsa/ulsa.h>
 #include <drivers/audio/virtio/virtio_snd.h>
 #include <drivers/bus/virtpci.h>
 #include <drivers/firmware/apic.h>
@@ -30,8 +30,8 @@
 /* Descriptors asked of each virtqueue (the device may hand back fewer). */
 #    define VIRTIO_SND_VQ_NUM 64U
 
-/* I/O messages buffered per direction; every message carries one period. */
-#    define VIRTIO_SND_MSGS_MAX 8
+/* Cap concurrent I/O messages per direction: 16 * 3 segments = 48 <= 64 descriptors. */
+#    define VIRTIO_SND_MSGS_MAX 16
 
 /* Bytes of DMA-visible state at the head of a message: xfer + status + pad. */
 #    define VIRTIO_SND_MSG_HEAD 16U
@@ -47,7 +47,7 @@
 #    define VIRTIO_SND_CTL_TIMEOUT_TICKS (5ULL * CONFIG_TIMER_HZ)
 #    define VIRTIO_SND_CTL_BOOT_SPINS    10000000
 
-/* Pump deadlines in scheduler ticks: short while a stream may be idle. */
+/* Pump deadlines in scheduler ticks: short while a stream may be idle or unmasked. */
 #    define VIRTIO_SND_IDLE_TICKS   4
 #    define VIRTIO_SND_SAFETY_TICKS CONFIG_TIMER_HZ
 
@@ -57,12 +57,76 @@
 /* Stream id marking a direction the device does not expose. */
 #    define VIRTIO_SND_NO_STREAM (-1)
 
+/* Mirrors the QEMU/VirtIO 1.2 device stream state machine. */
+enum virtsnd_dev_state {
+    VIRTSND_DEV_UNINIT = 0,
+    VIRTSND_DEV_PARAMS_SET,
+    VIRTSND_DEV_PREPARED,
+    VIRTSND_DEV_STARTED,
+    VIRTSND_DEV_STOPPED,
+    VIRTSND_DEV_RELEASED,
+};
+
+struct virtsnd_fmt_map {
+        uint8_t          vbit;
+        snd_pcm_format_t alsa_fmt;
+};
+
+struct virtsnd_rate_map {
+        uint8_t      vbit;
+        unsigned int alsa_bit;
+        unsigned int hz;
+};
+
+static const struct virtsnd_fmt_map virtsnd_fmt_table[] = {
+    {VIRTIO_SND_PCM_FMT_MU_LAW,  SNDRV_PCM_FORMAT_MU_LAW    },
+    {VIRTIO_SND_PCM_FMT_A_LAW,   SNDRV_PCM_FORMAT_A_LAW     },
+    {VIRTIO_SND_PCM_FMT_S8,      SNDRV_PCM_FORMAT_S8        },
+    {VIRTIO_SND_PCM_FMT_U8,      SNDRV_PCM_FORMAT_U8        },
+    {VIRTIO_SND_PCM_FMT_S16,     SNDRV_PCM_FORMAT_S16_LE    },
+    {VIRTIO_SND_PCM_FMT_U16,     SNDRV_PCM_FORMAT_U16_LE    },
+    {VIRTIO_SND_PCM_FMT_S18_3,   SNDRV_PCM_FORMAT_S18_3LE   },
+    {VIRTIO_SND_PCM_FMT_U18_3,   SNDRV_PCM_FORMAT_U18_3LE   },
+    {VIRTIO_SND_PCM_FMT_S20_3,   SNDRV_PCM_FORMAT_S20_3LE   },
+    {VIRTIO_SND_PCM_FMT_U20_3,   SNDRV_PCM_FORMAT_U20_3LE   },
+    {VIRTIO_SND_PCM_FMT_S24_3,   SNDRV_PCM_FORMAT_S24_3LE   },
+    {VIRTIO_SND_PCM_FMT_U24_3,   SNDRV_PCM_FORMAT_U24_3LE   },
+    {VIRTIO_SND_PCM_FMT_S20,     SNDRV_PCM_FORMAT_S20_LE    },
+    {VIRTIO_SND_PCM_FMT_U20,     SNDRV_PCM_FORMAT_U20_LE    },
+    {VIRTIO_SND_PCM_FMT_S24,     SNDRV_PCM_FORMAT_S24_LE    },
+    {VIRTIO_SND_PCM_FMT_U24,     SNDRV_PCM_FORMAT_U24_LE    },
+    {VIRTIO_SND_PCM_FMT_S32,     SNDRV_PCM_FORMAT_S32_LE    },
+    {VIRTIO_SND_PCM_FMT_U32,     SNDRV_PCM_FORMAT_U32_LE    },
+    {VIRTIO_SND_PCM_FMT_FLOAT,   SNDRV_PCM_FORMAT_FLOAT_LE  },
+    {VIRTIO_SND_PCM_FMT_FLOAT64, SNDRV_PCM_FORMAT_FLOAT64_LE},
+};
+
+static const struct virtsnd_rate_map virtsnd_rate_table[] = {
+    {VIRTIO_SND_PCM_RATE_5512,   ULSA_PCM_RATE_5512,   5512U  },
+    {VIRTIO_SND_PCM_RATE_8000,   ULSA_PCM_RATE_8000,   8000U  },
+    {VIRTIO_SND_PCM_RATE_11025,  ULSA_PCM_RATE_11025,  11025U },
+    {VIRTIO_SND_PCM_RATE_16000,  ULSA_PCM_RATE_16000,  16000U },
+    {VIRTIO_SND_PCM_RATE_22050,  ULSA_PCM_RATE_22050,  22050U },
+    {VIRTIO_SND_PCM_RATE_32000,  ULSA_PCM_RATE_32000,  32000U },
+    {VIRTIO_SND_PCM_RATE_44100,  ULSA_PCM_RATE_44100,  44100U },
+    {VIRTIO_SND_PCM_RATE_48000,  ULSA_PCM_RATE_48000,  48000U },
+    {VIRTIO_SND_PCM_RATE_64000,  ULSA_PCM_RATE_64000,  64000U },
+    {VIRTIO_SND_PCM_RATE_88200,  ULSA_PCM_RATE_88200,  88200U },
+    {VIRTIO_SND_PCM_RATE_96000,  ULSA_PCM_RATE_96000,  96000U },
+    {VIRTIO_SND_PCM_RATE_176400, ULSA_PCM_RATE_176400, 176400U},
+    {VIRTIO_SND_PCM_RATE_192000, ULSA_PCM_RATE_192000, 192000U},
+    {VIRTIO_SND_PCM_RATE_384000, ULSA_PCM_RATE_384000, 384000U},
+};
+
 /* One DMA message: [xfer][status][pad][period payload] in a single block. */
 struct virtsnd_msg {
         uint8_t *mem;
         uint64_t phys;
         size_t   pages;
-        size_t   length; // payload bytes staged or captured
+        size_t   frames;
+        size_t   length;
+        uint64_t gen;
+        uint32_t dir;
         bool     in_flight;
 };
 
@@ -85,24 +149,43 @@ struct virtsnd_stream {
         uint8_t  channels_max;
 };
 
+/* Driver state for one direction (VIRTIO_SND_D_OUTPUT or VIRTIO_SND_D_INPUT). */
+struct virtsnd_dir {
+        int                    stream_id;
+        enum virtsnd_dev_state dev_state;
+        ulsa_pcm_substream_t  *substream;
+        struct virtsnd_pool    pool;
+
+        uint32_t buffer_bytes;
+        uint32_t period_bytes;
+        uint32_t frame_bytes;
+        uint32_t buffer_frames;
+        uint32_t period_frames;
+
+        uint32_t hw_pos;
+        uint32_t submit_pos;
+        size_t   inflight_frames;
+        uint64_t gen;
+
+        bool params_valid;
+        bool want_running;
+        bool tearing_down;
+        bool kick;
+};
+
 struct virtio_snd {
         struct vp_device         vp;
         struct vp_virtqueue      vq[VIRTIO_SND_VQ_MAX];
         struct virtio_snd_config cfg;
         struct virtsnd_stream   *streams;
-        int                      stream_id[2];
+        struct virtsnd_dir       dir[2];
 
-        audio_card_t       *card;
-        audio_pcm_format_t  fmt[2];
-        uint32_t            buffer_bytes[2];
-        uint32_t            period_bytes[2];
-        bool                params_valid[2];
-        bool                running[2];
-        struct virtsnd_pool pool[2];
+        ulsa_card_t *card;
 
-        mutex_t      ops_lock; // serialises start/stop/drain/set_params
-        mutex_t      ctl_lock; // serialises control-message exchanges
-        spinlock_t   lock;     // protects pools, running[] and params
+        /* Lock hierarchy: ops_lock -> substream->lock -> snd->lock; ctl_lock is leaf under ops_lock. */
+        mutex_t      ops_lock;
+        mutex_t      ctl_lock;
+        spinlock_t   lock;
         wait_queue_t ctl_wait;
         wait_queue_t pump_wait;
 
@@ -120,52 +203,10 @@ struct virtio_snd {
 /* The instance the interrupt handler is allowed to dereference. */
 static struct virtio_snd *virtsnd_irq_device;
 
-/* Byte size of one interleaved frame of this format. */
-static size_t virtsnd_frame_bytes(const audio_pcm_format_t *fmt)
+/* Map an ALSA stream direction to a VirtIO sound direction index. */
+static int virtsnd_dir_index(const ulsa_pcm_substream_t *substream)
 {
-    return (size_t)(fmt->bits / 8) * fmt->channels;
-}
-
-/* Compare two formats field by field. */
-static bool virtsnd_same_format(const audio_pcm_format_t *a, const audio_pcm_format_t *b)
-{
-    return a->sample_rate == b->sample_rate && a->bits == b->bits && a->channels == b->channels;
-}
-
-/*
- * The open file driving this direction, or NULL.  The caller holds card->pcm_lock for
- * the lookup and for the later use: audio_pcm_destroy() takes the same lock before
- * freeing, so the file cannot go away underneath us.
- */
-static audio_pcm_file_t *virtsnd_file_locked(struct virtio_snd *snd, audio_node_type_t type)
-{
-    for (audio_pcm_file_t *pf = snd->card->pcm_files; pf; pf = pf->next) {
-        if (pf->type == type && pf->state != SNDRV_PCM_STATE_OPEN) return pf;
-    }
-    return NULL;
-}
-
-/* True when a configured file exists for this direction. */
-static bool virtsnd_direction_ready(struct virtio_snd *snd, audio_node_type_t type)
-{
-    uint64_t rflags = spin_lock_irqsave(&snd->card->pcm_lock);
-    bool     ready  = virtsnd_file_locked(snd, type) != NULL;
-    spin_unlock_irqrestore(&snd->card->pcm_lock, rflags);
-    return ready;
-}
-
-/*
- * True once this direction can block waiting for frames (PREPARED or later).
- * virtsnd_file_locked() already skips OPEN, so only SETUP has to be excluded: it is
- * configured but waiting on nothing, and a silent no-op there is not fatal.
- */
-static bool virtsnd_direction_pending(struct virtio_snd *snd, audio_node_type_t type)
-{
-    uint64_t          rflags  = spin_lock_irqsave(&snd->card->pcm_lock);
-    audio_pcm_file_t *pf      = virtsnd_file_locked(snd, type);
-    bool              pending = pf && pf->state >= SNDRV_PCM_STATE_PREPARED;
-    spin_unlock_irqrestore(&snd->card->pcm_lock, rflags);
-    return pending;
+    return substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? VIRTIO_SND_D_OUTPUT : VIRTIO_SND_D_INPUT;
 }
 
 /* Allocate one zeroed page of physically contiguous DMA memory. */
@@ -197,7 +238,7 @@ static void virtsnd_pool_release(struct virtsnd_pool *pool)
 }
 
 /* Carve `count` messages of `period_bytes` payload out of fresh DMA blocks. */
-static int virtsnd_pool_alloc(struct virtsnd_pool *pool, int count, uint32_t period_bytes)
+static int virtsnd_pool_alloc(struct virtsnd_pool *pool, int count, uint32_t period_bytes, uint32_t dir)
 {
     const size_t block = ALIGN_UP((size_t)VIRTIO_SND_MSG_HEAD + period_bytes, PAGE_4K_SIZE);
     const size_t pages = block / PAGE_4K_SIZE;
@@ -225,6 +266,8 @@ static int virtsnd_pool_alloc(struct virtsnd_pool *pool, int count, uint32_t per
         pool->msgs[i].mem              = phys_to_virt(phys);
         pool->msgs[i].in_flight        = false;
         pool->msgs[i].length           = 0;
+        pool->msgs[i].frames           = 0;
+        pool->msgs[i].dir              = dir;
         pool->free[pool->free_count++] = &pool->msgs[i];
         memset(pool->msgs[i].mem, 0, (size_t)VIRTIO_SND_MSG_HEAD + period_bytes);
     }
@@ -250,12 +293,7 @@ static int virtsnd_mark_broken(struct vp_virtqueue *vq)
     return -EIO;
 }
 
-/*
- * Send one control request and wait for its response.  The DMA-safe staging pages are
- * owned by the device instance, so callers are serialised by snd->ctl_lock.  `items`
- * optionally receives the trailing item array some requests append after the 4-byte
- * response header.
- */
+/* Send one control request on VQ 0 and wait synchronously for its status response. */
 static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, void *items, size_t items_len)
 {
     struct vp_virtq_seg  segs[3];
@@ -283,7 +321,6 @@ static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, 
     virtqueue_kick(vq);
 
     {
-        /* Boot probes cannot sleep, and a queue without interrupts has nobody to wait on. */
         const bool     interruptible = snd->irq_enabled && __atomic_load_n(&scheduler.started, __ATOMIC_ACQUIRE);
         const uint64_t deadline      = interruptible ? sched_ticks() + VIRTIO_SND_CTL_TIMEOUT_TICKS : 0;
         int            fast_polls    = 0;
@@ -306,8 +343,6 @@ static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, 
                 }
 
                 wait_queue_prepare(&snd->ctl_wait);
-
-                /* Close the used-ring/prepare race before committing the sleep. */
                 cookie = virtqueue_get_buf(vq, &len);
                 if (cookie) {
                     wait_queue_cancel(&snd->ctl_wait);
@@ -317,7 +352,6 @@ static int virtsnd_ctl(struct virtio_snd *snd, const void *req, size_t req_len, 
                 continue;
             }
 
-            /* No scheduler or no interrupt: bounded busy poll, as virtgpu does. */
             if (++spins > VIRTIO_SND_CTL_BOOT_SPINS) {
                 ret   = virtsnd_mark_broken(vq);
                 timed = true;
@@ -354,84 +388,52 @@ static int virtsnd_pcm_request(struct virtio_snd *snd, uint32_t code, uint32_t s
     return virtsnd_ctl(snd, &req, sizeof(req), NULL, 0);
 }
 
-/* Push the stored buffer, period, format, rate and channel count to one stream. */
-static int virtsnd_pcm_params(struct virtio_snd *snd, int d, uint32_t vformat, uint32_t vrate)
+/* Translate a VirtIO format bitmask into ALSA SNDRV_PCM_FMTBIT_* mask. */
+static uint64_t virtsnd_build_formats(uint64_t vformats)
 {
-    struct virtio_snd_pcm_set_params req;
+    uint64_t formats = 0;
 
-    memset(&req, 0, sizeof(req));
-    req.hdr.hdr.code  = VIRTIO_SND_R_PCM_SET_PARAMS;
-    req.hdr.stream_id = (uint32_t)snd->stream_id[d];
-    req.buffer_bytes  = snd->buffer_bytes[d];
-    req.period_bytes  = snd->period_bytes[d];
-    req.features      = 0;
-    req.channels      = snd->fmt[d].channels;
-    req.format        = (uint8_t)vformat;
-    req.rate          = (uint8_t)vrate;
-
-    return virtsnd_ctl(snd, &req, sizeof(req), NULL, 0);
+    for (size_t i = 0; i < sizeof(virtsnd_fmt_table) / sizeof(virtsnd_fmt_table[0]); i++) {
+        if (vformats & (1ULL << virtsnd_fmt_table[i].vbit)) formats |= ULSA_PCM_FMTBIT(virtsnd_fmt_table[i].alsa_fmt);
+    }
+    return formats;
 }
 
-/*
- * Translate a core format into virtio-snd indexes and check the streams support it.
- * d = -1 requires every exposed stream: set_format is the core's only channel for the
- * verdict, so a format one direction would reject is refused rather than silently
- * starting a stream that never produces data.
- */
-static int virtsnd_check_format(const struct virtio_snd *snd, int d, const audio_pcm_format_t *fmt, uint32_t *vformat, uint32_t *vrate)
+/* Translate a VirtIO rate bitmask into ALSA ULSA_PCM_RATE_* mask and min/max bounds. */
+static unsigned int virtsnd_build_rates(uint64_t vrates, unsigned int *min_hz, unsigned int *max_hz)
 {
-    /* Frame rate hertz, indexed so that i + VIRTIO_SND_PCM_RATE_8000 is the bit. */
-    static const uint32_t rates_hz[] = {8000U, 11025U, 16000U, 22050U, 32000U, 44100U, 48000U, 64000U, 88200U, 96000U, 176400U, 192000U};
-    const size_t          rate_count = sizeof(rates_hz) / sizeof(rates_hz[0]);
-    uint32_t              format;
-    uint32_t              rate      = 0;
-    bool                  have_rate = false;
-    int                   checked   = 0;
+    unsigned int rates = 0;
+    unsigned int lo    = ~0U;
+    unsigned int hi    = 0;
 
-    if (fmt->bits == 8) {
-        format = VIRTIO_SND_PCM_FMT_U8;
-    } else if (fmt->bits == 16) {
-        format = VIRTIO_SND_PCM_FMT_S16;
-    } else {
-        return -EINVAL;
-    }
-    for (size_t i = 0; i < rate_count; i++) {
-        if (rates_hz[i] == fmt->sample_rate) {
-            rate      = (uint32_t)i + (uint32_t)VIRTIO_SND_PCM_RATE_8000;
-            have_rate = true;
-            break;
+    for (size_t i = 0; i < sizeof(virtsnd_rate_table) / sizeof(virtsnd_rate_table[0]); i++) {
+        if (vrates & (1ULL << virtsnd_rate_table[i].vbit)) {
+            rates |= virtsnd_rate_table[i].alsa_bit;
+            if (virtsnd_rate_table[i].hz < lo) lo = virtsnd_rate_table[i].hz;
+            if (virtsnd_rate_table[i].hz > hi) hi = virtsnd_rate_table[i].hz;
         }
     }
-    if (!have_rate) return -EINVAL;
-    for (int i = 0; i < 2; i++) {
-        if (d >= 0 && i != d) continue;
-        if (snd->stream_id[i] == VIRTIO_SND_NO_STREAM) continue;
-
-        const struct virtsnd_stream *s = &snd->streams[snd->stream_id[i]];
-        if (!(s->formats & (1ULL << format))) return -EINVAL;
-        if (!(s->rates & (1ULL << rate))) return -EINVAL;
-        if (fmt->channels < s->channels_min || fmt->channels > s->channels_max) return -EINVAL;
-        checked++;
-    }
-    if (checked == 0) return -EOPNOTSUPP;
-    if (vformat) *vformat = format;
-    if (vrate) *vrate = rate;
-
-    return EOK;
+    if (min_hz) *min_hz = hi ? lo : 0;
+    if (max_hz) *max_hz = hi;
+    return rates;
 }
 
-/* Choose a device-side period: whole frames, and no more than half the ring. */
-static uint32_t virtsnd_period_for(uint32_t buffer_bytes, uint32_t requested, uint32_t fb)
+/* Look up the VirtIO format index for an ALSA format, or -EINVAL. */
+static int virtsnd_to_vformat(snd_pcm_format_t alsa_fmt)
 {
-    uint32_t period = requested;
+    for (size_t i = 0; i < sizeof(virtsnd_fmt_table) / sizeof(virtsnd_fmt_table[0]); i++) {
+        if (virtsnd_fmt_table[i].alsa_fmt == alsa_fmt) return (int)virtsnd_fmt_table[i].vbit;
+    }
+    return -EINVAL;
+}
 
-    if (fb == 0) fb = 1;
-    if (period == 0 || period > buffer_bytes / 2U) period = buffer_bytes / 4U;
-
-    period -= period % fb;
-    if (period == 0) period = fb;
-
-    return period;
+/* Look up the VirtIO rate index for a rate in Hz, or -EINVAL. */
+static int virtsnd_to_vrate(unsigned int hz)
+{
+    for (size_t i = 0; i < sizeof(virtsnd_rate_table) / sizeof(virtsnd_rate_table[0]); i++) {
+        if (virtsnd_rate_table[i].hz == hz) return (int)virtsnd_rate_table[i].vbit;
+    }
+    return -EINVAL;
 }
 
 /* Hand a staged playback message to the TX queue. */
@@ -456,11 +458,7 @@ static int virtsnd_submit_rx(struct virtio_snd *snd, struct virtsnd_msg *msg, si
     struct virtio_snd_pcm_status *status = (struct virtio_snd_pcm_status *)(msg->mem + sizeof(*xfer));
     struct vp_virtq_seg           segs[3];
 
-    /*
-     * In side is data first, status second, end to end over the write-only descriptors
-     * (QEMU writes the samples at offset 0, the status behind them; Linux orders its
-     * scatterlist the same way).  Status in front would shift the samples 8 bytes.
-     */
+    /* Data segment precedes status on write-only descriptors per VirtIO spec & Linux. */
     xfer->stream_id = stream_id;
     segs[0]         = (struct vp_virtq_seg) {.data = xfer, .len = (uint32_t)sizeof(*xfer), .write = 0};
     segs[1]         = (struct vp_virtq_seg) {.data = msg->mem + VIRTIO_SND_MSG_HEAD, .len = (uint32_t)payload, .write = 1};
@@ -478,6 +476,32 @@ static void virtsnd_pool_recycle(struct virtsnd_pool *pool, struct virtsnd_msg *
     pool->free[pool->free_count++] = msg;
 }
 
+/* Copy `frames` starting at `ring_pos` out of `dma_area` with wrap-around. */
+static void virtsnd_copy_from_dma(void *dst, const ulsa_pcm_runtime_t *runtime, uint32_t ring_pos, size_t frames, uint32_t fb, uint32_t buf_frames)
+{
+    uint32_t first = buf_frames - ring_pos;
+
+    if (frames <= first) {
+        memcpy(dst, runtime->dma_area + (size_t)ring_pos * fb, frames * fb);
+    } else {
+        memcpy(dst, runtime->dma_area + (size_t)ring_pos * fb, (size_t)first * fb);
+        memcpy((uint8_t *)dst + (size_t)first * fb, runtime->dma_area, (frames - first) * fb);
+    }
+}
+
+/* Copy `frames` into `dma_area` starting at `ring_pos` with wrap-around. */
+static void virtsnd_copy_to_dma(ulsa_pcm_runtime_t *runtime, uint32_t ring_pos, const void *src, size_t frames, uint32_t fb, uint32_t buf_frames)
+{
+    uint32_t first = buf_frames - ring_pos;
+
+    if (frames <= first) {
+        memcpy(runtime->dma_area + (size_t)ring_pos * fb, src, frames * fb);
+    } else {
+        memcpy(runtime->dma_area + (size_t)ring_pos * fb, src, (size_t)first * fb);
+        memcpy(runtime->dma_area, (const uint8_t *)src + (size_t)first * fb, (frames - first) * fb);
+    }
+}
+
 /* Drain completed event notifications and re-post their buffers. */
 static void virtsnd_reap_events(struct virtio_snd *snd)
 {
@@ -492,201 +516,268 @@ static void virtsnd_reap_events(struct virtio_snd *snd)
     if (reposted) virtqueue_kick(vq);
 }
 
-/* Retire completed playback messages: the frames left the ring at submit time. */
+/* Retire completed playback messages, advance hw_pos, and notify ULSA per period. */
 static void virtsnd_reap_tx(struct virtio_snd *snd)
 {
-    struct vp_virtqueue *vq = &snd->vq[VIRTIO_SND_VQ_TX];
+    struct vp_virtqueue *vq  = &snd->vq[VIRTIO_SND_VQ_TX];
+    struct virtsnd_dir  *dir = &snd->dir[VIRTIO_SND_D_OUTPUT];
     void                *cookie;
 
-    /*
-     * pcm_ring_buffer_read_frames() already moved hw_ptr when the message was staged,
-     * so only hand the DMA block back: re-advancing would count every period twice, and
-     * corrupt the ring if the application re-prepared with a message still in flight
-     * (the core resets both pointers without telling the driver).
-     */
     while ((cookie = virtqueue_get_buf(vq, NULL)) != NULL) {
-        struct virtsnd_msg *msg = cookie;
+        struct virtsnd_msg   *msg       = cookie;
+        ulsa_pcm_substream_t *substream = NULL;
 
         spin_lock(&snd->lock);
-        virtsnd_pool_recycle(&snd->pool[VIRTIO_SND_D_OUTPUT], msg);
+        virtsnd_pool_recycle(&dir->pool, msg);
+        if (msg->gen == dir->gen && dir->buffer_frames) {
+            if (dir->inflight_frames >= msg->frames) {
+                dir->inflight_frames -= msg->frames;
+            } else {
+                dir->inflight_frames = 0;
+            }
+            if (!dir->tearing_down && dir->dev_state == VIRTSND_DEV_STARTED && dir->substream) {
+                dir->hw_pos = (dir->hw_pos + (uint32_t)msg->frames) % dir->buffer_frames;
+                substream   = dir->substream;
+            }
+        }
         spin_unlock(&snd->lock);
+
+        if (substream) ulsa_pcm_period_elapsed(substream);
     }
 }
 
-/* Drain completed capture messages: push the samples into the ring. */
+/* Drain completed capture messages, write captured samples into dma_area, and notify ULSA. */
 static void virtsnd_reap_rx(struct virtio_snd *snd)
 {
-    struct vp_virtqueue *vq = &snd->vq[VIRTIO_SND_VQ_RX];
+    struct vp_virtqueue *vq  = &snd->vq[VIRTIO_SND_VQ_RX];
+    struct virtsnd_dir  *dir = &snd->dir[VIRTIO_SND_D_INPUT];
     void                *cookie;
-    uint32_t             len;
+    uint32_t             len = 0;
 
     while ((cookie = virtqueue_get_buf(vq, &len)) != NULL) {
-        struct virtsnd_msg *msg        = cookie;
-        const size_t        status_len = sizeof(struct virtio_snd_pcm_status);
-        const size_t        payload    = (len > status_len) ? len - status_len : 0;
-        size_t              captured   = (payload < msg->length) ? payload : msg->length;
+        struct virtsnd_msg   *msg        = cookie;
+        const size_t          status_len = sizeof(struct virtio_snd_pcm_status);
+        const size_t          payload    = (len > status_len) ? len - status_len : 0;
+        size_t                captured   = (payload < msg->length) ? payload : msg->length;
+        ulsa_pcm_substream_t *substream  = NULL;
+        ulsa_pcm_runtime_t   *runtime    = NULL;
+        uint32_t              pos        = 0;
+        uint32_t              fb         = 0;
+        uint32_t              buf_frames = 0;
+        size_t                frames     = 0;
+        bool                  notify     = false;
 
-        /* Copy out before recycling: the pump may refill the payload once freed. */
-        if (captured) {
-            uint64_t          rflags = spin_lock_irqsave(&snd->card->pcm_lock);
-            audio_pcm_file_t *pf     = virtsnd_file_locked(snd, audio_node_pcm_capture);
-            if (pf) {
-                const size_t fb     = virtsnd_frame_bytes(&pf->fmt);
-                size_t       frames = fb ? captured / fb : 0;
-
-                spin_lock(&pf->lock);
-                if (frames) frames = pcm_ring_buffer_write_frames(pf, msg->mem + VIRTIO_SND_MSG_HEAD, frames);
-                spin_unlock(&pf->lock);
-                if (frames) wait_queue_wake_all(&pf->read_wait);
+        /* Inspect capture state while preserving buffer contents before recycling. */
+        spin_lock(&snd->lock);
+        if (msg->gen == dir->gen && dir->buffer_frames) {
+            if (dir->inflight_frames >= msg->frames) {
+                dir->inflight_frames -= msg->frames;
+            } else {
+                dir->inflight_frames = 0;
             }
-            spin_unlock_irqrestore(&snd->card->pcm_lock, rflags);
+            if (!dir->tearing_down && dir->dev_state == VIRTSND_DEV_STARTED && dir->substream && dir->substream->runtime && dir->substream->runtime->dma_area && dir->frame_bytes) {
+                substream  = dir->substream;
+                runtime    = substream->runtime;
+                pos        = dir->hw_pos;
+                fb         = dir->frame_bytes;
+                buf_frames = dir->buffer_frames;
+                frames     = captured / fb;
+                if (frames > msg->frames) frames = msg->frames;
+            }
+        }
+        spin_unlock(&snd->lock);
+
+        if (substream && frames) {
+            /* Safe: ops_lock blocks hw_free/close, and hw_ptr only moves after copy finishes. */
+            virtsnd_copy_to_dma(runtime, pos, msg->mem + VIRTIO_SND_MSG_HEAD, frames, fb, buf_frames);
+            notify = true;
         }
 
         spin_lock(&snd->lock);
-        virtsnd_pool_recycle(&snd->pool[VIRTIO_SND_D_INPUT], msg);
+        if (notify && msg->gen == dir->gen && !dir->tearing_down && dir->buffer_frames) {
+            dir->hw_pos = (pos + (uint32_t)frames) % dir->buffer_frames;
+        } else {
+            notify = false;
+        }
+        virtsnd_pool_recycle(&dir->pool, msg);
         spin_unlock(&snd->lock);
+
+        if (notify) ulsa_pcm_period_elapsed(substream);
     }
 }
 
-/* Stage queued playback frames and hand them to the device. */
+/* Read frames currently queued in dma_area and stream draining state under substream->lock. */
+static bool virtsnd_snapshot_avail(ulsa_pcm_substream_t *substream, snd_pcm_sframes_t *hw_avail, bool *draining, ulsa_pcm_runtime_t **rt_out)
+{
+    uint64_t            rflags = spin_lock_irqsave(&substream->lock);
+    ulsa_pcm_runtime_t *rt     = substream->runtime;
+    bool                ok     = rt && rt->dma_area && ulsa_pcm_running(substream);
+
+    if (ok) {
+        *hw_avail = ulsa_pcm_hw_avail(substream);
+        *draining = rt->status->state == SNDRV_PCM_STATE_DRAINING;
+        if (rt_out) *rt_out = rt;
+    }
+    spin_unlock_irqrestore(&substream->lock, rflags);
+    return ok;
+}
+
+/* Stage queued playback periods from dma_area and hand them to the TX queue. */
 static void virtsnd_fill_tx(struct virtio_snd *snd)
 {
-    const uint32_t stream_id = (uint32_t)snd->stream_id[VIRTIO_SND_D_OUTPUT];
-    int            submitted = 0;
+    struct virtsnd_dir *dir       = &snd->dir[VIRTIO_SND_D_OUTPUT];
+    int                 submitted = 0;
 
-    /*
-     * pcm_lock is held across the lookup and the copy so the file cannot be destroyed
-     * while we read its ring.  Driver-wide lock order: pcm_lock -> snd->lock -> pf->lock.
-     */
-    uint64_t          rflags = spin_lock_irqsave(&snd->card->pcm_lock);
-    audio_pcm_file_t *pf     = virtsnd_file_locked(snd, audio_node_pcm_playback);
+    for (;;) {
+        ulsa_pcm_substream_t *substream;
+        ulsa_pcm_runtime_t   *runtime = NULL;
+        struct virtsnd_msg   *msg;
+        snd_pcm_sframes_t     hw_avail = 0;
+        size_t                unsubmitted;
+        size_t                chunk;
+        uint32_t              buf_frames;
+        uint32_t              per_frames;
+        uint32_t              fb;
+        uint32_t              submit_pos;
+        uint64_t              gen;
+        bool                  draining = false;
 
-    if (pf && virtsnd_same_format(&pf->fmt, &snd->fmt[VIRTIO_SND_D_OUTPUT])) {
         spin_lock(&snd->lock);
-
-        /*
-         * Re-test under snd->lock, the lock stop_direction() clears running with: a fill
-         * that slipped past the pump's check blocks here until the drain finishes instead
-         * of racing new messages in after it.
-         */
-        if (snd->running[VIRTIO_SND_D_OUTPUT]) {
-            struct virtsnd_pool *pool   = &snd->pool[VIRTIO_SND_D_OUTPUT];
-            const size_t         fb     = virtsnd_frame_bytes(&pf->fmt);
-            const uint32_t       period = fb ? snd->period_bytes[VIRTIO_SND_D_OUTPUT] / (uint32_t)fb : 0;
-
-            while (period && pool->free_count) {
-                struct virtsnd_msg *msg = pool->free[pool->free_count - 1];
-                size_t              frames;
-
-                spin_lock(&pf->lock);
-                if (pcm_ring_buffer_avail(pf) < (snd_pcm_sframes_t)period) {
-                    spin_unlock(&pf->lock);
-                    break;
-                }
-                frames = pcm_ring_buffer_read_frames(pf, msg->mem + VIRTIO_SND_MSG_HEAD, period);
-                spin_unlock(&pf->lock);
-                if (frames == 0) break;
-
-                pool->free_count--;
-                pool->inflight++;
-                msg->in_flight = true;
-                msg->length    = frames * fb;
-
-                if (virtsnd_submit_tx(snd, msg, msg->length, stream_id) != EOK) {
-                    virtsnd_pool_recycle(pool, msg);
-                    break;
-                }
-                submitted++;
-            }
-        }
+        substream         = dir->substream;
+        buf_frames        = dir->buffer_frames;
+        per_frames        = dir->period_frames;
+        fb                = dir->frame_bytes;
+        gen               = dir->gen;
+        const bool active = substream && dir->dev_state == VIRTSND_DEV_STARTED && dir->want_running && !dir->tearing_down && dir->pool.free_count > 0;
         spin_unlock(&snd->lock);
 
-        /*
-         * pcm_ring_buffer_read_frames() moved hw_ptr, so the ring has room: wake
-         * writers.  pf is still pinned by pcm_lock, and the reaper never touches the
-         * ring any more.
-         */
-        if (submitted) wait_queue_wake_all(&pf->write_wait);
+        if (!active || !per_frames || !buf_frames || !fb) break;
+        if (!virtsnd_snapshot_avail(substream, &hw_avail, &draining, &runtime)) break;
+
+        spin_lock(&snd->lock);
+        if (dir->gen != gen || dir->dev_state != VIRTSND_DEV_STARTED || !dir->want_running || dir->tearing_down || dir->pool.free_count == 0) {
+            spin_unlock(&snd->lock);
+            break;
+        }
+        if (hw_avail <= (snd_pcm_sframes_t)dir->inflight_frames) {
+            spin_unlock(&snd->lock);
+            break;
+        }
+        unsubmitted = (size_t)(hw_avail - (snd_pcm_sframes_t)dir->inflight_frames);
+        if (unsubmitted >= per_frames) {
+            chunk = per_frames;
+        } else if (draining && unsubmitted > 0) {
+            chunk = unsubmitted;
+        } else {
+            spin_unlock(&snd->lock);
+            break;
+        }
+
+        msg = dir->pool.free[--dir->pool.free_count];
+        dir->pool.inflight++;
+        msg->in_flight  = true;
+        msg->frames     = chunk;
+        msg->length     = chunk * fb;
+        msg->gen        = gen;
+        msg->dir        = VIRTIO_SND_D_OUTPUT;
+        submit_pos      = dir->submit_pos;
+        dir->submit_pos = (submit_pos + (uint32_t)chunk) % buf_frames;
+        dir->inflight_frames += chunk;
+        spin_unlock(&snd->lock);
+
+        virtsnd_copy_from_dma(msg->mem + VIRTIO_SND_MSG_HEAD, runtime, submit_pos, chunk, fb, buf_frames);
+
+        if (virtsnd_submit_tx(snd, msg, msg->length, (uint32_t)dir->stream_id) != EOK) {
+            spin_lock(&snd->lock);
+            virtsnd_pool_recycle(&dir->pool, msg);
+            if (dir->gen == gen) {
+                dir->inflight_frames -= chunk;
+                dir->submit_pos = submit_pos;
+            }
+            spin_unlock(&snd->lock);
+            break;
+        }
+        submitted++;
     }
-    spin_unlock_irqrestore(&snd->card->pcm_lock, rflags);
     if (submitted) virtqueue_kick(&snd->vq[VIRTIO_SND_VQ_TX]);
 }
 
-/* Post empty capture messages wherever the ring still has room. */
+/* Post empty capture period buffers whenever the capture ring has free space. */
 static void virtsnd_fill_rx(struct virtio_snd *snd)
 {
-    const uint32_t stream_id = (uint32_t)snd->stream_id[VIRTIO_SND_D_INPUT];
-    int            submitted = 0;
+    struct virtsnd_dir *dir       = &snd->dir[VIRTIO_SND_D_INPUT];
+    int                 submitted = 0;
 
-    uint64_t          rflags = spin_lock_irqsave(&snd->card->pcm_lock);
-    audio_pcm_file_t *pf     = virtsnd_file_locked(snd, audio_node_pcm_capture);
+    for (;;) {
+        ulsa_pcm_substream_t *substream;
+        struct virtsnd_msg   *msg;
+        snd_pcm_sframes_t     hw_avail = 0;
+        size_t                free_frames;
+        uint32_t              per_frames;
+        uint32_t              fb;
+        uint64_t              gen;
+        bool                  draining = false;
 
-    if (pf && virtsnd_same_format(&pf->fmt, &snd->fmt[VIRTIO_SND_D_INPUT])) {
         spin_lock(&snd->lock);
-
-        /* See virtsnd_fill_tx(): the re-test closes the same stop/drain race. */
-        if (snd->running[VIRTIO_SND_D_INPUT]) {
-            struct virtsnd_pool *pool   = &snd->pool[VIRTIO_SND_D_INPUT];
-            const size_t         fb     = virtsnd_frame_bytes(&pf->fmt);
-            const uint32_t       period = fb ? snd->period_bytes[VIRTIO_SND_D_INPUT] / (uint32_t)fb : 0;
-
-            while (period && pool->free_count) {
-                struct virtsnd_msg *msg = pool->free[pool->free_count - 1];
-
-                spin_lock(&pf->lock);
-                const bool room = pcm_ring_buffer_space(pf) >= (snd_pcm_sframes_t)period;
-                spin_unlock(&pf->lock);
-                if (!room) break;
-
-                pool->free_count--;
-                pool->inflight++;
-                msg->in_flight = true;
-                msg->length    = (size_t)period * fb;
-
-                if (virtsnd_submit_rx(snd, msg, msg->length, stream_id) != EOK) {
-                    virtsnd_pool_recycle(pool, msg);
-                    break;
-                }
-                submitted++;
-            }
-        }
+        substream         = dir->substream;
+        per_frames        = dir->period_frames;
+        fb                = dir->frame_bytes;
+        gen               = dir->gen;
+        const bool active = substream && dir->dev_state == VIRTSND_DEV_STARTED && dir->want_running && !dir->tearing_down && dir->pool.free_count > 0;
         spin_unlock(&snd->lock);
+
+        if (!active || !per_frames || !fb) break;
+        if (!virtsnd_snapshot_avail(substream, &hw_avail, &draining, NULL)) break;
+
+        spin_lock(&snd->lock);
+        if (dir->gen != gen || dir->dev_state != VIRTSND_DEV_STARTED || !dir->want_running || dir->tearing_down || dir->pool.free_count == 0) {
+            spin_unlock(&snd->lock);
+            break;
+        }
+        if (hw_avail <= (snd_pcm_sframes_t)dir->inflight_frames) {
+            spin_unlock(&snd->lock);
+            break;
+        }
+        free_frames = (size_t)(hw_avail - (snd_pcm_sframes_t)dir->inflight_frames);
+        if (free_frames < per_frames) {
+            spin_unlock(&snd->lock);
+            break;
+        }
+
+        msg = dir->pool.free[--dir->pool.free_count];
+        dir->pool.inflight++;
+        msg->in_flight = true;
+        msg->frames    = per_frames;
+        msg->length    = (size_t)per_frames * fb;
+        msg->gen       = gen;
+        msg->dir       = VIRTIO_SND_D_INPUT;
+        dir->inflight_frames += per_frames;
+        spin_unlock(&snd->lock);
+
+        if (virtsnd_submit_rx(snd, msg, msg->length, (uint32_t)dir->stream_id) != EOK) {
+            spin_lock(&snd->lock);
+            virtsnd_pool_recycle(&dir->pool, msg);
+            if (dir->gen == gen) dir->inflight_frames -= per_frames;
+            spin_unlock(&snd->lock);
+            break;
+        }
+        submitted++;
     }
-    spin_unlock_irqrestore(&snd->card->pcm_lock, rflags);
     if (submitted) virtqueue_kick(&snd->vq[VIRTIO_SND_VQ_RX]);
 }
 
-/* Reap everything the device has finished and top the queues back up. */
-static void virtsnd_pump(struct virtio_snd *snd)
-{
-    if (!snd->card) return; // Set before the pump can ever be scheduled.
-
-    virtsnd_reap_events(snd);
-    virtsnd_reap_tx(snd);
-    virtsnd_reap_rx(snd);
-
-    for (int d = 0; d < 2; d++) {
-        spin_lock(&snd->lock);
-        const bool running = snd->running[d];
-        spin_unlock(&snd->lock);
-
-        if (!running) continue;
-        if (d == VIRTIO_SND_D_OUTPUT) {
-            virtsnd_fill_tx(snd);
-        } else {
-            virtsnd_fill_rx(snd);
-        }
-    }
-}
-
-/* Block until a direction owns no in-flight message, or the deadline passes. */
+/* Reap completed I/O and control-idle work; caller holds ops_lock. */
 static void virtsnd_wait_inflight(struct virtio_snd *snd, int d)
 {
     const uint64_t deadline = sched_ticks() + ((uint64_t)VIRTIO_SND_DRAIN_TIMEOUT_MS * CONFIG_TIMER_HZ) / 1000U;
 
     for (;;) {
+        virtsnd_reap_events(snd);
+        virtsnd_reap_tx(snd);
+        virtsnd_reap_rx(snd);
+
         spin_lock(&snd->lock);
-        const int inflight = snd->pool[d].inflight;
+        const int inflight = snd->dir[d].pool.inflight;
         spin_unlock(&snd->lock);
 
         if (inflight == 0) return;
@@ -695,40 +786,146 @@ static void virtsnd_wait_inflight(struct virtio_snd *snd, int d)
             if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: stream drain timed out with %d message(s) in flight.\n", inflight);
             return;
         }
-
-        virtsnd_pump(snd);
-        (void)wait_queue_wake_all(&snd->pump_wait);
         usleep(500);
     }
 }
 
-/*
- * Take one direction down: mark it stopped, then run STOP and RELEASE.  RELEASE makes
- * the device complete every message it still holds, which the drain below waits for.
- */
-static void virtsnd_stop_direction(struct virtio_snd *snd, int d)
+/* Stop and release one device stream synchronously and wait for its buffers; caller holds ops_lock. */
+static void virtsnd_stop_dir(struct virtio_snd *snd, int d)
 {
+    struct virtsnd_dir    *dir = &snd->dir[d];
+    enum virtsnd_dev_state state;
+    uint32_t               stream_id;
+
     spin_lock(&snd->lock);
-    const bool was_running = snd->running[d];
-    snd->running[d]        = false;
+    dir->want_running = false;
+    dir->tearing_down = true;
+    state             = dir->dev_state;
+    stream_id         = (uint32_t)dir->stream_id;
     spin_unlock(&snd->lock);
 
-    if (!was_running) return;
-    if (snd->stream_id[d] != VIRTIO_SND_NO_STREAM) {
-        const uint32_t id = (uint32_t)snd->stream_id[d];
-        (void)virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_STOP, id);
-        (void)virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_RELEASE, id);
+    if (dir->stream_id != VIRTIO_SND_NO_STREAM) {
+        if (state == VIRTSND_DEV_STARTED) {
+            (void)virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_STOP, stream_id);
+            state = VIRTSND_DEV_STOPPED;
+        }
+        if (state == VIRTSND_DEV_PREPARED || state == VIRTSND_DEV_STOPPED) {
+            (void)virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_RELEASE, stream_id);
+            state = VIRTSND_DEV_RELEASED;
+        }
     }
 
     virtsnd_wait_inflight(snd, d);
+
+    spin_lock(&snd->lock);
+    dir->dev_state       = state;
+    dir->tearing_down    = false;
+    dir->inflight_frames = 0;
+    dir->gen++;
+    spin_unlock(&snd->lock);
 }
 
-/*
- * Pump worker: reaps completions, refills the queues, then sleeps.  The interrupt wakes
- * it as soon as the device finishes a message, so a short deadline is only needed while
- * a running stream has gone idle and the application may stage data at any moment; a
- * missing interrupt leaves the short deadline in place and the pump becomes a timer.
- */
+/* Start a prepared (or released) stream on the device; caller holds ops_lock. */
+static void virtsnd_start_dir(struct virtio_snd *snd, int d)
+{
+    struct virtsnd_dir    *dir = &snd->dir[d];
+    enum virtsnd_dev_state state;
+    uint32_t               stream_id;
+    bool                   can_start;
+    int                    ret;
+
+    spin_lock(&snd->lock);
+    state     = dir->dev_state;
+    stream_id = (uint32_t)dir->stream_id;
+    can_start = dir->want_running && dir->params_valid && dir->substream != NULL && dir->stream_id != VIRTIO_SND_NO_STREAM;
+    spin_unlock(&snd->lock);
+
+    if (!can_start || state == VIRTSND_DEV_STARTED) return;
+
+    if (state == VIRTSND_DEV_STOPPED) {
+        ret = virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_RELEASE, stream_id);
+        if (ret != EOK) return;
+        state = VIRTSND_DEV_RELEASED;
+    }
+    if (state == VIRTSND_DEV_PARAMS_SET || state == VIRTSND_DEV_RELEASED) {
+        ret = virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_PREPARE, stream_id);
+        if (ret != EOK) return;
+        state = VIRTSND_DEV_PREPARED;
+    }
+    if (state == VIRTSND_DEV_PREPARED) {
+        ret = virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_START, stream_id);
+        if (ret == EOK) state = VIRTSND_DEV_STARTED;
+    }
+
+    spin_lock(&snd->lock);
+    dir->dev_state          = state;
+    const bool still_wanted = dir->want_running;
+    spin_unlock(&snd->lock);
+
+    if (state == VIRTSND_DEV_STARTED && !still_wanted) virtsnd_stop_dir(snd, d);
+}
+
+/* Drain used buffers, execute pending START/STOP transitions, and refill queues. */
+static void virtsnd_pump(struct virtio_snd *snd)
+{
+    if (!snd->card) return;
+
+    mutex_lock(&snd->ops_lock);
+    for (int d = 0; d < 2; d++) {
+        spin_lock(&snd->lock);
+        snd->dir[d].kick = false;
+        spin_unlock(&snd->lock);
+    }
+
+    virtsnd_reap_events(snd);
+    virtsnd_reap_tx(snd);
+    virtsnd_reap_rx(snd);
+
+    for (int d = 0; d < 2; d++) {
+        struct virtsnd_dir *dir = &snd->dir[d];
+
+        spin_lock(&snd->lock);
+        const bool                   want = dir->want_running;
+        const enum virtsnd_dev_state st   = dir->dev_state;
+        spin_unlock(&snd->lock);
+
+        if (!want && st == VIRTSND_DEV_STARTED) {
+            virtsnd_stop_dir(snd, d);
+        } else if (want && st != VIRTSND_DEV_STARTED) {
+            virtsnd_start_dir(snd, d);
+        }
+
+        spin_lock(&snd->lock);
+        const bool ready = dir->want_running && dir->dev_state == VIRTSND_DEV_STARTED;
+        spin_unlock(&snd->lock);
+
+        if (!ready) continue;
+        if (d == VIRTIO_SND_D_OUTPUT) {
+            virtsnd_fill_tx(snd);
+        } else {
+            virtsnd_fill_rx(snd);
+        }
+    }
+    mutex_unlock(&snd->ops_lock);
+}
+
+/* Check whether any direction has work ready that would be missed if the worker slept. */
+static bool virtsnd_has_pending_work(struct virtio_snd *snd)
+{
+    bool pending = false;
+
+    spin_lock(&snd->lock);
+    for (int d = 0; d < 2; d++) {
+        const struct virtsnd_dir *dir = &snd->dir[d];
+        if (dir->kick) pending = true;
+        if (dir->want_running && dir->dev_state != VIRTSND_DEV_STARTED && dir->params_valid) pending = true;
+        if (!dir->want_running && dir->dev_state == VIRTSND_DEV_STARTED) pending = true;
+    }
+    spin_unlock(&snd->lock);
+    return pending;
+}
+
+/* Pump worker: synchronizes stream state transitions, reaps completions, and feeds queues. */
 static int virtsnd_worker(void *arg)
 {
     struct virtio_snd *snd = arg;
@@ -737,16 +934,17 @@ static int virtsnd_worker(void *arg)
         virtsnd_pump(snd);
 
         spin_lock(&snd->lock);
-        const bool running  = snd->running[VIRTIO_SND_D_OUTPUT] || snd->running[VIRTIO_SND_D_INPUT];
-        const int  inflight = snd->pool[VIRTIO_SND_D_OUTPUT].inflight + snd->pool[VIRTIO_SND_D_INPUT].inflight;
+        const bool running  = snd->dir[VIRTIO_SND_D_OUTPUT].dev_state == VIRTSND_DEV_STARTED || snd->dir[VIRTIO_SND_D_INPUT].dev_state == VIRTSND_DEV_STARTED;
+        const int  inflight = snd->dir[VIRTIO_SND_D_OUTPUT].pool.inflight + snd->dir[VIRTIO_SND_D_INPUT].pool.inflight;
         spin_unlock(&snd->lock);
 
         const bool     idle_stream = running && inflight == 0;
         const uint64_t deadline    = (idle_stream || !snd->irq_enabled) ? sched_ticks() + VIRTIO_SND_IDLE_TICKS : sched_ticks() + VIRTIO_SND_SAFETY_TICKS;
         wait_queue_prepare(&snd->pump_wait);
 
-        /* Recheck the used rings before committing to the sleep. */
-        if (virtqueue_enable_cb(&snd->vq[VIRTIO_SND_VQ_TX]) || virtqueue_enable_cb(&snd->vq[VIRTIO_SND_VQ_RX]) || virtqueue_enable_cb(&snd->vq[VIRTIO_SND_VQ_EVENT])) {
+        /* Recheck state transitions, explicit kicks, and used rings before sleeping. */
+        if (kthread_should_stop() || virtsnd_has_pending_work(snd) || virtqueue_enable_cb(&snd->vq[VIRTIO_SND_VQ_TX]) || virtqueue_enable_cb(&snd->vq[VIRTIO_SND_VQ_RX])
+            || virtqueue_enable_cb(&snd->vq[VIRTIO_SND_VQ_EVENT])) {
             wait_queue_cancel(&snd->pump_wait);
             continue;
         }
@@ -755,201 +953,275 @@ static int virtsnd_worker(void *arg)
     return EOK;
 }
 
-/* audio callback: validate a format against every stream the device exposes. */
-static int virtsnd_set_format(audio_card_t *card, const audio_pcm_format_t *format)
+/* ULSA callback: expose device capabilities and constraints for one substream. */
+static int virtsnd_pcm_open(ulsa_pcm_substream_t *substream)
 {
-    struct virtio_snd *snd = card->driver_data;
-    int                ret;
-    if (!snd || !format) return -EINVAL;
+    struct virtio_snd           *snd     = substream->pcm->private_data;
+    const int                    d       = virtsnd_dir_index(substream);
+    struct virtsnd_dir          *dir     = &snd->dir[d];
+    ulsa_pcm_runtime_t          *runtime = substream->runtime;
+    const struct virtsnd_stream *vs;
+    uint64_t                     formats;
+    unsigned int                 rates;
+    unsigned int                 rate_min = 0;
+    unsigned int                 rate_max = 0;
+    unsigned int                 ch_min;
+    unsigned int                 ch_max;
+    int                          ret;
 
-    ret = virtsnd_check_format(snd, VIRTIO_SND_NO_STREAM, format, NULL, NULL);
-    if (ret != EOK) return ret;
+    if (!snd->worker_started || dir->stream_id == VIRTIO_SND_NO_STREAM) return -ENODEV;
 
-    card->format = *format;
+    vs      = &snd->streams[dir->stream_id];
+    formats = virtsnd_build_formats(vs->formats);
+    rates   = virtsnd_build_rates(vs->rates, &rate_min, &rate_max);
+    if (!formats || !rates) return -EINVAL;
+
+    ch_min = vs->channels_min ? vs->channels_min : 1U;
+    ch_max = vs->channels_max >= ch_min ? vs->channels_max : ch_min;
+
+    memset(&runtime->hw, 0, sizeof(runtime->hw));
+    runtime->hw.info             = SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_BATCH | SNDRV_PCM_INFO_BLOCK_TRANSFER | SNDRV_PCM_INFO_INTERLEAVED | SNDRV_PCM_INFO_DRAIN_TRIGGER;
+    runtime->hw.formats          = formats;
+    runtime->hw.rates            = rates;
+    runtime->hw.rate_min         = rate_min;
+    runtime->hw.rate_max         = rate_max;
+    runtime->hw.channels_min     = ch_min;
+    runtime->hw.channels_max     = ch_max;
+    runtime->hw.buffer_bytes_max = 256UL * 1024UL;
+    runtime->hw.period_bytes_min = 256U;
+    runtime->hw.period_bytes_max = 64UL * 1024UL;
+    runtime->hw.periods_min      = 2U;
+    runtime->hw.periods_max      = 64U;
+
+    /* QEMU rejects SET_PARAMS unless buffer_bytes is an exact multiple of period_bytes. */
+    ret = ulsa_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS);
+    if (ret < 0) return ret;
+
+    mutex_lock(&snd->ops_lock);
+    if (dir->substream) {
+        mutex_unlock(&snd->ops_lock);
+        return -EBUSY;
+    }
+    spin_lock(&snd->lock);
+    dir->substream       = substream;
+    dir->params_valid    = false;
+    dir->want_running    = false;
+    dir->hw_pos          = 0;
+    dir->submit_pos      = 0;
+    dir->inflight_frames = 0;
+    spin_unlock(&snd->lock);
+    mutex_unlock(&snd->ops_lock);
     return EOK;
 }
 
-/* audio callback: adopt buffer/period/format for the direction being set up. */
-static int virtsnd_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes)
+/* ULSA callback: tear down and detach one substream on close. */
+static int virtsnd_pcm_close(ulsa_pcm_substream_t *substream)
 {
-    struct virtio_snd *snd = card->driver_data;
-    int                ret = -EINVAL;
-    int                d;
+    struct virtio_snd  *snd = substream->pcm->private_data;
+    const int           d   = virtsnd_dir_index(substream);
+    struct virtsnd_dir *dir = &snd->dir[d];
 
-    if (!snd || !fmt || buffer_bytes == 0 || buffer_bytes > UINT32_MAX) return -EINVAL;
-
-    /*
-     * The core reports parameters card-wide, but the values come from one file's
-     * hw_params(), so match them against the open files to recover the direction:
-     * that keeps a reconfiguration of one stream from tearing down the other and
-     * lets each direction keep its own period.
-     */
-    d               = VIRTIO_SND_NO_STREAM;
-    uint64_t rflags = spin_lock_irqsave(&snd->card->pcm_lock);
-    for (audio_pcm_file_t *pf = snd->card->pcm_files; pf; pf = pf->next) {
-        if (pf->state == SNDRV_PCM_STATE_OPEN) continue;
-        if (!virtsnd_same_format(&pf->fmt, fmt)) continue;
-        if (pf->ring_buf_size != buffer_bytes || pf->period_bytes != period_bytes) continue;
-        d = (pf->type == audio_node_pcm_capture) ? VIRTIO_SND_D_INPUT : VIRTIO_SND_D_OUTPUT;
-        break;
-    }
-    spin_unlock_irqrestore(&snd->card->pcm_lock, rflags);
     mutex_lock(&snd->ops_lock);
+    virtsnd_stop_dir(snd, d);
+    virtsnd_pool_release(&dir->pool);
 
-    const size_t   fb     = virtsnd_frame_bytes(fmt);
-    const uint32_t period = virtsnd_period_for((uint32_t)buffer_bytes, (uint32_t)period_bytes, (uint32_t)fb);
+    spin_lock(&snd->lock);
+    dir->substream     = NULL;
+    dir->params_valid  = false;
+    dir->buffer_frames = 0;
+    dir->period_frames = 0;
+    dir->frame_bytes   = 0;
+    spin_unlock(&snd->lock);
+    mutex_unlock(&snd->ops_lock);
+    return EOK;
+}
 
-    /* Reconfiguration is always safe on an unknown direction: apply it to both. */
-    const int first = (d == VIRTIO_SND_NO_STREAM) ? 0 : d;
-    const int last  = (d == VIRTIO_SND_NO_STREAM) ? 1 : d;
+/* ULSA callback: allocate the period message pool and send SET_PARAMS to the device. */
+static int virtsnd_pcm_hw_params(ulsa_pcm_substream_t *substream, struct snd_pcm_hw_params *params)
+{
+    struct virtio_snd               *snd       = substream->pcm->private_data;
+    const int                        d         = virtsnd_dir_index(substream);
+    struct virtsnd_dir              *dir       = &snd->dir[d];
+    const snd_pcm_format_t           fmt       = ulsa_params_format(params);
+    const unsigned int               rate      = ulsa_params_rate(params);
+    const unsigned int               channels  = ulsa_params_channels(params);
+    const size_t                     buf_bytes = ulsa_params_buffer_bytes(params);
+    const size_t                     per_bytes = ulsa_params_period_bytes(params);
+    const unsigned int               periods   = ulsa_params_periods(params);
+    const int                        vformat   = virtsnd_to_vformat(fmt);
+    const int                        vrate     = virtsnd_to_vrate(rate);
+    const int                        phys_bits = ulsa_pcm_format_physical_width(fmt);
+    struct virtio_snd_pcm_set_params req;
+    int                              count;
+    int                              ret;
 
-    for (int i = first; i <= last; i++) {
-        /* Only the direction being reconfigured stops; the other keeps running. */
-        virtsnd_stop_direction(snd, i);
+    if (vformat < 0 || vrate < 0 || phys_bits <= 0) return -EINVAL;
+    if (per_bytes == 0 || buf_bytes == 0 || (buf_bytes % per_bytes) != 0) return -EINVAL;
 
-        int count = (int)((uint32_t)buffer_bytes / period);
-        if (count < 2) count = 2;
-        if (count > VIRTIO_SND_MSGS_MAX) count = VIRTIO_SND_MSGS_MAX;
+    count = (int)(periods < VIRTIO_SND_MSGS_MAX ? periods : VIRTIO_SND_MSGS_MAX);
+    if (count < 2) count = 2;
 
-        spin_lock(&snd->lock);
-        if (snd->pool[i].inflight) {
-            spin_unlock(&snd->lock);
-            ret = -EBUSY;
-            continue;
-        }
+    mutex_lock(&snd->ops_lock);
+    virtsnd_stop_dir(snd, d);
+    virtsnd_pool_release(&dir->pool);
 
-        virtsnd_pool_release(&snd->pool[i]);
-        ret = virtsnd_pool_alloc(&snd->pool[i], count, period);
-        if (ret == EOK) {
-            snd->buffer_bytes[i] = (uint32_t)buffer_bytes;
-            snd->period_bytes[i] = period;
-            snd->fmt[i]          = *fmt;
-            snd->params_valid[i] = true;
-        } else {
-            virtsnd_pool_release(&snd->pool[i]);
-            snd->params_valid[i] = false;
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: failed to allocate %d message(s) of %u bytes: %d\n", count, period, ret);
-        }
-        spin_unlock(&snd->lock);
+    ret = virtsnd_pool_alloc(&dir->pool, count, (uint32_t)per_bytes, (uint32_t)d);
+    if (ret != EOK) goto out;
+
+    memset(&req, 0, sizeof(req));
+    req.hdr.hdr.code  = VIRTIO_SND_R_PCM_SET_PARAMS;
+    req.hdr.stream_id = (uint32_t)dir->stream_id;
+    req.buffer_bytes  = (uint32_t)buf_bytes;
+    req.period_bytes  = (uint32_t)per_bytes;
+    req.features      = 0;
+    req.channels      = (uint8_t)channels;
+    req.format        = (uint8_t)vformat;
+    req.rate          = (uint8_t)vrate;
+
+    ret = virtsnd_ctl(snd, &req, sizeof(req), NULL, 0);
+    if (ret != EOK) {
+        virtsnd_pool_release(&dir->pool);
+        goto out;
     }
 
+    spin_lock(&snd->lock);
+    dir->dev_state     = VIRTSND_DEV_PARAMS_SET;
+    dir->params_valid  = true;
+    dir->buffer_bytes  = (uint32_t)buf_bytes;
+    dir->period_bytes  = (uint32_t)per_bytes;
+    dir->frame_bytes   = (uint32_t)(phys_bits / 8) * channels;
+    dir->buffer_frames = ulsa_params_buffer_size(params);
+    dir->period_frames = ulsa_params_period_size(params);
+    dir->hw_pos        = 0;
+    dir->submit_pos    = 0;
+    spin_unlock(&snd->lock);
+out:
     mutex_unlock(&snd->ops_lock);
     return ret;
 }
 
-/* audio callback: arm every ready direction on the device. */
-static int virtsnd_start(audio_card_t *card)
+/* ULSA callback: release device stream and free driver-side message pool. */
+static int virtsnd_pcm_hw_free(ulsa_pcm_substream_t *substream)
 {
-    struct virtio_snd *snd = card->driver_data;
-    int                ret = EOK;
+    struct virtio_snd  *snd = substream->pcm->private_data;
+    const int           d   = virtsnd_dir_index(substream);
+    struct virtsnd_dir *dir = &snd->dir[d];
 
-    if (!snd) return -ENODEV;
     mutex_lock(&snd->ops_lock);
+    virtsnd_stop_dir(snd, d);
+    virtsnd_pool_release(&dir->pool);
 
-    if (!snd->worker_started) {
-        ret = -EIO;
-        goto done;
+    spin_lock(&snd->lock);
+    dir->params_valid    = false;
+    dir->hw_pos          = 0;
+    dir->submit_pos      = 0;
+    dir->inflight_frames = 0;
+    spin_unlock(&snd->lock);
+    mutex_unlock(&snd->ops_lock);
+    return EOK;
+}
+
+/* ULSA callback: move device stream to PREPARED and zero hardware cursors. */
+static int virtsnd_pcm_prepare(ulsa_pcm_substream_t *substream)
+{
+    struct virtio_snd  *snd = substream->pcm->private_data;
+    const int           d   = virtsnd_dir_index(substream);
+    struct virtsnd_dir *dir = &snd->dir[d];
+    int                 ret;
+
+    mutex_lock(&snd->ops_lock);
+    virtsnd_stop_dir(snd, d);
+    if (!dir->params_valid || dir->stream_id == VIRTIO_SND_NO_STREAM) {
+        mutex_unlock(&snd->ops_lock);
+        return -EINVAL;
     }
-    for (int d = 0; d < 2; d++) {
-        const uint32_t          id      = (uint32_t)snd->stream_id[d];
-        const audio_node_type_t type    = (d == VIRTIO_SND_D_OUTPUT) ? audio_node_pcm_playback : audio_node_pcm_capture;
-        uint32_t                vformat = 0;
-        uint32_t                vrate   = 0;
 
-        if (snd->stream_id[d] == VIRTIO_SND_NO_STREAM) continue;
-        if (!virtsnd_direction_ready(snd, type)) continue;
-
+    ret = virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_PREPARE, (uint32_t)dir->stream_id);
+    if (ret == EOK) {
         spin_lock(&snd->lock);
-        const bool started = snd->running[d];
+        dir->dev_state       = VIRTSND_DEV_PREPARED;
+        dir->hw_pos          = 0;
+        dir->submit_pos      = 0;
+        dir->inflight_frames = 0;
+        dir->want_running    = false;
+        dir->tearing_down    = false;
+        dir->gen++;
         spin_unlock(&snd->lock);
+    }
+    mutex_unlock(&snd->ops_lock);
+    return ret;
+}
 
-        if (started) continue;
-        if (!snd->params_valid[d]) {
-            /*
-             * SET_PARAMS never reached the device for a file already allowed to block:
-             * skipping silently reports EOK, the core publishes RUNNING, and read() then
-             * sleeps forever with no output.  A file still in SETUP cannot wait yet, so
-             * leaving it alone keeps an unconfigured capture node from failing someone
-             * else's start.
-             */
-            if (virtsnd_direction_pending(snd, type)) {
-                static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-                if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: %s file needs the stream but stream %u has no parameters.\n", d == VIRTIO_SND_D_OUTPUT ? "playback" : "capture", id);
-                ret = -EBADFD;
-                break;
-            }
-            continue;
-        }
+/* ULSA callback: request async start/stop/drain on the pump worker (atomic context). */
+static int virtsnd_pcm_trigger(ulsa_pcm_substream_t *substream, int cmd)
+{
+    struct virtio_snd  *snd = substream->pcm->private_data;
+    const int           d   = virtsnd_dir_index(substream);
+    struct virtsnd_dir *dir = &snd->dir[d];
 
-        /*
-         * Device sequence: SET_PARAMS -> PREPARE -> START; running[] is raised only once
-         * START was accepted.  The device completes TX buffers queued on a stopped
-         * stream without playing them (silently dropping the first period) and rejects
-         * STOP for a stream never started (a protocol error that takes the whole device
-         * down), so arming the pump early loses audio and poisons the state on a failed
-         * start; arming it last costs only the microseconds before the first fill.
-         */
-        ret = virtsnd_check_format(snd, d, &snd->fmt[d], &vformat, &vrate);
-        if (ret == EOK) ret = virtsnd_pcm_params(snd, d, vformat, vrate);
-        if (ret == EOK) ret = virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_PREPARE, id);
-        if (ret == EOK) ret = virtsnd_pcm_request(snd, VIRTIO_SND_R_PCM_START, id);
-        if (ret != EOK) {
-            /* Nothing was armed, so there is no buffer queued to unwind. */
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("virtio_snd: failed to start %s stream %u: %d\n", d == VIRTIO_SND_D_OUTPUT ? "playback" : "capture", id, ret);
+    spin_lock(&snd->lock);
+    switch (cmd) {
+        case ULSA_PCM_TRIGGER_START :
+            dir->want_running = true;
+            dir->kick         = true;
             break;
-        }
-
-        spin_lock(&snd->lock);
-        snd->running[d] = true;
-        spin_unlock(&snd->lock);
-
-        /* First capture buffers go out now; the device picks them up on its next tick. */
-        if (d == VIRTIO_SND_D_INPUT) virtsnd_fill_rx(snd);
+        case ULSA_PCM_TRIGGER_STOP :
+            dir->want_running = false;
+            dir->kick         = true;
+            break;
+        case ULSA_PCM_TRIGGER_DRAIN :
+            dir->kick = true;
+            break;
+        default :
+            spin_unlock(&snd->lock);
+            return -EINVAL;
     }
+    spin_unlock(&snd->lock);
+
     (void)wait_queue_wake_all(&snd->pump_wait);
-done:
-    mutex_unlock(&snd->ops_lock);
-    return ret;
-}
-
-/* audio callback: stop both directions and wait for the device to let go. */
-static int virtsnd_stop(audio_card_t *card)
-{
-    struct virtio_snd *snd = card->driver_data;
-    if (!snd) return -ENODEV;
-
-    mutex_lock(&snd->ops_lock);
-    virtsnd_stop_direction(snd, VIRTIO_SND_D_OUTPUT);
-    virtsnd_stop_direction(snd, VIRTIO_SND_D_INPUT);
-    (void)wait_queue_wake_all(&snd->pump_wait);
-    mutex_unlock(&snd->ops_lock);
-
     return EOK;
 }
 
-/* audio callback: wait for staged playback to drain, then stop the stream. */
-static int virtsnd_drain(audio_card_t *card)
+/* ULSA callback: report the completed ring position in frames (atomic context). */
+static snd_pcm_uframes_t virtsnd_pcm_pointer(ulsa_pcm_substream_t *substream)
 {
-    struct virtio_snd *snd = card->driver_data;
-    if (!snd) return -ENODEV;
+    struct virtio_snd  *snd = substream->pcm->private_data;
+    const int           d   = virtsnd_dir_index(substream);
+    struct virtsnd_dir *dir = &snd->dir[d];
+    snd_pcm_uframes_t   pos;
 
-    mutex_lock(&snd->ops_lock);
-    virtsnd_wait_inflight(snd, VIRTIO_SND_D_OUTPUT);
-    virtsnd_stop_direction(snd, VIRTIO_SND_D_OUTPUT);
-    (void)wait_queue_wake_all(&snd->pump_wait);
-    mutex_unlock(&snd->ops_lock);
+    spin_lock(&snd->lock);
+    pos = dir->hw_pos;
+    spin_unlock(&snd->lock);
+    return pos;
+}
 
+/* ULSA callback: nudge the pump worker when user space updates appl_ptr. */
+static int virtsnd_pcm_ack(ulsa_pcm_substream_t *substream)
+{
+    struct virtio_snd  *snd = substream->pcm->private_data;
+    const int           d   = virtsnd_dir_index(substream);
+    struct virtsnd_dir *dir = &snd->dir[d];
+    bool                notify;
+
+    spin_lock(&snd->lock);
+    notify = dir->want_running;
+    if (notify) dir->kick = true;
+    spin_unlock(&snd->lock);
+
+    if (notify) (void)wait_queue_wake_all(&snd->pump_wait);
     return EOK;
 }
 
-static const audio_card_ops_t virtsnd_audio_ops = {
-    .set_format = virtsnd_set_format,
-    .start      = virtsnd_start,
-    .stop       = virtsnd_stop,
-    .drain      = virtsnd_drain,
-    .set_params = virtsnd_set_params,
+static const ulsa_pcm_ops_t virtsnd_pcm_ops = {
+    .open      = virtsnd_pcm_open,
+    .close     = virtsnd_pcm_close,
+    .hw_params = virtsnd_pcm_hw_params,
+    .hw_free   = virtsnd_pcm_hw_free,
+    .prepare   = virtsnd_pcm_prepare,
+    .trigger   = virtsnd_pcm_trigger,
+    .pointer   = virtsnd_pcm_pointer,
+    .ack       = virtsnd_pcm_ack,
 };
 
 /* Read the ISR status to clear the line and wake everything waiting on it. */
@@ -1032,7 +1304,6 @@ static int virtsnd_vq_init(struct virtio_snd *snd)
     }
     if (setup != VIRTIO_SND_VQ_MAX) goto fail;
 
-    /* Control staging pages are reused for every exchange, under snd->ctl_lock. */
     snd->ctl_req  = virtsnd_alloc_page();
     snd->ctl_resp = virtsnd_alloc_page();
     if (!snd->ctl_req || !snd->ctl_resp) {
@@ -1040,7 +1311,6 @@ static int virtsnd_vq_init(struct virtio_snd *snd)
         goto fail;
     }
 
-    /* Pre-post event buffers so the device never blocks trying to notify us. */
     {
         struct vp_virtqueue *vq    = &snd->vq[VIRTIO_SND_VQ_EVENT];
         int                  count = vq->num_max < VIRTIO_SND_EVENTS_MAX ? vq->num_max : VIRTIO_SND_EVENTS_MAX;
@@ -1082,11 +1352,18 @@ static int virtsnd_query_streams(struct virtio_snd *snd)
     struct virtio_snd_pcm_info  *info;
     int                          ret;
 
-    snd->streams = calloc(count, sizeof(*snd->streams));
+    _Static_assert((size_t)VIRTIO_SND_STREAMS_MAX * sizeof(*info) <= PAGE_4K_SIZE, "PCM info page");
+    if (count == 0 || count > VIRTIO_SND_STREAMS_MAX) return -EINVAL;
+
+    snd->streams = calloc(VIRTIO_SND_STREAMS_MAX, sizeof(*snd->streams));
     if (!snd->streams) return -ENOMEM;
 
-    info = calloc(count, sizeof(*info));
-    if (!info) return -ENOMEM;
+    info = (struct virtio_snd_pcm_info *)virtsnd_alloc_page();
+    if (!info) {
+        free(snd->streams);
+        snd->streams = NULL;
+        return -ENOMEM;
+    }
 
     memset(&req, 0, sizeof(req));
     req.hdr.code = VIRTIO_SND_R_PCM_INFO;
@@ -1104,26 +1381,25 @@ static int virtsnd_query_streams(struct virtio_snd *snd)
             snd->streams[i].channels_min = info[i].channels_min;
             snd->streams[i].channels_max = info[i].channels_max;
 
-            if (info[i].direction == VIRTIO_SND_D_OUTPUT && snd->stream_id[VIRTIO_SND_D_OUTPUT] == VIRTIO_SND_NO_STREAM) {
-                snd->stream_id[VIRTIO_SND_D_OUTPUT] = (int)i;
-            } else if (info[i].direction == VIRTIO_SND_D_INPUT && snd->stream_id[VIRTIO_SND_D_INPUT] == VIRTIO_SND_NO_STREAM) {
-                snd->stream_id[VIRTIO_SND_D_INPUT] = (int)i;
+            if (info[i].direction == VIRTIO_SND_D_OUTPUT && snd->dir[VIRTIO_SND_D_OUTPUT].stream_id == VIRTIO_SND_NO_STREAM) {
+                snd->dir[VIRTIO_SND_D_OUTPUT].stream_id = (int)i;
+            } else if (info[i].direction == VIRTIO_SND_D_INPUT && snd->dir[VIRTIO_SND_D_INPUT].stream_id == VIRTIO_SND_NO_STREAM) {
+                snd->dir[VIRTIO_SND_D_INPUT].stream_id = (int)i;
             }
         }
     }
 
-    free(info);
+    virtsnd_free_page(info);
     return ret;
 }
 
 /* Give back everything held before the sound card was published. */
 static void virtsnd_cleanup(struct virtio_snd *snd)
 {
-    /* Stop the ISR from reaching this device before anything is torn down. */
     virtsnd_irq_fini(snd);
 
-    virtsnd_pool_release(&snd->pool[VIRTIO_SND_D_OUTPUT]);
-    virtsnd_pool_release(&snd->pool[VIRTIO_SND_D_INPUT]);
+    virtsnd_pool_release(&snd->dir[VIRTIO_SND_D_OUTPUT].pool);
+    virtsnd_pool_release(&snd->dir[VIRTIO_SND_D_INPUT].pool);
     virtsnd_free_page(snd->ctl_req);
     virtsnd_free_page(snd->ctl_resp);
     virtsnd_free_page(snd->events);
@@ -1141,23 +1417,24 @@ static void virtsnd_cleanup(struct virtio_snd *snd)
     vp_release_device(&snd->vp);
 }
 
-/* Probe a virtio-snd device, publish a card for it and start its pump. */
+/* Probe a virtio-snd device, register its ULSA card/PCM, and start its pump worker. */
 void virtio_snd_init(void)
 {
     struct virtio_snd *snd;
-    audio_pcm_format_t fmt;
+    ulsa_card_t       *card     = NULL;
+    ulsa_pcm_t        *pcm      = NULL;
     uint64_t           features = 0;
-    int                ret      = EOK;
-    int                card_id;
+    int                playback_count;
+    int                capture_count;
+    int                ret;
 
     snd = malloc(sizeof(*snd));
     if (!snd) return;
     memset(snd, 0, sizeof(*snd));
 
-    snd->stream_id[VIRTIO_SND_D_OUTPUT] = VIRTIO_SND_NO_STREAM;
-    snd->stream_id[VIRTIO_SND_D_INPUT]  = VIRTIO_SND_NO_STREAM;
-    snd->lock.lock                      = 0;
-    snd->lock.rflags                    = 0;
+    snd->dir[VIRTIO_SND_D_OUTPUT].stream_id = VIRTIO_SND_NO_STREAM;
+    snd->dir[VIRTIO_SND_D_INPUT].stream_id  = VIRTIO_SND_NO_STREAM;
+    snd->lock.rflags                        = 0;
     mutex_init(&snd->ops_lock);
     mutex_init(&snd->ctl_lock);
     wait_queue_init(&snd->ctl_wait);
@@ -1167,21 +1444,18 @@ void virtio_snd_init(void)
     if (ret != EOK) ret = vp_find_device(PCI_VENDOR_ID_REDHAT, PCI_DEVICE_ID_VIRTIO_SOUND_LEGACY, &snd->vp);
     if (ret != EOK) {
         free(snd);
-        return; // No virtio-snd device: probe quietly, like hda_init().
+        return;
     }
 
-    /* Virtqueues need DMA, so enable mem decoding and bus mastering first. */
     pci_enable_device(snd->vp.pci_dev, PCI_CMD_MEM | PCI_CMD_BUSMASTER);
     vp_setup_device(&snd->vp);
 
-    /* virtio-snd only exists on a version-1 device (specification 5.14.6). */
     ret = vp_negotiate_features(&snd->vp, (1ULL << VIRTIO_F_VERSION_1), &features);
     if (ret != EOK || !(features & (1ULL << VIRTIO_F_VERSION_1))) {
         plogk("virtio_snd: device does not offer VIRTIO_F_VERSION_1 (features 0x%016llx)\n", features);
         goto fail_device;
     }
 
-    /* FEATURES_OK has to be set and read back before the queues come up. */
     vp_set_status(&snd->vp, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK);
     compiler_barrier();
     if (!(vp_get_status(&snd->vp) & VIRTIO_STATUS_FEATURES_OK)) {
@@ -1192,7 +1466,6 @@ void virtio_snd_init(void)
     ret = virtsnd_vq_init(snd);
     if (ret != EOK) goto fail_device;
 
-    /* DRIVER_OK last: the device starts using the queues from here on. */
     compiler_barrier();
     vp_set_status(&snd->vp, vp_get_status(&snd->vp) | VIRTIO_STATUS_DRIVER_OK);
     compiler_barrier();
@@ -1208,41 +1481,51 @@ void virtio_snd_init(void)
         plogk("virtio_snd: VIRTIO_SND_R_PCM_INFO failed: %d\n", ret);
         goto fail_queues;
     }
-    if (snd->stream_id[VIRTIO_SND_D_OUTPUT] == VIRTIO_SND_NO_STREAM && snd->stream_id[VIRTIO_SND_D_INPUT] == VIRTIO_SND_NO_STREAM) {
+    playback_count = (snd->dir[VIRTIO_SND_D_OUTPUT].stream_id != VIRTIO_SND_NO_STREAM) ? 1 : 0;
+    capture_count  = (snd->dir[VIRTIO_SND_D_INPUT].stream_id != VIRTIO_SND_NO_STREAM) ? 1 : 0;
+    if (!playback_count && !capture_count) {
         plogk("virtio_snd: device exposes no playback or capture stream.\n");
         goto fail_queues;
     }
 
-    fmt.sample_rate = 48000;
-    fmt.bits        = 16;
-    fmt.channels    = 2;
-
-    /* Report the device before publishing the card, as hda_init() and sb16_init() do. */
-    virtsnd_irq_init(snd); // Best effort: the pump polls on a short deadline without it.
-    plogk("virtio_snd: %u stream(s), playback id %d, capture id %d, %s interrupts.\n", snd->cfg.streams, snd->stream_id[VIRTIO_SND_D_OUTPUT], snd->stream_id[VIRTIO_SND_D_INPUT],
+    virtsnd_irq_init(snd);
+    plogk("virtio_snd: %u stream(s), playback id %d, capture id %d, %s interrupts.\n", snd->cfg.streams, snd->dir[VIRTIO_SND_D_OUTPUT].stream_id, snd->dir[VIRTIO_SND_D_INPUT].stream_id,
           snd->irq_enabled ? "MSI-X" : "timed");
 
-    card_id = audio_register_card("VirtIO Sound", &fmt, &virtsnd_audio_ops, snd);
-    if (card_id < 0) {
-        plogk("virtio_snd: sound card registration failed: %d\n", card_id);
+    ret = ulsa_card_new(-1, "virtiosnd", &card);
+    if (ret != EOK) {
+        plogk("virtio_snd: ulsa_card_new failed: %d\n", ret);
         goto fail_queues;
     }
+    strncpy(card->driver, "virtio-snd", sizeof(card->driver) - 1);
+    strncpy(card->shortname, "VirtIO SoundCard", sizeof(card->shortname) - 1);
+    strncpy(card->longname, "VirtIO SoundCard", sizeof(card->longname) - 1);
+    card->private_data = snd;
 
-    snd->card = audio_get_card((uint32_t)card_id);
-    if (!snd->card) {
-        /*
-         * Impossible: the id was just handed out.  Keep the device alive with the data
-         * path disabled rather than freeing memory the registered card still points at.
-         */
-        plogk("virtio_snd: card %d vanished right after registration.\n", card_id);
-        return;
+    ret = ulsa_pcm_new(card, "VirtIO PCM", 0, playback_count, capture_count, &pcm);
+    if (ret != EOK) {
+        plogk("virtio_snd: ulsa_pcm_new failed: %d\n", ret);
+        ulsa_card_free(card);
+        goto fail_queues;
+    }
+    pcm->private_data = snd;
+    if (playback_count) ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &virtsnd_pcm_ops);
+    if (capture_count) ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &virtsnd_pcm_ops);
+    ulsa_pcm_set_managed_buffer_all(pcm, 0, 256UL * 1024UL);
+
+    snd->card = card;
+    ret       = ulsa_card_register(card);
+    if (ret != EOK) {
+        plogk("virtio_snd: ulsa_card_register failed: %d\n", ret);
+        snd->card = NULL;
+        ulsa_card_free(card);
+        goto fail_queues;
     }
 
     ret = kernel_worker_register("virtio-snd-pump", virtsnd_worker, snd, &snd->worker);
     if (ret == EOK) {
         snd->worker_started = true;
     } else {
-        /* The card exists but nothing would pump it: refuse I/O instead of stalling. */
         plogk("virtio_snd: pump worker not registered (%d), PCM data path disabled.\n", ret);
     }
     return;

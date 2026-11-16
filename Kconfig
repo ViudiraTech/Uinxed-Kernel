@@ -1360,9 +1360,10 @@ menu "Device Drivers"
       bool "Audio support"
       default y
       help
-        Generic ALSA-like audio subsystem: card registry, PCM ring
-        buffers, and the /dev/snd + /sys/class/sound nodes.  The
-        individual sound-card drivers build on top of this core.
+        ULSA (Uinxed Linux-compatible Sound Architecture) audio subsystem:
+        card and mixer registry, ALSA-compatible PCM/control core, and the
+        /dev/snd + /sys/class/sound nodes.  Individual sound-card drivers
+        build on top of this core.
 
     config AUDIO_HDA
       bool "Intel HD Audio (HDA) driver"

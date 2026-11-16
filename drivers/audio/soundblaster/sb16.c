@@ -10,8 +10,8 @@
 
 #include <arch/firmware/dma.h>
 #include <arch/misc/common.h>
-#include <drivers/audio/core/audio.h>
 #include <drivers/audio/soundblaster/sb16.h>
+#include <drivers/audio/ulsa/ulsa.h>
 #include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
@@ -24,50 +24,6 @@
 static const uint16_t sb16_ports[] = {0x220, 0x240, 0x260, 0x280};
 static sb16_device_t  sb16_dev;
 static spinlock_t     sb16_lock;
-
-/* Sound Blaster 16 audio start. */
-static int sb16_audio_start(audio_card_t *card);
-
-/* Sound Blaster 16 audio stop. */
-static int sb16_audio_stop(audio_card_t *card);
-
-/* Sound Blaster 16 audio drain. */
-static int sb16_audio_drain(audio_card_t *card);
-
-/* Sound Blaster 16 audio write. */
-static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size);
-
-/* Sound Blaster 16 audio read. */
-static size_t sb16_audio_read(audio_card_t *card, void *addr, size_t offset, size_t size);
-
-/* Sound Blaster 16 audio set format. */
-static int sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format);
-
-/* Sound Blaster 16 audio set volume. */
-static int sb16_audio_set_volume(audio_card_t *card, const audio_volume_t *volume);
-
-/* Sound Blaster 16 audio get volume. */
-static int sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume);
-
-/* Sound Blaster 16 audio get position. */
-static int sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos);
-
-/* Sound Blaster 16 audio set params. */
-static int sb16_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes);
-
-static const audio_card_ops_t sb16_audio_ops = {
-    .pcm_read     = sb16_audio_read,
-    .pcm_write    = sb16_audio_write,
-    .set_format   = sb16_audio_set_format,
-    .start        = sb16_audio_start,
-    .stop         = sb16_audio_stop,
-    .drain        = sb16_audio_drain,
-    .set_volume   = sb16_audio_set_volume,
-    .get_volume   = sb16_audio_get_volume,
-    .get_position = sb16_audio_get_position,
-    .get_avail    = 0,
-    .set_params   = sb16_audio_set_params,
-};
 
 /* Read a byte from an SB16 I/O port. */
 static uint8_t sb16_inb(uint16_t port)
@@ -330,185 +286,117 @@ void sb16_stop(sb16_device_t *dev)
     dev->capturing = 0;
 }
 
-/* audio callback: start playback. */
-static int sb16_audio_start(audio_card_t *card)
+/* ULSA callback: expose legacy SB16 capabilities. */
+static int sb16_pcm_open(ulsa_pcm_substream_t *substream)
 {
-    (void)card;
-    spin_lock(&sb16_lock);
-    if (sb16_dev.playing || sb16_dev.capturing) {
-        spin_unlock(&sb16_lock);
-        return EOK;
-    }
+    ulsa_pcm_runtime_t *runtime = substream->runtime;
 
-    if (sb16_dev.bits == 16) {
-        sb16_play_16bit(&sb16_dev, sb16_dev.dma_buffer_virt, 512);
-    } else {
-        sb16_play_8bit(&sb16_dev, sb16_dev.dma_buffer_virt, 512);
-    }
-    spin_unlock(&sb16_lock);
+    memset(&runtime->hw, 0, sizeof(runtime->hw));
+    runtime->hw.info             = SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_INTERLEAVED;
+    runtime->hw.formats          = ULSA_PCM_FMTBIT(SNDRV_PCM_FORMAT_U8) | ULSA_PCM_FMTBIT(SNDRV_PCM_FORMAT_S16_LE);
+    runtime->hw.rates            = ULSA_PCM_RATE_CONTINUOUS | ULSA_PCM_RATE_8000_48000;
+    runtime->hw.rate_min         = 4000U;
+    runtime->hw.rate_max         = 48000U;
+    runtime->hw.channels_min     = 1U;
+    runtime->hw.channels_max     = 2U;
+    runtime->hw.buffer_bytes_max = 65536U;
+    runtime->hw.period_bytes_min = 256U;
+    runtime->hw.period_bytes_max = 32768U;
+    runtime->hw.periods_min      = 2U;
+    runtime->hw.periods_max      = 32U;
     return EOK;
 }
 
-/* audio callback: stop playback/capture. */
-static int sb16_audio_stop(audio_card_t *card)
+/* ULSA callback: stop DSP on close. */
+static int sb16_pcm_close(ulsa_pcm_substream_t *substream)
 {
-    (void)card;
+    (void)substream;
     spin_lock(&sb16_lock);
     sb16_stop(&sb16_dev);
     spin_unlock(&sb16_lock);
     return EOK;
 }
 
-/* audio callback: let the current buffer finish, then stop. */
-static int sb16_audio_drain(audio_card_t *card)
+/* ULSA callback: store negotiated DSP parameters. */
+static int sb16_pcm_hw_params(ulsa_pcm_substream_t *substream, struct snd_pcm_hw_params *params)
 {
-    (void)card;
+    sb16_device_t         *dev  = substream->pcm->private_data;
+    const snd_pcm_format_t fmt  = ulsa_params_format(params);
+    const int              bits = ulsa_pcm_format_physical_width(fmt);
+
+    if (!dev || (bits != 8 && bits != 16)) return -EINVAL;
+
     spin_lock(&sb16_lock);
-    if (sb16_dev.playing) {
-        msleep(50);
-        sb16_stop(&sb16_dev);
+    dev->sample_rate = (uint16_t)ulsa_params_rate(params);
+    dev->bits        = (uint8_t)bits;
+    dev->channels    = (uint8_t)ulsa_params_channels(params);
+    spin_unlock(&sb16_lock);
+    return EOK;
+}
+
+/* ULSA callback: release DSP DMA state. */
+static int sb16_pcm_hw_free(ulsa_pcm_substream_t *substream)
+{
+    return sb16_pcm_close(substream);
+}
+
+/* ULSA callback: prepare DSP stream. */
+static int sb16_pcm_prepare(ulsa_pcm_substream_t *substream)
+{
+    (void)substream;
+    return EOK;
+}
+
+/* ULSA callback: start or stop legacy SB16 playback/capture (atomic context). */
+static int sb16_pcm_trigger(ulsa_pcm_substream_t *substream, int cmd)
+{
+    sb16_device_t *dev     = substream->pcm->private_data;
+    const bool     is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
+    int            ret     = EOK;
+
+    if (!dev) return -ENODEV;
+
+    spin_lock(&sb16_lock);
+    switch (cmd) {
+        case ULSA_PCM_TRIGGER_START :
+            if (!dev->playing && !dev->capturing) {
+                uint8_t *buf = substream->runtime->dma_area ? substream->runtime->dma_area : dev->dma_buffer_virt;
+                uint32_t sz  = (uint32_t)ulsa_pcm_lib_period_bytes(substream);
+                if (!sz) sz = 512;
+                if (is_play) {
+                    ret = dev->bits == 16 ? sb16_play_16bit(dev, buf, sz) : sb16_play_8bit(dev, buf, sz);
+                } else {
+                    ret = dev->bits == 16 ? sb16_capture_16bit(dev, buf, sz) : sb16_capture_8bit(dev, buf, sz);
+                }
+            }
+            break;
+        case ULSA_PCM_TRIGGER_STOP :
+            sb16_stop(dev);
+            break;
+        default :
+            ret = -EINVAL;
+            break;
     }
     spin_unlock(&sb16_lock);
-    return EOK;
+    return ret;
 }
 
-/* audio callback: play one DMA-sized chunk of PCM data. */
-static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size)
+/* ULSA callback: report hardware position (minimal stub). */
+static snd_pcm_uframes_t sb16_pcm_pointer(ulsa_pcm_substream_t *substream)
 {
-    sb16_device_t *dev = card->driver_data;
-    (void)offset;
-
-    if (!dev || !dev->detected || !addr || !size) return 0;
-
-    spin_lock(&sb16_lock);
-    size_t chunk = (size > dev->dma_buffer_size) ? dev->dma_buffer_size : size;
-    if (card->format.bits == 16) {
-        if (sb16_play_16bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
-            plogk("sb16: Playback start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
-            spin_unlock(&sb16_lock);
-            return 0;
-        }
-    } else {
-        if (sb16_play_8bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
-            plogk("sb16: Playback start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
-            spin_unlock(&sb16_lock);
-            return 0;
-        }
-    }
-
-    spin_unlock(&sb16_lock);
-    return chunk;
+    (void)substream;
+    return 0;
 }
 
-/* audio callback: capture one DMA-sized chunk of PCM data. */
-static size_t sb16_audio_read(audio_card_t *card, void *addr, size_t offset, size_t size)
-{
-    sb16_device_t *dev = card->driver_data;
-    (void)offset;
-
-    if (!dev || !dev->detected || !addr || !size) return 0;
-
-    spin_lock(&sb16_lock);
-    size_t chunk = (size > dev->dma_buffer_size) ? dev->dma_buffer_size : size;
-    if (card->format.bits == 16) {
-        if (sb16_capture_16bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
-            plogk("sb16: Capture start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
-            spin_unlock(&sb16_lock);
-            return 0;
-        }
-    } else {
-        if (sb16_capture_8bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
-            plogk("sb16: Capture start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
-            spin_unlock(&sb16_lock);
-            return 0;
-        }
-    }
-
-    spin_unlock(&sb16_lock);
-    return chunk;
-}
-
-/* audio callback: validate and store the PCM format. */
-static int sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format)
-{
-    sb16_device_t *dev;
-
-    if (!card || !format) return -EINVAL;
-    if (format->bits != 8 && format->bits != 16) return -EINVAL;
-    if (format->channels != 1 && format->channels != 2) return -EINVAL;
-    if (format->sample_rate < 4000 || format->sample_rate > 48000) return -EINVAL;
-
-    dev = card->driver_data;
-    if (!dev) return -ENODEV;
-
-    spin_lock(&sb16_lock);
-    card->format     = *format;
-    dev->sample_rate = format->sample_rate;
-    dev->bits        = format->bits;
-    dev->channels    = format->channels;
-    spin_unlock(&sb16_lock);
-    return EOK;
-}
-
-/* audio callback: re-apply the format (buffers are fixed). */
-static int sb16_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes)
-{
-    sb16_device_t *dev = card->driver_data;
-    (void)buffer_bytes;
-    (void)period_bytes;
-
-    if (!card || !fmt) return -EINVAL;
-    if (!dev) return -ENODEV;
-
-    return sb16_audio_set_format(card, fmt);
-}
-
-/* audio callback: write master and DAC volume. */
-static int sb16_audio_set_volume(audio_card_t *card, const audio_volume_t *volume)
-{
-    sb16_device_t *dev;
-
-    if (!card || !volume) return -EINVAL;
-    dev = card->driver_data;
-    if (!dev) return -ENODEV;
-
-    spin_lock(&sb16_lock);
-    dev->volume_left  = volume->left;
-    dev->volume_right = volume->right;
-    sb16_set_master_volume(dev, volume->left, volume->right);
-    sb16_set_dac_volume(dev, volume->left, volume->right);
-    spin_unlock(&sb16_lock);
-    return EOK;
-}
-
-/* audio callback: read the master volume from the mixer. */
-static int sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
-{
-    sb16_device_t *dev;
-
-    if (!card || !volume) return -EINVAL;
-    dev = card->driver_data;
-    if (!dev) return -ENODEV;
-
-    spin_lock(&sb16_lock);
-    volume->left      = sb16_mixer_read(dev, SB16_MIXER_MASTER_L);
-    volume->right     = sb16_mixer_read(dev, SB16_MIXER_MASTER_R);
-    dev->volume_left  = volume->left;
-    dev->volume_right = volume->right;
-    spin_unlock(&sb16_lock);
-    return EOK;
-}
-
-/* audio callback: report the hardware position (no register available). */
-static int sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
-{
-    (void)card;
-    if (!pos) return -EINVAL;
-
-    /* SB16 has no hardware position register; approximate via state */
-    *pos = 0;
-    return EOK;
-}
+static const ulsa_pcm_ops_t sb16_pcm_ops = {
+    .open      = sb16_pcm_open,
+    .close     = sb16_pcm_close,
+    .hw_params = sb16_pcm_hw_params,
+    .hw_free   = sb16_pcm_hw_free,
+    .prepare   = sb16_pcm_prepare,
+    .trigger   = sb16_pcm_trigger,
+    .pointer   = sb16_pcm_pointer,
+};
 
 /* Probe the legacy ports and detect the DSP. */
 int sb16_detect(sb16_device_t *dev)
@@ -591,13 +479,34 @@ void sb16_init(void)
 
     plogk("sb16: IRQ %u, DMA8 %u, DMA16 %u, DMA buffer %u bytes.\n", sb16_dev.irq, sb16_dev.dma8, sb16_dev.dma16, sb16_dev.dma_buffer_size);
 
-    audio_pcm_format_t format = {
-        .sample_rate = sb16_dev.sample_rate,
-        .bits        = sb16_dev.bits,
-        .channels    = sb16_dev.channels,
-    };
-    int card_id = audio_register_card("Sound Blaster 16", &format, &sb16_audio_ops, &sb16_dev);
-    if (card_id < 0) plogk("sb16: sound card registration failed: %d\n", card_id);
+    ulsa_card_t *card = NULL;
+    ulsa_pcm_t  *pcm  = NULL;
+    int          ret  = ulsa_card_new(-1, "SB16", &card);
+    if (ret != EOK) {
+        plogk("sb16: sound card allocation failed: %d\n", ret);
+        return;
+    }
+    strncpy(card->driver, "SB16", sizeof(card->driver) - 1);
+    strncpy(card->shortname, "Sound Blaster 16", sizeof(card->shortname) - 1);
+    strncpy(card->longname, "Sound Blaster 16 DSP", sizeof(card->longname) - 1);
+    card->private_data = &sb16_dev;
+
+    ret = ulsa_pcm_new(card, "SB16 DSP", 0, 1, 1, &pcm);
+    if (ret != EOK) {
+        plogk("sb16: PCM device creation failed: %d\n", ret);
+        ulsa_card_free(card);
+        return;
+    }
+    pcm->private_data = &sb16_dev;
+    ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &sb16_pcm_ops);
+    ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &sb16_pcm_ops);
+    ulsa_pcm_set_managed_buffer_all(pcm, 0x1000000ULL, 65536U);
+
+    ret = ulsa_card_register(card);
+    if (ret != EOK) {
+        plogk("sb16: sound card registration failed: %d\n", ret);
+        ulsa_card_free(card);
+    }
 }
 
 #endif
