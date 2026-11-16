@@ -13,6 +13,7 @@
 #include <arch/misc/common.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/tty/tty_core.h>
+#include <fs/core/filelock.h>
 #include <fs/core/inotify.h>
 #include <ipc/futex.h>
 #include <ipc/sysv_ipc.h>
@@ -807,10 +808,25 @@ static void process_file_fd_get(process_file_t *file)
     spin_unlock(&file->lock);
 }
 
-/* Drop a descriptor-table reference on an open file */
-static void process_file_fd_put(process_file_t *file)
+/* Drop every byte-range lock an owner holds on the inode behind an open file */
+static void process_file_locks_release(const void *owner, process_file_t *file)
+{
+    filelock_key_t key;
+
+    filelock_key_of(&key, file->node);
+    filelock_release(&key, owner);
+}
+
+/*
+ * Drop a descriptor-table reference on an open file.  A POSIX record lock
+ * belongs to the process, so any close of the file by that process releases
+ * it, even when another descriptor of the process still refers to the file.
+ * The SCM_RIGHTS transfer path has no process and releases nothing.
+ */
+static void process_file_fd_put(process_t *proc, process_file_t *file)
 {
     if (!file) return;
+    if (proc) process_file_locks_release(proc, file);
     spin_lock(&file->lock);
     if (file->fd_refcount) file->fd_refcount--;
     bool closed = file->fd_refcount == 0 && !file->descriptors_closed;
@@ -836,6 +852,9 @@ void process_file_put(process_file_t *file)
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
 
     inotify_notify(file->node, (file->flags & O_ACCMODE) == O_RDONLY ? IN_CLOSE_NOWRITE : IN_CLOSE_WRITE);
+
+    /* Open file description locks live exactly as long as the description. */
+    process_file_locks_release(file, file);
 
     /* Release per-open-instance private_data. */
     if (file->file_opened) callbackof(file->node, file_release)(file->node, file->private_data);
@@ -870,7 +889,7 @@ static void process_fd_table_close(process_t *proc)
     }
     spin_unlock(&proc->fd_lock);
 
-    for (int i = 0; i < CONFIG_PROCESS_MAX_FD; i++) process_file_fd_put(files[i]);
+    for (int i = 0; i < CONFIG_PROCESS_MAX_FD; i++) process_file_fd_put(proc, files[i]);
 }
 
 /* Copy the descriptor table from parent to child */
@@ -962,7 +981,7 @@ process_file_t *process_fd_get_for_transfer(process_t *proc, int fd)
 /* Release a descriptor pinned for transfer */
 void process_file_put_transfer(process_file_t *file)
 {
-    process_file_fd_put(file);
+    process_file_fd_put(NULL, file);
 }
 
 /* Open a node and install it into the lowest free descriptor */
@@ -1075,7 +1094,7 @@ int process_fd_install_file_at(process_t *proc, process_file_t *file, int newfd,
     proc->fd_flags[newfd] = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
     spin_unlock(&proc->fd_lock);
 
-    if (old) process_file_fd_put(old);
+    if (old) process_file_fd_put(proc, old);
     return newfd;
 }
 
@@ -1094,7 +1113,7 @@ int process_fd_close(process_t *proc, int fd)
     proc->fd_flags[fd] = 0;
     spin_unlock(&proc->fd_lock);
 
-    process_file_fd_put(file);
+    process_file_fd_put(proc, file);
     return EOK;
 }
 
@@ -1154,7 +1173,7 @@ int process_fd_dup2(process_t *proc, int oldfd, int newfd)
     proc->fd_flags[newfd] = 0;
     spin_unlock(&proc->fd_lock);
 
-    process_file_fd_put(old);
+    process_file_fd_put(proc, old);
     return newfd;
 }
 
