@@ -16,6 +16,7 @@
 #include <arch/misc/common.h>
 #include <boot/limine_module.h>
 #include <cgroup/cgroup.h>
+#include <drivers/audio/ac97/ac97.h>
 #include <drivers/audio/intel/hda.h>
 #include <drivers/audio/soundblaster/sb16.h>
 #include <drivers/audio/ulsa/ulsa.h>
@@ -380,6 +381,7 @@ __attribute__((noreturn)) void kernel_entry(void)
     usb_host_pci_scan();           // Discover and init all USB host controllers
     ulsa_init();                   // ULSA sound subsystem core
     sb16_init();                   // Sound Blaster 16
+    ac97_init();                   // Intel 8x0 / AC'97 Audio
     hda_init();                    // Intel HD Audio
     virtio_snd_init();             // VirtIO sound (virtio-snd)
                                    //

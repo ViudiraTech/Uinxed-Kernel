@@ -161,6 +161,10 @@
 #    define CONFIG_AUDIO_HDA 1
 #endif
 
+#ifndef CONFIG_AUDIO_AC97
+#    define CONFIG_AUDIO_AC97 1
+#endif
+
 #ifndef CONFIG_AUDIO_SB16
 #    define CONFIG_AUDIO_SB16 0
 #endif

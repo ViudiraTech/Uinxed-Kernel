@@ -1373,6 +1373,14 @@ menu "Device Drivers"
         Intel High Definition Audio driver for HDA-compatible
         audio controllers found on most modern x86 systems.
 
+    config AUDIO_AC97
+      bool "Intel 8x0 / AC'97 audio controller driver"
+      depends on AUDIO
+      default y
+      help
+        Intel ICH/nForce/SiS AC'97 audio controller and codec driver.
+        Enable for AC'97 sound cards including QEMU (-device AC97).
+
     config AUDIO_SB16
       bool "Sound Blaster 16 / ESS AudioDrive driver"
       depends on AUDIO
