@@ -97,10 +97,23 @@ static int add_file(vfs_node_t parent, const char *name, cgroupfs_type_t type, u
         vfs_free(node);
         return -ENOMEM;
     }
-    node->fsid  = cgroupfs_id;
-    node->type  = file_stream;
-    node->mode  = mode;
-    node->flags = VFS_NODE_VIRTUAL;
+    node->fsid = cgroupfs_id;
+
+    /*
+     * Control files are seekable pseudo-regular files from the moment they
+     * exist.  Marking them as a character stream made every descriptor opened
+     * before the first stat() positionless: read() kept returning the start
+     * of cgroup.procs and a reader looping until EOF never terminated.
+     */
+    node->type = file_none;
+    node->mode = mode;
+
+    /*
+     * Writes are commands (cgroup.procs, cgroup.kill, pids.max ...) that
+     * must reach the controller synchronously, and reads are generated on
+     * demand.  Keep these nodes out of the page cache.
+     */
+    node->flags = VFS_NODE_VIRTUAL | VFS_NODE_NOCACHE;
     return EOK;
 }
 
@@ -259,16 +272,16 @@ static int64_t file_read(vfs_node_t vnode, void *private_data, uint64_t flags, v
     return (int64_t)size;
 }
 
-/* Apply a write to a control file. */
-static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+/*
+ * Apply a write to a control file.  Every write is one complete command, as
+ * with Linux cgroup files: the file position is irrelevant.  systemd keeps
+ * one FILE* on cgroup.subtree_control and issues "-cpuset", "-io", ... as
+ * consecutive writes, so a write at a non-zero offset must be accepted.
+ */
+static int64_t write_node(cgroupfs_node_t *node, const void *addr, size_t size)
 {
-    if (!vnode) return -ENOENT;
-    cgroupfs_node_t *node = vnode->handle;
-    int              status;
-    (void)private_data;
-    (void)flags;
+    int status;
     if (!node) return -ENOENT;
-    if (offset) return -EINVAL;
 
     switch (node->type) {
         case CGROUPFS_SUBTREE_CONTROL :
@@ -325,6 +338,16 @@ static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, 
     return status == EOK ? (int64_t)size : status;
 }
 
+/* Per-open write callback. */
+static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    (void)private_data;
+    (void)flags;
+    (void)offset;
+    if (!vnode) return -ENOENT;
+    return write_node(vnode->handle, addr, size);
+}
+
 /* Legacy read callback for the VFS adapter. */
 static size_t legacy_read(void *handle, void *addr, size_t offset, size_t size)
 {
@@ -339,9 +362,8 @@ static size_t legacy_read(void *handle, void *addr, size_t offset, size_t size)
 /* Legacy write callback for the VFS adapter. */
 static size_t legacy_write(void *handle, const void *addr, size_t offset, size_t size)
 {
-    cgroupfs_node_t *node = handle;
-    if (!node || offset) return (size_t)-1;
-    int64_t ret = file_write(NULL, NULL, 0, addr, 0, size);
+    (void)offset;
+    int64_t ret = write_node(handle, addr, size);
     return ret >= 0 ? (size_t)ret : (size_t)-1;
 }
 
@@ -350,6 +372,7 @@ static int stat_node(void *handle, vfs_node_t node)
 {
     cgroupfs_node_t *cn = handle;
     if (!cn) return -ENOENT;
+    node->flags |= VFS_NODE_NOCACHE;
     if (cn->type == CGROUPFS_DIR) {
         node->type = file_dir;
         return populate(node);
@@ -402,6 +425,19 @@ static int free_handle(void *handle)
     return EOK;
 }
 
+/*
+ * Truncation of a control file.  Writes to these files are commands and their
+ * contents are generated on every read, so there is nothing to discard:
+ * O_TRUNC, which fopen("w") always passes, succeeds as on Linux.
+ */
+static int resize_node(void *handle, uint64_t size)
+{
+    (void)size;
+    cgroupfs_node_t *node = handle;
+    if (!node) return -EINVAL;
+    return node->type == CGROUPFS_DIR ? -EISDIR : EOK;
+}
+
 static struct vfs_callback callbacks = {
     .mount      = mount_cgroup2,
     .read       = legacy_read,
@@ -409,10 +445,12 @@ static struct vfs_callback callbacks = {
     .mkdir      = mkdir_node,
     .mkfile     = vfs_stub_mk_readonly,
     .stat       = stat_node,
+    .ioctl      = vfs_stub_ioctl_notty,
     .free       = free_handle,
     .delete     = delete_node,
     .file_read  = file_read,
     .file_write = file_write,
+    .resize     = resize_node,
 };
 
 /* Register the cgroup2 filesystem with the VFS layer. */
