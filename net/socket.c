@@ -346,8 +346,54 @@ static void sock_blocked_wake_all(socket_t *sk)
 }
 
 /* Bound-address registry */
+/* Turn a pathname socket address into an absolute path as seen by the calling process. */
+static int unix_resolve_path(const sockaddr_un_t *addr, char resolved[CONFIG_VFS_PATH_MAX])
+{
+    char   path[UNIX_PATH_MAX + 1];
+    size_t length = strnlen_local(addr->sun_path, UNIX_PATH_MAX);
+    memcpy(path, addr->sun_path, length);
+    path[length]    = '\0';
+    process_t *proc = process_current();
+    if (!proc) {
+        if (path[0] != '/') return -ENOENT;
+        memcpy(resolved, path, length + 1);
+        return EOK;
+    }
+    return process_resolve_path_at(proc, PROCESS_AT_FDCWD, path, resolved, CONFIG_VFS_PATH_MAX);
+}
+
 static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out)
 {
+    /*
+     * A pathname address names an inode, not a string: the same socket is
+     * reachable through symbolic links (/dev/log -> /run/systemd/journal/dev-log),
+     * relative paths and differently spelled absolute paths.  Resolve the
+     * path first and match the bound endpoint by its socket inode; the
+     * textual comparison below only remains as a fallback for an address
+     * whose inode cannot be opened.
+     */
+    if (!abstract) {
+        char       resolved[CONFIG_VFS_PATH_MAX];
+        vfs_node_t node = unix_resolve_path(addr, resolved) == EOK ? vfs_open(resolved) : NULL;
+        if (node) {
+            socket_t *found = NULL;
+            spin_lock(&sock_bound_lock);
+            for (int i = 0; i < CONFIG_SOCK_BOUND_MAX; i++) {
+                socket_t *candidate = sock_bound_tab[i].sk;
+                if (!candidate || sock_bound_tab[i].abstract || candidate->bound_node != node) continue;
+                found = candidate;
+                socket_ref(found);
+                break;
+            }
+            spin_unlock(&sock_bound_lock);
+            vfs_close(node);
+            if (found) {
+                *out = found;
+                return EOK;
+            }
+        }
+    }
+
     spin_lock(&sock_bound_lock);
     for (int i = 0; i < CONFIG_SOCK_BOUND_MAX; i++) {
         if (sock_bound_tab[i].sk == NULL) continue;
@@ -1001,19 +1047,19 @@ static int unix_autobind(socket_t *sk)
     ret = sock_bound_add(sk, &addr, alen, 1);
     if (ret != EOK) return ret;
 
+    spin_lock(&sk->lock);
     memcpy(&sk->local_addr, &addr, sizeof(addr));
     sk->local_addr_len = alen;
+    spin_unlock(&sk->lock);
 
     return EOK;
 }
 
-/* UNIX bind */
-static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
+/* UNIX bind, after unix_bind() has claimed the socket for binding. */
+static int unix_bind_claimed(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
 {
     int abstract;
     int ret;
-
-    if (sk->state != SOCK_STATE_UNCONNECTED) return -EINVAL;
 
     ret = unix_addr_parse(addr, addrlen, &abstract);
     if (ret != EOK) return ret;
@@ -1028,6 +1074,12 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
 
         /* Check path length */
         if (strnlen_local(path, UNIX_PATH_MAX) >= UNIX_PATH_MAX) return -ENAMETOOLONG;
+
+        /* The inode is created relative to the caller's working directory and root. */
+        char resolved[CONFIG_VFS_PATH_MAX];
+        ret = unix_resolve_path(addr, resolved);
+        if (ret != EOK) return ret;
+        path = resolved;
 
         /*
          * AF_UNIX pathname ownership follows the filesystem namespace.  An
@@ -1065,10 +1117,36 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
         return ret;
     }
 
+    spin_lock(&sk->lock);
     memcpy(&sk->local_addr, addr, sizeof(sockaddr_un_t));
     sk->local_addr_len = addrlen;
+    spin_unlock(&sk->lock);
 
     return EOK;
+}
+
+/*
+ * UNIX bind.  Creating the pathname inode goes through the VFS, which takes
+ * the sleeping namespace lock, so it cannot run under sk->lock (a spinlock
+ * held with interrupts masked).  The socket is claimed under the lock first,
+ * which also rejects a second or concurrent bind as Linux does (EINVAL).
+ */
+static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
+{
+    spin_lock(&sk->lock);
+    if (sk->state != SOCK_STATE_UNCONNECTED || sk->binding || sk->local_addr_len > sizeof(sa_family_t)) {
+        spin_unlock(&sk->lock);
+        return -EINVAL;
+    }
+    sk->binding = true;
+    spin_unlock(&sk->lock);
+
+    int ret = unix_bind_claimed(sk, addr, addrlen);
+
+    spin_lock(&sk->lock);
+    sk->binding = false;
+    spin_unlock(&sk->lock);
+    return ret;
 }
 
 /* UNIX listen */
@@ -1228,6 +1306,56 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     /* The peer link and accept queue now own the server endpoint. */
     socket_unref(server);
 
+    return EOK;
+}
+
+/*
+ * UNIX datagram connect: record a default destination.
+ *
+ * A datagram "connection" is one-way: only the caller gains a peer, the
+ * destination does not learn about it and keeps receiving from anyone.  The
+ * socket therefore stays in SOCK_STATE_UNCONNECTED and may be re-connected at
+ * any time; connecting to AF_UNSPEC dissolves the association.  sd_notify(),
+ * syslog(3) and the journal stream clients all address their peer this way.
+ */
+static int unix_dgram_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
+{
+    socket_t *dest __attribute__((cleanup(socket_scoped_unref))) = NULL;
+    socket_t *old;
+    int       abstract;
+    int       ret;
+
+    if (addrlen < sizeof(uint16_t)) return -EINVAL;
+
+    if (addr->sun_family != AF_UNSPEC) {
+        ret = unix_addr_parse(addr, addrlen, &abstract);
+        if (ret != EOK) return ret;
+        if (addrlen == sizeof(uint16_t)) return -EINVAL;
+
+        ret = sock_bound_lookup(addr, addrlen, abstract, &dest);
+        if (ret != EOK || !dest) return abstract ? -ECONNREFUSED : -ENOENT;
+        if (dest->type != SOCK_DGRAM) return -EPROTOTYPE;
+        spin_lock(&dest->lock);
+        bool gone = dest->state == SOCK_STATE_DISCONNECTING;
+        spin_unlock(&dest->lock);
+        if (gone) return -ECONNREFUSED;
+    }
+
+    spin_lock(&sk->lock);
+    old      = sk->peer;
+    sk->peer = dest;
+    if (dest) {
+        socket_ref(dest); // the peer link owns its own reference
+        memset(&sk->peer_addr, 0, sizeof(sk->peer_addr));
+        memcpy(&sk->peer_addr, addr, addrlen);
+        sk->peer_addr_len = addrlen;
+    } else {
+        memset(&sk->peer_addr, 0, sizeof(sk->peer_addr));
+        sk->peer_addr_len = 0;
+    }
+    spin_unlock(&sk->lock);
+
+    if (old) socket_unref(old);
     return EOK;
 }
 
@@ -1702,12 +1830,23 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
         dest = sk->peer;
         if (dest) socket_ref(dest);
         spin_unlock(&sk->lock);
-        if (!dest) return -EDESTADDRREQ;
+        if (!dest) return -ENOTCONN;
     }
 
     if (dest == sk) return -EINVAL;
 
     spin_lock(&dest->lock);
+
+    /*
+     * A receiver that has been closed can only still be reachable through the
+     * default-peer link of a connected datagram socket.  Linux reports that as
+     * ECONNREFUSED, which is what makes clients re-resolve the path after the
+     * server (journald, the notify socket owner) restarts.
+     */
+    if (dest->state == SOCK_STATE_DISCONNECTING || (dest->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD))) {
+        spin_unlock(&dest->lock);
+        return -ECONNREFUSED;
+    }
     uint32_t total = header_size + (uint32_t)len;
     if (total > dest->recv_buf.capacity) {
         spin_unlock(&dest->lock);
@@ -2206,9 +2345,7 @@ int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
     memset(&kaddr, 0, sizeof(kaddr));
     if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
 
-    spin_lock(&sk->lock);
     ret = unix_bind(sk, &kaddr, addrlen);
-    spin_unlock(&sk->lock);
 
     return (int64_t)ret;
 }
@@ -2315,6 +2452,9 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 
     memset(&kaddr, 0, sizeof(kaddr));
     if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
+
+    /* Datagram sockets only pick a default destination and may do so repeatedly. */
+    if (sk->type == SOCK_DGRAM) return (int64_t)unix_dgram_connect(sk, &kaddr, addrlen);
 
     spin_lock(&sk->lock);
 
@@ -3289,15 +3429,17 @@ int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 
     spin_lock(&sk->lock);
 
-    if (sk->state != SOCK_STATE_CONNECTED) {
+    /* A connected datagram socket has a peer without entering the connected state. */
+    if (sk->state != SOCK_STATE_CONNECTED && !(sk->type == SOCK_DGRAM && sk->peer)) {
         spin_unlock(&sk->lock);
         return -ENOTCONN;
     }
 
-    kaddrlen = sk->peer_addr_len;
+    sockaddr_storage_t kaddr = sk->peer_addr;
+    kaddrlen                 = sk->peer_addr_len;
     spin_unlock(&sk->lock);
 
-    return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sk->peer_addr, kaddrlen);
+    return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, kaddrlen);
 }
 
 /* sys_setsockopt */
