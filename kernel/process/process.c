@@ -2017,6 +2017,7 @@ __attribute__((noreturn)) void process_exit(int exit_code)
         ptrace_exit_event(exit_code);
         ptrace_tracer_exit((int64_t)current->pid);
     }
+    seccomp_task_release(current);
 
     signal_flush_task(current);
 

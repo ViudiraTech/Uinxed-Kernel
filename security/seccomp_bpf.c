@@ -209,10 +209,6 @@ uint32_t seccomp_bpf_run(const struct sock_filter *program, size_t length, const
                     case BPF_NEG :
                         accumulator = (-accumulator);
                         break;
-                    case BPF_MOD :
-                        if (!operand) return SECCOMP_RET_KILL_THREAD;
-                        accumulator %= operand;
-                        break;
                     case BPF_XOR :
                         accumulator ^= operand;
                         break;

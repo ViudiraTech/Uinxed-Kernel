@@ -191,9 +191,13 @@ void seccomp_task_inherit(task_t *child, const task_t *parent)
 void seccomp_task_release(task_t *task)
 {
     if (!task) return;
-    struct seccomp_filter *filter = task->seccomp_filter;
-    task->seccomp_filter          = NULL;
-    task->seccomp_mode            = SECCOMP_MODE_DISABLED;
+    process_t             *proc = task->process;
+    struct seccomp_filter *filter;
+    if (proc) spin_lock(&proc->seccomp_lock);
+    filter = task->seccomp_filter;
+    __atomic_store_n(&task->seccomp_filter, NULL, __ATOMIC_RELEASE);
+    __atomic_store_n(&task->seccomp_mode, SECCOMP_MODE_DISABLED, __ATOMIC_RELEASE);
+    if (proc) spin_unlock(&proc->seccomp_lock);
     seccomp_filter_put(filter);
 }
 
@@ -933,7 +937,7 @@ int64_t seccomp_ptrace_get_metadata(task_t *target, size_t size, void *user_meta
     if (copy_from_user(&metadata.filter_off, user_metadata, sizeof(metadata.filter_off))) return -EFAULT;
     struct seccomp_filter *filter = seccomp_get_nth_filter(target, metadata.filter_off);
     if (!filter) return target && target->seccomp_mode == SECCOMP_MODE_FILTER ? -ENOENT : -EINVAL;
-    if (filter->flags & SECCOMP_FILTER_FLAG_LOG) metadata.flags |= SECCOMP_FILTER_FLAG_LOG;
+    metadata.flags = filter->flags & (SECCOMP_FILTER_FLAG_LOG | SECCOMP_FILTER_FLAG_SPEC_ALLOW | SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV);
     seccomp_filter_put(filter);
     return copy_to_user(user_metadata, &metadata, size) ? -EFAULT : (int64_t)size;
 }
@@ -975,6 +979,16 @@ static void seccomp_log_action(task_t *task, const struct seccomp_data *data, ui
 /* Deliver SIGSYS for a SECCOMP_RET_TRAP decision. */
 static void seccomp_send_sigsys(task_t *task, const struct seccomp_data *data, uint16_t reason)
 {
+    if (task && task->process) {
+        signal_state_t *signals = &task->process->signal;
+        spin_lock(&signals->lock);
+        if (sigismember(&task->signal_blocked, SIGSYS) || signals->sighand[SIGSYS].sa_handler == SIG_IGN) {
+            (void)sigdelset(&task->signal_blocked, SIGSYS);
+            signals->sighand[SIGSYS].sa_handler = SIG_DFL;
+        }
+        spin_unlock(&signals->lock);
+    }
+
     siginfo_t info;
     memset(&info, 0, sizeof(info));
     info.si_signo     = SIGSYS;
@@ -984,6 +998,67 @@ static void seccomp_send_sigsys(task_t *task, const struct seccomp_data *data, u
     info.si_syscall   = data->nr;
     info.si_arch      = data->arch;
     (void)signal_send_thread(task, SIGSYS, &info);
+}
+
+/* Return whether a fatal SIGKILL / group exit is pending on task. */
+static bool seccomp_fatal_signal_pending(task_t *task)
+{
+    if (!task) return false;
+    if (sigismember(&task->signal_pending, SIGKILL)) return true;
+    if (!task->process) return false;
+
+    signal_state_t *signals = &task->process->signal;
+    spin_lock(&signals->lock);
+    bool fatal = signals->group_exit || sigismember(&signals->pending, SIGKILL);
+    spin_unlock(&signals->lock);
+    return fatal;
+}
+
+/* Evaluate one syscall against the task's installed BPF filter stack. */
+static bool seccomp_filter_enforce(task_t *task, syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *result, bool recheck_after_trace)
+{
+    struct seccomp_data    data = seccomp_build_data(frame, *syscall_nr);
+    struct seccomp_filter *winner;
+    struct seccomp_filter *head     = __atomic_load_n(&task->seccomp_filter, __ATOMIC_ACQUIRE);
+    uint32_t               decision = seccomp_run_stack(head, &data, &winner);
+    uint32_t               action   = decision & SECCOMP_RET_ACTION_FULL;
+    uint16_t               payload  = decision & SECCOMP_RET_DATA;
+
+    if (!seccomp_action_supported(action)) action = SECCOMP_RET_KILL_PROCESS;
+    if (action == SECCOMP_RET_LOG || (winner && (winner->flags & SECCOMP_FILTER_FLAG_LOG) && action != SECCOMP_RET_ALLOW)) seccomp_log_action(task, &data, action);
+
+    switch (action) {
+        case SECCOMP_RET_ALLOW :
+        case SECCOMP_RET_LOG :
+            /* LOG is already recorded above; it is treated as ALLOW. */
+            return true;
+        case SECCOMP_RET_ERRNO :
+            *result = -(int64_t)(payload > SECCOMP_MAX_ERRNO ? SECCOMP_MAX_ERRNO : payload);
+            return false;
+        case SECCOMP_RET_TRAP :
+            *result = (int64_t)data.nr;
+            seccomp_send_sigsys(task, &data, payload);
+            return false;
+        case SECCOMP_RET_USER_NOTIF :
+            return seccomp_notify_wait(winner ? winner->listener : NULL, &data, result);
+        case SECCOMP_RET_TRACE :
+            if (recheck_after_trace) return true;
+            if (!ptrace_seccomp_event(frame, payload, result)) {
+                *result = -ENOSYS;
+                return false;
+            }
+            if (seccomp_fatal_signal_pending(task)) return false;
+            *syscall_nr = frame->rax;
+            if ((int64_t)*syscall_nr < 0) return false;
+            return seccomp_filter_enforce(task, frame, syscall_nr, result, true);
+        case SECCOMP_RET_KILL_THREAD :
+            process_exit(-SIGSYS);
+            break; // unreachable: process_exit never returns
+        case SECCOMP_RET_KILL_PROCESS :
+        default :
+            process_exit_group(-SIGSYS);
+    }
+    return false;
 }
 
 /* Evaluate one syscall against the task's seccomp filters. */
@@ -1002,50 +1077,7 @@ bool seccomp_enforce(syscall_frame_t *frame, uint64_t *syscall_nr, int64_t *resu
         process_exit(-SIGKILL);
     }
 
-    bool trace_seen = false;
-    for (;;) {
-        struct seccomp_data    data = seccomp_build_data(frame, *syscall_nr);
-        struct seccomp_filter *winner;
-        struct seccomp_filter *head     = __atomic_load_n(&task->seccomp_filter, __ATOMIC_ACQUIRE);
-        uint32_t               decision = seccomp_run_stack(head, &data, &winner);
-        uint32_t               action   = decision & SECCOMP_RET_ACTION_FULL;
-        uint16_t               payload  = decision & SECCOMP_RET_DATA;
-
-        if (!seccomp_action_supported(action)) action = SECCOMP_RET_KILL_PROCESS;
-        if (action == SECCOMP_RET_LOG || (winner && (winner->flags & SECCOMP_FILTER_FLAG_LOG) && action != SECCOMP_RET_ALLOW)) seccomp_log_action(task, &data, action);
-
-        switch (action) {
-            case SECCOMP_RET_ALLOW :
-            case SECCOMP_RET_LOG :
-                /* LOG is already recorded above; it is treated as ALLOW. */
-                return true;
-            case SECCOMP_RET_ERRNO :
-                *result = -(int64_t)(payload > SECCOMP_MAX_ERRNO ? SECCOMP_MAX_ERRNO : payload);
-                return false;
-            case SECCOMP_RET_TRAP :
-                *result = -ENOSYS;
-                seccomp_send_sigsys(task, &data, payload);
-                return false;
-            case SECCOMP_RET_USER_NOTIF :
-                return seccomp_notify_wait(winner ? winner->listener : NULL, &data, result);
-            case SECCOMP_RET_TRACE :
-                if (trace_seen || !ptrace_seccomp_event(frame, payload, result)) {
-                    if (trace_seen) return true;
-                    *result = -ENOSYS;
-                    return false;
-                }
-                trace_seen  = true;
-                *syscall_nr = frame->rax;
-                if ((int64_t)*syscall_nr < 0) return false;
-                continue;
-            case SECCOMP_RET_KILL_THREAD :
-                process_exit(-SIGSYS);
-                break; // unreachable: process_exit never returns
-            case SECCOMP_RET_KILL_PROCESS :
-            default :
-                process_exit_group(-SIGSYS);
-        }
-    }
+    return seccomp_filter_enforce(task, frame, syscall_nr, result, false);
 }
 
 /* Register the seccomp listener filesystem. */
