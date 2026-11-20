@@ -540,6 +540,9 @@ static bool signal_task_ignored(const process_t *proc, const task_t *target, int
      */
     if (is_global_init(proc) && proc->signal.sighand[sig].sa_handler == SIG_DFL) return true;
 
+    /* Traced tasks always queue signals so the tracer can observe and intercept them. */
+    if (mask_owner && ptrace_tracer_pid(mask_owner) != 0) return false;
+
     /*
      * SIGCONT must never be reported as ignored here: its resume side effect
      * (task_continue in signal_send/signal_send_thread) runs after this check, and
@@ -627,6 +630,12 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
     if (ret == 0 && sig == SIGCONT) __atomic_store_n(&state->group_stopped, false, __ATOMIC_RELEASE);
 
     spin_unlock(&state->lock);
+
+    if (ret == 0 && sig == SIGCHLD) {
+        spin_lock(&proc->child_wait.lock);
+        wait_queue_wake_all(&proc->child_wait);
+        spin_unlock(&proc->child_wait.lock);
+    }
 
     /* kill() reports success when the signal is ignored. */
     if (ignored) return 0;
@@ -898,6 +907,17 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
         sa->sa_flags    = 0;
         sa->sa_restorer = 0;
         sigemptyset(&sa->sa_mask);
+    }
+
+    int64_t sys_ret = (int64_t)frame->rax;
+    if (sys_ret == -ERESTARTSYS || sys_ret == -ERESTARTNOINTR || sys_ret == -ERESTARTNOHAND || sys_ret == -ERESTART) {
+        bool restart = (sys_ret == -ERESTARTNOINTR) || ((action.sa_flags & SA_RESTART) && (sys_ret == -ERESTARTSYS || sys_ret == -ERESTART));
+        if (restart) {
+            frame->rax = task->ptrace.syscall_nr;
+            frame->rip -= 2;
+        } else {
+            frame->rax = (uint64_t)-EINTR;
+        }
     }
 
     /* Set up the signal frame on the user stack (including old_mask). */
@@ -1851,8 +1871,9 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
      * Never feed arbitrary selectors/non-canonical state to IRETQ: malformed
      * user frames must become SIGSEGV, not a kernel-mode #GP.
      */
-    uint64_t *gregs = sig_frame.ucontext.uc_mcontext.gregs;
-    if ((gregs[18] & 0xffff) != 0x33 || !gregs[16] || gregs[16] >= PROCESS_USER_STACK_TOP || !gregs[15] || gregs[15] >= PROCESS_USER_STACK_TOP) return -EINVAL;
+    uint64_t *gregs   = sig_frame.ucontext.uc_mcontext.gregs;
+    uint16_t  user_cs = (uint16_t)(gregs[18] & 0xffff);
+    if ((user_cs != 0x33 && user_cs != 0x1b) || !gregs[16] || gregs[16] >= PROCESS_USER_STACK_TOP || !gregs[15] || gregs[15] >= PROCESS_USER_STACK_TOP) return -EINVAL;
 
     size_t expected_fpstate = fpu_signal_state_size();
     if (expected_fpstate) {

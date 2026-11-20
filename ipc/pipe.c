@@ -356,7 +356,7 @@ static int pipe_file_open(vfs_node_t node, uint64_t flags, void **private_data)
                 if (endpoint->writable) ring->writers--;
                 raw_spin_unlock(&ring->lock);
                 free(endpoint);
-                return -EINTR;
+                return -ERESTARTSYS;
             }
             wait_queue_prepare(endpoint->readable ? &ring->read_wq : &ring->write_wq);
             raw_spin_unlock(&ring->lock);
@@ -430,7 +430,7 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
         }
         if (signal_has_pending_current()) {
             raw_spin_unlock(&ring->lock);
-            return -EINTR;
+            return -ERESTARTSYS;
         }
         if (!spun) {
             spun = true;
@@ -511,7 +511,7 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
             }
             if (signal_has_pending_current()) {
                 raw_spin_unlock(&ring->lock);
-                return -EINTR;
+                return -ERESTARTSYS;
             }
             if (!spun) {
                 spun = true;
@@ -600,7 +600,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
             }
             if (signal_has_pending_current()) {
                 raw_spin_unlock(&ring->lock);
-                return total_written ? (int64_t)total_written : -EINTR;
+                return total_written ? (int64_t)total_written : -ERESTARTSYS;
             }
             if (!spun) {
                 spun               = true;
@@ -678,7 +678,7 @@ int64_t pipe_tee(void *in_private, void *out_private, size_t len, uint64_t flags
         if (signal_has_pending_current()) {
             raw_spin_unlock(&ring->lock);
             free(buf);
-            return -EINTR;
+            return -ERESTARTSYS;
         }
         if (!spun) {
             spun = true;
@@ -755,7 +755,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
             }
             if (signal_has_pending_current()) {
                 raw_spin_unlock(&ring->lock);
-                return total_written ? (int64_t)total_written : -EINTR;
+                return total_written ? (int64_t)total_written : -ERESTARTSYS;
             }
             if (!spun) {
                 spun               = true;
