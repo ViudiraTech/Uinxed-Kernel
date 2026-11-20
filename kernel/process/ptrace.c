@@ -8,9 +8,12 @@
  *
  */
 
+#include <arch/cpu/smp.h>
+#include <arch/misc/common.h>
 #include <kernel/debug/printk.h>
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
+#include <mem/frame.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <process/process.h>
@@ -112,9 +115,9 @@ void ptrace_regs_to_frame(syscall_frame_t *frame, const ptrace_user_regs_t *regs
     frame->rflags = (regs->eflags & PTRACE_EFLAGS_USER_MASK) | PTRACE_EFLAGS_FIXED;
     frame->rsp    = regs->rsp;
 
-    /* User segment selectors are invariant in the Uinxed x86-64 ABI. */
-    frame->cs = 0x1b;
-    frame->ss = 0x23;
+    /* User segment selectors match the SYSRET ABI. */
+    frame->cs = 0x33;
+    frame->ss = 0x2b;
 }
 
 /* Encode a wait status from a signal and event */
@@ -173,7 +176,6 @@ static void ptrace_debug_save(task_t *task)
     __asm__ volatile("mov %%dr1, %0" : "=r"(task->ptrace.debug_regs[1]));
     __asm__ volatile("mov %%dr2, %0" : "=r"(task->ptrace.debug_regs[2]));
     __asm__ volatile("mov %%dr3, %0" : "=r"(task->ptrace.debug_regs[3]));
-    __asm__ volatile("mov %%dr6, %0" : "=r"(task->ptrace.debug_regs[6]));
     __asm__ volatile("mov %%dr7, %0" : "=r"(task->ptrace.debug_regs[7]));
 }
 
@@ -205,7 +207,6 @@ void ptrace_arch_switch(task_t *previous, task_t *next)
      * common case has no hardware breakpoints and needs no DR traffic.
      */
     if (!previous_active && !next_active) return;
-    if (previous_active) ptrace_debug_save(previous);
     ptrace_debug_restore(next_active ? next : NULL);
 }
 
@@ -258,21 +259,40 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
     if (!proc || !proc->user_page_dir || !proc->user_page_dir->table) return -EIO;
     if (addr >= PROCESS_USER_STACK_TOP) return -EFAULT;
 
-    if (write && page_resolve_cow_fault(proc, addr) < 0) { // Non-COW writable mappings continue through the normal walk.
+    bool     has_vma     = false;
+    uint64_t vm_flags    = 0;
+    bool     has_pgcache = false;
+    if (write) {
+        spin_lock(&proc->mmap_lock);
+        for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+            if (addr >= vma->start && addr < vma->end) {
+                has_vma     = true;
+                vm_flags    = vma->flags;
+                has_pgcache = vma->vm_pagecache;
+                break;
+            }
+        }
+        spin_unlock(&proc->mmap_lock);
+        if (has_vma && (vm_flags & VM_SHARED) && !(vm_flags & VM_WRITE)) return -EIO;
+        (void)page_resolve_cow_fault(proc, addr);
     }
 
-    uint16_t l4i = (addr >> 39) & 0x1ff;
-    uint16_t l3i = (addr >> 30) & 0x1ff;
-    uint16_t l2i = (addr >> 21) & 0x1ff;
-    uint16_t l1i = (addr >> 12) & 0x1ff;
+    uint16_t l4i     = (addr >> 39) & 0x1ff;
+    uint16_t l3i     = (addr >> 30) & 0x1ff;
+    uint16_t l2i     = (addr >> 21) & 0x1ff;
+    uint16_t l1i     = (addr >> 12) & 0x1ff;
+    bool     retried = false;
 
+retry:
+    spin_lock(&proc->user_page_dir->lock);
     page_table_t *l4  = proc->user_page_dir->table;
     uint64_t      l4e = l4->entries[l4i].value;
-    if (!(l4e & PTE_PRESENT) || !(l4e & PTE_USER)) return -EFAULT;
+    if (!(l4e & PTE_PRESENT) || !(l4e & PTE_USER)) goto demand_fault;
     page_table_t *l3  = phys_to_virt(l4e & PAGE_4K_MASK);
     uint64_t      l3e = l3->entries[l3i].value;
-    if (!(l3e & PTE_PRESENT) || !(l3e & PTE_USER)) return -EFAULT;
+    if (!(l3e & PTE_PRESENT) || !(l3e & PTE_USER)) goto demand_fault;
     if (l3e & PTE_HUGE) {
+        spin_unlock(&proc->user_page_dir->lock);
         uintptr_t offset = addr & (PAGE_1G_SIZE - 1);
         *mapped          = phys_to_virt((l3e & PAGE_1G_MASK) + offset);
         *available       = PAGE_1G_SIZE - offset;
@@ -280,8 +300,9 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
     }
     page_table_t *l2  = phys_to_virt(l3e & PAGE_4K_MASK);
     uint64_t      l2e = l2->entries[l2i].value;
-    if (!(l2e & PTE_PRESENT) || !(l2e & PTE_USER)) return -EFAULT;
+    if (!(l2e & PTE_PRESENT) || !(l2e & PTE_USER)) goto demand_fault;
     if (l2e & PTE_HUGE) {
+        spin_unlock(&proc->user_page_dir->lock);
         uintptr_t offset = addr & (PAGE_2M_SIZE - 1);
         *mapped          = phys_to_virt((l2e & PAGE_2M_MASK) + offset);
         *available       = PAGE_2M_SIZE - offset;
@@ -289,12 +310,46 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
     }
     page_table_t *l1  = phys_to_virt(l2e & PAGE_4K_MASK);
     uint64_t      l1e = l1->entries[l1i].value;
-    if (!(l1e & PTE_PRESENT) || !(l1e & PTE_USER)) return -EFAULT;
+    if (!(l1e & PTE_PRESENT) || !(l1e & PTE_USER)) goto demand_fault;
+
+    uint64_t release_phys = 0;
+    if (write) {
+        if (l1e & PTE_SHARED) {
+            if (has_vma && !(vm_flags & VM_WRITE)) {
+                spin_unlock(&proc->user_page_dir->lock);
+                return -EIO;
+            }
+        } else {
+            uint64_t old_phys = l1e & PAGE_4K_MASK;
+            if (frame_refcount(old_phys) > 1 || has_pgcache) {
+                uint64_t new_phys = alloc_frames(1);
+                if (!new_phys) {
+                    spin_unlock(&proc->user_page_dir->lock);
+                    return -ENOMEM;
+                }
+                memcpy(phys_to_virt(new_phys), phys_to_virt(old_phys), PAGE_4K_SIZE);
+                l1->entries[l1i].value = (new_phys & PAGE_4K_MASK) | (l1e & ~PAGE_4K_MASK);
+                l1e                    = l1->entries[l1i].value;
+                flush_tlb_all();
+                release_phys = old_phys;
+            }
+        }
+    }
 
     uintptr_t offset = addr & (PAGE_4K_SIZE - 1);
     *mapped          = phys_to_virt((l1e & PAGE_4K_MASK) + offset);
     *available       = PAGE_4K_SIZE - offset;
+    spin_unlock(&proc->user_page_dir->lock);
+    if (release_phys) (void)frame_release_range(release_phys, 1);
     return 0;
+
+demand_fault:
+    spin_unlock(&proc->user_page_dir->lock);
+    if (!retried && process_demand_fault(proc, addr, 0, 0) == 0) {
+        retried = true;
+        goto retry;
+    }
+    return -EFAULT;
 }
 
 /* Read or write a buffer in the tracee's address space */
@@ -350,6 +405,9 @@ static void ptrace_notify_tracer(task_t *tracee)
     info.si_pid = (int32_t)tracee->pid;
     info.si_uid = tracee->process ? tracee->process->uid : 0;
     (void)signal_send(tracer, SIGCHLD, &info);
+    spin_lock(&tracer->child_wait.lock);
+    wait_queue_wake_all(&tracer->child_wait);
+    spin_unlock(&tracer->child_wait.lock);
     process_put(tracer);
 }
 
@@ -366,7 +424,7 @@ static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reas
         return sig;
     }
     ptrace_regs_from_frame(&state->regs, frame, state->syscall_nr);
-    if (reason == PTRACE_STOP_SYSCALL_ENTRY) state->regs.rax = (uint64_t)-ENOSYS;
+    if (reason == PTRACE_STOP_SYSCALL_ENTRY || (reason == PTRACE_STOP_EVENT && event == PTRACE_EVENT_SECCOMP)) state->regs.rax = (uint64_t)-ENOSYS;
     state->regs.fs_base = task->thread.fs_base;
     state->regs.gs_base = task->thread.gs_base;
     ptrace_debug_save(task);
@@ -385,14 +443,63 @@ static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reas
         state->siginfo = *info;
     } else {
         memset(&state->siginfo, 0, sizeof(state->siginfo));
-        state->siginfo.si_signo = sig;
-        state->siginfo.si_code  = SI_KERNEL;
+        if (reason == PTRACE_STOP_SYSCALL_ENTRY || reason == PTRACE_STOP_SYSCALL_EXIT) {
+            state->siginfo.si_signo = SIGTRAP;
+            state->siginfo.si_code  = sig;
+        } else if (reason == PTRACE_STOP_EVENT) {
+            state->siginfo.si_signo = SIGTRAP;
+            state->siginfo.si_code  = (int)((event << 8) | SIGTRAP);
+        } else if (reason == PTRACE_STOP_GROUP && state->seized) {
+            state->siginfo.si_signo = sig;
+            state->siginfo.si_code  = (PTRACE_EVENT_STOP << 8) | sig;
+        } else {
+            state->siginfo.si_signo = sig;
+            state->siginfo.si_code  = SI_KERNEL;
+        }
+        state->siginfo.si_pid = (int32_t)task->pid;
+        state->siginfo.si_uid = task->process ? task->process->uid : 0;
     }
     spin_unlock(&state->lock);
 
     ptrace_notify_tracer(task);
     spin_lock(&state->lock);
     while (state->stopped) {
+        bool fatal = sigismember(&task->signal_pending, SIGKILL);
+        if (!fatal && task->process) {
+            signal_state_t *signals = &task->process->signal;
+            spin_lock(&signals->lock);
+            fatal = sigismember(&signals->pending, SIGKILL) || (signals->group_exit && !(reason == PTRACE_STOP_EVENT && event == PTRACE_EVENT_EXIT));
+            spin_unlock(&signals->lock);
+        }
+        if (fatal) {
+            state->stopped       = false;
+            state->stop_reason   = PTRACE_STOP_NONE;
+            state->mode          = PTRACE_RUN_CONT;
+            state->resume_signal = SIGKILL;
+            break;
+        }
+        if (state->mode == PTRACE_RUN_LISTEN && task->process) {
+            signal_state_t *signals = &task->process->signal;
+            spin_lock(&signals->lock);
+            bool cont_pending = sigismember(&task->signal_pending, SIGCONT) || sigismember(&signals->pending, SIGCONT);
+            spin_unlock(&signals->lock);
+            if (cont_pending) {
+                state->mode             = PTRACE_RUN_CONT;
+                state->stop_reason      = PTRACE_STOP_EVENT;
+                state->stop_signal      = SIGTRAP;
+                state->event            = PTRACE_EVENT_STOP;
+                state->event_msg        = 0;
+                state->wait_status      = ptrace_wait_status(SIGTRAP, PTRACE_EVENT_STOP);
+                state->wait_pending     = true;
+                state->siginfo.si_signo = SIGTRAP;
+                state->siginfo.si_code  = (PTRACE_EVENT_STOP << 8) | SIGTRAP;
+                spin_unlock(&state->lock);
+                ptrace_notify_tracer(task);
+                spin_lock(&state->lock);
+                continue;
+            }
+        }
+
         /*
          * PTRACE_CONT may win immediately after the condition check.  The
          * old bare task_block() then discarded that wake because the task
@@ -407,10 +514,17 @@ static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reas
     }
     if (state->regs_valid) {
         ptrace_regs_to_frame(frame, &state->regs);
-        task->thread.fs_base = state->regs.fs_base;
-        task->thread.gs_base = state->regs.gs_base;
+        if (task->thread.fs_base != state->regs.fs_base) {
+            task->thread.fs_base = state->regs.fs_base;
+            wrmsr(0xC0000100, task->thread.fs_base);
+        }
+        if (task->thread.gs_base != state->regs.gs_base) {
+            task->thread.gs_base = state->regs.gs_base;
+            set_user_gs_base(task->thread.gs_base);
+        }
         ptrace_fpu_restore(state->fpregs);
     }
+    ptrace_debug_restore(state->debug_regs[7] ? task : NULL);
     int resume_signal    = state->resume_signal;
     state->resume_signal = 0;
     spin_unlock(&state->lock);
@@ -432,8 +546,14 @@ static int ptrace_resume(task_t *target, ptrace_run_mode_t mode, int sig)
     state->stopped       = false;
     state->stop_reason   = PTRACE_STOP_NONE;
     state->event         = 0;
-    if (mode == PTRACE_RUN_SINGLESTEP && state->regs_valid) state->regs.eflags |= PTRACE_EFLAGS_TF;
-    if (mode != PTRACE_RUN_SINGLESTEP && state->regs_valid) state->regs.eflags &= ~PTRACE_EFLAGS_TF;
+    if (mode == PTRACE_RUN_SINGLESTEP && state->regs_valid) {
+        if (!(state->regs.eflags & PTRACE_EFLAGS_TF)) state->forced_tf = true;
+        state->regs.eflags |= PTRACE_EFLAGS_TF;
+    }
+    if (mode != PTRACE_RUN_SINGLESTEP && state->regs_valid && state->forced_tf) {
+        state->regs.eflags &= ~PTRACE_EFLAGS_TF;
+        state->forced_tf = false;
+    }
     spin_unlock(&state->lock);
     task_wakeup(target);
     return 0;
@@ -512,20 +632,21 @@ static int64_t ptrace_peek_siginfo(task_t *target, uintptr_t addr, uintptr_t dat
     if (args.flags & ~PTRACE_PEEKSIGINFO_SHARED || args.nr < 0) return -EINVAL;
 
     signal_state_t *signals = &target->process->signal;
-    spin_lock(&signals->lock);
-    sigqueue_t *item = signals->sigqueue_head;
-    uint64_t    skip = args.off;
-    while (item && skip--) item = item->next;
-    int copied = 0;
-    while (item && copied < args.nr) {
+    int             copied  = 0;
+    while (copied < args.nr) {
+        spin_lock(&signals->lock);
+        sigqueue_t *item = signals->sigqueue_head;
+        uint64_t    skip = args.off + (uint64_t)copied;
+        while (item && skip--) item = item->next;
+        if (!item) {
+            spin_unlock(&signals->lock);
+            break;
+        }
         siginfo_t info = item->info;
         spin_unlock(&signals->lock);
         if (copy_to_user((siginfo_t *)data + copied, &info, sizeof(info))) return -EFAULT;
         copied++;
-        spin_lock(&signals->lock);
-        item = item->next;
     }
-    spin_unlock(&signals->lock);
     return copied;
 }
 
@@ -534,18 +655,14 @@ static int64_t ptrace_get_syscall_info(task_t *target, uintptr_t size, uintptr_t
 {
     ptrace_syscall_info_t info;
     memset(&info, 0, sizeof(info));
-    ptrace_state_t *state = &target->ptrace;
-    if (state->stop_reason == PTRACE_STOP_SYSCALL_ENTRY) {
-        info.op = PTRACE_SYSCALL_INFO_ENTRY;
-    } else if (state->stop_reason == PTRACE_STOP_SYSCALL_EXIT) {
-        info.op = PTRACE_SYSCALL_INFO_EXIT;
-    } else {
-        info.op = PTRACE_SYSCALL_INFO_NONE;
-    }
+    ptrace_state_t *state    = &target->ptrace;
     info.arch                = AUDIT_ARCH_X86_64;
     info.instruction_pointer = state->regs.rip;
     info.stack_pointer       = state->regs.rsp;
-    if (info.op == PTRACE_SYSCALL_INFO_ENTRY) {
+
+    size_t actual_size = offsetof(ptrace_syscall_info_t, data);
+    if (state->stop_reason == PTRACE_STOP_SYSCALL_ENTRY) {
+        info.op                 = PTRACE_SYSCALL_INFO_ENTRY;
         info.data.entry.nr      = state->regs.orig_rax;
         info.data.entry.args[0] = state->regs.rdi;
         info.data.entry.args[1] = state->regs.rsi;
@@ -553,13 +670,30 @@ static int64_t ptrace_get_syscall_info(task_t *target, uintptr_t size, uintptr_t
         info.data.entry.args[3] = state->regs.r10;
         info.data.entry.args[4] = state->regs.r8;
         info.data.entry.args[5] = state->regs.r9;
-    } else if (info.op == PTRACE_SYSCALL_INFO_EXIT) {
+        actual_size             = offsetof(ptrace_syscall_info_t, data.entry.args) + sizeof(info.data.entry.args);
+    } else if (state->stop_reason == PTRACE_STOP_SYSCALL_EXIT) {
+        info.op                 = PTRACE_SYSCALL_INFO_EXIT;
         info.data.exit.rval     = (int64_t)state->regs.rax;
         info.data.exit.is_error = info.data.exit.rval < 0 && info.data.exit.rval >= -4095;
+        actual_size             = offsetof(ptrace_syscall_info_t, data.exit.is_error) + sizeof(info.data.exit.is_error);
+    } else if (state->stop_reason == PTRACE_STOP_EVENT && state->event == PTRACE_EVENT_SECCOMP) {
+        info.op                    = PTRACE_SYSCALL_INFO_SECCOMP;
+        info.data.seccomp.nr       = state->regs.orig_rax;
+        info.data.seccomp.args[0]  = state->regs.rdi;
+        info.data.seccomp.args[1]  = state->regs.rsi;
+        info.data.seccomp.args[2]  = state->regs.rdx;
+        info.data.seccomp.args[3]  = state->regs.r10;
+        info.data.seccomp.args[4]  = state->regs.r8;
+        info.data.seccomp.args[5]  = state->regs.r9;
+        info.data.seccomp.ret_data = (uint32_t)state->event_msg;
+        actual_size                = offsetof(ptrace_syscall_info_t, data.seccomp.ret_data) + sizeof(info.data.seccomp.ret_data);
+    } else {
+        info.op = PTRACE_SYSCALL_INFO_NONE;
     }
-    size_t copy_size = size < sizeof(info) ? size : sizeof(info);
+
+    size_t copy_size = size < actual_size ? size : actual_size;
     if (copy_size && copy_to_user((void *)data, &info, copy_size)) return -EFAULT;
-    return sizeof(info);
+    return (int64_t)actual_size;
 }
 
 /* ptrace(2) entry point: dispatch a request against the target task */
@@ -611,20 +745,19 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
 
     ptrace_state_t *state = &target->ptrace;
     spin_lock(&state->lock);
-    bool stopped      = state->stopped;
-    bool wait_pending = state->wait_pending;
+    bool stopped = state->stopped;
     spin_unlock(&state->lock);
-    if (request != PTRACE_INTERRUPT && request != PTRACE_KILL && (!stopped || wait_pending)) {
-        plogk("ptrace: Task %lld not stopped (request=%d, stopped=%d, wait_pending=%d)\n", pid, request, stopped, wait_pending);
+    if (request != PTRACE_INTERRUPT && request != PTRACE_KILL && !stopped) {
+        plogk("ptrace: Task %lld not stopped (request=%d, stopped=%d)\n", pid, request, stopped);
         process_put(owner);
         return -ESRCH;
     }
     switch (request) {
         case PTRACE_PEEKTEXT :
         case PTRACE_PEEKDATA : {
-            uint64_t word;
-            ret = ptrace_access_vm(owner, addr, &word, sizeof(word), false);
-            if (!ret) ret = (int64_t)word;
+            uint64_t word = 0;
+            ret           = ptrace_access_vm(owner, addr, &word, sizeof(word), false);
+            if (!ret && copy_to_user((void *)data, &word, sizeof(word))) ret = -EFAULT;
             break;
         }
         case PTRACE_POKETEXT :
@@ -639,7 +772,8 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             } else {
                 ptrace_user_area_t area;
                 ptrace_build_user_area(target, &area);
-                ret = *(int64_t *)((uint8_t *)&area + addr);
+                uint64_t word = *(uint64_t *)((uint8_t *)&area + addr);
+                if (copy_to_user((void *)data, &word, sizeof(word))) ret = -EFAULT;
             }
             break;
         case PTRACE_POKEUSR :
@@ -653,8 +787,8 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             if (copy_from_user(&regs, (void *)data, sizeof(regs))) {
                 ret = -EFAULT;
             } else {
-                regs.cs     = 0x1b;
-                regs.ss     = 0x23;
+                regs.cs     = 0x33;
+                regs.ss     = 0x2b;
                 regs.eflags = (regs.eflags & PTRACE_EFLAGS_USER_MASK) | PTRACE_EFLAGS_FIXED;
                 state->regs = regs;
             }
@@ -695,30 +829,42 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         case PTRACE_INTERRUPT :
             spin_lock(&state->lock);
             bool listening = state->mode == PTRACE_RUN_LISTEN && state->stopped;
-            spin_unlock(&state->lock);
-            if (!state->seized || (stopped && !listening)) {
+            bool seized    = state->seized;
+            if (!seized) {
+                spin_unlock(&state->lock);
                 ret = -EIO;
             } else if (listening) {
-                spin_lock(&state->lock);
-                state->mode         = PTRACE_RUN_CONT;
-                state->stop_reason  = PTRACE_STOP_EVENT;
-                state->stop_signal  = SIGTRAP;
-                state->event        = PTRACE_EVENT_STOP;
-                state->event_msg    = 0;
-                state->wait_status  = ptrace_wait_status(SIGTRAP, PTRACE_EVENT_STOP);
-                state->wait_pending = true;
+                state->mode             = PTRACE_RUN_CONT;
+                state->stop_reason      = PTRACE_STOP_EVENT;
+                state->stop_signal      = SIGTRAP;
+                state->event            = PTRACE_EVENT_STOP;
+                state->event_msg        = 0;
+                state->wait_status      = ptrace_wait_status(SIGTRAP, PTRACE_EVENT_STOP);
+                state->wait_pending     = true;
+                state->siginfo.si_signo = SIGTRAP;
+                state->siginfo.si_code  = (PTRACE_EVENT_STOP << 8) | SIGTRAP;
                 spin_unlock(&state->lock);
                 ptrace_notify_tracer(target);
             } else {
-                spin_lock(&state->lock);
                 state->interrupt_requested = true;
+                bool is_stopped            = state->stopped;
                 spin_unlock(&state->lock);
-                ret = signal_send_thread(target, SIGTRAP, NULL);
+                if (!is_stopped) ret = signal_send_thread(target, SIGTRAP, NULL);
             }
             break;
         case PTRACE_KILL :
+            spin_lock(&state->lock);
+            bool was_stopped = state->stopped;
+            if (was_stopped) {
+                state->resume_signal = SIGKILL;
+                state->stopped       = false;
+                state->stop_reason   = PTRACE_STOP_NONE;
+                state->mode          = PTRACE_RUN_CONT;
+            }
+            spin_unlock(&state->lock);
             ret = signal_send_thread(target, SIGKILL, NULL);
-            if (state->stopped) task_wakeup(target);
+            (void)signal_send(owner, SIGKILL, NULL);
+            if (was_stopped) (void)task_wakeup(target);
             break;
         case PTRACE_DETACH :
             if (!sig_valid((int)data) && data != 0) {
@@ -729,11 +875,12 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             state->tracer_pid    = 0;
             state->options       = 0;
             state->seized        = false;
+            state->mode          = PTRACE_RUN_CONT;
             state->resume_signal = (int)data;
-            bool stopped         = state->stopped;
+            bool detach_stopped  = state->stopped;
             state->stopped       = false;
             spin_unlock(&state->lock);
-            if (stopped) task_wakeup(target);
+            if (detach_stopped) (void)task_wakeup(target);
             break;
         case PTRACE_SETOPTIONS :
             if (data & ~PTRACE_O_MASK) {
@@ -750,14 +897,14 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             ret = copy_to_user((void *)data, &state->event_msg, sizeof(state->event_msg)) ? -EFAULT : 0;
             break;
         case PTRACE_GETSIGINFO :
-            if (state->stop_reason == PTRACE_STOP_NONE) {
+            if (state->stop_reason == PTRACE_STOP_NONE || (state->stop_reason == PTRACE_STOP_GROUP && !state->seized)) {
                 ret = -EINVAL;
             } else {
                 ret = copy_to_user((void *)data, &state->siginfo, sizeof(state->siginfo)) ? -EFAULT : 0;
             }
             break;
         case PTRACE_SETSIGINFO :
-            if (state->stop_reason == PTRACE_STOP_NONE) {
+            if (state->stop_reason == PTRACE_STOP_NONE || (state->stop_reason == PTRACE_STOP_GROUP && !state->seized)) {
                 ret = -EINVAL;
             } else {
                 ret = copy_from_user(&state->siginfo, (void *)data, sizeof(state->siginfo)) ? -EFAULT : 0;
@@ -888,7 +1035,7 @@ wait_again:
         if (options & PTRACE_WAIT_WNOHANG) return 0;
         signal_state_t *signals = &self->process->signal;
         spin_lock(&signals->lock);
-        bool pending = signal_has_pending(signals);
+        bool pending = signal_has_interrupting_pending(signals);
         spin_unlock(&signals->lock);
         if (pending) return -ERESTARTSYS;
 
@@ -909,13 +1056,18 @@ int ptrace_signal_delivery(syscall_frame_t *frame, int sig, siginfo_t *info)
     spin_lock(&state->lock);
     bool interrupt             = state->interrupt_requested;
     state->interrupt_requested = false;
-    bool group_stop            = sig_is_stop(sig) && state->seized;
+    bool seized                = state->seized;
     spin_unlock(&state->lock);
+
     int injected;
     if (interrupt) {
         injected = ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, PTRACE_EVENT_STOP, (uint64_t)sig, info);
     } else {
-        injected = ptrace_stop_current(frame, sig, group_stop ? PTRACE_STOP_GROUP : PTRACE_STOP_SIGNAL, group_stop ? PTRACE_EVENT_STOP : 0, 0, info);
+        injected = ptrace_stop_current(frame, sig, PTRACE_STOP_SIGNAL, 0, 0, info);
+        if (sig_is_stop(injected)) {
+            (void)ptrace_stop_current(frame, injected, PTRACE_STOP_GROUP, seized ? PTRACE_EVENT_STOP : 0, 0, NULL);
+            return 0;
+        }
     }
     if (injected && info) {
         spin_lock(&state->lock);
@@ -943,10 +1095,12 @@ void ptrace_syscall_enter(syscall_frame_t *frame, uint64_t syscall_nr)
     uint32_t options = state->options;
     spin_unlock(&state->lock);
     if (stop) {
-        ptrace_stop_current(frame, ptrace_syscall_stop_signal(options), PTRACE_STOP_SYSCALL_ENTRY, 0, 0, NULL);
+        int injected = ptrace_stop_current(frame, ptrace_syscall_stop_signal(options), PTRACE_STOP_SYSCALL_ENTRY, 0, PTRACE_EVENTMSG_SYSCALL_ENTRY, NULL);
         spin_lock(&state->lock);
-        frame->rax = state->regs.orig_rax;
+        frame->rax        = state->regs.orig_rax;
+        state->syscall_nr = state->regs.orig_rax;
         spin_unlock(&state->lock);
+        if (injected) (void)signal_send_thread(task, injected, NULL);
     }
 }
 
@@ -961,8 +1115,9 @@ void ptrace_syscall_exit(syscall_frame_t *frame, int64_t result)
     uint32_t options = state->options;
     spin_unlock(&state->lock);
     if (stop) {
-        frame->rax = (uint64_t)result;
-        ptrace_stop_current(frame, ptrace_syscall_stop_signal(options), PTRACE_STOP_SYSCALL_EXIT, 0, 0, NULL);
+        frame->rax   = (uint64_t)result;
+        int injected = ptrace_stop_current(frame, ptrace_syscall_stop_signal(options), PTRACE_STOP_SYSCALL_EXIT, 0, PTRACE_EVENTMSG_SYSCALL_EXIT, NULL);
+        if (injected) (void)signal_send_thread(task, injected, NULL);
     }
 }
 
@@ -1005,9 +1160,21 @@ void ptrace_exec_event(syscall_frame_t *frame)
     if (!task || !ptrace_tracer_pid(task)) return;
     ptrace_state_t *state = &task->ptrace;
     spin_lock(&state->lock);
-    bool event = (state->options & PTRACE_O_TRACEEXEC) != 0;
+    bool trace_exec = (state->options & PTRACE_O_TRACEEXEC) != 0;
+    bool seized     = state->seized;
     spin_unlock(&state->lock);
-    ptrace_stop_current(frame, SIGTRAP, event ? PTRACE_STOP_EVENT : PTRACE_STOP_SIGNAL, event ? PTRACE_EVENT_EXEC : 0, task->pid, NULL);
+    if (trace_exec) {
+        int injected = ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, PTRACE_EVENT_EXEC, task->pid, NULL);
+        if (injected) (void)signal_send_thread(task, injected, NULL);
+    } else if (!seized) {
+        siginfo_t info;
+        memset(&info, 0, sizeof(info));
+        info.si_signo = SIGTRAP;
+        info.si_code  = SI_USER;
+        info.si_pid   = (int32_t)task->pid;
+        info.si_uid   = task->process ? task->process->uid : 0;
+        (void)signal_send_thread(task, SIGTRAP, &info);
+    }
 }
 
 /* Report an exit event to the tracer before the tracee is destroyed */
@@ -1025,12 +1192,13 @@ void ptrace_exit_event(int exit_code)
     syscall_frame_t *frame = state->active_frame;
     if (!frame) {
         memset(&fallback, 0, sizeof(fallback));
-        fallback.cs     = 0x1b;
-        fallback.ss     = 0x23;
+        fallback.cs     = 0x33;
+        fallback.ss     = 0x2b;
         fallback.rflags = PTRACE_EFLAGS_FIXED;
         frame           = &fallback;
     }
-    ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, PTRACE_EVENT_EXIT, (uint64_t)(uint32_t)exit_code, NULL);
+    uint64_t wait_code = exit_code >= 0 ? (uint64_t)((exit_code & 0xff) << 8) : (uint64_t)((-exit_code) & 0x7f);
+    ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, PTRACE_EVENT_EXIT, wait_code, NULL);
 }
 
 /* Publish the final exit status of a traced task and wake the tracer */
@@ -1096,9 +1264,24 @@ bool ptrace_fork_child(task_t *parent, task_t *child, uint32_t event)
     state->mode         = PTRACE_RUN_CONT;
     state->stopped      = true;
     state->wait_pending = true;
-    state->stop_reason  = PTRACE_STOP_EVENT;
-    state->stop_signal  = SIGSTOP;
-    state->wait_status  = ptrace_wait_status(SIGSTOP, 0);
+    if (seized) {
+        state->stop_reason = PTRACE_STOP_EVENT;
+        state->stop_signal = SIGTRAP;
+        state->event       = PTRACE_EVENT_STOP;
+        state->wait_status = ptrace_wait_status(SIGTRAP, PTRACE_EVENT_STOP);
+    } else {
+        state->stop_reason = PTRACE_STOP_SIGNAL;
+        state->stop_signal = SIGSTOP;
+        state->event       = 0;
+        state->wait_status = ptrace_wait_status(SIGSTOP, 0);
+    }
+    if (parent->ptrace.active_frame) {
+        ptrace_regs_from_frame(&state->regs, parent->ptrace.active_frame, parent->ptrace.syscall_nr);
+        state->regs.rax     = 0;
+        state->regs.fs_base = child->thread.fs_base;
+        state->regs.gs_base = child->thread.gs_base;
+        state->regs_valid   = true;
+    }
     spin_unlock(&state->lock);
     child->state = TASK_BLOCKED;
     return true;

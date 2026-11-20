@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpu/eflags.h>
 #include <arch/cpu/fpu.h>
 #include <arch/cpu/smp.h>
 #include <arch/interrupts/exception_entry.h>
@@ -18,6 +19,7 @@
 #include <kernel/interrupt/interrupt.h>
 #include <libs/std/string.h>
 #include <process/process.h>
+#include <process/ptrace.h>
 #include <process/sched.h>
 #include <syscall/syscall.h>
 
@@ -121,25 +123,38 @@ static const exception_signal_t exception_signals[] = {
 };
 
 /* si_code for #DB, from the DR6 bits that name the breakpoint which fired; the B0-B3 bits stay set, so single step is tested first. */
-static int exception_debug_code(void)
+static int exception_debug_code(exception_frame_t *frame)
 {
     uint64_t dr6;
     __asm__ volatile("mov %%dr6, %0" : "=r"(dr6));
-    dr6 ^= DR6_RESERVED; // drop the reserved bits so an untouched DR6 reads as zero
+    __asm__ volatile("mov %0, %%dr6" : : "r"((uint64_t)DR6_RESERVED));
 
-    if (dr6 & 0x4000) return TRAP_TRACE;  // BS: single step
-    if (dr6 & 0x000f) return TRAP_HWBKPT; // B0-B3: hardware breakpoint
-    return TRAP_BRKPT;                    // ICEBP
+    task_t *task = user_mode(frame) ? current_task() : NULL;
+    if (task) task->ptrace.debug_regs[6] = dr6;
+
+    uint64_t status = dr6 ^ DR6_RESERVED; // drop the reserved bits so an untouched DR6 reads as zero
+    if (status & 0x4000) {
+        if (task && task->ptrace.forced_tf) {
+            frame->rflags &= ~PTRACE_EFLAGS_TF;
+            task->ptrace.forced_tf = false;
+        }
+        return TRAP_TRACE; // BS: single step
+    }
+    if (status & 0x000f) {
+        if (user_mode(frame)) frame->rflags |= X86_EFLAGS_RF;
+        return TRAP_HWBKPT; // B0-B3: hardware breakpoint
+    }
+    return TRAP_BRKPT; // ICEBP
 }
 
 /* Fill `out` for a fixed exception vector, completing the si_codes that come from hardware state.  An unknown vector leaves `out` at its defaults. */
-static void fixed_exception_signal(uint32_t vector, exception_signal_t *out)
+static void fixed_exception_signal(uint32_t vector, exception_frame_t *frame, exception_signal_t *out)
 {
     if (vector >= sizeof(exception_signals) / sizeof(exception_signals[0])) return;
     *out = exception_signals[vector];
 
     if (vector == ISR_1) {
-        out->code = exception_debug_code();
+        out->code = exception_debug_code(frame);
     } else if (vector == ISR_16 || vector == ISR_19) {
         out->code = fpu_exception_code(vector);
         if (out->code == 0) out->signal = 0; // spurious floating-point exception
@@ -152,15 +167,15 @@ __attribute__((used)) void fixed_exception_handle_frame(exception_frame_t *frame
     exception_signal_t sig = {.name = "#??", .message = "unknown exception"};
 
     disable_intr();
-    fixed_exception_signal(vector, &sig);
+    fixed_exception_signal(vector, frame, &sig);
     if (!user_mode(frame)) {
         carry_error_code = vector == ISR_10 || vector == ISR_11 || vector == ISR_12 || vector == ISR_13 || vector == ISR_17;
         panic("Kernel exception: %s", sig.name);
     }
     if (!sig.signal) return; // no signal to deliver
 
-    /* INT3 is the trap whose RIP has already advanced; the rest may re-execute. */
-    exception_deliver_signal(frame, sig.signal, sig.code, sig.use_ip ? frame->rip : 0, sig.message, vector == ISR_3);
+    /* INT3 and #DB are handled as traps here without forcing blocked/ignored signal reset. */
+    exception_deliver_signal(frame, sig.signal, sig.code, sig.use_ip ? frame->rip : 0, sig.message, vector == ISR_3 || vector == ISR_1);
 }
 
 /* Copy an exception frame into the signal-delivery frame, leaving error_code alone. */
