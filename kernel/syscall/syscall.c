@@ -692,13 +692,6 @@ static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uin
 
     if (flags & ~(WNOHANG | WUNTRACED | WCONTINUED)) return -EINVAL;
 
-    int64_t traced = ptrace_wait_event((pid_t)pid, &status, flags);
-    if (traced != -ECHILD) {
-        if (traced < 0) return traced;
-        if (traced && exit_code && copy_to_user((void *)exit_code, &status, sizeof(status))) return -EFAULT;
-        return traced;
-    }
-
     uint32_t wait_options = (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0;
     if (flags & WUNTRACED) wait_options |= PROCESS_WAIT_STOPPED;
     if (flags & WCONTINUED) wait_options |= PROCESS_WAIT_CONTINUED;
@@ -4079,33 +4072,13 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
             return -EINVAL;
     }
 
-    int     status = 0;
-    int64_t ret;
-
-    if ((int)which == P_PID) {
-        ret = ptrace_wait_event(selector, &status, flags);
-        if (ret != -ECHILD) {
-            if (ret < 0) return ret;
-            if (!ret) return 0;
-            if (infop) {
-                siginfo_t info;
-                memset(&info, 0, sizeof(info));
-                info.si_signo  = SIGCHLD;
-                info.si_code   = CLD_TRAPPED;
-                info.si_pid    = selector;
-                info.si_status = (status >> 8) & 0xff;
-                if (copy_to_user((void *)infop, &info, sizeof(info))) return -EFAULT;
-            }
-            return 0;
-        }
-    }
-
+    int      status       = 0;
     pid_t    waited_pid   = 0;
     uint32_t wait_options = (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0;
     if (flags & WNOWAIT) wait_options |= PROCESS_WAIT_KEEPEVENT;
     if (flags & WSTOPPED) wait_options |= PROCESS_WAIT_STOPPED;
     if (flags & WCONTINUED) wait_options |= PROCESS_WAIT_CONTINUED;
-    ret = process_wait_select(selector, &status, wait_options, &waited_pid);
+    int64_t ret = process_wait_select(selector, &status, wait_options, &waited_pid);
     if (ret < 0) return ret;
 
     /* Populate siginfo_t if requested */
@@ -4120,7 +4093,11 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
                 info.si_code   = CLD_CONTINUED;
                 info.si_status = SIGCONT;
             } else if ((status & 0xff) == 0x7f) {
-                info.si_code   = CLD_STOPPED;
+                process_t *child_owner = NULL;
+                task_t    *child_task  = process_task_find_get(waited_pid, &child_owner);
+                bool       is_traced   = child_task && ptrace_tracer_pid(child_task) != 0;
+                process_put(child_owner);
+                info.si_code   = is_traced ? CLD_TRAPPED : CLD_STOPPED;
                 info.si_status = (status >> 8) & 0xff;
             } else if (status & 0x7f) {
                 info.si_code   = CLD_KILLED;
@@ -5487,12 +5464,19 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
     bool    traced        = dispatch_task && __atomic_load_n(&dispatch_task->ptrace.tracer_pid, __ATOMIC_ACQUIRE);
     bool    force_iret    = traced;
 
+    if (dispatch_task) dispatch_task->ptrace.syscall_nr = num;
     if (traced) ptrace_syscall_enter(frame, num);
     num = frame->rax;
     if (dispatch_task && __atomic_load_n(&dispatch_task->seccomp_mode, __ATOMIC_ACQUIRE) != SECCOMP_MODE_DISABLED && !seccomp_enforce(frame, &num, &retval)) {
         frame->rax = (uint64_t)retval;
         goto check_signals;
     }
+    if ((int64_t)num < 0) {
+        retval     = (dispatch_task && dispatch_task->ptrace.regs_valid) ? (int64_t)dispatch_task->ptrace.regs.rax : -ENOSYS;
+        frame->rax = (uint64_t)retval;
+        goto check_signals;
+    }
+    if (dispatch_task) dispatch_task->ptrace.syscall_nr = num;
     frame->rax = num;
     if (num == SYS_CLONE && (frame->rdi & CLONE_THREAD)) {
         uint64_t flags = frame->rdi;
@@ -5688,6 +5672,7 @@ __attribute__((used)) int syscall_dispatch(syscall_frame_t *frame)
     retval     = syscall_table[num](frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9);
     frame->rax = (uint64_t)retval;
 check_signals:
+    traced = dispatch_task && __atomic_load_n(&dispatch_task->ptrace.tracer_pid, __ATOMIC_ACQUIRE);
     if (traced) {
         force_iret = true;
         ptrace_syscall_exit(frame, (int64_t)frame->rax);
@@ -5724,8 +5709,8 @@ check_signals:
             return 0;
         }
 
-        /* Handle syscall restart if the syscall was interrupted */
-        if (is_restart_code(retval)) {
+        /* Handle syscall restart if the syscall was interrupted and no user handler already consumed the restart state */
+        if (frame->rip == saved_rip && is_restart_code(retval)) {
             /*
              * The syscall body returned a restart code, meaning it detected a pending
              * signal and was interrupted before completing.

@@ -2268,6 +2268,14 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
     if (!parent) return -ECHILD;
 
     for (;;) {
+        int     ptrace_status = 0;
+        int64_t ptrace_pid    = (options & PROCESS_WAIT_KEEPEVENT) ? -ECHILD : ptrace_wait_event(selector, &ptrace_status, 1);
+        if (ptrace_pid > 0) {
+            if (wait_status) *wait_status = ptrace_status;
+            if (waited_pid) *waited_pid = (pid_t)ptrace_pid;
+            return EOK;
+        }
+
         process_t *zombie             = NULL;
         process_t *event              = NULL;
         int        event_status       = 0;
@@ -2359,7 +2367,7 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
         }
 
         spin_unlock(&process_table_lock);
-        if (!has_matching_child) {
+        if (!has_matching_child && ptrace_pid == -ECHILD) {
             spin_unlock(&parent->child_wait.lock);
             return -ECHILD;
         }
@@ -2370,6 +2378,16 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
 
         wait_queue_prepare(&parent->child_wait);
         spin_unlock(&parent->child_wait.lock);
+
+        if (!(options & PROCESS_WAIT_KEEPEVENT)) {
+            ptrace_pid = ptrace_wait_event(selector, &ptrace_status, 1);
+            if (ptrace_pid > 0) {
+                wait_queue_cancel(&parent->child_wait);
+                if (wait_status) *wait_status = ptrace_status;
+                if (waited_pid) *waited_pid = (pid_t)ptrace_pid;
+                return EOK;
+            }
+        }
 
         /*
          * Once prepared, signal delivery either observes the waiter in the
