@@ -76,9 +76,13 @@
 #define PTRACE_EVENT_SECCOMP    7
 #define PTRACE_EVENT_STOP       128
 
-#define PTRACE_SYSCALL_INFO_NONE  0
-#define PTRACE_SYSCALL_INFO_ENTRY 1
-#define PTRACE_SYSCALL_INFO_EXIT  2
+#define PTRACE_SYSCALL_INFO_NONE    0
+#define PTRACE_SYSCALL_INFO_ENTRY   1
+#define PTRACE_SYSCALL_INFO_EXIT    2
+#define PTRACE_SYSCALL_INFO_SECCOMP 3
+
+#define PTRACE_EVENTMSG_SYSCALL_ENTRY 1
+#define PTRACE_EVENTMSG_SYSCALL_EXIT  2
 
 #define PTRACE_PEEKSIGINFO_SHARED 1
 #define NT_PRSTATUS               1
@@ -128,14 +132,16 @@ typedef struct ptrace_syscall_info {
                         int64_t rval;
                         uint8_t is_error;
                 } exit;
+                struct {
+                        uint64_t nr;
+                        uint64_t args[6];
+                        uint32_t ret_data;
+                        uint32_t reserved2;
+                } seccomp;
         } data;
 } ptrace_syscall_info_t;
 
-/*
- * Linux is 88 (its union also carries the seccomp arm); this side is smaller, so a
- * copy into a userspace buffer never overruns.
- */
-_Static_assert(sizeof(ptrace_syscall_info_t) == 80, "ptrace_syscall_info current size");
+_Static_assert(sizeof(ptrace_syscall_info_t) == 88, "ptrace_syscall_info ABI size");
 
 typedef enum {
     PTRACE_RUN_CONT,
@@ -170,6 +176,7 @@ typedef struct ptrace_state {
         bool                 regs_valid;
         bool                 interrupt_requested;
         bool                 final_exit;
+        bool                 forced_tf;
         int                  wait_status;
         syscall_frame_t     *active_frame;
         siginfo_t            siginfo;
