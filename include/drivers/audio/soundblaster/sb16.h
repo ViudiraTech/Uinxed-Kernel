@@ -3,173 +3,107 @@
  *      sb16.h
  *      Sound Blaster 16 driver header file
  *
- *      2026/7/20 By JiTianYu391
+ *      2026/11/16 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
-#ifndef INCLUDE_SB16_H_
-#define INCLUDE_SB16_H_
+#ifndef INCLUDE_DRIVERS_AUDIO_SOUNDBLASTER_SB16_H_
+#define INCLUDE_DRIVERS_AUDIO_SOUNDBLASTER_SB16_H_
 
+#include <drivers/audio/ulsa/ulsa.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
+#include <sync/spin_lock.h>
 
-/* SB16 default I/O ports */
-#define SB16_BASE_220 0x220
-#define SB16_BASE_240 0x240
-#define SB16_BASE_260 0x260
-#define SB16_BASE_280 0x280
+/* ISA port bases probed for Sound Blaster 16 */
+#define SB16_BASE_220 0x220U
+#define SB16_BASE_240 0x240U
+#define SB16_BASE_260 0x260U
+#define SB16_BASE_280 0x280U
 
-/* SB16 DSP port offsets (relative to base) */
-#define SB16_DSP_RESET  0x6
-#define SB16_DSP_READ   0xA
-#define SB16_DSP_WRITE  0xC
-#define SB16_DSP_STATUS 0xE
-#define SB16_DSP_ACK    0xE
+/* Register offsets relative to card I/O base */
+#define SB16_MIXER_ADDR     0x04U
+#define SB16_MIXER_DATA     0x05U
+#define SB16_DSP_RESET      0x06U
+#define SB16_DSP_READ       0x0aU
+#define SB16_DSP_WRITE      0x0cU
+#define SB16_DSP_DATA_AVAIL 0x0eU
+#define SB16_DSP_ACK_8      0x0eU
+#define SB16_DSP_ACK_16     0x0fU
 
-/* SB16 Mixer port offsets (relative to base) */
-#define SB16_MIXER_ADDR 0x4
-#define SB16_MIXER_DATA 0x5
+/* DSP 4.x commands */
+#define SB_DSP_SAMPLE_RATE_OUT 0x41U
+#define SB_DSP_SAMPLE_RATE_IN  0x42U
+#define SB_DSP4_OUT16_AI       0xb6U
+#define SB_DSP4_IN16_AI        0xbeU
+#define SB_DSP4_OUT8_AI        0xc6U
+#define SB_DSP4_IN8_AI         0xceU
+#define SB_DSP_DMA8_OFF        0xd0U
+#define SB_DSP_SPEAKER_ON      0xd1U
+#define SB_DSP_SPEAKER_OFF     0xd3U
+#define SB_DSP_DMA8_ON         0xd4U
+#define SB_DSP_DMA16_OFF       0xd5U
+#define SB_DSP_DMA16_ON        0xd6U
+#define SB_DSP_DMA16_EXIT      0xd9U
+#define SB_DSP_DMA8_EXIT       0xdaU
+#define SB_DSP_GET_VERSION     0xe1U
 
-/* DSP commands */
-#define SB16_DSP_CMD_DMA8_OUT       0x14
-#define SB16_DSP_CMD_DMA8_IN        0x24
-#define SB16_DSP_CMD_SET_TIME_CONST 0x40
-#define SB16_DSP_CMD_SET_RATE16     0x41
-#define SB16_DSP_CMD_DMA16_OUT      0xB0
-#define SB16_DSP_CMD_DMA16_IN       0xBE
-#define SB16_DSP_CMD_HALT_DMA       0xD0
-#define SB16_DSP_CMD_CONT_DMA       0xD1
-#define SB16_DSP_CMD_GET_VERSION    0xE1
-#define SB16_DSP_CMD_VERSION        0xE1
-#define SB16_DSP_CMD_IRQ_STATUS     0xF8
+/* DSP 4.x sample format mode bytes */
+#define SB_DSP4_MODE_UNS_MONO    0x00U
+#define SB_DSP4_MODE_SIGN_MONO   0x10U
+#define SB_DSP4_MODE_UNS_STEREO  0x20U
+#define SB_DSP4_MODE_SIGN_STEREO 0x30U
 
-/* Mixer registers */
-#define SB16_MIXER_MASTER_L    0x00
-#define SB16_MIXER_MASTER_R    0x01
-#define SB16_MIXER_DAC_L       0x02
-#define SB16_MIXER_DAC_R       0x03
-#define SB16_MIXER_FM_L        0x04
-#define SB16_MIXER_FM_R        0x05
-#define SB16_MIXER_CD_L        0x06
-#define SB16_MIXER_CD_R        0x07
-#define SB16_MIXER_LINE_L      0x08
-#define SB16_MIXER_LINE_R      0x09
-#define SB16_MIXER_MIC         0x0A
-#define SB16_MIXER_SPKR        0x0B
-#define SB16_MIXER_INPUT_SRC_L 0x0C
-#define SB16_MIXER_INPUT_SRC_R 0x0D
-#define SB16_MIXER_OUT_SRC     0x10
-#define SB16_MIXER_RESET       0x80
+/* CT1745 Mixer registers */
+#define SB_DSP4_RESET       0x00U
+#define SB_DSP4_MASTER_DEV  0x30U
+#define SB_DSP4_PCM_DEV     0x32U
+#define SB_DSP4_SYNTH_DEV   0x34U
+#define SB_DSP4_CD_DEV      0x36U
+#define SB_DSP4_LINE_DEV    0x38U
+#define SB_DSP4_MIC_DEV     0x3aU
+#define SB_DSP4_SPEAKER_DEV 0x3bU
+#define SB_DSP4_OUTPUT_SW   0x3cU
+#define SB_DSP4_INPUT_LEFT  0x3dU
+#define SB_DSP4_INPUT_RIGHT 0x3eU
+#define SB_DSP4_IGAIN_DEV   0x3fU
+#define SB_DSP4_OGAIN_DEV   0x41U
+#define SB_DSP4_MIC_AGC     0x43U
+#define SB_DSP4_TREBLE_DEV  0x44U
+#define SB_DSP4_BASS_DEV    0x46U
+#define SB_DSP4_IRQSETUP    0x80U
+#define SB_DSP4_DMASETUP    0x81U
+#define SB_DSP4_IRQSTATUS   0x82U
 
-/* Mixer output source */
-#define SB16_MIXER_SRC_DAC  0x01
-#define SB16_MIXER_SRC_CD   0x02
-#define SB16_MIXER_SRC_LINE 0x04
-#define SB16_MIXER_SRC_MIC  0x08
+/* ISA 8237 DMA auto-init transfer modes */
+#define SB16_DMA_MODE_PLAYBACK 0x58U
+#define SB16_DMA_MODE_CAPTURE  0x54U
 
-/* Input source */
-#define SB16_MIXER_INPUT_MIC  0x00
-#define SB16_MIXER_INPUT_CD   0x01
-#define SB16_MIXER_INPUT_LINE 0x02
+/* DMA ring sizing (< 16 MiB, 64 KiB boundary aligned) */
+#define SB16_DMA_BUFFER_SIZE (64UL * 1024UL)
+#define SB16_DMA_ALLOC_PAGES 32U
 
-/* IRQ values */
-#define SB16_IRQ_5  5
-#define SB16_IRQ_7  7
-#define SB16_IRQ_9  9
-#define SB16_IRQ_10 10
+#if CONFIG_AUDIO && CONFIG_AUDIO_SB16
 
-/* DMA channels */
-#define SB16_DMA8  1
-#define SB16_DMA16 5
-
-/* Buffer alignment */
-#define SB16_DMA_ALIGN 0x1000
-
-/* SB16 device state */
-typedef struct sb16_device {
-        uint16_t base;            // I/O port base address
-        uint8_t  irq;             // IRQ line
-        uint8_t  dma8;            // 8-bit DMA channel
-        uint8_t  dma16;           // 16-bit DMA channel
-        uint8_t  detected;        // Non-zero if card found
-        uint32_t dma_buffer_phys; // Physical address of DMA buffer
-        uint8_t *dma_buffer_virt; // Virtual address of DMA buffer
-        uint32_t dma_buffer_size; // Size of DMA buffer
-        uint32_t sample_rate;     // Current sample rate
-        uint8_t  bits;            // Sample bit depth
-        uint8_t  channels;        // Number of audio channels
-        uint8_t  volume_left;     // Cached master volume
-        uint8_t  volume_right;    // Cached master volume
-        uint8_t  input_source;    // Current input source
-        int      playing;         // Non-zero if playback active
-        int      capturing;       // Non-zero if capture active
-} sb16_device_t;
-
-/* Detect and initialize the Sound Blaster 16 card. */
-#if CONFIG_AUDIO_SB16
+/* Detect and initialize the Sound Blaster 16 ISA sound card. */
 void sb16_init(void);
-#else
-static inline void sb16_init(void) {}
-#endif
 
-#if CONFIG_AUDIO_SB16
-
-/* Probe for an SB16 at the configured base port; 0 if found. */
-int sb16_detect(sb16_device_t *dev);
-
-/* Reset the DSP; returns 0 on success. */
-int sb16_dsp_reset(sb16_device_t *dev);
-
-/* Query the DSP version. */
-int sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor);
-
-/* Wait until the DSP write buffer is free. */
-int sb16_dsp_wait_write(sb16_device_t *dev);
-
-/* Write a command byte to the DSP. */
-int sb16_dsp_write(sb16_device_t *dev, uint8_t cmd);
-
-/* Read a response byte from the DSP. */
-int sb16_dsp_read(sb16_device_t *dev, uint8_t *val);
-
-/* Set an 8-bit DAC sample rate. */
-int sb16_set_rate8(sb16_device_t *dev, uint16_t rate);
-
-/* Set a 16-bit DAC sample rate. */
-int sb16_set_rate16(sb16_device_t *dev, uint16_t rate);
-
-/* Play a buffer through 8-bit single-cycle DMA. */
-int sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-
-/* Play a buffer through 16-bit single-cycle DMA. */
-int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-
-/* Capture into an 8-bit DMA buffer. */
-int sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-
-/* Capture into a 16-bit DMA buffer. */
-int sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-
-/* Halt the current playback or capture operation. */
-void sb16_stop(sb16_device_t *dev);
-
-/* Set the master volume (0-255 per channel). */
-void sb16_set_master_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
-
-/* Set the DAC volume. */
-void sb16_set_dac_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
-
-/* Select the recording input source. */
-void sb16_set_input_source(sb16_device_t *dev, uint8_t source);
-
-/* Read a mixer register. */
-uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg);
-
-/* Write a mixer register. */
-void sb16_mixer_write(sb16_device_t *dev, uint8_t reg, uint8_t value);
-
-/* Play a system-speaker beep at @freq Hz for @ms milliseconds. */
+/* Play a short square-wave beep through the SB16 DSP at freq Hz for ms milliseconds. */
 void sb16_beep(uint16_t freq, uint32_t ms);
 
-#endif
-#endif // INCLUDE_SB16_H_
+#else
+
+/* Detect and initialize the Sound Blaster 16 ISA sound card (no-op when disabled). */
+static inline void sb16_init(void) {}
+
+/* Play a short square-wave beep (no-op when disabled). */
+static inline void sb16_beep(uint16_t freq, uint32_t ms)
+{
+    (void)freq;
+    (void)ms;
+}
+
+#endif // CONFIG_AUDIO && CONFIG_AUDIO_SB16
+
+#endif // INCLUDE_DRIVERS_AUDIO_SOUNDBLASTER_SB16_H_

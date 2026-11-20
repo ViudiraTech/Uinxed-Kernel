@@ -1374,12 +1374,12 @@ menu "Device Drivers"
         audio controllers found on most modern x86 systems.
 
     config AUDIO_SB16
-      bool "Sound Blaster 16 / ESS AudioDrive driver"
+      bool "Sound Blaster 16 (ISA) driver"
       depends on AUDIO
       default n
       help
-        Sound Blaster 16 and ESS AudioDrive PCI audio driver.
-        Enable for legacy ISA/PCI SB16-compatible sound cards.
+        Sound Blaster 16 (DSP 4.x) ISA audio driver.
+        Enable for legacy ISA SB16-compatible sound cards.
 
     config AUDIO_VIRTIO_SND
       bool "VirtIO sound (virtio-snd) driver"

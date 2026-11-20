@@ -10,6 +10,7 @@
 
 #include <arch/firmware/dma.h>
 #include <arch/misc/common.h>
+#include <libs/std/errno.h>
 #include <sync/spin_lock.h>
 
 /* Fast access registers and ports for each DMA channel */
@@ -25,24 +26,24 @@ static const uint32_t DMA_ADDR_MAX = 1 << 24;
 static spinlock_t     isa_dma_lock;
 
 /* Sending commands to the DMA controller */
-void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
+int dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
 {
-    if (channel >= 8 || channel == 4 || !size) return;
+    if (channel >= 8 || channel == 4 || !size) return -EINVAL;
     mode |= (channel % 4);
 
-    if (channel > 4 && (((uintptr_t)address & 1U) || (size & 1U))) return;
+    if (channel > 4 && (((uintptr_t)address & 1U) || (size & 1U))) return -EINVAL;
 
     uint32_t addr = (uint32_t)(uintptr_t)address;
-    if (addr >= DMA_ADDR_MAX || size > DMA_ADDR_MAX - addr) return;
+    if (addr >= DMA_ADDR_MAX || size > DMA_ADDR_MAX - addr) return -EINVAL;
 
     /*
      * 8237 address counters wrap within a 64 KiB (8-bit) or 128 KiB
      * (16-bit) DMA window; reject a transfer that would silently wrap.
      */
     uint32_t window = channel > 4 ? 0x20000U : 0x10000U;
-    if ((addr & (window - 1U)) + size > window) return;
+    if ((addr & (window - 1U)) + size > window) return -EINVAL;
 
-    uint8_t  page   = addr >> 16;
+    uint8_t  page   = channel > 4 ? (uint8_t)((addr >> 16) & 0xfeU) : (uint8_t)(addr >> 16);
     uint16_t offset = (channel > 4 ? addr / 2 : addr) & 0xffff;
     size            = (channel > 4 ? size / 2 : size) - 1;
 
@@ -72,16 +73,43 @@ void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
     /* Re-enable the DMA channel */
     outb(MASK_REG[channel], (channel % 4));
     spin_unlock_irqrestore(&isa_dma_lock, irq_flags);
+    return EOK;
 }
 
 /* Sending data using DMA */
-void dma_send(uint8_t channel, uint32_t *address, uint32_t size)
+int dma_send(uint8_t channel, uint32_t *address, uint32_t size)
 {
-    dma_start(0x48, channel, address, size);
+    return dma_start(0x48, channel, address, size);
 }
 
 /* Receiving data using DMA */
-void dma_recv(uint8_t channel, uint32_t *address, uint32_t size)
+int dma_recv(uint8_t channel, uint32_t *address, uint32_t size)
 {
-    dma_start(0x44, channel, address, size);
+    return dma_start(0x44, channel, address, size);
+}
+
+/* Mask an ISA DMA channel */
+void dma_disable(uint8_t channel)
+{
+    if (channel >= 8 || channel == 4) return;
+    uint64_t irq_flags = spin_lock_irqsave(&isa_dma_lock);
+    outb(MASK_REG[channel], 0x04 | (channel % 4));
+    spin_unlock_irqrestore(&isa_dma_lock, irq_flags);
+}
+
+/* Read current byte offset transferred within an active ISA DMA transfer */
+uint32_t dma_pointer(uint8_t channel, uint32_t size)
+{
+    if (channel >= 8 || channel == 4 || size == 0) return 0;
+
+    uint64_t irq_flags = spin_lock_irqsave(&isa_dma_lock);
+    outb(CLEAR_REG[channel], 0x00);
+    uint32_t lo = inb(COUNT_PORT[channel]);
+    uint32_t hi = inb(COUNT_PORT[channel]);
+    spin_unlock_irqrestore(&isa_dma_lock, irq_flags);
+
+    uint32_t raw = (hi << 8) | lo;
+    uint32_t rem = (raw + 1U) & 0xffffU;
+    uint32_t res = channel > 4 ? (rem << 1) : rem;
+    return (res >= size || res == 0) ? 0 : size - res;
 }

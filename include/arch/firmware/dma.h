@@ -17,12 +17,18 @@
 #define HIGH_BYTE(x) (((x) & 0xff00) >> 8)
 
 /* Sending commands to the DMA controller */
-void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size);
+int dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size);
 
 /* Sending data using DMA */
-void dma_send(uint8_t channel, uint32_t *address, uint32_t size);
+int dma_send(uint8_t channel, uint32_t *address, uint32_t size);
 
 /* Receiving data using DMA */
-void dma_recv(uint8_t channel, uint32_t *address, uint32_t size);
+int dma_recv(uint8_t channel, uint32_t *address, uint32_t size);
+
+/* Mask an ISA DMA channel */
+void dma_disable(uint8_t channel);
+
+/* Read current byte offset transferred within an active ISA DMA transfer */
+uint32_t dma_pointer(uint8_t channel, uint32_t size);
 
 #endif // INCLUDE_DMA_H_
