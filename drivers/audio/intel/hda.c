@@ -1,856 +1,598 @@
 /*
  *
  *      hda.c
- *      Intel HD Audio driver
+ *      Intel High Definition Audio (HDA) controller driver
  *
- *      2026/7/23 By MicroFish
+ *      2026/11/16 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
 #include <arch/misc/common.h>
+#include <arch/tables/idt.h>
 #include <drivers/audio/intel/hda.h>
 #include <drivers/audio/ulsa/ulsa.h>
 #include <drivers/bus/pci.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/debug/printk.h>
+#include <kernel/debug/vsprintf.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/page.h>
+#include <sync/mutex.h>
+#include <sync/spin_lock.h>
 
-#if CONFIG_AUDIO_HDA
+#if CONFIG_AUDIO && CONFIG_AUDIO_HDA
 
-/* Controller limits and DMA ring geometry */
-#    define HDA_MAX_CODECS      4
-#    define HDA_MAX_STREAMS     8
-#    define HDA_BDL_ENTRIES     256
-#    define HDA_DMA_BUFFER_SIZE (64UL * 1024UL)
-#    define HDA_PERIOD_FRAGS    32
+static hda_controller_t *hda_irq_slots[HDA_MAX_CONTROLLERS];
+static spinlock_t        hda_irq_lock;
 
-/* CORB/RIRB ring entry counts; must match HDA_RING_SIZE_256 programmed below. */
-#    define HDA_CORB_ENTRIES 256
-#    define HDA_RIRB_ENTRIES 256
-
-/* HDA codec widget descriptor */
-typedef struct hda_widget {
-        uint16_t  nid;
-        uint8_t   type;
-        uint32_t  wcap;
-        uint32_t  pincap;
-        uint32_t  def_conf;
-        uint8_t   num_conns;
-        uint16_t *conns;
-} hda_widget_t;
-
-/* HDA codec descriptor */
-typedef struct hda_codec {
-        uint8_t       addr;
-        uint16_t      vendor_id;
-        uint16_t      device_id;
-        int           afg_nid;
-        int           num_widgets;
-        hda_widget_t *widgets;
-        int           dac_count;
-        int           adc_count;
-        int           pin_count;
-        int           dac_nid;
-        int           adc_nid;
-        int           pin_nid;
-} hda_codec_t;
-
-/* HDA controller state */
-typedef struct hda_controller {
-        int            found;
-        volatile void *mmio;
-        uint32_t       mmio_size;
-
-        hda_codec_t codecs[HDA_MAX_CODECS];
-        int         num_codecs;
-
-        spinlock_t lock;
-
-        /* CORB/RIRB DMA buffers */
-        volatile uint32_t *corb_buf;
-        volatile uint32_t *rirb_buf;
-        uint64_t           corb_phys;
-        uint64_t           rirb_phys;
-        int                rirb_rp;
-        int                corb_entries;
-        int                rirb_entries;
-        int                cmd_count[HDA_MAX_CODECS];
-        uint32_t           res[HDA_MAX_CODECS];
-
-        /* Streams */
-        struct {
-                int                   allocated;
-                volatile uint8_t     *buf;
-                size_t                buf_size;
-                uint64_t              bdl_phys;
-                int                   running;
-                int                   period_frags;
-                snd_pcm_uframes_t     hw_pos;    // frames consumed
-                ulsa_pcm_substream_t *substream; // owner
-        } streams[HDA_MAX_STREAMS];
-
-        /* Audio interface */
-        unsigned int sample_rate;
-        unsigned int bits;
-        unsigned int channels;
-        size_t       buffer_bytes;
-        size_t       period_bytes;
-
-        /* Playback / capture stream index */
-        int playback_stream;
-        int capture_stream;
-} hda_controller_t;
-
-static hda_controller_t hda_ctrl;
-
-/* Read a 32-bit MMIO register. */
-static uint32_t hda_read32(uint16_t reg)
+/* Read an 8-bit HDA controller register. */
+static uint8_t hda_read8(const hda_controller_t *ctrl, uint32_t offset)
 {
-    return mmio_read32((void *)((uintptr_t)hda_ctrl.mmio + reg));
+    return mmio_read8((const volatile uint8_t *)ctrl->bar.virt + offset);
 }
 
-/* Write a 32-bit MMIO register. */
-static void hda_write32(uint16_t reg, uint32_t val)
+/* Read a 16-bit HDA controller register. */
+static uint16_t hda_read16(const hda_controller_t *ctrl, uint32_t offset)
 {
-    mmio_write32((void *)((uintptr_t)hda_ctrl.mmio + reg), val);
+    return mmio_read16((const volatile uint8_t *)ctrl->bar.virt + offset);
 }
 
-/* Read a 16-bit MMIO register. */
-static uint16_t hda_read16(uint16_t reg)
+/* Read a 32-bit HDA controller register. */
+static uint32_t hda_read32(const hda_controller_t *ctrl, uint32_t offset)
 {
-    return mmio_read16((void *)((uintptr_t)hda_ctrl.mmio + reg));
+    return mmio_read32((const volatile uint8_t *)ctrl->bar.virt + offset);
 }
 
-/* Write a 16-bit MMIO register. */
-static void hda_write16(uint16_t reg, uint16_t val)
+/* Write an 8-bit HDA controller register. */
+static void hda_write8(const hda_controller_t *ctrl, uint32_t offset, uint8_t val)
 {
-    mmio_write16((void *)((uintptr_t)hda_ctrl.mmio + reg), val);
+    mmio_write8((volatile uint8_t *)ctrl->bar.virt + offset, val);
 }
 
-/* Read an 8-bit MMIO register. */
-static uint8_t hda_read8(uint16_t reg)
+/* Write a 16-bit HDA controller register. */
+static void hda_write16(const hda_controller_t *ctrl, uint32_t offset, uint16_t val)
 {
-    return mmio_read8((void *)((uintptr_t)hda_ctrl.mmio + reg));
+    mmio_write16((volatile uint8_t *)ctrl->bar.virt + offset, val);
 }
 
-/* Write an 8-bit MMIO register. */
-static void hda_write8(uint16_t reg, uint8_t val)
+/* Write a 32-bit HDA controller register. */
+static void hda_write32(const hda_controller_t *ctrl, uint32_t offset, uint32_t val)
 {
-    mmio_write8((void *)((uintptr_t)hda_ctrl.mmio + reg), val);
+    mmio_write32((volatile uint8_t *)ctrl->bar.virt + offset, val);
 }
 
-/* Read a 32-bit stream descriptor register. */
-static uint32_t sd_read32(int stream, uint16_t reg)
+/* Allocate DMA pages respecting controller 64-bit addressing capability. */
+static uint64_t hda_alloc_dma_pages(const hda_controller_t *ctrl, size_t count)
 {
-    return hda_read32(0x80 + (stream * 0x20) + reg);
+    return ctrl->ok64 ? alloc_frames(count) : alloc_frames_below(count, 0x100000000ULL);
 }
 
-/* Write a 32-bit stream descriptor register. */
-static void sd_write32(int stream, uint16_t reg, uint32_t val)
+/* Drain completed and unsolicited RIRB entries with reg_lock held. */
+static void hda_update_rirb_locked(hda_controller_t *ctrl)
 {
-    hda_write32(0x80 + (stream * 0x20) + reg, val);
-}
+    if (!ctrl->rirb || ctrl->rirb_entries == 0) return;
 
-/* Read a 16-bit stream descriptor register. */
-static uint16_t sd_read16(int stream, uint16_t reg)
-{
-    return hda_read16(0x80 + (stream * 0x20) + reg);
-}
+    uint16_t mask = (uint16_t)(ctrl->rirb_entries - 1U);
+    uint16_t wp   = hda_read16(ctrl, HDA_RIRBWP) & mask;
 
-/* Write a 16-bit stream descriptor register. */
-static void sd_write16(int stream, uint16_t reg, uint16_t val)
-{
-    hda_write16(0x80 + (stream * 0x20) + reg, val);
-}
+    while (ctrl->rirb_rp != wp) {
+        ctrl->rirb_rp = (ctrl->rirb_rp + 1U) & mask;
+        uint32_t resp = ctrl->rirb[ctrl->rirb_rp].resp;
+        uint32_t ex   = ctrl->rirb[ctrl->rirb_rp].resp_ex;
+        uint8_t  cad  = (uint8_t)(ex & 0x0fU);
 
-/* Read an 8-bit stream descriptor register. */
-static uint8_t sd_read8(int stream, uint16_t reg)
-{
-    return hda_read8(0x80 + (stream * 0x20) + reg);
-}
-
-/* Write an 8-bit stream descriptor register. */
-static void sd_write8(int stream, uint16_t reg, uint8_t val)
-{
-    hda_write8(0x80 + (stream * 0x20) + reg, val);
-}
-
-/* Build a codec verb from address, node, verb id and payload. */
-static uint32_t hda_mk_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload)
-{
-    return ((uint32_t)(addr & 0xf) << 28) | ((uint32_t)(nid & 0xff) << 20) | (verb_id << 8) | (payload & 0xffff);
-}
-
-/* Queue one verb command in the CORB, advancing the write pointer. */
-static int hda_send_corb(uint32_t cmd)
-{
-    uint16_t wp     = hda_read16(HDA_CORBWP) & 0xFF;
-    uint16_t new_wp = (wp + 1) % hda_ctrl.corb_entries;
-    uint16_t rp     = hda_read16(HDA_CORBRP) & 0xFF;
-    if (new_wp == rp) return -EAGAIN;
-    hda_ctrl.corb_buf[new_wp] = cmd;
-    hda_write16(HDA_CORBWP, new_wp);
-    return 0;
-}
-
-/* Wait for and collect the RIRB response for a codec, with timeout. */
-static int hda_get_resp_rirb(int addr, uint32_t *res)
-{
-    int timeout = 50000;
-    while (timeout--) {
-        uint16_t wp = hda_read16(HDA_RIRBWP) & 0xFF;
-        if (wp == hda_ctrl.rirb_rp) {
-            usleep(2);
-            continue;
-        }
-        while (hda_ctrl.rirb_rp != wp) {
-            hda_ctrl.rirb_rp = (hda_ctrl.rirb_rp + 1) % hda_ctrl.rirb_entries;
-            int      entry   = hda_ctrl.rirb_rp * 2;
-            uint32_t res_ex  = hda_ctrl.rirb_buf[entry + 1];
-            uint32_t resp    = hda_ctrl.rirb_buf[entry];
-            int      cad     = res_ex & 0xf;
-            if (cad < HDA_MAX_CODECS && !(res_ex & (1 << 4))) {
-                hda_ctrl.res[cad] = resp;
-                hda_ctrl.cmd_count[cad]--;
+        if (ex & AC_RIRB_EX_UNSOL) {
+            uint16_t next_tail = (uint16_t)((ctrl->unsol_tail + 1U) % HDA_UNSOL_RING_SIZE);
+            if (next_tail != ctrl->unsol_head) {
+                ctrl->unsol_ring[ctrl->unsol_tail].resp    = resp;
+                ctrl->unsol_ring[ctrl->unsol_tail].resp_ex = ex;
+                ctrl->unsol_tail                           = next_tail;
             }
-        }
-        if (!hda_ctrl.cmd_count[addr]) {
-            if (res) *res = hda_ctrl.res[addr];
-            return 0;
+        } else if (cad < HDA_MAX_CODECS) {
+            ctrl->rirb_resp[cad] = resp;
+            ctrl->rirb_got[cad]  = true;
         }
     }
-    static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-    if (ratelimit_allow(&ratelimit)) plogk("hda: RIRB response timeout addr=%d (cmd_count=%d)\n", addr, hda_ctrl.cmd_count[addr]);
+
+    /* Clearing RIRBSTS unblocks QEMU's RINTCNT=1 stall after each response. */
+    uint8_t rsts = hda_read8(ctrl, HDA_RIRBSTS);
+    if (rsts & AZX_RBSTS_INT_MASK) hda_write8(ctrl, HDA_RIRBSTS, rsts & AZX_RBSTS_INT_MASK);
+}
+
+/* Dispatch a controller interrupt for IRQ slot and notify elapsed streams outside reg_lock. */
+static void hda_interrupt_slot(size_t slot)
+{
+    uint64_t          irq_flags = spin_lock_irqsave(&hda_irq_lock);
+    hda_controller_t *ctrl      = hda_irq_slots[slot];
+    if (ctrl && !ctrl->stopping) {
+        ctrl->irq_active++;
+    } else {
+        ctrl = NULL;
+    }
+    spin_unlock_irqrestore(&hda_irq_lock, irq_flags);
+
+    if (ctrl) {
+        ulsa_pcm_substream_t *notify[2] = {NULL, NULL};
+        uint32_t              intsts    = hda_read32(ctrl, HDA_INTSTS);
+
+        if (intsts != 0 && intsts != 0xffffffffU) {
+            uint64_t rflags = spin_lock_irqsave(&ctrl->reg_lock);
+
+            if (intsts & AZX_INT_CTRL_EN) {
+                hda_update_rirb_locked(ctrl);
+                uint16_t state_sts = hda_read16(ctrl, HDA_STATESTS);
+                if (state_sts != 0) hda_write16(ctrl, HDA_STATESTS, state_sts);
+                uint8_t corbsts = hda_read8(ctrl, HDA_CORBSTS);
+                if (corbsts & AZX_CORBSTS_CMEI) hda_write8(ctrl, HDA_CORBSTS, AZX_CORBSTS_CMEI);
+            }
+
+            for (size_t dir = 0; dir < 2; dir++) {
+                const hda_stream_t *st = &ctrl->streams[dir];
+                if (st->index == HDA_STREAM_NONE || !(intsts & (1U << st->index))) continue;
+
+                uint8_t sd_sts = hda_read8(ctrl, st->sd_base + HDA_SD_STS);
+                if (sd_sts & HDA_SD_INT_MASK) hda_write8(ctrl, st->sd_base + HDA_SD_STS, sd_sts & HDA_SD_INT_MASK);
+                if ((sd_sts & HDA_SD_STS_BCIS) && st->running && st->substream) notify[dir] = st->substream;
+            }
+
+            spin_unlock_irqrestore(&ctrl->reg_lock, rflags);
+
+            for (size_t dir = 0; dir < 2; dir++) {
+                if (notify[dir]) ulsa_pcm_period_elapsed(notify[dir]);
+            }
+        }
+
+        irq_flags = spin_lock_irqsave(&hda_irq_lock);
+        ctrl->irq_active--;
+        spin_unlock_irqrestore(&hda_irq_lock, irq_flags);
+    }
+    send_eoi();
+}
+
+#    define HDA_IRQ_WRAPPER(n)                                                      \
+        INTERRUPT_BEGIN static void hda_idt_interrupt_##n(interrupt_frame_t *frame) \
+        {                                                                           \
+            irq_enter_gs(frame);                                                    \
+            hda_interrupt_slot(n);                                                  \
+            irq_leave_gs(frame);                                                    \
+        }                                                                           \
+        INTERRUPT_END
+
+HDA_IRQ_WRAPPER(0)
+HDA_IRQ_WRAPPER(1)
+HDA_IRQ_WRAPPER(2)
+HDA_IRQ_WRAPPER(3)
+
+static void *const hda_idt_handlers[HDA_MAX_CONTROLLERS] = {
+    (void *)hda_idt_interrupt_0,
+    (void *)hda_idt_interrupt_1,
+    (void *)hda_idt_interrupt_2,
+    (void *)hda_idt_interrupt_3,
+};
+
+/* Pack an HDA codec command word from address, NID, verb, and payload. */
+static uint32_t hda_make_cmd(uint8_t cad, uint16_t nid, uint32_t verb, uint32_t param)
+{
+    uint32_t pmask = ((verb & 0x700U) == 0x700U) ? 0xffU : 0xffffU;
+    return ((uint32_t)(cad & 0x0fU) << 28) | ((uint32_t)(nid & 0xffU) << 20) | ((verb & 0xfffU) << 8) | (param & pmask);
+}
+
+/* Send a command through the single-slot PIO Immediate Command registers. */
+static int hda_verb_pio(hda_controller_t *ctrl, uint32_t cmd, uint32_t *resp)
+{
+    for (int t = 0; t < 1000; t++) {
+        if (!(hda_read16(ctrl, HDA_IRS) & AZX_IRS_BUSY)) break;
+        usleep(10);
+    }
+    if (hda_read16(ctrl, HDA_IRS) & AZX_IRS_BUSY) return -EBUSY;
+
+    hda_write16(ctrl, HDA_IRS, AZX_IRS_VALID);
+    hda_write32(ctrl, HDA_IC, cmd);
+    hda_write16(ctrl, HDA_IRS, AZX_IRS_BUSY);
+
+    for (int t = 0; t < 1000; t++) {
+        uint16_t irs = hda_read16(ctrl, HDA_IRS);
+        if ((irs & AZX_IRS_VALID) && !(irs & AZX_IRS_BUSY)) {
+            if (resp) *resp = hda_read32(ctrl, HDA_IR);
+            hda_write16(ctrl, HDA_IRS, AZX_IRS_VALID);
+            return EOK;
+        }
+        usleep(10);
+    }
     return -ETIMEDOUT;
 }
 
-/* Execute one verb and track the outstanding command count. */
-static int hda_verb_exec(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload, uint32_t *res)
+/* Execute one HDA codec verb over CORB/RIRB with automatic PIO fallback on timeout. */
+int hda_verb_exec(hda_controller_t *ctrl, uint8_t cad, uint16_t nid, uint32_t verb, uint32_t param, uint32_t *resp)
 {
-    int aidx = addr;
-    if (aidx >= HDA_MAX_CODECS) return -EINVAL;
-    hda_ctrl.cmd_count[aidx]++;
-    int err = hda_send_corb(hda_mk_verb(addr, nid, verb_id, payload));
-    if (err) {
-        hda_ctrl.cmd_count[aidx]--;
-        return err;
-    }
-    return hda_get_resp_rirb(addr, res);
-}
+    if (!ctrl || cad >= HDA_MAX_CODECS) return -EINVAL;
+    uint32_t cmd = hda_make_cmd(cad, nid, verb, param);
 
-/* Read one codec parameter verb, logging failures. */
-static uint32_t hda_get_param(int addr, uint16_t nid, int param)
-{
-    uint32_t res = 0;
-    int      ret = hda_verb_exec(addr, nid, AC_VERB_PARAMETERS, param, &res);
-    if (ret) {
-        static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-        if (ratelimit_allow(&ratelimit)) plogk("hda: GET_PARAM addr=%d nid=0x%02x param=0x%02x failed: %d\n", addr, nid, param, ret);
-    }
-    return res;
-}
+    mutex_lock(&ctrl->cmd_mutex);
 
-/* Fire-and-forget verb write. */
-static void hda_set_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload)
-{
-    hda_verb_exec(addr, nid, verb_id, payload, NULL);
-}
+    if (!ctrl->use_pio && ctrl->corb && ctrl->corb_entries > 0) {
+        uint64_t rflags     = spin_lock_irqsave(&ctrl->reg_lock);
+        uint16_t wp         = (uint16_t)((ctrl->corb_wp + 1U) & (ctrl->corb_entries - 1U));
+        ctrl->corb_wp       = wp;
+        ctrl->corb[wp]      = cmd;
+        ctrl->rirb_got[cad] = false;
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        hda_write16(ctrl, HDA_CORBWP, wp);
+        spin_unlock_irqrestore(&ctrl->reg_lock, rflags);
 
-/* Execute a verb and return its response. */
-static uint32_t hda_get_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload)
-{
-    uint32_t res = 0;
-    hda_verb_exec(addr, nid, verb_id, payload, &res);
-    return res;
-}
-
-/* Reset the HDA controller. */
-static void hda_reset_controller(void)
-{
-    int timeout;
-
-    hda_write32(HDA_INTCTL, 0);
-    hda_write16(HDA_STATESTS, 0x7fff);
-
-    hda_write32(HDA_GCTL, hda_read32(HDA_GCTL) & ~AZX_GCTL_RESET);
-    timeout = 200;
-    while ((hda_read32(HDA_GCTL) & AZX_GCTL_RESET) && timeout--) usleep(500);
-    if (timeout <= 0) plogk("hda: Timeout waiting for CRST=0\n");
-
-    usleep(2000);
-
-    hda_write32(HDA_GCTL, hda_read32(HDA_GCTL) | AZX_GCTL_RESET);
-    timeout = 200;
-    while (!(hda_read32(HDA_GCTL) & AZX_GCTL_RESET) && timeout--) usleep(500);
-    if (timeout <= 0) plogk("hda: Timeout waiting for CRST=1\n");
-
-    msleep(2);
-}
-
-/* Allocate and map the CORB/RIRB DMA buffers. */
-static int hda_alloc_corb_rirb(void)
-{
-    int      corb_entries = HDA_CORB_ENTRIES;
-    int      rirb_entries = HDA_RIRB_ENTRIES;
-    size_t   corb_bytes   = (size_t)corb_entries * 4;
-    size_t   rirb_bytes   = (size_t)rirb_entries * 8;
-    size_t   total        = ALIGN_UP(corb_bytes + rirb_bytes, PAGE_4K_SIZE);
-    uint64_t frame        = alloc_frames(total / PAGE_4K_SIZE);
-    if (!frame) return -ENOMEM;
-
-    hda_ctrl.corb_phys    = frame;
-    hda_ctrl.corb_buf     = (volatile uint32_t *)phys_to_virt(frame);
-    hda_ctrl.corb_entries = corb_entries;
-    memset((void *)hda_ctrl.corb_buf, 0, corb_bytes);
-
-    hda_ctrl.rirb_phys    = frame + corb_bytes;
-    hda_ctrl.rirb_buf     = (volatile uint32_t *)phys_to_virt(frame + corb_bytes);
-    hda_ctrl.rirb_entries = rirb_entries;
-    memset((void *)hda_ctrl.rirb_buf, 0, rirb_bytes);
-
-    return 0;
-}
-
-/* Program the CORB/RIRB base addresses and start their DMA engines. */
-static void hda_init_corb_rirb(void)
-{
-    int timeout;
-
-    hda_write32(HDA_CORBLBASE, (uint32_t)(hda_ctrl.corb_phys));
-    hda_write32(HDA_CORBUBASE, (uint32_t)(hda_ctrl.corb_phys >> 32));
-    hda_write8(HDA_CORBSIZE, HDA_RING_SIZE_256);
-    hda_write16(HDA_CORBWP, 0);
-    hda_write16(HDA_CORBRP, AZX_CORBRP_RST);
-
-    timeout = 100;
-    while (timeout--) {
-        if (hda_read16(HDA_CORBRP) & AZX_CORBRP_RST) break;
-        usleep(1);
-    }
-    hda_write16(HDA_CORBRP, 0);
-    timeout = 100;
-    while (timeout--) {
-        if (hda_read16(HDA_CORBRP) == 0) break;
-        usleep(1);
-    }
-
-    hda_write32(HDA_RIRBLBASE, (uint32_t)(hda_ctrl.rirb_phys));
-    hda_write32(HDA_RIRBUBASE, (uint32_t)(hda_ctrl.rirb_phys >> 32));
-    hda_write8(HDA_RIRBSIZE, HDA_RING_SIZE_256);
-    hda_write16(HDA_RIRBWP, AZX_RIRBWP_RST);
-    hda_write16(HDA_RINTCNT, 1);
-
-    hda_write8(HDA_CORBCTL, AZX_CORBCTL_RUN);
-    hda_write8(HDA_RIRBCTL, AZX_RBCTL_DMA_EN | AZX_RBCTL_IRQ_EN);
-    hda_write32(HDA_GCTL, hda_read32(HDA_GCTL) | AZX_GCTL_UNSOL);
-
-    hda_ctrl.rirb_rp = 0;
-}
-
-/* Probe one codec address and record vendor/device id. */
-static int hda_probe_codec(int addr)
-{
-    uint32_t vid = hda_get_param(addr, 0, AC_PAR_VENDOR_ID);
-    if (vid == 0 || vid == 0xffffffff) return -ENODEV;
-
-    hda_codec_t *codec = &hda_ctrl.codecs[hda_ctrl.num_codecs];
-    memset(codec, 0, sizeof(*codec));
-    codec->addr      = addr;
-    codec->vendor_id = (vid >> 16) & 0xffff;
-    codec->device_id = vid & 0xffff;
-
-    plogk("hda: Codec #%d vendor=0x%04x device=0x%04x\n", addr, codec->vendor_id, codec->device_id);
-
-    hda_ctrl.num_codecs++;
-    return 0;
-}
-
-/* Enumerate the codec's widget tree and locate DAC/ADC/pin nodes. */
-static int hda_parse_widgets(hda_codec_t *codec)
-{
-    codec->afg_nid   = -1;
-    codec->dac_nid   = -1;
-    codec->adc_nid   = -1;
-    codec->pin_nid   = -1;
-    codec->dac_count = 0;
-    codec->adc_count = 0;
-    codec->pin_count = 0;
-
-    uint32_t root_count  = hda_get_param(codec->addr, 0, AC_PAR_NODE_COUNT);
-    uint16_t total_nodes = (uint16_t)(root_count & 0xffff);
-    if (total_nodes == 0) {
-        plogk("hda: Codec #%d root node count is 0\n", codec->addr);
-        return -ENODEV;
-    }
-    plogk("hda: Codec #%d total nodes: %u\n", codec->addr, total_nodes);
-
-    for (int nid = 1; nid <= total_nodes; nid++) {
-        uint32_t ftype = hda_get_param(codec->addr, (uint16_t)nid, AC_PAR_FUNCTION_TYPE);
-        if (ftype == AC_GRP_AUDIO_FUNCTION) {
-            codec->afg_nid = nid;
-            break;
-        }
-    }
-
-    if (codec->afg_nid < 1) {
-        plogk("hda: Codec #%d has no AFG.\n", codec->addr);
-        return -ENODEV;
-    }
-
-    uint32_t node_count   = hda_get_param(codec->addr, (uint16_t)codec->afg_nid, AC_PAR_NODE_COUNT);
-    uint16_t start_nid    = (uint16_t)(node_count >> 16);
-    uint16_t widget_total = (uint16_t)(node_count & 0xffff);
-    int      count        = (int)widget_total;
-    if (count <= 0) {
-        plogk("hda: Codec #%d has no widgets.\n", codec->addr);
-        return -ENODEV;
-    }
-
-    codec->num_widgets = count;
-    codec->widgets     = malloc(sizeof(hda_widget_t) * count);
-    if (!codec->widgets) {
-        plogk("hda: Codec #%d widget allocation failed.\n", codec->addr);
-        return -ENOMEM;
-    }
-    memset(codec->widgets, 0, sizeof(hda_widget_t) * count);
-
-    for (int i = 0; i < count; i++) {
-        uint16_t      nid = start_nid + (uint16_t)i;
-        hda_widget_t *w   = &codec->widgets[i];
-        w->nid            = nid;
-        w->wcap           = hda_get_param(codec->addr, nid, AC_PAR_AUDIO_WIDGET_CAP);
-        w->type           = (w->wcap >> AC_WCAP_TYPE_SHIFT) & AC_WCAP_TYPE_MASK;
-
-        if (w->wcap & AC_WCAP_CONN_LIST) {
-            uint32_t cl  = hda_get_param(codec->addr, nid, AC_PAR_CONNLIST_LEN);
-            w->num_conns = cl & 0xff;
-            if (w->num_conns > 0) {
-                w->conns = malloc(sizeof(uint16_t) * w->num_conns);
-                if (!w->conns) {
-                    plogk("hda: Codec #%d connection list allocation failed.\n", codec->addr);
-                    return -ENOMEM;
-                }
-                for (int j = 0; j < w->num_conns; j += 4) {
-                    uint32_t entry  = hda_get_verb(codec->addr, nid, AC_VERB_GET_CONNECT_LIST, (uint32_t)j);
-                    int      remain = w->num_conns - j;
-                    for (int k = 0; k < 4 && k < remain; k++) w->conns[j + k] = (uint16_t)((entry >> (8 * k)) & 0xff);
-                }
+        for (int spin = 0; spin < 200; spin++) {
+            rflags = spin_lock_irqsave(&ctrl->reg_lock);
+            hda_update_rirb_locked(ctrl);
+            if (ctrl->rirb_got[cad]) {
+                if (resp) *resp = ctrl->rirb_resp[cad];
+                spin_unlock_irqrestore(&ctrl->reg_lock, rflags);
+                mutex_unlock(&ctrl->cmd_mutex);
+                return EOK;
             }
+            spin_unlock_irqrestore(&ctrl->reg_lock, rflags);
+            cpu_relax();
         }
 
-        if (w->type == AC_WID_PIN) {
-            w->pincap   = hda_get_param(codec->addr, nid, AC_PAR_PIN_CAP);
-            w->def_conf = hda_get_verb(codec->addr, nid, AC_VERB_GET_CONFIG_DEFAULT, 0);
-            codec->pin_count++;
-            if (codec->pin_nid < 0 && (w->pincap & AC_PINCAP_OUT)) codec->pin_nid = nid;
-        }
-
-        if (w->type == AC_WID_AUD_OUT) {
-            codec->dac_count++;
-            if (codec->dac_nid < 0) codec->dac_nid = nid;
-        }
-
-        if (w->type == AC_WID_AUD_IN) {
-            codec->adc_count++;
-            if (codec->adc_nid < 0) codec->adc_nid = nid;
-        }
-    }
-
-    plogk("hda: Codec #%d widgets: %d (DAC=%d, ADC=%d, PIN=%d)\n", codec->addr, count, codec->dac_count, codec->adc_count, codec->pin_count);
-    return 0;
-}
-
-/* Configure the codec DAC/ADC/pin routing and gain. */
-static void hda_config_codec(hda_codec_t *codec)
-{
-    if (codec->dac_nid < 0 && codec->adc_nid < 0) {
-        plogk("hda: Codec #%d has no DAC/ADC, skipping.\n", codec->addr);
-        return;
-    }
-
-    int addr = codec->addr;
-    hda_set_verb(addr, (uint16_t)codec->afg_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
-
-    if (codec->dac_nid > 0) hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
-    if (codec->pin_nid > 0) {
-        hda_set_verb(addr, (uint16_t)codec->pin_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
-
-        uint32_t pincap = 0;
-        for (int i = 0; i < codec->num_widgets; i++) {
-            if (codec->widgets[i].nid == codec->pin_nid) {
-                pincap = codec->widgets[i].pincap;
-                break;
+        for (int wait = 0; wait < 500; wait++) {
+            usleep(100);
+            rflags = spin_lock_irqsave(&ctrl->reg_lock);
+            hda_update_rirb_locked(ctrl);
+            if (ctrl->rirb_got[cad]) {
+                if (resp) *resp = ctrl->rirb_resp[cad];
+                spin_unlock_irqrestore(&ctrl->reg_lock, rflags);
+                mutex_unlock(&ctrl->cmd_mutex);
+                return EOK;
             }
-        }
-
-        hda_set_verb(addr, (uint16_t)codec->pin_nid, AC_VERB_SET_PIN_WIDGET_CONTROL, AC_PINCTL_OUT_EN | AC_PINCTL_HP_EN);
-        if (pincap & AC_PINCAP_EAPD) hda_set_verb(addr, (uint16_t)codec->pin_nid, AC_VERB_SET_EAPD_BTLENABLE, AC_EAPD_BTLENABLE);
-
-        /* Route DAC to PIN through the connection tree */
-        int cur_nid = codec->pin_nid;
-        int depth   = 10;
-        while (depth--) {
-            uint32_t clen  = hda_get_param(addr, (uint16_t)cur_nid, AC_PAR_CONNLIST_LEN);
-            int      conns = clen & 0xff;
-            if (conns <= 0) break;
-
-            uint32_t wcap = hda_get_param(addr, (uint16_t)cur_nid, AC_PAR_AUDIO_WIDGET_CAP);
-            int      type = (wcap >> AC_WCAP_TYPE_SHIFT) & AC_WCAP_TYPE_MASK;
-
-            if (type == AC_WID_AUD_SEL || type == AC_WID_AUD_MIX) {
-                int found = 0;
-                for (int c = 0; c < conns; c++) {
-                    uint32_t entry = hda_get_verb(addr, (uint16_t)cur_nid, AC_VERB_GET_CONNECT_LIST, (uint32_t)c);
-                    uint16_t conn  = (uint16_t)(entry & 0xff);
-                    for (int wi = 0; wi < codec->num_widgets; wi++) {
-                        if (codec->widgets[wi].nid == conn && codec->widgets[wi].type == AC_WID_AUD_OUT) {
-                            hda_set_verb(addr, (uint16_t)cur_nid, AC_VERB_SET_CONNECT_SEL, (uint32_t)c);
-                            found = 1;
-                            break;
-                        }
-                    }
-                    if (found) break;
-                }
-                if (!found && type == AC_WID_AUD_SEL && conns > 0) hda_set_verb(addr, (uint16_t)cur_nid, AC_VERB_SET_CONNECT_SEL, 0);
-            }
-
-            if (conns > 0 && type != AC_WID_AUD_OUT) {
-                uint32_t fc   = hda_get_verb(addr, (uint16_t)cur_nid, AC_VERB_GET_CONNECT_LIST, 0);
-                uint16_t prev = (uint16_t)(fc & 0xff);
-                if (prev == cur_nid || prev == 0) break;
-                cur_nid = prev;
-            } else
-                break;
-        }
-
-        if (codec->dac_nid > 0) {
-            hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_LEFT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
-            hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
+            spin_unlock_irqrestore(&ctrl->reg_lock, rflags);
         }
     }
 
-    /* Configure ADC for capture if available */
-    if (codec->adc_nid > 0 && codec->pin_nid > 0) {
-        hda_set_verb(addr, (uint16_t)codec->adc_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
-
-        /* Route pin to ADC */
-        int      cur_nid = codec->adc_nid;
-        uint32_t clen    = hda_get_param(addr, (uint16_t)cur_nid, AC_PAR_CONNLIST_LEN);
-        int      conns   = clen & 0xff;
-        if (conns > 0) {
-            for (int c = 0; c < conns; c++) {
-                uint32_t entry = hda_get_verb(addr, (uint16_t)cur_nid, AC_VERB_GET_CONNECT_LIST, (uint32_t)c);
-                uint16_t conn  = (uint16_t)(entry & 0xff);
-                for (int wi = 0; wi < codec->num_widgets; wi++) {
-                    if (codec->widgets[wi].nid == conn) {
-                        hda_set_verb(addr, (uint16_t)cur_nid, AC_VERB_SET_CONNECT_SEL, (uint32_t)c);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-}
-
-/* Set up a stream DMA descriptor and BDL. */
-static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size, size_t period_bytes)
-{
-    if (stream_idx >= HDA_MAX_STREAMS || hda_ctrl.streams[stream_idx].allocated) return -EBUSY;
-
-    size_t period_frags = HDA_BDL_ENTRIES;
-    size_t bdl_entries  = HDA_BDL_ENTRIES;
-    if (period_bytes > 0 && period_bytes <= buf_size) {
-        period_frags = buf_size / period_bytes;
-        if (period_frags > HDA_BDL_ENTRIES) period_frags = HDA_BDL_ENTRIES;
-        if (period_frags == 0) period_frags = 1;
-        bdl_entries = period_frags;
-    }
-
-    size_t   bdl_bytes = sizeof(hda_bdle_t) * bdl_entries;
-    size_t   total     = ALIGN_UP(buf_size + bdl_bytes, PAGE_4K_SIZE);
-    uint64_t frame     = alloc_frames(total / PAGE_4K_SIZE);
-    if (!frame) {
-        plogk("hda: Stream %u DMA buffer allocation failed (%zu bytes)\n", stream_idx, buf_size);
-        return -ENOMEM;
-    }
-
-    hda_bdle_t *bdl = (hda_bdle_t *)phys_to_virt(frame + buf_size);
-
-    hda_ctrl.streams[stream_idx].allocated    = 1;
-    hda_ctrl.streams[stream_idx].buf          = (volatile uint8_t *)phys_to_virt(frame);
-    hda_ctrl.streams[stream_idx].buf_size     = buf_size;
-    hda_ctrl.streams[stream_idx].bdl_phys     = frame + buf_size;
-    hda_ctrl.streams[stream_idx].running      = 0;
-    hda_ctrl.streams[stream_idx].period_frags = (int)period_frags;
-    hda_ctrl.streams[stream_idx].hw_pos       = 0;
-
-    memset((void *)hda_ctrl.streams[stream_idx].buf, 0, buf_size);
-    memset(bdl, 0, bdl_bytes);
-
-    /* Set up BDL with fragment entries */
-    size_t frag_size = buf_size / bdl_entries;
-    if (frag_size == 0) frag_size = buf_size;
-
-    for (size_t i = 0; i < bdl_entries; i++) {
-        uint64_t frag_phys = frame + (i * frag_size);
-        size_t   frag_sz   = (i == bdl_entries - 1) ? buf_size - (i * frag_size) : frag_size;
-
-        bdl[i].addr_low  = (uint32_t)(frag_phys & 0xFFFFFFFF);
-        bdl[i].addr_high = (uint32_t)(frag_phys >> 32);
-        bdl[i].length    = (uint32_t)frag_sz;
-        bdl[i].ioc       = 1; // Interrupt on completion for each fragment
-    }
-
-    sd_write32(stream_idx, HDA_SD_CBL, (uint32_t)buf_size);
-    sd_write16(stream_idx, HDA_SD_LVI, (uint16_t)(bdl_entries - 1));
-    sd_write16(stream_idx, HDA_SD_FORMAT, (uint16_t)format);
-    sd_write32(stream_idx, HDA_SD_BDLPL, (uint32_t)(hda_ctrl.streams[stream_idx].bdl_phys & 0xFFFFFFFF));
-    sd_write32(stream_idx, HDA_SD_BDLPU, (uint32_t)(hda_ctrl.streams[stream_idx].bdl_phys >> 32));
-    sd_write8(stream_idx, HDA_SD_CTL, 0);
-
-    return 0;
-}
-
-/* Start DMA on a stream and enable its interrupts. */
-static void hda_start_stream(int stream_idx)
-{
-    if (stream_idx >= HDA_MAX_STREAMS || !hda_ctrl.streams[stream_idx].allocated) return;
-    if (hda_ctrl.streams[stream_idx].running) return;
-
-    /* Clear stream status */
-    sd_write8(stream_idx, HDA_SD_STS, 0x1c);
-
-    hda_write32(HDA_INTCTL, hda_read32(HDA_INTCTL) | (1u << stream_idx));
-    sd_write8(stream_idx, HDA_SD_CTL, HDA_SD_CTL_DMA_START | HDA_SD_INT_MASK);
-    hda_ctrl.streams[stream_idx].running = 1;
-}
-
-/* Stop DMA on a stream and release its descriptor. */
-static void hda_stop_stream(int stream_idx)
-{
-    if (stream_idx >= HDA_MAX_STREAMS || !hda_ctrl.streams[stream_idx].allocated) return;
-    sd_write8(stream_idx, HDA_SD_CTL, 0);
-    sd_write8(stream_idx, HDA_SD_STS, 0x1c);
-    hda_write32(HDA_INTCTL, hda_read32(HDA_INTCTL) & ~(1u << stream_idx));
-    hda_ctrl.streams[stream_idx].running   = 0;
-    hda_ctrl.streams[stream_idx].allocated = 0;
-}
-
-/* Find a free stream descriptor for the given direction. */
-static int hda_allocate_stream(int direction)
-{
-    for (int s = 0; s < HDA_MAX_STREAMS; s++) {
-        if (!hda_ctrl.streams[s].allocated) {
-            if (direction == 0) {
-                hda_ctrl.playback_stream = s;
-            } else {
-                hda_ctrl.capture_stream = s;
-            }
-            return s;
-        }
-    }
-    return -EBUSY;
-}
-
-/* ULSA callback: expose minimal HDA hardware constraints. */
-static int hda_pcm_open(ulsa_pcm_substream_t *substream)
-{
-    ulsa_pcm_runtime_t *runtime = substream->runtime;
-
-    memset(&runtime->hw, 0, sizeof(runtime->hw));
-    runtime->hw.info             = SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_INTERLEAVED;
-    runtime->hw.formats          = ULSA_PCM_FMTBIT(SNDRV_PCM_FORMAT_S16_LE);
-    runtime->hw.rates            = ULSA_PCM_RATE_8000_192000;
-    runtime->hw.rate_min         = 8000U;
-    runtime->hw.rate_max         = 192000U;
-    runtime->hw.channels_min     = 1U;
-    runtime->hw.channels_max     = 8U;
-    runtime->hw.buffer_bytes_max = HDA_DMA_BUFFER_SIZE;
-    runtime->hw.period_bytes_min = 512U;
-    runtime->hw.period_bytes_max = HDA_DMA_BUFFER_SIZE / 2U;
-    runtime->hw.periods_min      = 2U;
-    runtime->hw.periods_max      = HDA_PERIOD_FRAGS;
-    return EOK;
-}
-
-/* ULSA callback: tear down and detach one HDA stream on close. */
-static int hda_pcm_close(ulsa_pcm_substream_t *substream)
-{
-    const bool is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-
-    spin_lock(&hda_ctrl.lock);
-    int s = is_play ? hda_ctrl.playback_stream : hda_ctrl.capture_stream;
-    if (s >= 0 && s < HDA_MAX_STREAMS) {
-        hda_stop_stream(s);
-        hda_ctrl.streams[s].substream = NULL;
-    }
-    if (is_play) {
-        hda_ctrl.playback_stream = -1;
-    } else {
-        hda_ctrl.capture_stream = -1;
-    }
-    spin_unlock(&hda_ctrl.lock);
-    return EOK;
-}
-
-/* ULSA callback: program format verbs and set up the DMA stream for this direction. */
-static int hda_pcm_hw_params(ulsa_pcm_substream_t *substream, struct snd_pcm_hw_params *params)
-{
-    const bool             is_play      = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-    const snd_pcm_format_t fmt          = ulsa_params_format(params);
-    const unsigned int     rate         = ulsa_params_rate(params);
-    const unsigned int     channels     = ulsa_params_channels(params);
-    const size_t           buffer_bytes = ulsa_params_buffer_bytes(params);
-    const size_t           period_bytes = ulsa_params_period_bytes(params);
-    const int              bits         = ulsa_pcm_format_physical_width(fmt);
-
-    if (bits <= 0) return -EINVAL;
-
-    spin_lock(&hda_ctrl.lock);
-    hda_ctrl.sample_rate  = rate;
-    hda_ctrl.bits         = (unsigned int)bits;
-    hda_ctrl.channels     = channels;
-    hda_ctrl.buffer_bytes = buffer_bytes;
-    hda_ctrl.period_bytes = period_bytes;
-
-    uint16_t fmt_val = (uint16_t)((channels - 1) & 0xf);
-    switch (bits) {
-        case 8 :
-            fmt_val |= (uint16_t)(0 << 4);
-            break;
-        case 16 :
-            fmt_val |= (uint16_t)(1 << 4);
-            break;
-        case 24 :
-            fmt_val |= (uint16_t)(3 << 4);
-            break;
-        case 32 :
-            fmt_val |= (uint16_t)(4 << 4);
-            break;
-        default :
-            break;
-    }
-
-    uint32_t base = AC_FMT_BASE_RATE;
-    uint32_t mult = rate / base;
-    if (rate % base == 0 && mult >= 1 && mult <= 4) {
-        fmt_val |= (uint16_t)((mult - 1) << 11);
-    } else if (base % rate == 0 && base / rate <= 8) {
-        fmt_val |= (uint16_t)((base / rate - 1) << 8);
-    }
-
-    for (int c = 0; c < hda_ctrl.num_codecs; c++) {
-        hda_codec_t *codec = &hda_ctrl.codecs[c];
-        if (is_play && codec->dac_nid > 0) {
-            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_STREAM_FORMAT, fmt_val);
-            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_CHANNEL_STREAMID, 0);
-        }
-        if (!is_play && codec->adc_nid > 0) {
-            hda_set_verb(codec->addr, (uint16_t)codec->adc_nid, AC_VERB_SET_STREAM_FORMAT, fmt_val);
-            hda_set_verb(codec->addr, (uint16_t)codec->adc_nid, AC_VERB_SET_CHANNEL_STREAMID, 1);
-        }
-    }
-
-    if (is_play && hda_ctrl.playback_stream >= 0 && hda_ctrl.playback_stream < HDA_MAX_STREAMS) {
-        hda_stop_stream(hda_ctrl.playback_stream);
-        hda_ctrl.streams[hda_ctrl.playback_stream].substream = NULL;
-        hda_ctrl.playback_stream                             = -1;
-    }
-    if (!is_play && hda_ctrl.capture_stream >= 0 && hda_ctrl.capture_stream < HDA_MAX_STREAMS) {
-        hda_stop_stream(hda_ctrl.capture_stream);
-        hda_ctrl.streams[hda_ctrl.capture_stream].substream = NULL;
-        hda_ctrl.capture_stream                             = -1;
-    }
-
-    int s = hda_allocate_stream(is_play ? 0 : 1);
-    if (s < 0) {
-        spin_unlock(&hda_ctrl.lock);
-        return s;
-    }
-
-    int err = hda_setup_stream(s, fmt_val, buffer_bytes, period_bytes);
-    if (err) {
-        if (is_play) {
-            hda_ctrl.playback_stream = -1;
-        } else {
-            hda_ctrl.capture_stream = -1;
-        }
-        spin_unlock(&hda_ctrl.lock);
-        return err;
-    }
-
-    hda_ctrl.streams[s].substream = substream;
-    spin_unlock(&hda_ctrl.lock);
-    return EOK;
-}
-
-/* ULSA callback: release the HDA DMA stream. */
-static int hda_pcm_hw_free(ulsa_pcm_substream_t *substream)
-{
-    return hda_pcm_close(substream);
-}
-
-/* ULSA callback: reset software hardware-position tracker before start. */
-static int hda_pcm_prepare(ulsa_pcm_substream_t *substream)
-{
-    const bool is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-
-    spin_lock(&hda_ctrl.lock);
-    int s = is_play ? hda_ctrl.playback_stream : hda_ctrl.capture_stream;
-    if (s >= 0 && s < HDA_MAX_STREAMS) hda_ctrl.streams[s].hw_pos = 0;
-    spin_unlock(&hda_ctrl.lock);
-    return EOK;
-}
-
-/* ULSA callback: start or stop stream DMA (atomic context). */
-static int hda_pcm_trigger(ulsa_pcm_substream_t *substream, int cmd)
-{
-    const bool is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-    int        ret     = EOK;
-
-    spin_lock(&hda_ctrl.lock);
-    int s = is_play ? hda_ctrl.playback_stream : hda_ctrl.capture_stream;
-    if (s < 0 || s >= HDA_MAX_STREAMS || !hda_ctrl.streams[s].allocated) {
-        spin_unlock(&hda_ctrl.lock);
-        return -EINVAL;
-    }
-    switch (cmd) {
-        case ULSA_PCM_TRIGGER_START :
-            hda_start_stream(s);
-            break;
-        case ULSA_PCM_TRIGGER_STOP :
-            sd_write8(s, HDA_SD_CTL, 0);
-            hda_ctrl.streams[s].running = 0;
-            break;
-        default :
-            ret = -EINVAL;
-            break;
-    }
-    spin_unlock(&hda_ctrl.lock);
+    int ret = hda_verb_pio(ctrl, cmd, resp);
+    mutex_unlock(&ctrl->cmd_mutex);
     return ret;
 }
 
-/* ULSA callback: read current hardware LPIB offset in frames (atomic context). */
+/* Drain and process any pending unsolicited jack-detect responses. */
+void hda_process_unsol(hda_controller_t *ctrl)
+{
+    hda_unsol_event_t events[HDA_UNSOL_RING_SIZE];
+    size_t            count = 0;
+
+    uint64_t rflags = spin_lock_irqsave(&ctrl->reg_lock);
+    while (ctrl->unsol_head != ctrl->unsol_tail && count < HDA_UNSOL_RING_SIZE) {
+        events[count++]  = ctrl->unsol_ring[ctrl->unsol_head];
+        ctrl->unsol_head = (uint16_t)((ctrl->unsol_head + 1U) % HDA_UNSOL_RING_SIZE);
+    }
+    spin_unlock_irqrestore(&ctrl->reg_lock, rflags);
+
+    for (size_t i = 0; i < count; i++) { hda_codec_handle_unsol(ctrl, (uint8_t)(events[i].resp_ex & 0x0fU), events[i].resp); }
+}
+
+/* Negotiate 2/16/256 ring entry count for CORB or RIRB from hardware capability bits. */
+static uint8_t hda_pick_ring_size(uint8_t size_reg, uint16_t *entries_out)
+{
+    uint8_t cap = (uint8_t)(size_reg >> 4);
+    if (cap & 0x04U) {
+        *entries_out = 256U;
+        return 0x02U;
+    }
+    if (cap & 0x02U) {
+        *entries_out = 16U;
+        return 0x01U;
+    }
+    *entries_out = 2U;
+    return 0x00U;
+}
+
+/* Perform a cold CRST cycle on the HDA controller and leave it in run state. */
+static int hda_reset_controller(hda_controller_t *ctrl)
+{
+    hda_write32(ctrl, HDA_GCTL, hda_read32(ctrl, HDA_GCTL) & ~AZX_GCTL_RESET);
+    for (int t = 0; t < 500; t++) {
+        if (!(hda_read32(ctrl, HDA_GCTL) & AZX_GCTL_RESET)) break;
+        usleep(100);
+    }
+    if (hda_read32(ctrl, HDA_GCTL) & AZX_GCTL_RESET) return -ETIMEDOUT;
+
+    usleep(100);
+    hda_write32(ctrl, HDA_GCTL, AZX_GCTL_RESET);
+    for (int t = 0; t < 500; t++) {
+        if (hda_read32(ctrl, HDA_GCTL) & AZX_GCTL_RESET) break;
+        usleep(100);
+    }
+    if (!(hda_read32(ctrl, HDA_GCTL) & AZX_GCTL_RESET)) return -ETIMEDOUT;
+
+    /* Per HDA spec wait >= 521 us for codecs to deassert reset and latch STATESTS. */
+    usleep(1000);
+    hda_write32(ctrl, HDA_GCTL, AZX_GCTL_RESET | AZX_GCTL_UNSOL);
+    return EOK;
+}
+
+/* Allocate the shared CORB/POSBUF/RIRB page and initialize controller command DMA. */
+static int hda_init_cmd_io(hda_controller_t *ctrl)
+{
+    uint64_t rb_phys = hda_alloc_dma_pages(ctrl, 1);
+    if (!rb_phys) return -ENOMEM;
+
+    uint8_t *rb_virt = phys_to_virt(rb_phys);
+    memset(rb_virt, 0, PAGE_4K_SIZE);
+
+    ctrl->rb_page_phys = rb_phys;
+    ctrl->corb         = (volatile uint32_t *)rb_virt;
+    ctrl->corb_phys    = rb_phys;
+    ctrl->posbuf       = (volatile uint32_t *)(rb_virt + 1024);
+    ctrl->posbuf_phys  = rb_phys + 1024;
+    ctrl->rirb         = (volatile hda_rirb_entry_t *)(rb_virt + 2048);
+    ctrl->rirb_phys    = rb_phys + 2048;
+
+    hda_write8(ctrl, HDA_CORBCTL, 0);
+    hda_write8(ctrl, HDA_RIRBCTL, 0);
+    for (int t = 0; t < 100; t++) {
+        if (!(hda_read8(ctrl, HDA_CORBCTL) & AZX_CORBCTL_RUN) && !(hda_read8(ctrl, HDA_RIRBCTL) & AZX_RBCTL_DMA_EN)) break;
+        usleep(10);
+    }
+
+    uint8_t corbsz = hda_pick_ring_size(hda_read8(ctrl, HDA_CORBSIZE), &ctrl->corb_entries);
+    hda_write8(ctrl, HDA_CORBSIZE, corbsz);
+    hda_write32(ctrl, HDA_CORBLBASE, (uint32_t)(ctrl->corb_phys & 0xffffffffULL));
+    hda_write32(ctrl, HDA_CORBUBASE, (uint32_t)(ctrl->corb_phys >> 32));
+    hda_write16(ctrl, HDA_CORBWP, 0);
+    ctrl->corb_wp = 0;
+
+    hda_write16(ctrl, HDA_CORBRP, AZX_CORBRP_RST);
+    for (int t = 0; t < 1000; t++) {
+        if (hda_read16(ctrl, HDA_CORBRP) & AZX_CORBRP_RST) break;
+        usleep(1);
+    }
+    hda_write16(ctrl, HDA_CORBRP, 0);
+    for (int t = 0; t < 1000; t++) {
+        if (hda_read16(ctrl, HDA_CORBRP) == 0) break;
+        usleep(1);
+    }
+
+    uint8_t rirbsz = hda_pick_ring_size(hda_read8(ctrl, HDA_RIRBSIZE), &ctrl->rirb_entries);
+    hda_write8(ctrl, HDA_RIRBSIZE, rirbsz);
+    hda_write32(ctrl, HDA_RIRBLBASE, (uint32_t)(ctrl->rirb_phys & 0xffffffffULL));
+    hda_write32(ctrl, HDA_RIRBUBASE, (uint32_t)(ctrl->rirb_phys >> 32));
+    hda_write16(ctrl, HDA_RIRBWP, AZX_RIRBWP_RST);
+    ctrl->rirb_rp = 0;
+    hda_write16(ctrl, HDA_RINTCNT, 1);
+    hda_write8(ctrl, HDA_RIRBSTS, AZX_RBSTS_INT_MASK);
+
+    hda_write8(ctrl, HDA_RIRBCTL, AZX_RBCTL_DMA_EN | AZX_RBCTL_IRQ_EN);
+    hda_write8(ctrl, HDA_CORBCTL, AZX_CORBCTL_RUN);
+
+    hda_write32(ctrl, HDA_DPLBASE, (uint32_t)(ctrl->posbuf_phys & ~0x7fULL) | AZX_DPLBASE_ENABLE);
+    hda_write32(ctrl, HDA_DPUBASE, (uint32_t)(ctrl->posbuf_phys >> 32));
+    return EOK;
+}
+
+/* Reset a hardware stream descriptor engine following the HDA SRST sequence. */
+static void hda_stream_reset(const hda_controller_t *ctrl, const hda_stream_t *st)
+{
+    uint32_t ctl = hda_read32(ctrl, st->sd_base + HDA_SD_CTL);
+    ctl &= ~(HDA_SD_CTL_DMA_START | HDA_SD_CTL_INT_MASK);
+    hda_write32(ctrl, st->sd_base + HDA_SD_CTL, ctl);
+
+    for (int t = 0; t < 500; t++) {
+        if (!(hda_read32(ctrl, st->sd_base + HDA_SD_CTL) & HDA_SD_CTL_DMA_START)) break;
+        usleep(10);
+    }
+
+    hda_write32(ctrl, st->sd_base + HDA_SD_CTL, ctl | HDA_SD_CTL_SRST);
+    for (int t = 0; t < 500; t++) {
+        if (hda_read32(ctrl, st->sd_base + HDA_SD_CTL) & HDA_SD_CTL_SRST) break;
+        usleep(10);
+    }
+
+    usleep(40);
+    hda_write32(ctrl, st->sd_base + HDA_SD_CTL, ctl & ~HDA_SD_CTL_SRST);
+    for (int t = 0; t < 500; t++) {
+        if (!(hda_read32(ctrl, st->sd_base + HDA_SD_CTL) & HDA_SD_CTL_SRST)) break;
+        usleep(10);
+    }
+
+    hda_write8(ctrl, st->sd_base + HDA_SD_STS, HDA_SD_INT_MASK);
+}
+
+/* Open a playback or capture substream with probed codec constraints. */
+static int hda_pcm_open(ulsa_pcm_substream_t *substream)
+{
+    hda_controller_t *ctrl  = substream->pcm->private_data;
+    int               dir   = substream->stream;
+    hda_codec_t      *codec = ctrl->primary_codec;
+    hda_stream_t     *st    = &ctrl->streams[dir];
+
+    if (!codec || st->index == HDA_STREAM_NONE) return -ENODEV;
+    hda_process_unsol(ctrl);
+
+    const hda_dir_caps_t *caps = dir == SNDRV_PCM_STREAM_PLAYBACK ? &codec->play_caps : &codec->cap_caps;
+    ulsa_pcm_runtime_t   *rt   = substream->runtime;
+
+    rt->hw = (ulsa_pcm_hardware_t) {
+        .info             = SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID | SNDRV_PCM_INFO_INTERLEAVED | SNDRV_PCM_INFO_BLOCK_TRANSFER | SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME,
+        .formats          = caps->formats,
+        .subformats       = caps->subformats,
+        .rates            = caps->rates,
+        .rate_min         = caps->rate_min,
+        .rate_max         = caps->rate_max,
+        .channels_min     = caps->channels_min,
+        .channels_max     = caps->channels_max,
+        .buffer_bytes_max = HDA_DMA_BUFFER_MAX,
+        .period_bytes_min = HDA_PERIOD_BYTES_MIN,
+        .period_bytes_max = HDA_PERIOD_BYTES_MAX,
+        .periods_min      = HDA_PERIODS_MIN,
+        .periods_max      = HDA_PERIODS_MAX,
+    };
+
+    int err = ulsa_pcm_hw_constraint_step(rt, 0, SNDRV_PCM_HW_PARAM_BUFFER_BYTES, 128);
+    if (err < 0) return err;
+    err = ulsa_pcm_hw_constraint_step(rt, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES, 128);
+    if (err < 0) return err;
+    err = ulsa_pcm_hw_constraint_integer(rt, SNDRV_PCM_HW_PARAM_PERIODS);
+    if (err < 0) return err;
+
+    if (caps->maxbps < 32 && (caps->formats & ULSA_PCM_FMTBIT(SNDRV_PCM_FORMAT_S32_LE))) {
+        err = ulsa_pcm_hw_constraint_msbits(rt, 0, 32, caps->maxbps);
+        if (err < 0) return err;
+    }
+
+    st->opened       = true;
+    st->prepared     = false;
+    st->running      = false;
+    st->substream    = substream;
+    rt->private_data = st;
+    return EOK;
+}
+
+/* Close an HDA substream and detach it from stream interrupt notifications. */
+static int hda_pcm_close(ulsa_pcm_substream_t *substream)
+{
+    hda_stream_t *st = substream->runtime->private_data;
+    if (st) {
+        st->opened    = false;
+        st->prepared  = false;
+        st->running   = false;
+        st->substream = NULL;
+    }
+    return EOK;
+}
+
+/* Validate chosen hardware parameters against the HDA stream format encoder. */
+static int hda_pcm_hw_params(ulsa_pcm_substream_t *substream, struct snd_pcm_hw_params *params)
+{
+    const hda_controller_t *ctrl  = substream->pcm->private_data;
+    const hda_codec_t      *codec = ctrl->primary_codec;
+    const hda_dir_caps_t   *caps  = substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? &codec->play_caps : &codec->cap_caps;
+    hda_stream_t           *st    = substream->runtime->private_data;
+
+    int fmt = hda_calc_stream_format(ulsa_params_rate(params), ulsa_params_channels(params), ulsa_params_format(params), caps->maxbps);
+    if (fmt < 0) return fmt;
+
+    st->format_val = (uint16_t)fmt;
+    return EOK;
+}
+
+/* Disassociate the codec converter and reset the hardware DMA stream on teardown. */
+static int hda_pcm_hw_free(ulsa_pcm_substream_t *substream)
+{
+    hda_controller_t *ctrl = substream->pcm->private_data;
+    hda_stream_t     *st   = substream->runtime->private_data;
+
+    if (st) {
+        st->prepared = false;
+        st->running  = false;
+        if (ctrl->primary_codec) hda_codec_cleanup_stream(ctrl, ctrl->primary_codec, substream->stream);
+        hda_stream_reset(ctrl, st);
+    }
+    return EOK;
+}
+
+/* Populate the BDL, reset and program the HDA stream descriptor, and bind the converter. */
+static int hda_pcm_prepare(ulsa_pcm_substream_t *substream)
+{
+    hda_controller_t         *ctrl = substream->pcm->private_data;
+    const ulsa_pcm_runtime_t *rt   = substream->runtime;
+    hda_stream_t             *st   = rt->private_data;
+    const hda_dir_caps_t     *caps = substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? &ctrl->primary_codec->play_caps : &ctrl->primary_codec->cap_caps;
+
+    hda_process_unsol(ctrl);
+
+    size_t       buf_bytes    = ulsa_pcm_lib_buffer_bytes(substream);
+    size_t       period_bytes = ulsa_pcm_lib_period_bytes(substream);
+    unsigned int periods      = rt->periods;
+    if (periods < HDA_PERIODS_MIN || periods > HDA_BDL_ENTRIES || period_bytes == 0 || buf_bytes == 0) return -EINVAL;
+
+    int fmt = hda_calc_stream_format(rt->rate, rt->channels, rt->format, caps->maxbps);
+    if (fmt < 0) return fmt;
+
+    st->buf_bytes    = buf_bytes;
+    st->period_bytes = period_bytes;
+    st->periods      = periods;
+    st->format_val   = (uint16_t)fmt;
+
+    for (unsigned int i = 0; i < periods; i++) {
+        uint64_t addr        = rt->dma_addr + (size_t)i * period_bytes;
+        st->bdl[i].addr_low  = (uint32_t)(addr & 0xffffffffULL);
+        st->bdl[i].addr_high = (uint32_t)(addr >> 32);
+        st->bdl[i].length    = (uint32_t)period_bytes;
+        st->bdl[i].ioc       = 1U;
+    }
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+
+    hda_stream_reset(ctrl, st);
+
+    uint64_t rflags = spin_lock_irqsave(&ctrl->reg_lock);
+    hda_write32(ctrl, st->sd_base + HDA_SD_CTL, (uint32_t)st->tag << HDA_SD_CTL_TAG_SHIFT);
+    hda_write32(ctrl, st->sd_base + HDA_SD_CBL, (uint32_t)buf_bytes);
+    hda_write16(ctrl, st->sd_base + HDA_SD_LVI, (uint16_t)(periods - 1U));
+    hda_write16(ctrl, st->sd_base + HDA_SD_FORMAT, st->format_val);
+    hda_write32(ctrl, st->sd_base + HDA_SD_BDLPL, (uint32_t)(st->bdl_phys & 0xffffffffULL));
+    hda_write32(ctrl, st->sd_base + HDA_SD_BDLPU, (uint32_t)(st->bdl_phys >> 32));
+    hda_write8(ctrl, st->sd_base + HDA_SD_STS, HDA_SD_INT_MASK);
+    spin_unlock_irqrestore(&ctrl->reg_lock, rflags);
+
+    hda_codec_setup_stream(ctrl, ctrl->primary_codec, substream->stream, st->tag, st->format_val);
+    st->prepared = true;
+    return EOK;
+}
+
+/* Start or halt HDA stream DMA under substream->lock (atomic context). */
+static int hda_pcm_trigger(ulsa_pcm_substream_t *substream, int cmd)
+{
+    hda_controller_t *ctrl = substream->pcm->private_data;
+    hda_stream_t     *st   = substream->runtime->private_data;
+    bool              run;
+
+    switch (cmd) {
+        case ULSA_PCM_TRIGGER_START :
+        case ULSA_PCM_TRIGGER_RESUME :
+        case ULSA_PCM_TRIGGER_PAUSE_RELEASE :
+            run = true;
+            break;
+        case ULSA_PCM_TRIGGER_STOP :
+        case ULSA_PCM_TRIGGER_SUSPEND :
+        case ULSA_PCM_TRIGGER_PAUSE_PUSH :
+            run = false;
+            break;
+        default :
+            return -EINVAL;
+    }
+
+    spin_lock(&ctrl->reg_lock);
+    uint32_t intctl = hda_read32(ctrl, HDA_INTCTL);
+    if (run) {
+        hda_write8(ctrl, st->sd_base + HDA_SD_STS, HDA_SD_INT_MASK);
+        hda_write32(ctrl, HDA_INTCTL, intctl | (1U << st->index));
+        hda_write32(ctrl, st->sd_base + HDA_SD_CTL, ((uint32_t)st->tag << HDA_SD_CTL_TAG_SHIFT) | HDA_SD_CTL_DMA_START | HDA_SD_CTL_INT_MASK);
+        st->running = true;
+    } else {
+        hda_write32(ctrl, st->sd_base + HDA_SD_CTL, (uint32_t)st->tag << HDA_SD_CTL_TAG_SHIFT);
+        hda_write32(ctrl, HDA_INTCTL, intctl & ~(1U << st->index));
+        hda_write8(ctrl, st->sd_base + HDA_SD_STS, HDA_SD_INT_MASK);
+        st->running = false;
+    }
+    spin_unlock(&ctrl->reg_lock);
+    return EOK;
+}
+
+/* Read current HDA stream DMA link position in frames via SD_LPIB. */
 static snd_pcm_uframes_t hda_pcm_pointer(ulsa_pcm_substream_t *substream)
 {
-    const bool        is_play = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-    snd_pcm_uframes_t pos     = 0;
+    const hda_controller_t *ctrl = substream->pcm->private_data;
+    const hda_stream_t     *st   = substream->runtime->private_data;
+    if (!st->running || st->buf_bytes == 0) return 0;
 
-    spin_lock(&hda_ctrl.lock);
-    int s = is_play ? hda_ctrl.playback_stream : hda_ctrl.capture_stream;
-    if (s >= 0 && s < HDA_MAX_STREAMS && hda_ctrl.streams[s].allocated && substream->runtime->frame_bits) {
-        uint32_t lpib = sd_read32(s, HDA_SD_LPIB);
-        pos           = (snd_pcm_uframes_t)ulsa_bytes_to_frames(substream->runtime, lpib);
-        if (substream->runtime->buffer_size) pos %= substream->runtime->buffer_size;
-    }
-    spin_unlock(&hda_ctrl.lock);
-    return pos;
+    uint32_t lpib = hda_read32(ctrl, st->sd_base + HDA_SD_LPIB);
+    if (lpib >= st->buf_bytes) lpib = 0;
+    return (snd_pcm_uframes_t)ulsa_bytes_to_frames(substream->runtime, lpib);
 }
 
 static const ulsa_pcm_ops_t hda_pcm_ops = {
@@ -863,199 +605,197 @@ static const ulsa_pcm_ops_t hda_pcm_ops = {
     .pointer   = hda_pcm_pointer,
 };
 
-/* Handle HDA controller interrupts. */
-INTERRUPT_BEGIN static void hda_interrupt_handler(interrupt_frame_t *frame)
+/* Free all HDA controller, stream, and codec resources when tearing down the ULSA card. */
+static void hda_card_free(ulsa_card_t *card)
 {
-    irq_enter_gs(frame);
-    (void)frame;
-    uint32_t intsts = hda_read32(HDA_INTSTS);
-    if (intsts == 0 || intsts == 0xffffffff) {
-        send_eoi();
-        irq_leave_gs(frame);
-        return;
+    hda_controller_t *ctrl = card ? card->private_data : NULL;
+    if (!ctrl) return;
+
+    ctrl->stopping  = true;
+    uint64_t rflags = spin_lock_irqsave(&hda_irq_lock);
+    if (ctrl->irq_slot < HDA_MAX_CONTROLLERS) hda_irq_slots[ctrl->irq_slot] = NULL;
+    spin_unlock_irqrestore(&hda_irq_lock, rflags);
+
+    if (ctrl->irq_state.mode) pci_free_irq(ctrl->pci, &ctrl->irq_state);
+    spin_until_zero(&ctrl->irq_active, &hda_irq_lock);
+
+    for (size_t dir = 0; dir < 2; dir++) {
+        if (ctrl->streams[dir].bdl_phys) free_frames(ctrl->streams[dir].bdl_phys, 1);
     }
-
-    /* Handle RIRB response interrupt */
-    uint8_t rirb_sts = hda_read8(HDA_RIRBSTS);
-    if (rirb_sts & 0x05) {
-        hda_write8(HDA_RIRBSTS, rirb_sts);
-        if (rirb_sts & 0x01) hda_read16(HDA_RIRBWP);
-    }
-
-    ulsa_pcm_substream_t *notify[HDA_MAX_STREAMS] = {0};
-
-    /*
-     * Stream state (allocated, buf_size, period_frags, substream) is mutated
-     * under hda_ctrl.lock; snapshot substreams before notifying ULSA outside the lock.
-     */
-    spin_lock(&hda_ctrl.lock);
-    for (int s = 0; s < HDA_MAX_STREAMS; s++) {
-        if (!(intsts & (1u << s))) continue;
-        if (!hda_ctrl.streams[s].allocated) continue;
-
-        uint8_t sts = sd_read8(s, HDA_SD_STS);
-        if (sts & HDA_SD_STS_DMA_COMPLETE) {
-            if (hda_ctrl.streams[s].period_frags > 0) {
-                hda_ctrl.streams[s].hw_pos += hda_ctrl.streams[s].buf_size / (size_t)hda_ctrl.streams[s].period_frags;
-                if (hda_ctrl.streams[s].hw_pos >= hda_ctrl.streams[s].buf_size) hda_ctrl.streams[s].hw_pos = 0;
-            }
-            notify[s] = hda_ctrl.streams[s].substream;
-            sd_write8(s, HDA_SD_STS, HDA_SD_STS_DMA_COMPLETE);
-        }
-
-        if (sts & HDA_SD_STS_FIFO_ERROR) {
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("hda: Stream %d FIFO error (sts=0x%02x)\n", s, sts);
-            sd_write8(s, HDA_SD_STS, HDA_SD_STS_FIFO_ERROR);
-        }
-        if (sts & HDA_SD_STS_DESC_ERROR) {
-            static DEFINE_RATELIMIT_STATE(ratelimit, PRINTK_RATELIMIT_TICKS, PRINTK_RATELIMIT_BURST);
-            if (ratelimit_allow(&ratelimit)) plogk("hda: Stream %d descriptor error (sts=0x%02x)\n", s, sts);
-            sd_write8(s, HDA_SD_STS, HDA_SD_STS_DESC_ERROR);
+    for (uint8_t c = 0; c < HDA_MAX_CODECS; c++) {
+        if (ctrl->codecs[c]) {
+            if (ctrl->codecs[c]->widgets) free(ctrl->codecs[c]->widgets);
+            free(ctrl->codecs[c]);
         }
     }
-    spin_unlock(&hda_ctrl.lock);
-    for (int s = 0; s < HDA_MAX_STREAMS; s++) {
-        if (notify[s]) ulsa_pcm_period_elapsed(notify[s]);
-    }
-    send_eoi();
-    irq_leave_gs(frame);
+    if (ctrl->rb_page_phys) free_frames(ctrl->rb_page_phys, 1);
+    free(ctrl);
 }
-INTERRUPT_END
 
-/* Probe the PCI controller and register an audio card. */
-void hda_init(void)
+/* Assign hardware stream indices/tags from GCAP counts and allocate their BDL pages. */
+static int hda_setup_streams(hda_controller_t *ctrl, bool has_play, bool has_cap)
 {
-    pci_device_cache_t *dev;
-    uint32_t            irq;
+    for (size_t dir = 0; dir < 2; dir++) ctrl->streams[dir].index = HDA_STREAM_NONE;
 
-    memset(&hda_ctrl, 0, sizeof(hda_ctrl));
-    hda_ctrl.playback_stream = -1;
-    hda_ctrl.capture_stream  = -1;
-
-    pci_class_request_t class_req = {.class_code = PCI_CLASS_HDA};
-    dev                           = pci_found_class_cache(NULL, class_req);
-    if (!dev) return;
-
-    plogk("hda: Controller at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", dev->device->domain, dev->device->bus, dev->device->slot, dev->device->func, dev->vendor_id, dev->device_id);
-
-    {
-        pci_bar_t bar;
-        if (pci_map_bar(dev, 0, &bar) < 0) {
-            plogk("hda: BAR0 is invalid or not a memory BAR.\n");
-            return;
-        }
-        hda_ctrl.mmio_size = (uint32_t)bar.size;
-        if (!hda_ctrl.mmio_size || hda_ctrl.mmio_size == 0xFFFFFFFF) hda_ctrl.mmio_size = 0x4000;
-        hda_ctrl.mmio = (volatile void *)bar.virt;
-    }
-    irq = pci_get_irq(dev);
-    plogk("hda: MMIO base %p, size %u, IRQ %u\n", hda_ctrl.mmio, hda_ctrl.mmio_size, irq);
-
-    {
-        uint32_t gcap  = hda_read32(HDA_GCAP);
-        uint8_t  major = hda_read8(HDA_VMAJ);
-        uint8_t  minor = hda_read8(HDA_VMIN);
-        int      iss   = (int)((gcap >> 8) & 0x0f);
-        int      oss   = (int)((gcap >> 12) & 0x0f);
-        int      bss   = (int)((gcap >> 3) & 0x1f);
-        plogk("hda: HDA_GCAP=0x%08x rev %d.%d, ISS=%d, OSS=%d, BSS=%d\n", gcap, major, minor, iss, oss, bss);
-    }
-    pci_enable_device(dev, PCI_CMD_MEM | PCI_CMD_BUSMASTER);
-    hda_reset_controller();
-
-    if (hda_alloc_corb_rirb()) {
-        plogk("hda: CORB/RIRB allocation failed.\n");
-        return;
-    }
-    hda_init_corb_rirb();
-    plogk("hda: CORB/RIRB configured, %d entries each.\n", hda_ctrl.corb_entries);
-
-    pci_irq_state_t   irq_state;
-    pci_irq_request_t request = {
-        .modes       = PCI_IRQ_LEGACY,
-        .idt_handler = (void *)hda_interrupt_handler,
-        .legacy_base = IRQ_0,
-    };
-    if (pci_request_irq(dev, &request, &irq_state) < 0) {
-        plogk("hda: Interrupt setup failed.\n");
-        return;
-    }
-    hda_write32(HDA_INTCTL, AZX_INT_GLOBAL_EN | AZX_INT_CTRL_EN);
-
-    uint16_t state_sts  = 0;
-    int      codec_mask = 0;
-    for (int retry = 0; retry < 6; retry++) {
-        int delay = (2 << retry);
-        msleep(delay);
-        state_sts = hda_read16(HDA_STATESTS);
-        plogk("hda: HDA_STATESTS=0x%04x (retry %d, delay %dms)\n", state_sts, retry + 1, delay);
-        codec_mask = state_sts & 0x0f;
-        if (codec_mask) break;
+    if (has_cap && ctrl->iss > 0) {
+        hda_stream_t *cap = &ctrl->streams[SNDRV_PCM_STREAM_CAPTURE];
+        cap->index        = 0;
+        cap->tag          = 1;
+        cap->sd_base      = HDA_SD_BASE(cap->index);
+        cap->bdl_phys     = hda_alloc_dma_pages(ctrl, 1);
+        if (!cap->bdl_phys) return -ENOMEM;
+        cap->bdl = phys_to_virt(cap->bdl_phys);
+        memset((void *)cap->bdl, 0, PAGE_4K_SIZE);
     }
 
-    if (!codec_mask) {
-        plogk("hda: HDA_STATESTS=0x0000 after all retries, probing all codec addresses.\n");
-        codec_mask = 0x0f;
+    if (has_play && (ctrl->oss > 0 || ctrl->bss > 0)) {
+        hda_stream_t *play = &ctrl->streams[SNDRV_PCM_STREAM_PLAYBACK];
+        play->index        = ctrl->iss;
+        play->tag          = (uint8_t)(ctrl->iss + 1U);
+        play->sd_base      = HDA_SD_BASE(play->index);
+        play->bdl_phys     = hda_alloc_dma_pages(ctrl, 1);
+        if (!play->bdl_phys) return -ENOMEM;
+        play->bdl = phys_to_virt(play->bdl_phys);
+        memset((void *)play->bdl, 0, PAGE_4K_SIZE);
     }
+    return EOK;
+}
 
-    for (int i = 0; i < HDA_MAX_CODECS; i++) {
-        if (codec_mask & (1u << i)) {
-            if (hda_probe_codec(i) == 0) {
-                hda_codec_t *codec = &hda_ctrl.codecs[hda_ctrl.num_codecs - 1];
-                if (hda_parse_widgets(codec) != 0) {
-                    if (codec->widgets) {
-                        for (int wi = 0; wi < codec->num_widgets; wi++)
-                            if (codec->widgets[wi].conns) free(codec->widgets[wi].conns);
-                        free(codec->widgets);
-                    }
-                    hda_ctrl.num_codecs--;
-                }
-            }
-        }
-    }
-
-    if (hda_ctrl.num_codecs == 0) {
-        plogk("hda: HDA controller initialized, no codecs present (HDA_STATESTS=0x%04x)\n", state_sts);
-        return;
-    }
-
-    for (int c = 0; c < hda_ctrl.num_codecs; c++) hda_config_codec(&hda_ctrl.codecs[c]);
-
-    hda_ctrl.sample_rate  = 48000U;
-    hda_ctrl.bits         = 16U;
-    hda_ctrl.channels     = 2U;
-    hda_ctrl.buffer_bytes = (size_t)HDA_DMA_BUFFER_SIZE;
-    hda_ctrl.period_bytes = HDA_DMA_BUFFER_SIZE / HDA_PERIOD_FRAGS;
-
+/* Probe one Intel HD Audio PCI controller, discover codecs, and register a ULSA card. */
+static int hda_probe_controller(pci_device_cache_t *pci)
+{
     ulsa_card_t *card = NULL;
-    ulsa_pcm_t  *pcm  = NULL;
-    int          ret  = ulsa_card_new(-1, "HDA", &card);
-    if (ret != EOK) {
-        plogk("hda: sound card allocation failed: %d\n", ret);
-        return;
+    int          err  = ulsa_card_new(-1, "Intel", &card);
+    if (err < 0) return err;
+
+    hda_controller_t *ctrl = calloc(1, sizeof(hda_controller_t));
+    if (!ctrl) {
+        ulsa_card_free(card);
+        return -ENOMEM;
     }
+    ctrl->pci          = pci;
+    ctrl->card         = card;
+    ctrl->irq_slot     = HDA_MAX_CONTROLLERS;
+    card->private_data = ctrl;
+    card->private_free = hda_card_free;
+    for (size_t dir = 0; dir < 2; dir++) ctrl->streams[dir].index = HDA_STREAM_NONE;
+
+    pci_enable_device(pci, PCI_CMD_MEM | PCI_CMD_BUSMASTER);
+    if (pci->vendor_id == PCI_VENDOR_INTEL) {
+        pci_device_reg_t tcsel_reg = {.parent = pci, .offset = HDA_PCI_TCSEL};
+        uint32_t         tcsel     = read_pci(tcsel_reg);
+        (void)pci_write_config(tcsel_reg, tcsel & ~0x07U, 1);
+    }
+
+    if (pci_map_bar(pci, 0, &ctrl->bar) < 0) goto fail;
+
+    uint16_t gcap     = hda_read16(ctrl, HDA_GCAP);
+    ctrl->ok64        = (gcap & AZX_GCAP_64OK) != 0;
+    ctrl->bss         = (uint8_t)((gcap >> 3) & 0x1fU);
+    ctrl->iss         = (uint8_t)((gcap >> 8) & 0x0fU);
+    ctrl->oss         = (uint8_t)((gcap >> 12) & 0x0fU);
+    ctrl->num_streams = (uint8_t)(ctrl->iss + ctrl->oss + ctrl->bss);
+    if (ctrl->num_streams > HDA_MAX_STREAMS) ctrl->num_streams = HDA_MAX_STREAMS;
+    ctrl->maj_rev = hda_read8(ctrl, HDA_VMAJ);
+    ctrl->min_rev = hda_read8(ctrl, HDA_VMIN);
+
+    if (hda_reset_controller(ctrl) < 0) goto fail;
+    if (hda_init_cmd_io(ctrl) < 0) goto fail;
+
+    for (uint8_t s = 0; s < ctrl->num_streams; s++) hda_write8(ctrl, HDA_SD_BASE(s) + HDA_SD_STS, HDA_SD_INT_MASK);
+    hda_write16(ctrl, HDA_WAKEEN, 0);
+
+    uint16_t state_sts = (uint16_t)(hda_read16(ctrl, HDA_STATESTS) & 0x7fffU);
+    hda_write16(ctrl, HDA_STATESTS, state_sts);
+    if (state_sts == 0) {
+        plogk("hda: No codecs indicated in STATESTS\n");
+        goto fail;
+    }
+
+    uint64_t rflags = spin_lock_irqsave(&hda_irq_lock);
+    size_t   slot   = HDA_MAX_CONTROLLERS;
+    for (size_t i = 0; i < HDA_MAX_CONTROLLERS; i++) {
+        if (!hda_irq_slots[i]) {
+            slot             = i;
+            hda_irq_slots[i] = ctrl;
+            break;
+        }
+    }
+    spin_unlock_irqrestore(&hda_irq_lock, rflags);
+    if (slot == HDA_MAX_CONTROLLERS) goto fail;
+    ctrl->irq_slot = (uint8_t)slot;
+
+    pci_irq_request_t irq_req = {
+        .modes         = PCI_IRQ_MSI | PCI_IRQ_LEGACY,
+        .idt_handler   = hda_idt_handlers[slot],
+        .legacy_base   = IRQ_0,
+        .legacy_ioapic = 1,
+    };
+    if (pci_request_irq(pci, &irq_req, &ctrl->irq_state) < 0) goto fail;
+    hda_write32(ctrl, HDA_INTCTL, AZX_INT_GLOBAL_EN | AZX_INT_CTRL_EN);
+
+    for (uint8_t cad = 0; cad < HDA_MAX_CODECS; cad++) {
+        if (!(state_sts & (1U << cad))) continue;
+        hda_codec_t *codec = calloc(1, sizeof(hda_codec_t));
+        if (!codec) continue;
+        if (hda_codec_probe_and_init(ctrl, cad, codec) == EOK) {
+            ctrl->codecs[cad] = codec;
+            ctrl->num_codecs++;
+            if (!ctrl->primary_codec) ctrl->primary_codec = codec;
+        } else {
+            if (codec->widgets) free(codec->widgets);
+            free(codec);
+        }
+    }
+    if (!ctrl->primary_codec) goto fail;
+
+    hda_codec_t *pc       = ctrl->primary_codec;
+    bool         has_play = pc->num_play_dacs > 0 && (ctrl->oss > 0 || ctrl->bss > 0);
+    bool         has_cap  = pc->num_cap_adcs > 0 && ctrl->iss > 0;
+    if (!has_play && !has_cap) goto fail;
+
+    if (hda_setup_streams(ctrl, has_play, has_cap) < 0) goto fail;
+
     strncpy(card->driver, "HDA-Intel", sizeof(card->driver) - 1);
     strncpy(card->shortname, "HDA Intel", sizeof(card->shortname) - 1);
-    strncpy(card->longname, "Intel HD Audio", sizeof(card->longname) - 1);
-    card->private_data = &hda_ctrl;
+    unsigned int irq_num = ctrl->irq_state.mode == PCI_IRQ_LEGACY ? ctrl->irq_state.irq : (unsigned int)ctrl->irq_state.vector;
+    snprintf(card->longname, sizeof(card->longname), "HDA Intel at 0x%llx irq %u", (unsigned long long)ctrl->bar.phys, irq_num);
+    strncpy(card->mixername, "HDA Generic", sizeof(card->mixername) - 1);
 
-    ret = ulsa_pcm_new(card, "HDA Generic", 0, 1, 1, &pcm);
-    if (ret != EOK) {
-        plogk("hda: PCM device creation failed: %d\n", ret);
-        ulsa_card_free(card);
-        return;
-    }
-    pcm->private_data = &hda_ctrl;
-    ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &hda_pcm_ops);
-    ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &hda_pcm_ops);
-    ulsa_pcm_set_managed_buffer_all(pcm, 0xffffffffULL, HDA_DMA_BUFFER_SIZE);
+    char comp[32];
+    snprintf(comp, sizeof(comp), "HDA:%08x,%08x,%08x", pc->vendor_id, pc->subsystem_id, pc->rev_id);
+    (void)ulsa_component_add(card, comp);
 
-    ret = ulsa_card_register(card);
-    if (ret != EOK) {
-        plogk("hda: sound card registration failed: %d\n", ret);
-        ulsa_card_free(card);
+    ulsa_pcm_t *pcm = NULL;
+    err             = ulsa_pcm_new(card, "HDA Generic", 0, has_play ? 1 : 0, has_cap ? 1 : 0, &pcm);
+    if (err < 0) goto fail;
+    pcm->private_data = ctrl;
+    if (has_play) ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &hda_pcm_ops);
+    if (has_cap) ulsa_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &hda_pcm_ops);
+    ulsa_pcm_set_managed_buffer_all(pcm, ctrl->ok64 ? 0ULL : 0x100000000ULL, HDA_DMA_BUFFER_MAX);
+
+    hda_codec_build_controls(ctrl, pc);
+
+    err = ulsa_card_register(card);
+    if (err < 0) goto fail;
+
+    plogk("hda: rev %u.%u GCAP=0x%04x (%s) registered on IRQ vector %d\n", ctrl->maj_rev, ctrl->min_rev, gcap, ctrl->irq_state.mode == PCI_IRQ_MSI ? "MSI" : "INTx", ctrl->irq_state.vector);
+    return EOK;
+
+fail:
+    ulsa_card_free(card);
+    return -ENODEV;
+}
+
+/* Probe and initialize all Intel HD Audio PCI controllers. */
+void hda_init(void)
+{
+    pci_devices_cache_t *cache = pci_get_devices_cache();
+    if (!cache) return;
+
+    for (pci_device_cache_t *dev = cache->head; dev; dev = dev->next) {
+        if (dev->class_code == PCI_CLASS_HDA) (void)hda_probe_controller(dev);
     }
 }
 
-#endif
+#endif // CONFIG_AUDIO && CONFIG_AUDIO_HDA
