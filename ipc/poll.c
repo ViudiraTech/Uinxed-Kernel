@@ -9,6 +9,7 @@
  */
 
 #include <fs/core/vfs.h>
+#include <ipc/poll.h>
 #include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/errno.h>
@@ -17,7 +18,6 @@
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <syscall/poll.h>
 
 #define POLL_ALWAYS_MASK   (POLLERR | POLLHUP | POLLNVAL)
 #define POLL_REQUEST_MASK  (POLLIN | POLLPRI | POLLOUT | POLLRDNORM | POLLRDBAND | POLLWRNORM | POLLWRBAND | POLLMSG | POLLRDHUP)

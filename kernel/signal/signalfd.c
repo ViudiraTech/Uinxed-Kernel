@@ -16,7 +16,7 @@
 #include <mem/heap.h>
 #include <process/process.h>
 #include <process/uaccess.h>
-#include <syscall/signalfd.h>
+#include <sync/signalfd.h>
 #include <syscall/syscall.h>
 
 static int signalfd_fsid = -1;

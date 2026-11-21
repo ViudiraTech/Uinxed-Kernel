@@ -12,9 +12,9 @@
 #define INCLUDE_VFS_STUB_H_
 
 #include <fs/core/vfs.h>
+#include <ipc/poll.h>
 #include <libs/std/errno.h>
 #include <libs/std/stddef.h>
-#include <syscall/poll.h>
 
 /*
  * Canonical answers for the struct vfs_callback slots a file system leaves

@@ -11,10 +11,10 @@
 #ifndef INCLUDE_INET_H_
 #define INCLUDE_INET_H_
 
+#include <kernel/abi.h>
 #include <libs/std/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <syscall/abi.h>
 
 /* INET address families */
 #define AF_UNSPEC 0

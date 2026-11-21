@@ -10,11 +10,11 @@
 
 #include <fs/core/vfs.h>
 #include <libs/std/errno.h>
+#include <mem/memfd.h>
+#include <process/fcntl.h>
 #include <process/file_status.h>
 #include <process/process.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
-#include <syscall/memfd.h>
 #include <syscall/syscall.h>
 
 /* fcntl syscall: manipulate file descriptor flags, locks, and seals */

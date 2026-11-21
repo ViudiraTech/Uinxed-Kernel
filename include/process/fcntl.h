@@ -71,6 +71,7 @@
 #define F_UNLCK 2
 
 /* Path resolution flags for *at() syscalls */
+#define AT_FDCWD            (-100)
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_EACCESS          0x200
 #define AT_REMOVEDIR        0x200

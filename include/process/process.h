@@ -14,6 +14,7 @@
 #include <fs/core/vfs.h>
 #include <libs/list/singly_list.h>
 #include <mem/page.h>
+#include <process/fcntl.h>
 #include <process/task.h>
 #include <sync/mutex.h>
 #include <sync/signal.h>
@@ -55,7 +56,7 @@ extern process_t *init_process;
 #define PROCESS_RLIMIT_COUNT      16
 #define PROCESS_RLIM_INFINITY     UINT64_MAX
 
-#define PROCESS_AT_FDCWD (-100)
+#define PROCESS_AT_FDCWD AT_FDCWD
 
 #define PROCESS_WAIT_NOHANG    0x00000001U
 #define PROCESS_WAIT_STOPPED   0x00000002U

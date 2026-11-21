@@ -14,8 +14,8 @@
 #include <kernel/debug/printk.h>
 #include <libs/std/errno.h>
 #include <mem/heap.h>
+#include <process/fcntl.h>
 #include <process/process.h>
-#include <syscall/fcntl.h>
 
 tty_device_t  boot_tty     = {0, 0};
 tty_device_t *boot_tty_ptr = 0;

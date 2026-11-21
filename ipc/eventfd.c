@@ -10,13 +10,13 @@
 
 #include <fs/core/vfs.h>
 #include <fs/core/vfs_stub.h>
+#include <ipc/eventfd.h>
+#include <ipc/poll.h>
 #include <kernel/debug/printk.h>
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <process/process.h>
-#include <syscall/eventfd.h>
-#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
 #define EVENTFD_MAX_VAL    (0xfffffffffffffffeULL)

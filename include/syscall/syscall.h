@@ -12,8 +12,8 @@
 #define INCLUDE_SYSCALL_H_
 
 #include <fs/core/vfs.h>
-#include <syscall/abi.h>
-#include <syscall/fcntl.h>
+#include <kernel/abi.h>
+#include <process/fcntl.h>
 
 #define SYSCALL_VECTOR 0x80
 
@@ -96,8 +96,9 @@ int  syscall_dispatch(syscall_frame_t *frame);
 struct process *pidfd_get_target(vfs_node_t node);
 int64_t         pidfd_get_pid(vfs_node_t node);
 
-/* Internal path helpers shared between syscall.c and syscall_basic.c. */
+/* Internal path helpers shared by the syscall implementations. */
 int         copy_path_from_user(uint64_t upath, char path[CONFIG_VFS_PATH_MAX]);
+int         copy_resolved_path_at(struct process *proc, int dirfd, uint64_t upath, char path[CONFIG_VFS_PATH_MAX]);
 const char *path_basename(const char *path);
 
 /* Create a filesystem node at an already-resolved path, dispatching on mode. */

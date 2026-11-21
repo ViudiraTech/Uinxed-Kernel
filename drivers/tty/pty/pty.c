@@ -11,12 +11,12 @@
 #include <drivers/base/device.h>
 #include <drivers/tty/tty_core.h>
 #include <fs/devtmpfs/devtmpfs.h>
+#include <ipc/poll.h>
 #include <libs/std/errno.h>
 #include <mem/heap.h>
+#include <process/fcntl.h>
 #include <process/process.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
-#include <syscall/poll.h>
 
 #if CONFIG_UNIX98_PTYS
 

@@ -15,8 +15,8 @@
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <process/fcntl.h>
 #include <process/process.h>
-#include <syscall/fcntl.h>
 
 #if CONFIG_DRM
 

@@ -11,6 +11,7 @@
 #include <fs/core/vfs.h>
 #include <fs/core/vfs_stub.h>
 #include <ipc/epoll.h>
+#include <ipc/poll.h>
 #include <kernel/debug/printk.h>
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
@@ -18,7 +19,6 @@
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
 /* Internal structures */

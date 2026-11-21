@@ -12,16 +12,16 @@
 #include <arch/misc/common.h>
 #include <fs/core/vfs_stub.h>
 #include <ipc/pipe.h>
+#include <ipc/poll.h>
 #include <kernel/debug/printk.h>
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <process/fcntl.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
 #include <syscall/ioctls.h>
-#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
 /* Constants */

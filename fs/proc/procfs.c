@@ -32,11 +32,11 @@
 #include <net/abi/inet.h>
 #include <net/core/netdev.h>
 #include <net/socket.h>
+#include <process/fcntl.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <security/seccomp.h>
-#include <syscall/fcntl.h>
 #include <syscall/syscall.h>
 
 #define PROCFS_LOAD_FRAC_BITS 11U
