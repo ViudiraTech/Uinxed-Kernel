@@ -11,9 +11,9 @@
 #ifndef INCLUDE_TIMER_H_
 #define INCLUDE_TIMER_H_
 
+#include <kernel/abi.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
-#include <syscall/abi.h>
 
 #define TIMER_NSEC_PER_SEC    1000000000ULL
 #define TIMER_USER_HZ         100ULL

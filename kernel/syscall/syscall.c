@@ -19,35 +19,35 @@
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/tmpfs/tmpfs.h>
 #include <ipc/epoll.h>
+#include <ipc/eventfd.h>
 #include <ipc/futex.h>
 #include <ipc/pipe.h>
+#include <ipc/poll.h>
 #include <ipc/posix_mq.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/debug/debug.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
 #include <kernel/timer/timer.h>
+#include <kernel/timer/timerfd.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
+#include <mem/memfd.h>
+#include <mem/mmap.h>
 #include <mem/swap.h>
 #include <net/socket.h>
 #include <process/elf_loader.h>
+#include <process/fcntl.h>
 #include <process/namespace.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <security/seccomp.h>
-#include <syscall/eventfd.h>
-#include <syscall/fcntl.h>
-#include <syscall/memfd.h>
-#include <syscall/mmap.h>
-#include <syscall/poll.h>
-#include <syscall/signalfd.h>
+#include <sync/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/syscall_basic.h>
 #include <syscall/syscall_table.h>
-#include <syscall/timerfd.h>
 
 #define SYSCALL_IO_CHUNK 16384
 #define EXEC_STRING_MAX  (CONFIG_PROCESS_STACK_SIZE / 2)

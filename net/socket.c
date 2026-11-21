@@ -17,10 +17,10 @@
 #include <net/abi/inet.h>
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
+#include <process/fcntl.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
 
 #if CONFIG_NET
 

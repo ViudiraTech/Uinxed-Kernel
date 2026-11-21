@@ -13,9 +13,9 @@
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <process/fcntl.h>
 #include <process/process.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
 #include <syscall/ioctls.h>
 
 #define INOTIFY_EVENT_MASK  (IN_ALL_EVENTS | IN_UNMOUNT | IN_Q_OVERFLOW | IN_IGNORED)

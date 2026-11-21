@@ -12,8 +12,8 @@
 #define INCLUDE_SYSCALL_H_
 
 #include <fs/core/vfs.h>
-#include <syscall/abi.h>
-#include <syscall/fcntl.h>
+#include <kernel/abi.h>
+#include <process/fcntl.h>
 
 #define SYSCALL_VECTOR 0x80
 

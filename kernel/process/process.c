@@ -22,17 +22,17 @@
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/memfd.h>
 #include <mem/swap.h>
 #include <net/socket.h>
+#include <process/fcntl.h>
 #include <process/namespace.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <security/seccomp.h>
 #include <sync/mutex.h>
-#include <syscall/fcntl.h>
 #include <syscall/ioctls.h>
-#include <syscall/memfd.h>
 #include <syscall/syscall.h>
 
 static process_t *process_table[CONFIG_PROCESS_TABLE_SIZE];

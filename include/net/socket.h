@@ -11,12 +11,12 @@
 #ifndef INCLUDE_SOCKET_H_
 #define INCLUDE_SOCKET_H_
 
+#include <kernel/abi.h>
 #include <libs/std/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <net/abi/inet.h>
 #include <process/task.h>
-#include <syscall/abi.h>
 
 /* Address families */
 

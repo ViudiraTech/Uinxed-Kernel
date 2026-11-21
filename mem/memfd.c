@@ -15,9 +15,9 @@
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/memfd.h>
+#include <process/fcntl.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
-#include <syscall/memfd.h>
 
 typedef struct {
         spinlock_t lock;

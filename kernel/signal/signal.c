@@ -19,7 +19,7 @@
 #include <process/ptrace.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <syscall/signalfd.h>
+#include <sync/signalfd.h>
 #include <syscall/syscall.h>
 
 /* Signal default action table */

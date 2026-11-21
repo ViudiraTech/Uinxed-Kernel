@@ -16,12 +16,12 @@
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <mem/memfd.h>
+#include <process/fcntl.h>
 #include <process/namespace.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
-#include <syscall/memfd.h>
 #include <syscall/syscall.h>
 
 /* utime / utimes / futimesat / utimensat */

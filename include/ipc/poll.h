@@ -11,8 +11,8 @@
 #ifndef INCLUDE_POLL_H_
 #define INCLUDE_POLL_H_
 
+#include <kernel/abi.h>
 #include <libs/std/stdint.h>
-#include <syscall/abi.h>
 
 /* Poll event flags */
 #define POLLIN     0x0001

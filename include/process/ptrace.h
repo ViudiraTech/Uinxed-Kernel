@@ -11,11 +11,11 @@
 #ifndef INCLUDE_PTRACE_H_
 #define INCLUDE_PTRACE_H_
 
+#include <kernel/abi.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/signal.h>
-#include <syscall/abi.h>
 
 /* x86-64 ptrace requests. */
 #define PTRACE_TRACEME              0

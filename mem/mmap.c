@@ -14,12 +14,12 @@
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/memfd.h>
+#include <mem/mmap.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>
 #include <process/process.h>
 #include <process/uaccess.h>
-#include <syscall/memfd.h>
-#include <syscall/mmap.h>
 #include <syscall/syscall.h>
 
 /* Convert mmap protection flags to internal VM flags */

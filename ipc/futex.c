@@ -9,6 +9,7 @@
  */
 
 #include <ipc/futex.h>
+#include <kernel/abi.h>
 #include <kernel/debug/debug.h>
 #include <kernel/debug/printk.h>
 #include <kernel/timer/timer.h>
@@ -19,7 +20,6 @@
 #include <process/sched.h>
 #include <process/uaccess.h>
 #include <sync/rt_mutex.h>
-#include <syscall/abi.h>
 
 /* Constants */
 

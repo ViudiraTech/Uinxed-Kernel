@@ -9,14 +9,14 @@
  */
 
 #include <drivers/tty/tty_core.h>
+#include <ipc/poll.h>
 #include <kernel/debug/printk.h>
 #include <libs/std/errno.h>
 #include <libs/std/string.h>
+#include <process/fcntl.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <process/uaccess.h>
-#include <syscall/fcntl.h>
-#include <syscall/poll.h>
 
 #define TTY_TICKS_PER_DECISECOND ((CONFIG_TIMER_HZ + 9) / 10)
 #define TTY_INPUT_EOF            1

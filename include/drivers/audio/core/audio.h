@@ -12,9 +12,9 @@
 #define INCLUDE_AUDIO_H_
 
 #include <fs/tmpfs/tmpfs.h>
+#include <ipc/poll.h>
 #include <libs/std/errno.h>
 #include <process/task.h>
-#include <syscall/poll.h>
 
 /* Sound card name length. */
 #define AUDIO_NAME_MAX 32

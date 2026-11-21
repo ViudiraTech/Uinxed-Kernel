@@ -70,6 +70,7 @@
 #include <fs/sysfs/tty_sysfs.h>
 #include <fs/sysfs/usb_sysfs.h>
 #include <ipc/epoll.h>
+#include <ipc/eventfd.h>
 #include <ipc/futex.h>
 #include <ipc/pipe.h>
 #include <ipc/posix_mq.h>
@@ -79,10 +80,12 @@
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
 #include <kernel/timer/timer.h>
+#include <kernel/timer/timerfd.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/memfd.h>
 #include <mem/swap.h>
 #include <net/core/loopback.h>
 #include <net/core/netdev.h>
@@ -92,15 +95,12 @@
 #include <net/netlink/netlink.h>
 #include <net/socket.h>
 #include <process/elf_loader.h>
+#include <process/fcntl.h>
 #include <process/process.h>
 #include <process/sched.h>
 #include <security/seccomp.h>
-#include <syscall/eventfd.h>
-#include <syscall/fcntl.h>
-#include <syscall/memfd.h>
-#include <syscall/signalfd.h>
+#include <sync/signalfd.h>
 #include <syscall/syscall.h>
-#include <syscall/timerfd.h>
 
 /* Executable entry */
 __attribute__((noreturn)) void executable_entry(void)

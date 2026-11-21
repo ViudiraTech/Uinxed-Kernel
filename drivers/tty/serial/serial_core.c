@@ -11,7 +11,7 @@
 #include <drivers/tty/serial/serial_core.h>
 #include <kernel/debug/printk.h>
 #include <libs/std/errno.h>
-#include <syscall/fcntl.h>
+#include <process/fcntl.h>
 
 #if CONFIG_SERIAL
 
